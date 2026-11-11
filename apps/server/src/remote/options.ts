@@ -1,5 +1,5 @@
 import {
-  AGENT_META, AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, PERMISSION_MODES, SESSION_MODES, canonicalModelKey, modeWireValue, offeredModes,
+  AGENT_META, AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, PERMISSION_MODES, SESSION_MODES, canonicalModelKey, modeWireValue, offeredModes,
   sessionModeOf, steerNote, type AcpSessionMode, type AgentKind, type MethodResult, type ModelInfo,
 } from "@realm/contracts";
 import type { AgentOptions, MobileParams } from "@realm/remote";
@@ -58,15 +58,15 @@ const levelsPerModel = (kind: AgentKind): boolean => kind === "claude" || kind =
 /**
  * The models the agent offers, as the desktop's picker lists its own harness's: the probe's live
  * catalog, else the curated list. `null` leads, the agent's own default. `infoKey` is the catalog
- * entry each is read against: on a curated list the default is its first model, the one the picker
- * ticks for a session that pinned nothing; a live catalog's default is a guess the picker never makes.
+ * entry each is read against: on a curated list the default is the model DEFAULT_MODEL_LABEL names,
+ * which need not be the newest one at the head; a live catalog's default is a guess the picker never makes.
  */
 function modelList(kind: AgentKind, probe: ProbeRow | null): { id: string | null; infoKey: string | null }[] {
   const probed = probe?.models ?? null;
   const live = probed !== null && probed.length > 0;
   const listed: readonly { id: string; label: string }[] = live ? probed : AGENT_MODELS[kind];
-  const first = !live ? listed[0] : undefined;
-  return [{ id: null, infoKey: first ? canonicalModelKey(first.label) : null }, ...listed.map((m) => ({ id: m.id, infoKey: canonicalModelKey(m.label) }))];
+  const fallback = !live ? listed.find((m) => m.label.endsWith(DEFAULT_MODEL_LABEL[kind])) : undefined;
+  return [{ id: null, infoKey: fallback ? canonicalModelKey(fallback.label) : null }, ...listed.map((m) => ({ id: m.id, infoKey: canonicalModelKey(m.label) }))];
 }
 
 function levels(kind: AgentKind, model: string | null, input: OptionsInput): EffortOptions {
