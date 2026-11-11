@@ -1,0 +1,328 @@
+/* /portal: the aperture direction's early look. Type follows Synara's discipline in Realm's faces:
+   weight 500 at most, tight tracking only on the large sizes, greys drawn from the navy. */
+
+.page {
+  --ink: oklch(0.965 0.006 255);
+  --ink-2: oklch(0.76 0.02 258);
+  --ink-3: oklch(0.62 0.022 260);
+  background: #03060f;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+}
+
+.sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---- Hero ---- */
+
+.hero {
+  position: relative;
+  min-height: max(100svh, 760px);
+  overflow: hidden;
+  isolation: isolate;
+  background: radial-gradient(60% 60% at 70% 50%, #0b1730, #03060f 70%);
+}
+
+.nav {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 26px 28px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.brandMark {
+  height: 22px;
+  width: auto;
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.links a:hover {
+  color: var(--ink);
+}
+
+.navDownload {
+  color: var(--ink);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: oklch(1 0 0 / 0.08);
+}
+
+/* The ring's box: the shader draws the ring round it, so CSS alone places the opening. */
+.ring {
+  position: absolute;
+  z-index: 1;
+  left: 69.5%;
+  top: 50%;
+  width: min(42vw, 600px);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+
+/* The mark sits just under the ring's foot, catching the world's light. */
+.ringMark {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 30px);
+  height: 26px;
+  width: auto;
+  translate: -50% 0;
+  color: oklch(0.93 0.03 230);
+  filter: drop-shadow(0 0 14px oklch(0.75 0.08 220 / 0.5));
+}
+
+.heroCopy {
+  position: relative;
+  z-index: 2;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 28px;
+  min-height: max(100svh, 760px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.h1 {
+  max-width: 11ch;
+  font-size: 72px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.lede {
+  max-width: 30rem;
+  margin-top: 28px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 36px;
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  height: 46px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 500;
+  transition: background-color 150ms ease-out;
+}
+
+.primary {
+  background: var(--ink);
+  color: #050913;
+}
+
+.secondary {
+  background: oklch(1 0 0 / 0.07);
+  color: var(--ink);
+}
+
+.secondary:hover {
+  background: oklch(1 0 0 / 0.11);
+}
+
+.micro {
+  margin-top: 22px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* ---- A realm past the ring ---- */
+
+.realm {
+  position: relative;
+  min-height: max(100svh, 820px);
+  overflow: hidden;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(#03060f, #0d0a1c 80%);
+}
+
+.column {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 96px 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+  gap: 64px;
+  align-items: center;
+}
+
+.index {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.h2 {
+  margin-top: 18px;
+  font-size: 40px;
+  line-height: 1.06;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.h2Quiet {
+  color: var(--ink-3);
+}
+
+.body {
+  margin-top: 24px;
+  font-size: 17px;
+  line-height: 28px;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.figure {
+  position: relative;
+  padding: 56px 0 0 0;
+}
+
+/* The workspace the panel was lifted from, drawn as quiet shapes: context without a second focus.
+   No outline anywhere; the frame is a fill one step off the sky, and the sky's own light pools in it. */
+.frame {
+  position: absolute;
+  inset: 0 0 72px 72px;
+  border-radius: 24px;
+  background:
+    radial-gradient(70% 60% at 100% 0%, oklch(0.5 0.12 295 / 0.16), transparent 70%),
+    oklch(0.25 0.006 270 / 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 34px 40px 0 0;
+  align-items: flex-end;
+}
+
+.frame span {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: oklch(1 0 0 / 0.045);
+}
+
+.frame .barShort { width: 22%; }
+.frame .barLong { width: 46%; }
+.frame .barMid { width: 34%; }
+.frame .blockA { width: 30%; height: 120px; border-radius: 14px; margin-top: 18px; }
+.frame .blockB { width: 46%; height: 64px; border-radius: 14px; }
+
+.shot {
+  position: relative;
+  display: block;
+  width: calc(100% - 48px);
+  max-width: 760px;
+  height: auto;
+  border-radius: 16px;
+  box-shadow:
+    0 2px 4px oklch(0 0 0 / 0.25),
+    0 18px 36px -12px oklch(0.05 0.03 280 / 0.6),
+    0 50px 100px -30px oklch(0.05 0.05 285 / 0.75);
+}
+
+.caption {
+  position: relative;
+  margin-top: 22px;
+  padding-right: 48px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* ---- Phone ---- */
+
+@media (max-width: 720px) {
+  .links a:not(.navDownload) {
+    display: none;
+  }
+
+  .nav {
+    padding: 20px 20px;
+  }
+
+  .ring {
+    left: 50%;
+    top: 250px;
+    width: 300px;
+  }
+
+  .ringMark {
+    top: calc(100% + 20px);
+    height: 22px;
+  }
+
+  .heroCopy {
+    justify-content: flex-start;
+    padding: 470px 20px 56px;
+  }
+
+  .h1 {
+    font-size: 40px;
+    line-height: 1.04;
+    letter-spacing: -0.04em;
+  }
+
+  .lede {
+    margin-top: 20px;
+    font-size: 17px;
+  }
+
+  .actions {
+    margin-top: 28px;
+  }
+
+  .column {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding: 80px 20px;
+  }
+
+  .h2 {
+    font-size: 30px;
+  }
+}
