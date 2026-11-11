@@ -54,6 +54,8 @@ function setup(opts: {
     screenshot: { data: "aW1n", mimeType: "image/png" },
     credentials: { credentials: [{ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false }] },
     fillCredential: { ok: true, detail: "filled saved credential for https://example.com" },
+    codesEnabled: { enabled: true },
+    fillCode: { ok: true, detail: "filled the security code" },
     download: { ok: true, name: "week-3.pdf", bytes: 204_800, relPath: "downloads/week-3.pdf" },
     upload: { ok: true, method: "input", names: ["hero.png"], value: "hero.png", accept: "image/*", multiple: true },
     dismissDialog: { dismissed: true, detail: "the file chooser was cancelled — the page was told nothing was picked" },
@@ -410,7 +412,7 @@ describe("results and scoping", () => {
     const { provider, ctx } = setup();
     expect(provider.name).toBe(BROWSER_PROVIDER_NAME);
     const names = (await provider.tools(ctx)).map((t) => t.name);
-    expect(names).toEqual(["browser_list", "browser_open", "browser_navigate", "browser_snapshot", "browser_read", "browser_screenshot", "browser_act", "browser_do", "browser_credentials", "browser_fill_credential", "browser_download", "browser_upload", "browser_dismiss_dialog", "browser_batch"]);
+    expect(names).toEqual(["browser_list", "browser_open", "browser_navigate", "browser_snapshot", "browser_read", "browser_screenshot", "browser_act", "browser_do", "browser_credentials", "browser_fill_credential", "browser_fill_code", "browser_download", "browser_upload", "browser_dismiss_dialog", "browser_batch"]);
   });
 
   it("a bridge failure (app not running) reads as an honest tool error, not a crash", async () => {
@@ -1844,5 +1846,62 @@ describe("browser_do", () => {
     expect(text(wordy)).toContain("is not a label");
     const nothing = await walk(setup(), { path: [] });
     expect(text(nothing)).toContain("give a path to walk or text to type");
+  });
+});
+
+describe("browser_fill_code", () => {
+  it("asks on its own card every time, then fills, and answers only \"filled\"", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
+    expect(r.isError).toBeFalsy();
+    expect(text(r)).toBe("filled");
+    expect(calls.gates).toEqual([expect.objectContaining({
+      toolKey: "browser_fill_code", toolName: "browser_fill_code", alwaysPrompt: true,
+      title: "Fill the security code from Messages or Mail into the page on example.com",
+      input: { browserId: "b1", ref: 4, origin: "https://example.com", always: false },
+    })]);
+    // The switch is asked before the card, the fill after it, and the fill names the card's origin.
+    expect(calls.bridge.map((b) => b.op)).toEqual(["describe", "codesEnabled", "fillCode"]);
+    expect(calls.bridge.at(-1)?.params).toEqual({ browserId: "b1", ref: 4, origin: "https://example.com" });
+  });
+
+  it("fills nothing when the card is declined, and says declined", async () => {
+    const { call, calls } = setup({ gate: { allowed: false, reason: "the user denied this action" } });
+    const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/^declined/);
+    expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
+  });
+
+  it("raises no card while the switch is off, and tells the agent where it is", async () => {
+    const { call, calls } = setup({ bridgeResults: { codesEnabled: { enabled: false } } });
+    const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("Settings ▸ Sign-ins ▸ Security codes");
+    expect(calls.gates).toEqual([]);
+    expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
+  });
+
+  it("passes on why nothing was filled, and never a code", async () => {
+    const { call } = setup({ bridgeResults: { fillCode: { ok: false, error: "no security code arrived by Messages or Mail in the last 5 minutes, so nothing was filled" } } });
+    const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("last 5 minutes");
+    expect(r.content.some((c) => c.type === "image")).toBe(false);
+  });
+
+  it("cannot run inside browser_batch", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_batch", { actions: [{ tool: "browser_fill_code", arguments: { browserId: "b1", ref: 4 } }] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("approved one at a time");
+    expect(calls.gates).toEqual([]);
+  });
+
+  it("cannot reach another space's pane", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_fill_code", { browserId: "bX", ref: 4 });
+    expect(r.isError).toBe(true);
+    expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
   });
 });

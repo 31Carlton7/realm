@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@realm/ui";
 import {
-  KEYCHAIN_PASSWORDS_NOTE, PASSWORDS_IMPORT_NOTE,
-  type BrowserCredential, type KeychainPasswordsStatus, type PasswordFillAllow,
+  KEYCHAIN_PASSWORDS_NOTE, PASSWORDS_IMPORT_NOTE, SECURITY_CODES_NOTE,
+  type BrowserCredential, type KeychainPasswordsStatus, type PasswordFillAllow, type SecurityCodeSourceName, type SecurityCodesStatus,
 } from "@realm/contracts";
 import { Menu } from "../../components/Menu";
 import { Sheet } from "../../components/Sheet";
@@ -224,6 +224,56 @@ export function KeychainPasswords({ profileId }: { profileId: string }) {
       </div>
     </>
   );
+}
+
+/**
+ * Security codes: offer the code a site just sent by text or email in its code field. Off until the
+ * person turns it on, and main's switch, not a setting an agent can reach (`security-codes.ts`). The
+ * line under it says what Realm reads and when; once on, it says instead which source macOS is keeping
+ * from Realm, since a switch that reads On while nothing can be read is a claim the system is not
+ * keeping.
+ */
+export function SecurityCodesSwitch() {
+  const [status, setStatus] = useState<SecurityCodesStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api()?.codesStatus?.().then((s) => { if (live) setStatus(s); }, () => {});
+    return () => { live = false; };
+  }, []);
+  if (!status) return null;
+  const toggle = async () => {
+    setBusy(true);
+    try { setStatus((await api()?.setCodes?.(!status.enabled)) ?? status); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <h3 className="settings-head" data-setting="security-codes">Security codes</h3>
+      <div className="settings-group">
+        <div className="settings-row" title={SECURITY_CODES_NOTE} data-no-agent="security codes">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Fill codes from Messages and Mail</span>
+            <span className="settings-row-desc">{securityCodesLine(status)}</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Fill codes from Messages and Mail"
+            checked={status.enabled} disabled={busy} onChange={() => { void toggle(); }} />
+        </div>
+      </div>
+      <p className="settings-hint">Realm reads nothing while this is off, keeps nothing it reads, and sends no code anywhere. An agent fills a code only after you approve that fill, and is never told it.</p>
+    </>
+  );
+}
+
+export function securityCodesLine(status: SecurityCodesStatus): string {
+  const reads = "When you click a code field in a browser pane, Realm looks for a code in the messages and emails that reached this Mac in the last 5 minutes.";
+  if (!status.enabled || !status.sources) return reads;
+  const names = Object.keys(status.sources) as SecurityCodeSourceName[];
+  const denied = names.filter((n) => status.sources![n] === "no_access");
+  if (denied.length > 0) return `macOS isn't letting Realm read ${denied.join(" or ")}. Turn on Realm under System Settings ▸ Privacy & Security ▸ Full Disk Access.`;
+  const readable = names.filter((n) => status.sources![n] === "ok");
+  if (readable.length === 0) return "There is no Messages history or mail on this Mac for Realm to read.";
+  if (readable.length === 1) return `${reads} Only ${readable[0]} can be read here.`;
+  return reads;
 }
 
 /** The sites never offered a save, and where agents may fill without a card. Shown only when there

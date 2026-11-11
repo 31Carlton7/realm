@@ -241,7 +241,7 @@ const TOOLS: Tool[] = [
     description:
       "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
       "Both work the same way: Realm checks the pane's current origin, refuses if it is not the site the sign-in belongs to, asks the user to approve this specific fill (they may answer Always allow on this site), and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
-      "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). Two-factor prompts (Duo, Okta, an emailed code) are not automated: hand those to the user.",
+      "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). A code the site then sends by text or email is browser_fill_code; a push (Duo, Okta) or an authenticator app's code is the user's.",
     inputSchema: {
       type: "object",
       properties: {
@@ -259,6 +259,22 @@ const TOOLS: Tool[] = [
           },
           additionalProperties: false,
         },
+      },
+      required: ["browserId", "ref"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "browser_fill_code",
+    description:
+      "Fill the one-time security code a site just sent by text or email into its code field, without ever seeing the code. Give the [ref=N] of the code field (or the first of its single-digit boxes). " +
+      "Realm asks the user to approve this fill every time, then reads the newest code that arrived in their Messages or Mail in the last 5 minutes, on this Mac only, and types it. You are never told the code and the field's value stays out of your snapshots: the answer is only filled, declined, or why nothing was filled. " +
+      "Works only while the user has Settings ▸ Sign-ins ▸ Security codes on; if it is off, ask them to type the code or turn it on. Call it after the page says it sent the code.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        browserId: { type: "string" },
+        ref: { type: "number", description: "the code field's ref from browser_snapshot — or its first box, when the code goes one digit per box" },
       },
       required: ["browserId", "ref"],
       additionalProperties: false,
@@ -361,6 +377,7 @@ const FillCredentialArgs = z.object({
   // call that named both would be one whose author had not decided.
   message: "give either credentialId (to fill a saved sign-in) or generate (to have Realm mint a new password for this page) — exactly one",
 });
+const FillCodeArgs = z.object({ browserId: z.string().min(1), ref: z.number().int().positive() });
 const UploadArgs = z.object({
   browserId: z.string().min(1),
   ref: z.number().int().positive(),
@@ -648,6 +665,41 @@ const HANDLERS: Record<string, Handler> = {
     });
   },
 
+  /**
+   * The security code a site just sent, typed into its field by Electron main (`fillCode`), after the
+   * user approves this one fill. The same gate as a credential fill on a page that is not its own:
+   * a card every time, which `bypassPermissions` does not skip and "Always allow" does not satisfy,
+   * because what enters the page is read from the person's messages. The code is read only after the
+   * card is answered, and nothing about it — not its value, length or sender — comes back here.
+   */
+  browser_fill_code: async (d, ctx, rawArgs) => {
+    const args = parseArgs(FillCodeArgs, rawArgs); if ("error" in args) return args.error;
+    const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_fill_code"); if (limited) return err(limited);
+    const live = await describeSafe(d, row.value.id);
+    const origin = normalizeOrigin(live?.url ?? "");
+    if (!origin) return err("refused: this pane is not on an http(s) page, so there is no site to fill a code into.");
+    // Before the card: a card for a fill the switch would refuse asks the user a question with one answer.
+    const switched = (await d.bridge.call("codesEnabled", {}).catch(() => null)) as { enabled?: boolean } | null;
+    if (switched?.enabled !== true) {
+      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Sign-ins ▸ Security codes. Ask them to type the code into the pane, or to turn that on.");
+    }
+    const title = `Fill the security code from Messages or Mail into the page on ${hostOf(live?.url)}`;
+    const gate = await d.broker.gate(
+      ctx.sessionId, "browser_fill_code", title,
+      // `always: false`, as on a credential fill off its own site: no answer on this card outlasts the fill.
+      { browserId: row.value.id, ref: args.value.ref, origin, always: false },
+      "browser_fill_code", { alwaysPrompt: true },
+    );
+    if (!gate.allowed) return err(`declined: ${gate.reason}`);
+    return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
+      const result = (await d.bridge.call("fillCode", { browserId: row.value.id, ref: args.value.ref, origin })) as BrowserActResult;
+      // No screenshot on failure, as for a credential: the field may hold what was typed.
+      if (!result.ok) return err(`not filled: ${result.error}`);
+      return ok("filled");
+    });
+  },
+
   browser_download: async (d, ctx, rawArgs) => {
     const args = parseArgs(DownloadArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
@@ -743,6 +795,7 @@ const HANDLERS: Record<string, Handler> = {
       // own Touch ID check; "one prompt per fill, no batching" is the requirement, and a batch is by
       // construction one prompt for many steps.
       if (a.tool === "browser_fill_credential") return err("browser_fill_credential cannot run inside browser_batch — a credential fill is approved one at a time, on its own card. Call it directly.");
+      if (a.tool === "browser_fill_code") return err("browser_fill_code cannot run inside browser_batch — a code fill is approved one at a time, on its own card. Call it directly.");
       // Refused here for the same reason, and at the same point: a batch is by construction ONE
       // prompt for many steps, and an upload's card is the list of files and the site they are going
       // to. Approving "run 4 browser actions, including: browser_upload" would be approving an

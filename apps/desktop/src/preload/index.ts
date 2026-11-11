@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BrowserCredentialEdit, KeychainPasswordsStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
+import type { BrowserCredentialEdit, KeychainPasswordsStatus, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
 import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
@@ -386,6 +386,10 @@ contextBridge.exposeInMainWorld("realm", {
     retryKeychain: (): Promise<boolean> => ipcRenderer.invoke("credentials:retry-keychain"),
     setKeychain: (enabled: boolean): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:set-keychain", enabled),
     keychainList: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:keychain-list"),
+    /** Settings ▸ Sign-ins ▸ Security codes (main/security-codes.ts): the switch and which sources
+     *  Realm can read. Never a code. */
+    codesStatus: (): Promise<SecurityCodesStatus | null> => ipcRenderer.invoke("codes:status"),
+    setCodes: (enabled: boolean): Promise<SecurityCodesStatus | null> => ipcRenderer.invoke("codes:set-enabled", enabled),
     neverList: (profileId: string): Promise<string[]> => ipcRenderer.invoke("credentials:never-list", profileId),
     setNever: (profileId: string, origin: string, never: boolean): Promise<string[]> => ipcRenderer.invoke("credentials:set-never", profileId, origin, never),
     fillAllows: (profileId: string): Promise<PasswordFillAllow[]> => ipcRenderer.invoke("credentials:fill-allows", profileId),

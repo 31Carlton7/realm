@@ -63,6 +63,7 @@ import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { registerFullScreenQuery, wireFullScreen } from "./full-screen";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
+import { SecurityCodes, SecurityCodesSetting, codeSourcesFor } from "./security-codes";
 import { registerPasswordsIpc } from "./passwords-ipc";
 import { readSecretsFile, setAsideSecretsFile, writeSecretsFile } from "./secrets-file";
 import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
@@ -752,6 +753,8 @@ const autofill = new PasswordAutofill({
   openSettings: (browserId) => sendPasswordEvent(browserId, { kind: "manage", browserId }),
   audit: (entry) => secrets()?.audit(entry),
   passwordFilled: (paneId, ref) => agentHost.secretFilled(paneId, ref),
+  codeFor: async (_paneId, origin) => (await codes()?.latest(origin)) ?? null,
+  codeFilled: (paneId, ids) => { for (const id of ids) agentHost.secretFilled(paneId, id); },
   now: () => Date.now(),
   newId,
 });
@@ -798,6 +801,10 @@ const agentHost = new BrowserAgentHost({
   // confined and user-approved by the time it reaches here — realm-server did all of that before
   // it raised the permission card — so this reads exactly what it was handed and decides nothing.
   readFile: async (path) => new Uint8Array(await readFile(path)),
+  codes: {
+    enabled: () => codes()?.enabled() ?? false,
+    latest: async (origin) => (await codes()?.latest(origin)) ?? null,
+  },
 });
 
 /** The browser a download came from, in whichever window holds its view. */
@@ -1066,6 +1073,28 @@ ipcMain.on("browser:set-accent", (_e, accent: string) => {
  *  whatever is on somebody's clipboard into a machine that may be running anything is not a thing to
  *  do without being asked. There is no write op, and adding one would need its own reason. */
 ipcMain.handle("clipboard:read-text", () => clipboard.readText());
+
+/**
+ * Security codes (security-codes.ts): the switch's file under the home, and the sources this build
+ * may read — the real Messages and Mail only in a packaged app or `pnpm dev`, a live check's stand-in
+ * file otherwise. Null only before realm-server has announced its home, which reads as "off".
+ */
+let securityCodes: SecurityCodes | null = null;
+function codes(): SecurityCodes | null {
+  if (securityCodes) return securityCodes;
+  if (!realmHome) return null;
+  securityCodes = new SecurityCodes({
+    setting: new SecurityCodesSetting(join(realmHome, "security-codes.json")),
+    sources: codeSourcesFor({ packaged: app.isPackaged, env: process.env }),
+    now: () => Date.now(),
+  });
+  return securityCodes;
+}
+/** Settings ▸ Sign-ins ▸ Security codes, from the window's own top frame: renderer IPC only, as the
+ *  login keychain's switch is, so no agent call reaches it. */
+ipcMain.handle("codes:status", async (e) => (e.senderFrame === e.sender.mainFrame ? (await codes()?.status()) ?? null : null));
+ipcMain.handle("codes:set-enabled", async (e, on: unknown) =>
+  (e.senderFrame === e.sender.mainFrame ? (await codes()?.setEnabled(on === true)) ?? null : null));
 
 /**
  * The secret store, built on first use. Null only before realm-server has announced its home.

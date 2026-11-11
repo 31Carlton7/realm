@@ -32,7 +32,7 @@ import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
-import { EditPasswordSheet, ImportPasswordsButton, KeychainNeededNotice, KeychainPasswords, PasswordExceptions, PasswordRowActions, UnreadablePasswordsNotice, matchesPasswordSearch } from "./PasswordsSection";
+import { EditPasswordSheet, ImportPasswordsButton, KeychainNeededNotice, KeychainPasswords, PasswordExceptions, PasswordRowActions, SecurityCodesSwitch, UnreadablePasswordsNotice, matchesPasswordSearch } from "./PasswordsSection";
 import { PageRail } from "../../components/page-nav";
 import { CATEGORY_COPY, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, tabAvailable, visibleSettingsGroups, type SettingEntry, type SettingsTab } from "./settings-index";
 import { capabilities } from "../../platform";
@@ -2118,6 +2118,7 @@ function SignInsTab() {
       )}
 
       {profileId && <KeychainPasswords profileId={profileId} />}
+      <SecurityCodesSwitch />
       {profileId && credentials && <PasswordExceptions profileId={profileId} credentials={credentials} />}
       {editing && profileId && (
         <EditPasswordSheet profileId={profileId} credential={editing} onClose={() => setEditing(null)}

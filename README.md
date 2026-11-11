@@ -233,10 +233,16 @@ An agent driving a browser pane can sign you in to a site without ever seeing th
   credential id, outcome, never the value.
 - **Typing into a password field with `browser_act` is still refused, in every mode.**
   `browser_fill_credential` is a separate op, not a way around it.
-- **Two-factor is not automated, and will not be.** A Duo/Okta push cannot be driven from here, and a
-  TOTP prompt is out of scope. Realm fills the username and password and stops; an SSO + 2FA sign-in
-  stays partly manual, and you finish it in the pane. If TOTP support is ever added it would be a
-  separately enrolled secret under the same rules — never a code the model sees.
+- **A code sent by text or email can be filled, and nothing else of two-factor is.** With Settings →
+  Sign-ins → Security codes on (it starts off), clicking into a one-time-code field offers the code
+  that reached this Mac's Messages or Mail in the last 5 minutes, in the OS menu under the field, the
+  way Safari does. Realm reads `~/Library/Messages/chat.db` read-only and Mail through the `mac`
+  command, both behind macOS's Full Disk Access for Realm; it reads only when a code field is clicked or
+  an approved fill runs, keeps nothing and logs nothing about a code. An agent asks with
+  `browser_fill_code`: a card every time, in every mode, never batched; the code is read only after
+  you approve, typed only into a code field on the page the card named, and kept out of the agent's
+  snapshots — the tool answers "filled" or why not. A Duo/Okta push or an authenticator app's code
+  is still yours to finish in the pane.
 - A Mac without a Touch ID sensor can save sign-ins but cannot fill them: `promptTouchID` is
   biometrics-only, with no password fallback. Settings says so on the tab.
 

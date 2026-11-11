@@ -64,7 +64,7 @@ function connectionLine(s: McpServer): string {
  */
 const ELSEWHERE = [
   "Connections page: the user adds MCP servers and signs in to them. You cannot add or sign in to one — name the service and ask them to connect it there; its tools then arrive on the `realm` server.",
-  "Settings ▸ Sign-ins: saved passwords and passkeys. `browser_fill_credential` fills them and saves the ones it generates there; nothing reads, edits or deletes one.",
+  "Settings ▸ Sign-ins: saved passwords and passkeys. `browser_fill_credential` fills them and saves the ones it generates there; nothing reads, edits or deletes one. Its Security codes switch is the user's alone: while it is on, `browser_fill_code` fills a code that arrived by text or email.",
   "Settings ▸ Engines: which agent CLIs are installed and signed in, failover between them, and Laya. A signed-out CLI is `signin_start`.",
   "Settings ▸ Notifications, Usage, Permissions, Computer use, Lab, Keys: the user's. `settings_get` lists the few settings you may change.",
   "Schedules page: the schedules `schedule_create` makes; changing, pausing or deleting one is the user's.",

@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PasswordSaveOffer, SiteCredential } from "@realm/contracts";
 import {
-  AUTOFILL_BINDING, AUTOFILL_WORLD, MANAGE_PASSWORDS_ID, PasswordAutofill, SAVE_CAPTURE_WINDOW_MS,
+  AUTOFILL_BINDING, AUTOFILL_WORLD, FILL_CODE_ID, MANAGE_PASSWORDS_ID, PasswordAutofill, SAVE_CAPTURE_WINDOW_MS,
   autofillMenuItems, autofillScriptSource, parseAutofillMessage, type AutofillDeps,
 } from "./password-autofill";
+import { CODE_FIELD_JS } from "./browser-agent";
 
 /**
  * The mutants:
@@ -248,5 +249,158 @@ describe("parseAutofillMessage", () => {
 describe("the script", () => {
   it("parses as JavaScript", () => {
     expect(() => new Function(autofillScriptSource())).not.toThrow();
+  });
+});
+
+describe("security codes", () => {
+  const CODE = "482913";
+  const code = (over: Record<string, unknown> = {}) => ({ t: "code", id: 1, how: "click", boxes: 1, rect: { x: 10, y: 20, w: 200, h: 30 }, ...over });
+  function codeHarness(over: Partial<AutofillDeps> & { choice?: string | null } = {}) {
+    const asked: string[] = [];
+    const filled: number[][] = [];
+    const h = harness({
+      choice: FILL_CODE_ID,
+      codeFor: async (_p, origin) => { asked.push(origin); return { code: CODE, source: "Messages" }; },
+      codeFilled: (_p, ids) => { filled.push(ids); },
+      ...over,
+    });
+    return { ...h, asked, filled };
+  }
+
+  it("offers the code under a code field, and one pick types it", async () => {
+    const h = codeHarness();
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.report(7, code());
+    await flush(); await flush(); await flush();
+    expect(h.asked).toEqual(["https://example.com"]);
+    expect(h.calls.menus).toEqual([[{ id: FILL_CODE_ID, label: "482 913 — from Messages", toolTip: expect.any(String) }]]);
+    expect(h.typed()).toBe(CODE);
+    expect(h.filled).toHaveLength(1);
+    // A code is not a saved password: nothing is unlocked and no audit line is written.
+    expect(h.calls.values).toEqual([]);
+    expect(h.calls.audit).toEqual([]);
+  });
+
+  it("types one digit into each box of a split field", async () => {
+    const h = codeHarness();
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.report(7, code({ boxes: 6 }));
+    for (let i = 0; i < 8; i++) await flush();
+    const steps = h.sent.filter((c) => c.method === "Runtime.callFunctionOn" || (c.method === "Input.dispatchKeyEvent" && c.params?.type === "keyDown"))
+      .map((c) => (c.method === "Runtime.callFunctionOn" ? "|" : String(c.params?.text))).join("");
+    expect(steps).toBe("|4|8|2|9|1|3");
+  });
+
+  it("asks for each box by its index in Realm's world", async () => {
+    const h = codeHarness();
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.report(7, code({ boxes: 4 }));
+    for (let i = 0; i < 8; i++) await flush();
+    const asks = h.sent.filter((c) => c.method === "Runtime.evaluate").map((c) => [c.params?.expression, c.params?.contextId]);
+    expect(asks).toEqual([0, 1, 2, 3].map((i) => [`__realmAutofillTarget(1, ${i})`, 7]));
+  });
+
+  it("offers nothing, and opens no menu, when there is no code or the switch is off", async () => {
+    const h = codeHarness({ codeFor: async () => null });
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.report(7, code());
+    await flush(); await flush();
+    expect(h.calls.menus).toEqual([]);
+    expect(h.typed()).toBe("");
+  });
+
+  it("never reads a code for the page's own world, a frame or another origin", async () => {
+    const h = codeHarness();
+    await h.autofill.install("b1", h.cdp);
+    h.context(1, { name: "" });
+    h.context(2, { frameId: "child" });
+    h.context(3, { origin: "https://evil.example.net" });
+    for (const id of [1, 2, 3]) h.report(id, code());
+    await flush(); await flush();
+    expect(h.asked).toEqual([]);
+    expect(h.calls.menus).toEqual([]);
+  });
+
+  it("types nothing when the page moved to another site between the menu and the pick", async () => {
+    const h = codeHarness();
+    h.page.history = "https://evil.example.net/";
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.report(7, code());
+    await flush(); await flush(); await flush();
+    expect(h.calls.menus).toHaveLength(1);
+    expect(h.typed()).toBe("");
+    expect(h.filled).toEqual([]);
+  });
+
+  it("types nothing when the menu is dismissed", async () => {
+    const h = codeHarness({ choice: null });
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.report(7, code());
+    await flush(); await flush(); await flush();
+    expect(h.typed()).toBe("");
+  });
+
+  it("refuses a report with no boxes or more than eight", () => {
+    expect(parseAutofillMessage(JSON.stringify(code({ boxes: 0 })))).toBeNull();
+    expect(parseAutofillMessage(JSON.stringify(code({ boxes: 9 })))).toBeNull();
+    expect(parseAutofillMessage(JSON.stringify(code({ boxes: 6 })))).toMatchObject({ t: "code", boxes: 6 });
+  });
+
+  it("logs nothing about the code", async () => {
+    const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m));
+    const h = codeHarness();
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.report(7, code({ boxes: 6 }));
+    for (let i = 0; i < 8; i++) await flush();
+    expect(h.typed()).toBe(CODE);
+    for (const spy of spies) { expect(spy).not.toHaveBeenCalled(); spy.mockRestore(); }
+  });
+});
+
+describe("what a code field is (CODE_FIELD_JS)", () => {
+  const codeGroupOf = new Function(`${CODE_FIELD_JS}; return codeGroupOf;`)() as (el: Element) => Element[] | null;
+  const page = (html: string) => { document.body.innerHTML = html; return (sel: string) => document.querySelector(sel)!; };
+
+  it.each([
+    ['<input id="f" autocomplete="one-time-code">', "autocomplete=one-time-code"],
+    ['<input id="f" name="otp">', "a name"],
+    ['<input id="f" placeholder="Enter verification code">', "a placeholder"],
+    ['<input id="f" aria-label="2FA code">', "an aria-label"],
+    ['<label for="f">Security code</label><input id="f">', "its label"],
+    ['<input id="f" inputmode="numeric" maxlength="6">', "a numeric field of six"],
+    ['<input id="f" type="tel" maxlength="4">', "a phone-keypad field of four"],
+  ])("takes %s (%s)", (html) => {
+    const $ = page(html);
+    expect(codeGroupOf($("#f"))).toEqual([$("#f")]);
+  });
+
+  it.each([
+    ['<input id="f" name="promo_code">', "a promo code"],
+    ['<input id="f" name="postcode">', "a postcode"],
+    ['<input id="f" name="email">', "an email field"],
+    ['<input id="f" type="password" name="password">', "a password field"],
+    ['<input id="f" inputmode="numeric" maxlength="12">', "a long number"],
+    ['<input id="f" name="otp" disabled>', "a disabled field"],
+  ])("refuses %s (%s)", (html) => {
+    expect(codeGroupOf(page(html)("#f"))).toBeNull();
+  });
+
+  it("takes a row of single-character boxes as one field, in order", () => {
+    const $ = page(`<div id="row">${[0, 1, 2, 3, 4, 5].map((i) => `<input id="b${i}" maxlength="1" inputmode="numeric">`).join("")}</div>`);
+    const group = codeGroupOf($("#b2"));
+    expect(group).toEqual([0, 1, 2, 3, 4, 5].map((i) => $(`#b${i}`)));
+  });
+
+  it("does not take a lone single-character box, or boxes mixed with other fields", () => {
+    const $ = page('<form><input id="a" maxlength="1"><input id="b" maxlength="1"><input id="c" maxlength="1"><input id="d" maxlength="1"><input name="email"></form><input id="lone" maxlength="1">');
+    expect(codeGroupOf($("#a"))).toBeNull();
+    expect(codeGroupOf($("#lone"))).toBeNull();
   });
 });
