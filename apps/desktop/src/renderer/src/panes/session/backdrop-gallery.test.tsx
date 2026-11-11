@@ -127,7 +127,10 @@ describe("picture credits", () => {
     const pictures = GALLERY.filter((g) => !g.credit.startsWith("Made for Realm"));
     expect(pictures.map((g) => g.id)).toEqual(expect.arrayContaining(["brownell", "church", "webb", "cross", "van-gogh", "heade"]));
     for (const g of pictures) expect(g.credit).toMatch(/(CC0|NASA)/);
-    expect(GALLERY.find((g) => g.id === "webb")?.credit).toMatch(/does not imply their endorsement/);
+    // NASA's own credit lines, word for word, and nothing that reads as an endorsement.
+    expect(GALLERY.find((g) => g.id === "webb")?.credit).toMatch(/Image: NASA, ESA, CSA, STScI$/);
+    expect(GALLERY.find((g) => g.id === "hubble")?.credit).toMatch(/NASA\/ESA\/STScI$/);
+    for (const g of GALLERY) expect(g.credit).not.toMatch(/endorse|partner|official|in collaboration with/i);
   });
   it("keeps a look without a credit", () => {
     expect(parseGallery([{ id: "a", name: "A", light: "x.jpg", dark: "x.jpg", effect: "dither" }], { "x.jpg": "u" })[0]?.credit).toBe("");
