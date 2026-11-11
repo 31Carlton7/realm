@@ -117,6 +117,6 @@ export async function pdfText(buf: Buffer): Promise<string> {
     }
     return out.join("\n\n");
   } finally {
-    await doc.destroy();
+    await doc.loadingTask.destroy();
   }
 }

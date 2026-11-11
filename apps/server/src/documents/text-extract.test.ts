@@ -18,6 +18,12 @@ describe("pdfText — the real pdf.js path", () => {
     expect(text).toContain("Pipelining hazards");
     expect(text).toContain("Forwarding paths");
   });
+
+  it("runs a pdf.js at or past 6.2.108, the fix for GHSA-hq66-cqwq-w95j, which lets a PDF run script", async () => {
+    const { version } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const [major, minor, patch] = version.split(".").map(Number);
+    expect(major! * 1e6 + minor! * 1e3 + patch!, version).toBeGreaterThanOrEqual(6_002_108);
+  });
 });
 
 describe("TextExtractor", () => {

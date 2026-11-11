@@ -151,7 +151,8 @@ function wrap(doc: PDFDocumentProxy): PdfDocument {
       const notes = await p.getAnnotations({ intent: "display" });
       return notes.flatMap((a: { subtype?: string; rect?: number[]; url?: string; dest?: unknown }): PdfLink[] => {
         if (a.subtype !== "Link" || !a.rect || (!a.url && a.dest == null)) return [];
-        const [x1, y1, x2, y2] = vp.convertToViewportRectangle(a.rect);
+        const [x1, y1] = vp.convertToViewportPoint(a.rect[0]!, a.rect[1]!);
+        const [x2, y2] = vp.convertToViewportPoint(a.rect[2]!, a.rect[3]!);
         const box = {
           left: Math.min(x1!, x2!) / vp.width, top: Math.min(y1!, y2!) / vp.height,
           width: Math.abs(x2! - x1!) / vp.width, height: Math.abs(y2! - y1!) / vp.height,
@@ -176,6 +177,6 @@ function wrap(doc: PDFDocumentProxy): PdfDocument {
     release(i) {
       void pages.get(i)?.then((p) => p.cleanup());
     },
-    destroy() { void doc.destroy(); },
+    destroy() { void doc.loadingTask.destroy(); },
   };
 }
