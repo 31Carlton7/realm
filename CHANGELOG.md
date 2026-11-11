@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.10.0 - 2026-11-11
+
+- Team access: one setting at the head of the sidebar's Team list puts every teammate in a space on one access level (Ask each time, Accept edits or Full access), now and for teammates made there later. It reads Mixed when they differ. A teammate changed on its own afterwards keeps its level and makes the space Mixed.
+- The access chip in a teammate's chat now sets the teammate, not that chat alone, and its running task sessions follow. A task session's chip still changes only that task.
+- Raising a teammate to Full access answers the cards its sessions were waiting on, except a flagged command that names rm, which keeps waiting for you.
+- A new session opens on a picture behind its greeting, on by default: Sky by day and Webb's "Cosmic Cliffs" at night. Settings ▸ Appearance ▸ Background has a gallery of paintings, space images and looks made for Realm, pictures of your own, Off and Shuffle, with the credit for every picture in Picture credits.
+- Claude Fable 5.2 is in the model picker.
+- Full access follows one rule for what runs without asking, whichever agent asks, and each command it lets through is written on the session's record.
+- Delete is drawn as a trash can, and the x stays for closing and removing.
+- Text you have to read is set in a more readable ink, and your own messages have a tone behind them in light mode.
+
 ## v2.9.5 - 2026-11-11
 
 - The window's frame colour now runs as one strip across the top of the session panes and the side panel. Both sit under it as sheets, the way the sidebar's list does, and the lines between panes start under the strip.
