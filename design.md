@@ -407,6 +407,17 @@ Rules:
   page asking someone to decide something, which is why first run stays plain and earns its presence
   from the mark, the type and the two agents' own marks instead. A page of controls someone sits on
   all day stays plain.
+- An empty session is the one working surface that wears a picture (the owner, 11-10: "a bunch of
+  different options… custom images would be really cool"), and it is on by default, Haze, because a
+  new session is a place passed through on the way to work. It goes the moment the first message
+  does. The picture is printed, not pasted: a gallery look or a person's own image goes through a
+  dither in the theme's tones, or a colour-kept dither, so it changes with the face and the theme.
+  A person's own picture may be shown as it is, and even then it is under the same two rules as every
+  look: the prompter stays its opaque card with the picture feathered out round it, never glass over
+  it, and a guard measures every run of text against the worst pixel behind it and lowers the picture
+  there until the greeting holds 3:1 and every other run holds what it had on the plain ground. A
+  busy picture costs the picture, never the words. The looks are data (`gallery.json`), and the same
+  file, the effects and the settings keys are what the phone reads.
 
 The light theme is an equal mode, not an inverted dark screenshot. Use its authored token values.
 
@@ -932,7 +943,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   and the `data-quiet` attribute in JS, and STOP the loop rather than throttling it: a canvas holds
   its last frame for free, which is the same "freezes where it stands, resumes where it was" the
   stylesheet gives everything else. The same applies to anything else that paints outside the
-  cascade — a worklet, a WebGL context, a video drawn by hand.
+  cascade — a worklet, a WebGL context, a video drawn by hand. The session backgrounds are the worked
+  example, and they hold still by default: Motion is a switch the person turns on, offered only for a
+  look that can move, and a still look is drawn once and never again until its pane changes.
 
 ## Spaces, panes, and navigation
 
