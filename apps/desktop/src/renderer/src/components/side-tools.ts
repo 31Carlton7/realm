@@ -1,4 +1,5 @@
 import type { IconName } from "@realm/ui";
+import { chordsForCommand, displayKeyChord, type Keybinding } from "@realm/contracts";
 import type { AppState, NewTabTool } from "../state/store";
 import { capabilities } from "../platform";
 
@@ -21,6 +22,19 @@ export const SIDE_TOOLS: readonly { tool: NewTabTool; label: string; icon: IconN
   { tool: "simulator", label: "Simulator", icon: "simulator", hint: "A device on this Mac" },
   { tool: "machine", label: "Machine", icon: "machine", hint: "Connect to another computer" },
 ];
+
+/**
+ * The chord printed beside a tool, from the keymap the handler reads, so a rebound key shows the
+ * person's own and an unbound one shows none. Only where the row and the key run the same thing: ⌘J
+ * is this session's terminal and ⌘P its documents, asked of a session in focus — the context the
+ * key's own rule names. The "+" and a new tab's page both print it, so neither can drop one.
+ */
+export function sideToolChord(keybindings: readonly Keybinding[], tool: NewTabTool): string | undefined {
+  const c = tool === "terminal" ? chordsForCommand(keybindings, "terminal.toggle", { sessionFocus: true })[0]
+    : tool === "documents" ? chordsForCommand(keybindings, "palette.files")[0]
+    : undefined;
+  return c ? displayKeyChord(c) : undefined;
+}
 
 /** Whether this OS has the tool at all: a simulator is Xcode's, so Linux and Windows are not offered one. */
 export function sideToolOffered(tool: NewTabTool): boolean {

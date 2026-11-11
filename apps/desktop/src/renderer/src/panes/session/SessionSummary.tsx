@@ -302,6 +302,9 @@ export function planBodyBelowTitle(p: PlanEntry): string {
 /** One fact about the session: the value, and the word for it beside it. */
 export type ContextRow = {
   icon: IconName; label: string; value: string; title?: string;
+  /** A value that is an identifier — a folder, a branch, a model — set in mono. A mode or a list of
+   *  names is a word, and reads in the interface face. */
+  code?: boolean;
   /** Lines added and removed, for the one row that is a diff rather than a word. Signs AND colour:
    *  the numbers read without the tint, which is the app-wide rule for add/delete. */
   diff?: { additions: number; deletions: number };
@@ -326,7 +329,7 @@ function Fact({ row, onSelect }: { row: ContextRow; onSelect?: () => void }) {
             <span data-tone="del">−{row.diff.deletions}</span>
           </span>
         )
-        : <span className="summary-row-name">{row.value}</span>}
+        : <span className="summary-row-name" data-code={row.code || undefined}>{row.value}</span>}
       <span className="summary-row-meta">{row.label}</span>
     </>
   );
@@ -423,9 +426,9 @@ export function contextRows({ session, env, git, memory, servers, probe = [] }: 
 }): ContextRow[] {
   const out: ContextRow[] = [];
   const folder = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
-  out.push({ icon: "folder", label: env?.kind === "worktree" ? "worktree" : "folder", value: folder, title: session.cwd });
+  out.push({ icon: "folder", label: env?.kind === "worktree" ? "worktree" : "folder", value: folder, title: session.cwd, code: true });
   const branch = git?.branch || env?.branch || null;
-  if (branch) out.push({ icon: "branch", label: "branch", value: branch });
+  if (branch) out.push({ icon: "branch", label: "branch", value: branch, code: true });
   /* What is uncommitted, as the diff states it rather than as a count of entries. The dirty count
      rode on the branch row's label and said only how many — which is the least useful of the three
      numbers git already handed over, and the one that tells you nothing about whether this session
@@ -445,7 +448,7 @@ export function contextRows({ session, env, git, memory, servers, probe = [] }: 
   }
   const model = session.model ?? sessionModelLabel(session.agentKind, null, probe);
   const effort = session.effort ? ` · ${session.effort}` : "";
-  out.push({ icon: AGENT_META[session.agentKind].icon, label: AGENT_META[session.agentKind].label, value: `${model}${effort}` });
+  out.push({ icon: AGENT_META[session.agentKind].icon, label: AGENT_META[session.agentKind].label, value: `${model}${effort}`, code: true });
   const mode = sessionModeOf(session.permissionMode);
   const permission = mode === "build"
     ? (PERMISSION_MODES.find((m) => m.id === session.permissionMode)?.label ?? session.permissionMode)

@@ -308,6 +308,9 @@ describe("the session's context", () => {
       ["memory", "Realm memory, CLAUDE.md"],
       ["connection", "linear"],
     ]);
+    // Mono is for identifiers: the folder, the branch and the model. "Accept edits" is a mode, and a
+    // list of memory files and connections reads as words.
+    expect(rows.filter((r) => r.code).map((r) => r.label)).toEqual(["worktree", "branch", "Claude"]);
   });
 
   /* The two halves of the changes row, which are not the same number: `dirty` counts porcelain

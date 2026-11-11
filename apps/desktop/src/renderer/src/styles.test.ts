@@ -2881,6 +2881,48 @@ describe("a side pane's tab strip", () => {
   });
 });
 
+describe("the side panel's surfaces", () => {
+  it("marks the panel's focus on the tab showing with its ink, never an accent glyph", () => {
+    /* An accent glyph on the tab showing read as an agent's colour, which is the only colour a strip
+       of tabs carries. THE MUTANT: any rule that paints a tab's label or glyph in the accent. */
+    const accentOnTab = RULES.filter((r) => r.selectors.some((x) => x.includes(".pane-tab-label")) && /(^|[ ;])color: var\(--rl-accent\)/.test(r.body));
+    expect(accentOnTab.map((r) => r.selectors.join(", "))).toEqual([]);
+    expect(bodiesFor(".panel[data-focused] .pane-tab[data-active] .pane-tab-label").join(" ")).toContain("color: var(--rl-text-bright)");
+  });
+
+  it("stands every row of a teammate's computer on one edge, in a card or on the ground", () => {
+    /* Now's titles started 8px right of Done's beside the same icon: the card's inset was 14 and the
+       list's 8, with gaps of 10 and 8. THE MUTANT: either number written into one rule again. */
+    const computer = bodiesFor(".tm-computer").join(" ");
+    expect(computer).toMatch(/--tm-row-in: \d+px/);
+    expect(computer).toMatch(/--tm-row-gap: \d+px/);
+    expect(bodiesFor(".tm-card").join(" ")).toContain("padding: 4px var(--tm-row-in)");
+    expect(bodiesFor(".tm-session").join(" ")).toContain("padding: 7px 8px 7px calc(var(--tm-row-in) + var(--tm-depth) * 20px)");
+    for (const row of [".tm-now-row", ".tm-session", ".tm-resource"]) expect(bodiesFor(row).join(" "), row).toContain("gap: var(--tm-row-gap)");
+  });
+
+  it("rings the browser's fields with the app's focus ring, not a recoloured border", () => {
+    // THE MUTANT: `outline: none` back on the field, which takes the global :focus-visible ring away.
+    for (const field of [".browser-address input", ".browser-find-input"]) {
+      expect(bodiesFor(field).join(" "), field).not.toContain("outline: none");
+      expect(RULES.some((r) => r.selectors.some((x) => x.startsWith(field) && x.includes(":focus"))), field).toBe(false);
+    }
+  });
+
+  it("sets the summary's section heads at the caption rung, in ink that is read", () => {
+    // They were 11px in the hint tier, about 3:1. THE MUTANT: either value put back.
+    const head = bodiesFor(".summary-head").join(" ");
+    expect(head).toContain("font-size: 12px");
+    expect(head).toContain("color: var(--rl-text-dim)");
+  });
+
+  it("sets a summary fact in mono only where its value is an identifier", () => {
+    // SessionSummary marks the folder, the branch and the model `data-code`; a mode or a word is not.
+    expect(RULES.some((r) => r.selectors.includes(".summary-fact .summary-row-name"))).toBe(false);
+    expect(bodiesFor(".summary-fact .summary-row-name[data-code]").join(" ")).toContain("font-family: var(--font-mono)");
+  });
+});
+
 describe("dividers", () => {
   /** The table-list idiom: a rule drawn between every pair of adjacent rows. */
   const ADJACENT = /^(\.[a-z-]+) \+ \1$/;

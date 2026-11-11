@@ -1,18 +1,14 @@
 import { Icon } from "@realm/ui";
-import { DEFAULT_KEYBINDINGS, chordsForCommand, displayKeyChord, ownerOfTab } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, ownerOfTab } from "@realm/contracts";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 import { useAppStoreMaybe, type AppState, type NewTabTool } from "../../state/store";
 import { PageIcon } from "../../components/PageIcon";
 import { useDissolve } from "../../components/ScrollFades";
-import { SIDE_TOOLS, sideToolOffered } from "../../components/side-tools";
+import { SIDE_TOOLS, sideToolChord, sideToolOffered } from "../../components/side-tools";
 
 /** A page this space's profile went to — a row of the history (`browsers.recent`), as this page draws it:
  *  with the icon it last showed, when it showed one. */
 export type RecentVisit = { url: string; title: string; favicon?: string };
-
-/* Documents is where a file is found as well as made, so it is the one row for both and wears ⌘P —
-   a "Files" row beside it opened the same search somewhere else. */
-const CHORD: Partial<Record<NewTabTool, string>> = { documents: "palette.files" };
 
 /** Whether this blank tab is a session's tab of the side panel — the only place its sub-agents can open. */
 const servesSession = (s: AppState, itemId: string): boolean => {
@@ -47,11 +43,6 @@ export function NewTabPage({ itemId, recent = [], onVisit }: {
   const keybindings = useSyncExternalStore(subscribe, () => store?.getState().keybindings ?? DEFAULT_KEYBINDINGS);
   const session = useSyncExternalStore(subscribe, () => (store ? servesSession(store.getState(), itemId) : false));
   const tools = SIDE_TOOLS.filter((t) => (t.tool !== "agents" || session) && sideToolOffered(t.tool));
-  /* From the keymap the handler reads, never a literal — the palette's own rule for its hints. */
-  const kbd = (command: string | undefined) => {
-    const chord = command ? chordsForCommand(keybindings, command)[0] : undefined;
-    return chord ? displayKeyChord(chord) : null;
-  };
   const open = (tool: NewTabTool) => {
     const s = store?.getState();
     s?.run(() => s.openFromNewTab(itemId, tool));
@@ -62,7 +53,8 @@ export function NewTabPage({ itemId, recent = [], onVisit }: {
         <h2 className="new-tab-label">Tools</h2>
         <ul className="new-tab-list">
           {tools.map((t) => {
-            const chord = kbd(CHORD[t.tool]);
+            // ⌘J is a session's terminal, so a tab no session owns has no chord to print for it.
+            const chord = t.tool === "terminal" && !session ? undefined : sideToolChord(keybindings, t.tool);
             return (
               <li key={t.tool}>
                 <button type="button" className="new-tab-row" title={t.hint} disabled={!store} onClick={() => open(t.tool)}>
