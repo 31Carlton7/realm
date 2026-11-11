@@ -1,8 +1,8 @@
 [
+  {"id": "sky", "name": "Sky", "mood": "Clouds in their own colours, by day and at dusk", "light": "sky-day.jpg", "dark": "sky-dusk.jpg", "effect": "dither-color", "motion": false},
   {"id": "haze", "name": "Haze", "mood": "A soft long-exposure sky over hazy hills", "light": "haze.jpg", "dark": "haze.jpg", "effect": "dither", "motion": true},
   {"id": "dunes", "name": "Dunes", "mood": "Long wind-laid ridges", "light": "dunes.jpg", "dark": "dunes.jpg", "effect": "dither", "motion": false},
   {"id": "silk", "name": "Silk", "mood": "Satin folds in a print's halftone", "light": "silk.jpg", "dark": "silk.jpg", "effect": "halftone", "motion": true},
-  {"id": "sky", "name": "Sky", "mood": "Clouds in their own colours, by day and at dusk", "light": "sky-day.jpg", "dark": "sky-dusk.jpg", "effect": "dither-color", "motion": false},
   {"id": "nebula", "name": "Nebula", "mood": "Red gas and dark dust across a field of stars", "light": "nebula.jpg", "dark": "nebula.jpg", "effect": "dither-color", "motion": false},
   {"id": "aurora", "name": "Aurora", "mood": "Green curtains over a dark treeline", "light": "aurora.jpg", "dark": "aurora.jpg", "effect": "dither-color", "motion": false},
   {"id": "ocean", "name": "Ocean", "mood": "A still sea to a hazy horizon; the moon's path on it at night", "light": "ocean-day.jpg", "dark": "ocean-night.jpg", "effect": "dither-color", "motion": false},

@@ -408,8 +408,9 @@ Rules:
   from the mark, the type and the two agents' own marks instead. A page of controls someone sits on
   all day stays plain.
 - An empty session is the one working surface that wears a picture (the owner, 11-10: "a bunch of
-  different options… custom images would be really cool"), and it is on by default, Haze, because a
-  new session is a place passed through on the way to work. It goes the moment the first message
+  different options… custom images would be really cool"), and it is on by default, Sky — the
+  colour-kept dither the owner picked from the Zeron reference (11-11) — because a new session is a
+  place passed through on the way to work. It goes the moment the first message
   does. The picture is printed, not pasted: a gallery look or a person's own image goes through a
   dither in the theme's tones, or a colour-kept dither, so it changes with the face and the theme.
   A person's own picture may be shown as it is, and even then it is under the same two rules as every

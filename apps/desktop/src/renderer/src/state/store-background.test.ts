@@ -13,9 +13,9 @@ const boot = async (data: FakeData = {}) => {
 describe("the background setting", () => {
   afterEach(() => window.localStorage.clear());
 
-  it("is Haze with motion off for a home that never chose, and writes nothing to say so", async () => {
+  it("is Sky with motion off for a home that never chose, and writes nothing to say so", async () => {
     const { api, store } = await boot();
-    expect(store.getState().background).toBe("haze");
+    expect(store.getState().background).toBe("sky");
     expect(store.getState().backgroundMotion).toBe(false);
     expect(api.calls.filter((c) => c.startsWith(`setSetting:${BACKGROUND_SETTING}`))).toEqual([]);
   });
