@@ -31,12 +31,28 @@ const SCRIPT: FakeScript = [
   { on: "Long migration", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 400 }] },
   { on: "start a survey", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Survey the slow paths", title: "survey" } }, { kind: "text", text: "Started it." }] },
   { on: "Survey the slow paths", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 250 }] },
+  { on: "start the checks", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Run the migration check", title: "migration" } },
+    { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Ask which colour ships", title: "colour" } },
+    { kind: "tool", name: "Bash", input: { command: "git status" }, needsPermission: true, result: "clean" }] },
+  { on: "Run the migration check", emit: [{ kind: "tool", name: "Bash", input: { command: "pnpm db:check" }, needsPermission: true, result: "reversible" }] },
+  { on: "Ask which colour ships", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "violet",
+    input: { questions: [{ question: "Which colour ships?", header: "Colour", multiSelect: false, options: [{ label: "Violet", description: "" }, { label: "Teal", description: "" }] }] } }] },
+  { on: "start the release", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Ship the release", title: "release" } }] },
+  { on: "Ship the release", emit: [{ kind: "tool", name: "Bash", input: { command: "pnpm build" }, needsPermission: true, result: "built" },
+    { kind: "text", text: "one two three four five six seven eight", paceMs: 150 },
+    { kind: "tool", name: "Bash", input: { command: "gh release create" }, needsPermission: true, result: "released" }] },
+  { on: "start the pair", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Free work", title: "free" } },
+    { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Held work", title: "held", constraints: { permissionMode: "default" } } }] },
+  { on: "Free work", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 400 }] },
+  { on: "Held work", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Nested work", title: "nested" } },
+    { kind: "text", text: "one two three four five six seven eight", paceMs: 400 }] },
+  { on: "Nested work", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 400 }] },
 ];
 
-async function boot(extra: { clockTurnMs?: number } = {}) {
+async function boot(extra: { clockTurnMs?: number; maxDepth?: number } = {}) {
   const home = tempDir("realm-teammates-");
   const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
-  app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, agentRun: { fallbackKind: "fake" },
+  app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, agentRun: { fallbackKind: "fake", ...(extra.maxDepth ? { maxDepth: extra.maxDepth } : {}) },
     ...(extra.clockTurnMs ? { teammates: { clockTurnMs: extra.clockTurnMs } } : {}) });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Realm", icon: "folder" });
@@ -48,6 +64,18 @@ async function boot(extra: { clockTurnMs?: number } = {}) {
 const events = (sessionId: string): SessionEvent[] => app.sessions.events(sessionId, 0, 2_000).map((e: StoredSessionEvent) => e.event);
 const userMessages = (sessionId: string) => events(sessionId).flatMap((e) => (e.type === "user_message" ? [e.payload] : []));
 const toolResults = (sessionId: string) => events(sessionId).flatMap((e) => (e.type === "tool_result" ? [e.payload.content] : []));
+/** The cards a session has asked that nobody has answered, by tool. */
+const openCards = (sessionId: string): string[] => {
+  const answered = new Set(events(sessionId).flatMap((e) => (e.type === "permission_response" ? [e.payload.requestId] : [])));
+  return events(sessionId).flatMap((e) => (e.type === "permission_request" && !answered.has(e.payload.requestId) ? [e.payload.toolName] : []));
+};
+const answers = (sessionId: string) => events(sessionId).flatMap((e) => (e.type === "permission_response" ? [e.payload.decision] : []));
+/** A task the teammate whose chat this is started, or one its task started, by the end of its title. */
+const taskOf = (homeSessionId: string, title: string) => {
+  const parentOf = (id: string | null | undefined) => (id ? app.sessions.get(id).dispatchedBy?.sessionId : undefined);
+  return app.sessions.listAll().find((s) => !s.teammateHome && s.title.endsWith(title)
+    && (s.dispatchedBy?.sessionId === homeSessionId || parentOf(s.dispatchedBy?.sessionId) === homeSessionId));
+};
 const idle = (sessionId: string) => waitFor(() => app.sessions.get(sessionId).status === "idle" && events(sessionId).some((e) => e.type === "assistant_text"));
 
 describe("a teammate", () => {
@@ -291,6 +319,106 @@ describe("what a teammate starts", () => {
     await waitFor(() => app.sessions.listAll().some((s) => s.dispatchedBy?.sessionId === cto.homeSessionId));
     expect(app.sessions.listAll().find((s) => s.dispatchedBy?.sessionId === cto.homeSessionId)).toMatchObject({ permissionMode: "bypassPermissions", teammateId: cto.id });
   });
+});
+
+describe("a teammate's access, changed", () => {
+  it("reaches the task sessions it is running, and no one else's", async () => {
+    const { make } = await boot();
+    const cto = make("CTO");
+    const ops = make("Ops");
+    await app.team.message(cto.id, "start a survey");
+    await app.team.message(ops.id, "start a survey");
+    await waitFor(() => !!taskOf(cto.homeSessionId!, "survey") && !!taskOf(ops.homeSessionId!, "survey"));
+    const task = taskOf(cto.homeSessionId!, "survey")!;
+    const other = taskOf(ops.homeSessionId!, "survey")!;
+    await waitFor(() => app.sessions.get(task.id).status === "running");
+    expect(app.sessions.get(task.id).permissionMode).toBe("default");
+    app.team.update({ id: cto.id, permissionMode: "acceptEdits" });
+    await waitFor(() => app.sessions.get(task.id).permissionMode === "acceptEdits");
+    expect(app.sessions.get(cto.homeSessionId!).permissionMode).toBe("acceptEdits");
+    expect(app.sessions.get(other.id).permissionMode).toBe("default");
+    expect(app.sessions.get(ops.homeSessionId!).permissionMode).toBe("default");
+  }, 20_000);
+
+  it("answers Allow on the cards its sessions are waiting on when raised to Full access, and leaves questions and other teammates' cards", async () => {
+    const { make } = await boot();
+    const cto = make("CTO");
+    const ops = make("Ops");
+    await app.team.message(cto.id, "start the checks");
+    await app.team.message(ops.id, "start the checks");
+    await waitFor(() => [cto, ops].every((t) => openCards(t.homeSessionId!).length === 1
+      && openCards(taskOf(t.homeSessionId!, "migration")?.id ?? "").length === 1 && openCards(taskOf(t.homeSessionId!, "colour")?.id ?? "").length === 1), { timeout: 10_000 });
+    const [migration, colour, opsMigration] = [taskOf(cto.homeSessionId!, "migration")!, taskOf(cto.homeSessionId!, "colour")!, taskOf(ops.homeSessionId!, "migration")!];
+
+    app.team.update({ id: cto.id, permissionMode: "bypassPermissions" });
+    await waitFor(() => openCards(migration.id).length === 0 && openCards(cto.homeSessionId!).length === 0);
+    expect(answers(migration.id)).toEqual(["allow"]);
+    expect(answers(cto.homeSessionId!)).toEqual(["allow"]);
+    await waitFor(() => events(migration.id).some((e) => e.type === "tool_result" && e.payload.content === "reversible"));
+    expect(app.sessions.get(migration.id).permissionMode).toBe("bypassPermissions");
+    // A question is not a permission: Full access does not answer it.
+    expect(openCards(colour.id)).toEqual(["AskUserQuestion"]);
+    expect(openCards(opsMigration.id)).toEqual(["Bash"]);
+    expect(openCards(ops.homeSessionId!)).toEqual(["Bash"]);
+    expect(app.team.get(cto.id).permissionMode).toBe("bypassPermissions");
+  }, 20_000);
+
+  it("holds the calls its tasks make after it is lowered, and leaves what they already did", async () => {
+    const { make } = await boot();
+    const cto = make("CTO", { permissionMode: "bypassPermissions" });
+    // The person lowered the chat's chip, which leaves the teammate's own mode where it was.
+    await app.sessions.setOptions(cto.homeSessionId!, { permissionMode: "default" });
+    await app.team.message(cto.id, "start the release");
+    await waitFor(() => !!taskOf(cto.homeSessionId!, "release"));
+    const task = taskOf(cto.homeSessionId!, "release")!;
+    await waitFor(() => events(task.id).some((e) => e.type === "tool_result" && e.payload.content === "built"));
+    app.team.update({ id: cto.id, permissionMode: "default" });
+    await waitFor(() => openCards(task.id).length === 1, { timeout: 10_000 });
+    expect(events(task.id).filter((e) => e.type === "permission_request").map((e) => e.type === "permission_request" && e.payload.input)).toEqual([{ command: "gh release create" }]);
+    expect(app.sessions.get(task.id).permissionMode).toBe("default");
+    expect(events(task.id).some((e) => e.type === "tool_result" && e.payload.content === "built")).toBe(true);
+  }, 20_000);
+
+  it("never raises a task above the session that started it, or above what it asked for", async () => {
+    const { make } = await boot({ maxDepth: 2 });
+    const cto = make("CTO");
+    await app.team.message(cto.id, "start the pair");
+    await waitFor(() => !!taskOf(cto.homeSessionId!, "free") && !!taskOf(cto.homeSessionId!, "held") && !!taskOf(cto.homeSessionId!, "nested"), { timeout: 10_000 });
+    const [free, held, nested] = ["free", "held", "nested"].map((t) => taskOf(cto.homeSessionId!, t)!);
+    app.team.update({ id: cto.id, permissionMode: "bypassPermissions" });
+    await waitFor(() => app.sessions.get(free!.id).permissionMode === "bypassPermissions");
+    expect(app.sessions.get(cto.homeSessionId!).permissionMode).toBe("bypassPermissions");
+    expect(app.sessions.get(free!.id).permissionMode).toBe("bypassPermissions");
+    // It asked for Ask each time, and the one it started is held to its mode.
+    expect(app.sessions.get(held!.id).permissionMode).toBe("default");
+    expect(app.sessions.get(nested!.id).permissionMode).toBe("default");
+  }, 20_000);
+
+  it("is set by setPermissionMode, which returns once its sessions are in it", async () => {
+    const { make } = await boot();
+    const cto = make("CTO");
+    await app.team.message(cto.id, "start a survey");
+    await waitFor(() => !!taskOf(cto.homeSessionId!, "survey"));
+    const task = taskOf(cto.homeSessionId!, "survey")!;
+    expect((await app.team.setPermissionMode(cto.id, "acceptEdits")).permissionMode).toBe("acceptEdits");
+    expect(app.sessions.get(task.id).permissionMode).toBe("acceptEdits");
+    expect(app.sessions.get(cto.homeSessionId!).permissionMode).toBe("acceptEdits");
+  }, 20_000);
+
+  it("tells every window, once its sessions are in the new mode", async () => {
+    const { make } = await boot();
+    const cto = make("CTO");
+    await app.team.message(cto.id, "start a survey");
+    await waitFor(() => !!taskOf(cto.homeSessionId!, "survey"));
+    const task = taskOf(cto.homeSessionId!, "survey")!;
+    const told: [string, string][] = [];
+    const broadcast = app.rpc.broadcast.bind(app.rpc);
+    const spy = vi.spyOn(app.rpc, "broadcast").mockImplementation((event, payload) => { told.push([event, app.sessions.get(task.id).permissionMode]); broadcast(event, payload); });
+    app.team.update({ id: cto.id, permissionMode: "bypassPermissions" });
+    await waitFor(() => told.some(([e, m]) => e === "items.changed" && m === "bypassPermissions"));
+    await waitFor(() => told.some(([e, m]) => e === "teammates.changed" && m === "bypassPermissions"));
+    spy.mockRestore();
+  }, 20_000);
 });
 
 describe("a teammate's clock", () => {

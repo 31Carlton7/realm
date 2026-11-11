@@ -150,6 +150,23 @@ describe("BrowserPermissionBroker.gate", () => {
  * mode's meaning is deliberately not honored. Its mutants: bypassPermissions skipping the card; a
  * prior allow_always satisfying it; answering "always" to a credential card licensing the next one.
  */
+describe("BrowserPermissionBroker.skippedUnderBypass", () => {
+  it("names an ordinary card waiting, and not a credential fill, a per-key gate, a question or an answered one", async () => {
+    const { broker, events } = setup("default");
+    const ids: string[] = [];
+    const idOfLast = () => { const id = requestIdOf(events.slice(-2)); ids.push(id); return id; };
+    const plain = broker.gate("s1", "browser_act", "Click X", {}); idOfLast();
+    void broker.gate("s1", "browser_fill_credential", "Fill", {}, "browser_fill_credential", { alwaysPrompt: true }); idOfLast();
+    void broker.gate("s1", "computer_act:mail", "Drive Mail", {}, "computer_act", { promptUnderBypass: true }); idOfLast();
+    void broker.ask("s1", AskCardSchema.parse({ asker: { kind: "agent", name: "Claude", agent: "claude" }, mode: "question", questions: [{ id: "q", prompt: "Which?", kind: "text" }] }), { toolName: "ui_ask", title: "Which?" }); idOfLast();
+    expect(ids.map((id) => broker.skippedUnderBypass(id))).toEqual([true, false, false, false]);
+    broker.resolve(ids[0]!, "allow");
+    await plain;
+    expect(broker.skippedUnderBypass(ids[0]!)).toBe(false);
+    broker.release("s1");
+  });
+});
+
 describe("BrowserPermissionBroker.gate — alwaysPrompt (credential fills)", () => {
   const opts = { alwaysPrompt: true };
 

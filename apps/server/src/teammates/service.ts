@@ -12,6 +12,7 @@ import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import { modelNameOf } from "../sessions/handover";
 import type { SessionService } from "../sessions/service";
+import { childPermissionMode, rank } from "../delegation/dispatch";
 import type { DelegationEngine, ActiveRun } from "../delegation/engine";
 import type { ScheduleService } from "../schedules/service";
 import type { EnvironmentsStore } from "../store/environments";
@@ -80,12 +81,14 @@ export class TeammatesService {
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
   /** By home session. In memory, like the session's queue it waits in: a restart clears both. */
   private readonly clockTurns = new Map<string, ClockTurn>();
+  /** By teammate: the last carry of its mode to its sessions, so two changes land in the order made. */
+  private readonly modeCarries = new Map<string, Promise<void>>();
 
   constructor(private readonly d: {
     store: TeammatesStore;
     spaces: Pick<SpacesStore, "get">;
     environments: Pick<EnvironmentsStore, "ensurePrimary" | "ensureAt">;
-    sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf" | "queuedFor" | "interrupt" | "probeCached">;
+    sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf" | "queuedFor" | "interrupt" | "probeCached" | "listAll" | "allowOpenPermissions">;
     engine: Pick<DelegationEngine, "begin" | "end" | "awaitAnswer" | "parentInterrupted">;
     schedules: Pick<ScheduleService, "forTeammate" | "setForTeammate">;
     rpc: Pick<RpcServer, "broadcast">;
@@ -96,6 +99,8 @@ export class TeammatesService {
     timeouts?: { waitMs: number; pollMs: number };
     /** How long a clock's turn may run (`TEAMMATE_CLOCK_TURN_MS`); shortened by tests. */
     clockTurnMs?: number;
+    /** The mode a task session's `agent_start` asked for, when it asked for less than it was given. */
+    requestedMode?: (sessionId: string) => string | undefined;
   }) {}
 
   close(): void {
@@ -236,7 +241,23 @@ export class TeammatesService {
     })!;
     if (input.lead !== undefined) this.d.store.setLead(cur.spaceId, input.lead ? cur.id : (cur.lead ? null : this.d.store.lead(cur.spaceId)?.id ?? null));
     this.followHome(cur, next);
+    if (next.permissionMode !== cur.permissionMode) void this.carryMode(cur.id);
     this.changed(cur.spaceId);
+    return this.get(cur.id);
+  }
+
+  /**
+   * The teammate's mode, set, and carried to its chat and every task session it has, before this
+   * returns (`carryMode`). The one way to change a teammate's access from inside the server; `update`
+   * and `followSwitch` carry it the same way without waiting.
+   */
+  async setPermissionMode(id: string, mode: TeammatePermissionMode): Promise<Teammate> {
+    const cur = this.row(id);
+    if (cur.permissionMode !== mode) {
+      this.d.store.update(cur.id, { permissionMode: mode });
+      this.changed(cur.spaceId);
+      await this.carryMode(cur.id);
+    }
     return this.get(cur.id);
   }
 
@@ -339,10 +360,10 @@ export class TeammatesService {
       return;
     }
     if (was.name !== now.name) this.d.sessions.retitleIf(home.id, was.name, now.name);
+    // The mode is not among them: `carryMode` takes it to the chat and the tasks together.
     const options = {
       ...(now.model !== home.model ? { model: now.model } : {}),
       ...(now.effort !== home.effort ? { effort: now.effort } : {}),
-      ...(now.permissionMode !== home.permissionMode ? { permissionMode: now.permissionMode } : {}),
     };
     // Windows re-read a session's model and effort on `items.changed`; nothing else tells an open chat.
     if (Object.keys(options).length > 0) void this.d.sessions.setOptions(home.id, options).then(() => this.changedItems(now.spaceId), (e: unknown) => {
@@ -359,11 +380,83 @@ export class TeammatesService {
   followSwitch(session: Session): void {
     const row = this.homeOf(session);
     if (!row) return;
-    this.d.store.update(row.id, {
+    const now = this.d.store.update(row.id, {
       agentKind: session.agentKind, model: session.model, effort: session.effort,
       ...((TEAMMATE_PERMISSION_MODES as readonly string[]).includes(session.permissionMode) ? { permissionMode: session.permissionMode as TeammatePermissionMode } : {}),
     });
+    if (now && now.permissionMode !== row.permissionMode) void this.carryMode(row.id);
     this.changed(row.spaceId);
+  }
+
+  /**
+   * Take the teammate's mode, as its row says it now, to its chat and to every session it started
+   * (`childOf` tags them all, a task's own tasks included), whether working or not, since an idle one
+   * left in Full access would run in it on its next message.
+   *
+   * Each task gets what `agent_start` would give it now: `childPermissionMode` of the lower of the
+   * teammate's mode and its parent's, so a task is never above the session that started it, and one
+   * that asked for less keeps asking for less. Parents go first, so a task's cap is its parent's new
+   * mode. A harness Realm cannot set a mode on keeps `default`, and is stopped if the teammate went
+   * read-only, as `AgentRunService.cascadeMode` stops one.
+   *
+   * Raised to Full access, the cards its sessions are waiting on are answered Allow
+   * (`SessionService.allowOpenPermissions`). Lowered, the next call is held to the new mode and what
+   * was already allowed stays done. Then every window re-reads the chips.
+   */
+  private carryMode(id: string): Promise<void> {
+    const carry = (this.modeCarries.get(id) ?? Promise.resolve()).then(() => this.carryModeNow(id)).catch((e: unknown) => {
+      console.error(`[teammates] a mode change did not reach every session: ${e instanceof Error ? e.message : String(e)}`);
+    });
+    this.modeCarries.set(id, carry);
+    void carry.then(() => { if (this.modeCarries.get(id) === carry) this.modeCarries.delete(id); });
+    return carry;
+  }
+
+  private async carryModeNow(id: string): Promise<void> {
+    const row = this.d.store.get(id);
+    if (!row) return;
+    const mode = row.permissionMode;
+    const mine = this.d.sessions.listAll().filter((s) => s.teammateId === row.id);
+    const home = mine.find((s) => s.id === row.homeSessionId);
+    const tasks = mine.filter((s) => !s.teammateHome);
+    const modes = new Map<string, string>();
+    // Read fresh: setting a parent's mode lowers its running children on its own (`cascadeMode`).
+    const set = async (s: Session, next: string): Promise<void> => {
+      if (next !== this.modeOf(s.id)) {
+        await this.d.sessions.setOptions(s.id, { permissionMode: next }).catch((e: unknown) => {
+          console.error(`[teammates] ${row.handle}'s session ${s.id} kept its mode: ${e instanceof Error ? e.message : String(e)}`);
+        });
+      }
+      const now = this.modeOf(s.id);
+      if (now !== null) modes.set(s.id, now);
+    };
+    if (home) await set(home, mode);
+    const taskIds = new Set(tasks.map((t) => t.id));
+    const left = [...tasks];
+    while (left.length > 0) {
+      const ready = left.findIndex((t) => { const p = t.dispatchedBy?.sessionId; return !p || !taskIds.has(p) || modes.has(p); });
+      const task = left.splice(Math.max(ready, 0), 1)[0]!;
+      const parentId = task.dispatchedBy?.sessionId;
+      const parentMode = parentId ? modes.get(parentId) ?? this.modeOf(parentId) ?? mode : mode;
+      const granted = childPermissionMode(rank(parentMode) < rank(mode) ? parentMode : mode, this.d.requestedMode?.(task.id), task.agentKind);
+      if (!granted.ok) {
+        if (LIVE.has(task.status)) await this.d.sessions.interrupt(task.id).catch(() => { /* deleted under us */ });
+        modes.set(task.id, task.permissionMode);
+        continue;
+      }
+      await set(task, granted.mode);
+    }
+    if (mode === "bypassPermissions") {
+      for (const s of home ? [home, ...tasks] : tasks) {
+        try { this.d.sessions.allowOpenPermissions(s.id); } catch { /* deleted under us */ }
+      }
+    }
+    this.changedItems(row.spaceId);
+    this.changed(row.spaceId);
+  }
+
+  private modeOf(sessionId: string): string | null {
+    try { return this.d.sessions.get(sessionId).permissionMode; } catch { return null; }
   }
 
   /**

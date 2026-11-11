@@ -1714,6 +1714,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ...(opts.teammates?.clockTurnMs ? { clockTurnMs: opts.teammates.clockTurnMs } : {}),
     defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
     toolsChanged: () => mcpGateway.notifyToolsChanged(),
+    requestedMode: (id) => agentRuns?.record(id)?.mode?.requested,
   });
   mcpGateway.registerProvider(createTeammatesProvider({ store: teammatesStore, teammates: team, mcp }));
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
