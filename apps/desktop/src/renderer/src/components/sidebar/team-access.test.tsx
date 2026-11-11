@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { TeamAccessMode, TeammatePermissionMode } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -41,6 +41,13 @@ async function mount(modes: [TeammatePermissionMode, TeammatePermissionMode], sp
 }
 
 const chip = () => screen.getByRole("button", { name: "Team access" });
+const CONFIRM = "Allow everything? Confirm";
+const pick = async (name: RegExp) => {
+  fireEvent.click(chip());
+  fireEvent.click(await screen.findByRole("menuitemcheckbox", { name }));
+  await waitFor(() => expect(screen.queryByRole("menuitemcheckbox")).toBeNull());
+};
+const sets = (api: { calls: string[] }) => api.calls.filter((c) => c.startsWith("setTeamAccess:"));
 
 describe("Team access in the sidebar", () => {
   it("heads the Team list and shows the team's mode in the prompter's words", async () => {
@@ -60,12 +67,54 @@ describe("Team access in the sidebar", () => {
 
   it("sets the whole team through teams.access.set", async () => {
     // THE MUTANT: a pick that never reaches the server, or sends another rung.
+    const { api } = await mount(["default", "default"]);
+    await waitFor(() => expect(chip()).toHaveTextContent("Ask each time"));
+    await pick(/Accept edits/);
+    await waitFor(() => expect(sets(api)).toEqual(["setTeamAccess:s1:acceptEdits"]));
+    await waitFor(() => expect(chip()).toHaveTextContent("Accept edits"));
+    await pick(/Ask each time/);
+    await waitFor(() => expect(sets(api)).toEqual(["setTeamAccess:s1:acceptEdits", "setTeamAccess:s1:default"]));
+    expect(screen.queryByText(CONFIRM)).toBeNull();
+  });
+
+  it("asks before Full access, as the prompter does, and sets it on the confirm", async () => {
+    // THE MUTANTS: Full access applied on the pick; the confirm sending another rung.
     const { api } = await mount(["default", "acceptEdits"]);
     await waitFor(() => expect(chip()).toHaveTextContent("Mixed"));
-    fireEvent.click(chip());
-    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Full access/ }));
-    await waitFor(() => expect(api.calls).toContain("setTeamAccess:s1:bypassPermissions"));
+    await pick(/Full access/);
+    const confirm = await screen.findByRole("button", { name: CONFIRM });
+    expect(sets(api)).toEqual([]);
+    expect(chip()).toHaveTextContent("Mixed");
+    fireEvent.click(confirm);
+    await waitFor(() => expect(sets(api)).toEqual(["setTeamAccess:s1:bypassPermissions"]));
     await waitFor(() => expect(chip()).toHaveTextContent("Full access"));
+    expect(screen.queryByText(CONFIRM)).toBeNull();
+  });
+
+  it("keeps the mode and sends nothing when the confirm lapses", async () => {
+    // THE MUTANT: the lapse applying Full access, or the confirm never lapsing.
+    const { api } = await mount(["acceptEdits", "acceptEdits"], "acceptEdits");
+    await waitFor(() => expect(chip()).toHaveTextContent("Accept edits"));
+    fireEvent.click(chip());
+    const full = await screen.findByRole("menuitemcheckbox", { name: /Full access/ });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fireEvent.click(full);
+      expect(screen.getByRole("button", { name: CONFIRM })).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(5000); });
+      expect(screen.queryByText(CONFIRM)).toBeNull();
+    } finally { vi.useRealTimers(); }
+    expect(sets(api)).toEqual([]);
+    expect(chip()).toHaveTextContent("Accept edits");
+  });
+
+  it("does not ask again when the team is already on Full access", async () => {
+    // THE MUTANT: the confirm armed by any Full access pick, the team's own rung included.
+    const { api } = await mount(["bypassPermissions", "bypassPermissions"], "bypassPermissions");
+    await waitFor(() => expect(chip()).toHaveTextContent("Full access"));
+    await pick(/Full access/);
+    await waitFor(() => expect(sets(api)).toEqual(["setTeamAccess:s1:bypassPermissions"]));
+    expect(screen.queryByText(CONFIRM)).toBeNull();
   });
 
   it("is a control no agent may press, its menu rows included", async () => {

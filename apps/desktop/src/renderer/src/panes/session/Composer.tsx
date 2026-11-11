@@ -217,6 +217,19 @@ export function permissionMark(permissionMode: string): { icon: IconName; label:
   const mode = sessionModeOf(permissionMode);
   return mode === "build" ? { icon: permissionIcon(permissionMode), label: permissionLabel(permissionMode) } : { icon: MODE_ICON[mode], label: MODE_LABEL[mode] };
 }
+/**
+ * bypassPermissions must never be a one-click slip (U-M7): selecting it arms an inline confirm chip
+ * for 5s while the control simply stays on the current mode; only the explicit confirm applies it.
+ */
+export function useBypassConfirm() {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 5000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return [armed, setArmed] as const;
+}
 /** A mode's glyph in the "+" menu, in the tone the card wears for it — Plan's and Ask's tints are the
  *  mode's ambient signal, and the row naming the mode is the one place it should match them. */
 const ModeMark = ({ mode }: { mode: SessionMode }) => <span className="mode-mark" data-mode={mode}><Icon name={MODE_ICON[mode]} size={16} /></span>;
@@ -594,14 +607,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const mode = sessionModeOf(session.permissionMode);
   // Plan and Ask both REPLACE the permission axis rather than sitting beside it.
   const inReadOnly = mode !== "build";
-  // bypassPermissions must never be a one-click slip (U-M7): selecting it arms an inline confirm chip
-  // for 5s while the chip simply stays on the current mode; only the explicit confirm applies it.
-  const [confirmBypass, setConfirmBypass] = useState(false);
-  useEffect(() => {
-    if (!confirmBypass) return;
-    const t = setTimeout(() => setConfirmBypass(false), 5000);
-    return () => clearTimeout(t);
-  }, [confirmBypass]);
+  const [confirmBypass, setConfirmBypass] = useBypassConfirm();
 
   /* The card CLAIMS a file drag from the session pane around it, which is also a drop target. Both
      lighting up for one drag would say the file is about to land in two places. */

@@ -527,6 +527,14 @@ function OffscreenBrowsers({ ids, layout, items }: { ids: string[]; layout: Layo
 /** `rpc().on`, as the subscriptions below take it — a seam, so their tests hand in a recorder. */
 type Subscribe = <E extends EventName>(event: E, fn: (payload: EventPayload<E>) => void) => () => void;
 
+/** A space's Team access was set or cleared, here or in another window: read again where held. Exported for its test. */
+export function subscribeTeamAccess(store: StoreApi<AppState>, on: Subscribe): () => void {
+  return on("teams.access.changed", ({ spaceId }) => {
+    const st = store.getState();
+    st.run(() => st.teamAccessChanged(spaceId));
+  });
+}
+
 /**
  * The broadcasts that say one space's lists changed — its items (and with them its sessions), its
  * checkouts, its scripts — heard for EVERY space of the window's profile, not just the current one.
@@ -632,11 +640,7 @@ export function App() {
       const st = store.getState();
       st.run(() => st.refreshTeammates(spaceId));
     });
-    // A space's Team access was set or cleared, here or in another window: read again where held.
-    const offTeamAccess = rpc().on("teams.access.changed", ({ spaceId }) => {
-      const st = store.getState();
-      st.run(() => st.teamAccessChanged(spaceId));
-    });
+    const offTeamAccess = subscribeTeamAccess(store, (event, fn) => rpc().on(event, fn));
     // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
     // that environment: this fires on every turn, and a store holding a list nobody is looking at is
     // work for nothing.
