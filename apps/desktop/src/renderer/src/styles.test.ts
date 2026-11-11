@@ -3169,7 +3169,7 @@ describe("one card", () => {
   const CARDS = [".subagent-card", ".subagent-view-result", ".subagent-view-brief",
     ".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision", ".app-view-request",
     ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".memory-reader", ".agent-card",
-    ".stat-tile", ".usage-card", ".usage-figures", ".plan-account", ".market-card", ".tm-card"];
+    ".stat-tile", ".usage-card", ".usage-figures", ".plan-account", ".market-card", ".tm-card", ".machine-route", ".sim-device"];
   /** Cards made of a run of boxes, one card a list long: each box takes its share of the corners. */
   const RUNS = [".settings-row", ".engine-card"];
   /** An edge drawn round a box or along one side of it: a border, a zero-blur ring, a stack with a ring
@@ -4714,20 +4714,26 @@ describe("the machine pane's screen", () => {
     expect(Number(pad![1])).toBeGreaterThanOrEqual(12);
   });
 
+  it("lets a side panel bar's meta give way before its tabs do", () => {
+    // Four tabs sat at their floor, titled "Do…" and "Ag…", while "● not connected" kept 93px.
+    const meta = bodiesFor(".pane-strip ~ .panel-meta").join(" ");
+    expect(meta).toContain("flex: 0 1000 auto");
+    expect(meta).toContain("min-width: 0");
+  });
+
   it("gives the route cards and Connect the curve too, both painted", () => {
     // The user-facing ask these serve: a picker of cards and the button under it, on the same corner
     // family as the screen above them rather than three different roundings on one form.
     const card = bodiesFor(".machine-route").join(" ");
     expect(card).toContain("border-radius: var(--r-squircle-card)");
     expect(card).toContain("corner-shape: squircle");
-    // Its border has to become the painter's RING, or it traces a rectangle around a curved card.
-    const paintedCard = bodiesFor(":root[data-squircle] .machine-route").join(" ");
-    expect(paintedCard).toContain("border-color: transparent");
-    expect(paintedCard).toContain("--sq-ring: var(--rl-line)");
-    // Every state that moved `background` above must move `--sq-fill` here, or the card paints its
-    // resting fill in all of them.
-    expect(bodiesFor(":root[data-squircle] .machine-route:hover").join(" ")).toContain("--sq-fill: var(--rl-hover)");
-    expect(bodiesFor(":root[data-squircle] .machine-route[data-on]").join(" ")).toContain("--sq-fill:");
+    // A card: its fill and lift, no ring at rest. A chosen card's edge is the painter's ring, on the
+    // curve, and the fill stays the card's rather than becoming an accent wash.
+    // (They are in the "one card" family below, which holds the resting card to fill, lift and no edge.)
+    const painted = ":root[data-squircle] :is(.machine-route, .sim-device)";
+    expect(bodiesFor(`${painted}:hover`).join(" ")).toContain("--sq-fill: var(--rl-card-hover)");
+    expect(bodiesFor(`${painted}[data-on]`).join(" ")).toContain("--sq-ring: var(--rl-accent)");
+    expect(bodiesFor(".machine-route[data-on]").join(" ")).not.toMatch(/background/);
 
     // The button takes its corner as a proportion of its own height, which is the house formula for
     // a control — a fixed radius copied down from a surface reads as square at this size.
