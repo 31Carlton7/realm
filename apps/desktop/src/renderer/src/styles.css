@@ -191,6 +191,7 @@
   --r-panel: 12px;                               /* --radius-card: menus, pickers, permission card */
   --r-float: 16px;                               /* --radius-window: composer, sheets, palette */
   --r-pill: 999px;                               /* --radius-pill */
+  --hit-min: 40px;                               /* the smallest desktop press target (design.md) */
   /* The floating cards the paint worklet draws. Its own rung rather than a step off --r-float:
      a superellipse at a given radius reads visually smaller than a circular corner at the same
      one, so the two scales were never going to stay in step by arithmetic. Every squircle surface
@@ -667,7 +668,7 @@ input.sb-space-name { flex: 1; }
    Chrome, with the head row: a step off the sidebar's ground (the window's frame, above), so the
    sidebar's list and the panes read as one sheet set into it. It carries the window's rounded left
    corners, and stacks over the sidebar's column. */
-:root { --rail-w: 52px;
+:root { --rail-w: 52px; --rail-btn: 36px;
   /* Where the traffic lights end, and the window's lead after them: back and forward (two 28px
      buttons, 2px apart), then — while the sidebar is folded — its toggle, 4px on. Content under the
      lead starts 8px past whichever of the two it has to clear. */
@@ -763,7 +764,7 @@ input.sb-space-name { flex: 1; }
 .rail-group, .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 /* The foot sits at the bottom of the column however tall the window is. */
 .rail-foot { margin-top: auto; }
-.rail-btn { position: relative; overflow: visible; display: grid; place-items: center; width: 36px; height: 36px;
+.rail-btn { position: relative; overflow: visible; display: grid; place-items: center; width: var(--rail-btn); height: var(--rail-btn);
   border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-dim); }
 .rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Lit while its page is up — one rung past hover, so on always reads as more than under the pointer. */
@@ -889,6 +890,9 @@ input.sb-space-name { flex: 1; }
    never crosses another interactive element. */
 .icon-btn, .item-close, .item-shelf, .item-disclose, .item-act, .tool-copy { position: relative; }
 .icon-btn::after, .item-close::after, .item-shelf::after, .item-disclose::after, .item-act::after, .tool-copy::after { content: ""; position: absolute; inset: -6px; }
+/* A rail button's tile stays 36px; its press reaches the 40px floor. The rail's 8px gap leaves 4px
+   between neighbours' targets, so a press near the gap still lands on the nearer button. */
+.rail-btn::after { content: ""; position: absolute; inset: calc((var(--rail-btn) - var(--hit-min)) / 2); }
 
 /* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
 .group-label { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
@@ -9173,14 +9177,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .engine-card + .engine-card::before {
   content: ""; position: absolute; inset: 0 0 auto 16px; height: var(--hairline-w); background: var(--rl-hairline);
 }
-/* The one that needs you is the one that stands out — a warm edge rather than a colour on the text,
-   so it survives being read by someone who cannot tell the two apart. */
-/* An engine that needs something from you keeps its warning edge — as a bar down its inside edge,
-   not a ring. A ring on a meshed row would redraw the box the mesh just removed, and would have to
-   cross the dividers of the rows either side of it to do it. */
-.engine-card[data-state="missing"], .engine-card[data-state="logged_out"] {
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--orange) 55%, transparent);
-}
 .engine-head { display: flex; align-items: center; gap: 12px; }
 .engine-mark { flex: none; display: inline-flex; }
 .engine-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -9192,10 +9188,11 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .engine-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; font-size: 13px; line-height: 18px;
   color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 .engine-fact::before { content: "·"; margin-right: 6px; }
+/* The state is its word. Only what needs you — signed out, or a probe that failed — adds the one amber
+   dot the sidebar uses; Ready and Not installed are ordinary states and read as words alone. */
 .engine-state { display: inline-flex; align-items: center; gap: 6px; }
-.engine-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--mark); }
-.engine-state[data-state="ready"]::before { background: var(--green); }
-.engine-state:is([data-state="missing"], [data-state="logged_out"])::before { background: var(--orange); }
+.engine-state:is([data-state="logged_out"], [data-state="unchecked"])::before { content: ""; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--rl-warning); }
 .engine-run { flex: none; }
 /* The prose, folded. Open by default only when the engine wants something from you — which is the
    whole of how this page stopped being a wall: a ready engine is a title and some chips. */
@@ -9260,7 +9257,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .tcc-row .btn-quiet { flex: none; margin-top: 1px; }
 .tcc-state { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
   font-size: 12px; background: var(--rl-hover); color: var(--rl-text-dim); }
-.tcc-state[data-state="granted"] { color: var(--rl-success); }
 .tcc-state[data-state="denied"] { color: var(--rl-warning); }
 /* "Apps on this Mac" (the grantable half of the Permissions tab). A row can carry two or three
    actions — ask, open Settings, reveal the app — so they stack rather than fight for one line. */

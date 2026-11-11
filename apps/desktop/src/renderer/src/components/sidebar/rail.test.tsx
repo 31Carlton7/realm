@@ -438,3 +438,14 @@ describe("the profile, at the rail's foot", () => {
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("profile-page"));
   });
 });
+
+describe("the rail's glyphs (SB-05)", () => {
+  it("draw every bare glyph at one size; only a disc holds a mark of its own", async () => {
+    // THE MUTANT: "New space"'s + back at 16 beside 18px destinations.
+    await mount({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")] });
+    const sizes = new Set([...document.querySelectorAll(".rail-btn svg")]
+      .filter((svg) => !svg.closest(".avatar, .rail-laya-disc, .rail-update-disc"))
+      .map((svg) => svg.getAttribute("height")));
+    expect([...sizes]).toEqual(["18"]);
+  });
+});

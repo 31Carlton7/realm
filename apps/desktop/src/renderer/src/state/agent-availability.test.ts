@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_CLI_COMMANDS } from "@realm/contracts";
-import { agentAvailability, availabilityNote, isBlocked } from "./agent-availability";
+import { agentAvailability, availabilityNote, isBlocked, probeReasonSentence } from "./agent-availability";
 import type { AgentProbe } from "./store";
 
 const probe = (extra: Partial<AgentProbe> & { kind: AgentProbe["kind"] }): AgentProbe =>
@@ -62,5 +62,15 @@ describe("agentAvailability", () => {
     const list = [probe({ kind: "claude", available: false, reason: "gone" }), probe({ kind: "codex", loggedIn: true })];
     expect(agentAvailability("codex", list).state).toBe("ready");
     expect(agentAvailability("claude", list).state).toBe("missing");
+  });
+});
+
+describe("probeReasonSentence", () => {
+  it("turns a spawn errno into a sentence naming the command, and passes Realm's own sentences through", () => {
+    expect(probeReasonSentence("spawn cursor-agent ENOENT")).toBe("Realm found no cursor-agent command on this Mac.");
+    expect(probeReasonSentence("spawn goose EACCES")).toBe("goose is on this Mac, but macOS won't let it run.");
+    expect(probeReasonSentence("spawn qwen EPIPE")).toBe("qwen is on this Mac, but it didn't start.");
+    expect(probeReasonSentence("connect ECONNREFUSED 127.0.0.1:9")).toBe("The command didn't start.");
+    expect(probeReasonSentence("couldn't check: Command failed: opencode --version")).toBe("couldn't check: Command failed: opencode --version");
   });
 });

@@ -142,6 +142,15 @@ describe("Engines tab", () => {
     expect(within(cursor).getByText(AGENT_CLI_COMMANDS["acp:cursor"].install!)).toBeInTheDocument();
   });
 
+  it("says why a CLI is missing in a sentence, never Node's errno", async () => {
+    // THE MUTANT: the probe's "spawn cursor-agent ENOENT" printed as it came, under every missing engine.
+    await engines();
+    const cursor = await screen.findByRole("listitem", { name: /Cursor: Not installed/ });
+    expect(within(cursor).getByText("Realm found no cursor-agent command on this Mac.")).toBeInTheDocument();
+    const list = cursor.closest("ul")!;
+    expect(list.textContent).not.toMatch(/\bE[A-Z]{3,}\b|\bspawn\b|errno/);
+  });
+
   it("Gemini is offered again, ONCE, with the auth routes that still work named", async () => {
     await engines();
     // Plan 18: measured against gemini-cli 0.56.0, only oauth-personal is dead — an API key, Vertex,
@@ -862,7 +871,7 @@ describe("Permissions tab (macOS TCC)", () => {
     expect(screen.getByRole("listitem", { name: "Screen Recording: Not granted" })).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Accessibility: Granted" })).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Full Disk Access: Not granted" })).toBeInTheDocument();
-    // One green check in THIS section: the single granted row. Nothing else may borrow it.
+    // One check in THIS section: the single granted row. Nothing else may borrow it.
     expect(document.querySelectorAll('.realm-access-field .tcc-state[data-state="granted"]')).toHaveLength(1);
   });
 

@@ -13,6 +13,8 @@ import { useChord, useOrderedSpaces, useSidebarState, useSpaceTint } from "./use
 
 /** What a space tile carries in a drag, told apart from an item's. */
 const SPACE_DRAG_TYPE = "application/x-realm-space";
+/** Every bare glyph on the rail is drawn at one size; a disc (the avatar, Laya, an update) holds its own. */
+const RAIL_GLYPH = 18;
 
 /**
  * The rail: the app's destinations as a column of icons at the window's left edge (Plan 27), then the
@@ -63,7 +65,7 @@ function RailHome() {
   const run = useApp((s) => s.run);
   return (
     <button type="button" className="rail-btn" aria-label="Home" title="Back to your sessions" onClick={() => run(() => goHome())}>
-      <span className="rail-glyph"><Icon name="home" size={18} /></span>
+      <span className="rail-glyph"><Icon name="home" size={RAIL_GLYPH} /></span>
     </button>
   );
 }
@@ -85,7 +87,7 @@ function RailPage({ kind, label, count = 0, countLabel }: {
     <button type="button" className="rail-btn" aria-pressed={open} aria-label={count > 0 ? `${label}, ${countLabel}` : label}
       title={label} onClick={() => (open ? closePageOverlay() : openDestinationPage(kind))}>
       <span className="rail-glyph">
-        <Icon name={kind} size={18} />
+        <Icon name={kind} size={RAIL_GLYPH} />
         {/* Two digits is what a badge this size sets without going under the type floor; past that
             the exact number is on the page it opens. */}
         {count > 0 && <span className="sb-badge" aria-hidden="true">{count > 99 ? "99+" : count}</span>}
@@ -105,7 +107,7 @@ function RailWhatsNew() {
   return (
     <button type="button" className="rail-btn" aria-label="What's new" title="What's new in this version of Realm"
       onClick={() => openSheet({ kind: "whats-new" })}>
-      <span className="rail-glyph"><Icon name="gift" size={18} /></span>
+      <span className="rail-glyph"><Icon name="gift" size={RAIL_GLYPH} /></span>
     </button>
   );
 }
@@ -156,7 +158,7 @@ function RailSpaces() {
       ))}
       <button type="button" className="rail-btn rail-new-space" aria-label="New space" title="New space"
         onClick={() => openSheet({ kind: "new-space" })}>
-        <span className="rail-glyph"><Icon name="add" size={16} /></span>
+        <span className="rail-glyph"><Icon name="add" size={RAIL_GLYPH} /></span>
       </button>
     </div>
   );
@@ -182,7 +184,7 @@ function RailSpace({ space, waiting, draggable, over, onDragStart, onDragEnd, on
         onDragEnd={onDragEnd} onDragOver={onDragOver} onDrop={onDrop}
         onContextMenu={onContextMenu} onClick={() => run(() => selectSpace(space.id))}>
         <span className="rail-glyph">
-          <span className="rail-space-tile" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={18} /></span>
+          <span className="rail-space-tile" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={RAIL_GLYPH} /></span>
           {waiting > 0 && <span className="sb-badge" aria-hidden="true">{waiting > 99 ? "99+" : waiting}</span>}
         </span>
       </button>
@@ -242,7 +244,7 @@ function RailProfile() {
             onSelect: () => run(() => switchProfile(p.id)),
           })),
           { kind: "separator" as const },
-          { label: "New profile…", icon: <Icon name="add" size={16} />, onSelect: () => openNewProfileSheet() },
+          { label: "New profile…", icon: <Icon name="add" size={RAIL_GLYPH} />, onSelect: () => openNewProfileSheet() },
           { label: "Profile settings…", icon: <Icon name="profile-page" size={16} />, onSelect: () => openProfilePage("general") },
           { kind: "separator" as const },
           { label: name, icon: <Avatar size={16} />, onSelect: () => openDestinationPage("you-page") },

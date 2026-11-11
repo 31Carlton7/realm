@@ -69,10 +69,13 @@ describe("Needs you", () => {
     ]);
   });
 
-  it("names the profile only when it is not the one on screen", async () => {
-    await mount();
-    const where = within(section()).getAllByText(/Versed|Homework|Lectures/).map((el) => el.textContent);
-    expect(where).toEqual(["Homework", "Versed", "Lectures · School"]);
+  it("shows the space and the profile only when each is not the one on screen", async () => {
+    // THE MUTANT (SB-04): Build's row in Versed, the space on screen, spends its width on "Versed".
+    const { store } = await mount();
+    expect(store.getState().activeSpaceId).toBe("s1");
+    const where = [...section().querySelectorAll(".item-where")].map((el) => el.textContent);
+    expect(where).toEqual(["Homework", "Lectures · School"]);
+    expect(within(section()).getByRole("button", { name: "Build in Versed — waiting on you" }).querySelector(".item-where")).toBeNull();
   });
 
   it("opens a row's session in its own space", async () => {

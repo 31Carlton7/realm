@@ -48,3 +48,19 @@ export function isBlocked(a: AgentAvailability): a is Extract<AgentAvailability,
 export function availabilityNote(a: AgentAvailability): string | null {
   return a.state === "missing" ? "not installed" : a.state === "logged_out" ? "signed out" : null;
 }
+
+/**
+ * A probe's failure as a sentence. The probes pass on Node's own error message, which for a CLI that
+ * is not there reads "spawn cursor-agent ENOENT": an errno nobody was written for. A failure to start
+ * names the command Realm looked for; anything else Realm already wrote as a sentence passes through.
+ */
+export function probeReasonSentence(reason: string): string {
+  const spawn = /\bspawn (\S+) (E[A-Z]+)\b/.exec(reason);
+  if (spawn) {
+    const [, command, code] = spawn;
+    if (code === "ENOENT") return `Realm found no ${command} command on this Mac.`;
+    if (code === "EACCES") return `${command} is on this Mac, but macOS won't let it run.`;
+    return `${command} is on this Mac, but it didn't start.`;
+  }
+  return /\bE[A-Z]{3,}\b/.test(reason) ? "The command didn't start." : reason;
+}

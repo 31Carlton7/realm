@@ -1357,9 +1357,21 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     const root = RULES.filter((r) => r.selectors.includes(":root")).map((r) => r.body).join(" ");
     const px = (name: string) => Number(new RegExp(`${name}: (\\d+)px`).exec(root)?.[1]);
     const railW = px("--rail-w");
-    expect(bodiesFor(".rail-btn").join(" ")).toContain("width: 36px; height: 36px");
+    const tile = px("--rail-btn");
+    expect(tile).toBe(36);
+    expect(bodiesFor(".rail-btn").join(" ")).toContain("width: var(--rail-btn); height: var(--rail-btn)");
     const gap = Number(/gap: (\d+)px/.exec(bodiesFor(".rail-group").join(" "))?.[1]);
-    expect((railW - 36) / 2, "the margin beside an icon is the gap between two").toBe(gap);
+    expect((railW - tile) / 2, "the margin beside an icon is the gap between two").toBe(gap);
+    /* SB-05: the press reaches the 40 × 40 floor through an overhang, and the tile stays 36. THE
+       mutant: drop the ::after, or shrink it, and the target is the tile. The overhang stays inside
+       the gap, so two neighbours' targets never overlap. */
+    const after = bodiesFor(".rail-btn::after").join(" ");
+    expect(after).toContain('content: ""');
+    expect(after).toContain("position: absolute");
+    expect(after).toContain("inset: calc((var(--rail-btn) - var(--hit-min)) / 2)");
+    const hit = px("--hit-min");
+    expect(hit).toBeGreaterThanOrEqual(40);
+    expect(hit - tile).toBeLessThanOrEqual(gap);
     // The first destination sits the same step below the head row.
     expect(rail).toContain(`padding: calc(var(--frame-top) + ${gap}px) 0 ${gap}px`);
     expect(railW).toBeLessThan(px("--lights-end"));
@@ -2602,6 +2614,27 @@ const SCROLLERS = (css.match(/:where\(([^)]*)\)\s*\{\s*scrollbar-width: thin/)?.
 /** The element that actually scrolls is the last compound of the selector: `.permission-preview
  *  .fd-file` is `.fd-file` doing the scrolling, in a place that gives it a height to overflow. */
 const leaf = (sel: string): string => sel.split(" ").pop()!;
+
+describe("the sidebar and Settings carry one signal", () => {
+  it("draw no green state: Ready, Granted and a lit row are words, and amber is the one dot", () => {
+    /* design.md: amber is only for needs you and failed, with no green or blue dots. Engines' Ready
+       wore a green dot and Permissions' Granted green ink (SB / ST-04 audit). THE mutant: either back. */
+    const SURFACES = /^(\.sb-|\.rail-|\.item-|\.group-label|\.engine|\.tcc-|\.settings-)/;
+    const GREEN = /var\(--(rl-success|green|green-tint|color-green)\)/;
+    const green = RULES.filter((r) => r.selectors.some((sel) => SURFACES.test(sel)) && GREEN.test(r.body))
+      .map((r) => r.selectors.join(", "));
+    expect(green).toEqual([]);
+  });
+
+  it("gives a not-installed engine a plain surface, with no warning stripe down its edge", () => {
+    const edges = RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".engine-card")) && /box-shadow: inset/.test(r.body))
+      .map((r) => r.selectors.join(", "));
+    expect(edges).toEqual([]);
+    const dot = RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".engine-state") && sel.includes("::before")));
+    expect(dot.flatMap((r) => r.selectors)).toEqual([".engine-state:is([data-state=\"logged_out\"], [data-state=\"unchecked\"])::before"]);
+    expect(dot[0]!.body).toContain("var(--rl-warning)");
+  });
+});
 
 describe("scrollbars", () => {
   const GUARD = ":root:not([data-overlay-scrollbars])";
