@@ -632,6 +632,11 @@ export function App() {
       const st = store.getState();
       st.run(() => st.refreshTeammates(spaceId));
     });
+    // A space's Team access was set or cleared, here or in another window: read again where held.
+    const offTeamAccess = rpc().on("teams.access.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (st.teamAccess[spaceId]) st.run(() => st.loadTeamAccess(spaceId));
+    });
     // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
     // that environment: this fires on every turn, and a store holding a list nobody is looking at is
     // work for nothing.
@@ -822,7 +827,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offTeamAccess(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();
