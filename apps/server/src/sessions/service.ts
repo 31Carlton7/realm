@@ -179,6 +179,10 @@ export class SessionService {
   /** Sessions whose turn in flight the person started, and that nothing but the person has written
    *  into since. Cleared when the turn settles, so a turn the engine starts on its own is nobody's. */
   private personTurns = new Set<string>();
+  /** Sessions a message has been written into since their last settle. Recorded as the message goes
+   *  out, because the engine's `running` comes back through the pump a few ticks later, and a second
+   *  message landing in between would otherwise read the session as idle and claim the turn as its own. */
+  private written = new Set<string>();
   private reapTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Messages waiting for the current turn to end, oldest first, per session.
@@ -881,6 +885,7 @@ export class SessionService {
     await this.reaping.get(id);
     const handle = this.ensureLive(id);
     this.noteRealmTurn(id);
+    this.written.add(id);
     if (msg.byPerson === true) this.personTurns.add(id); else this.personTurns.delete(id);
     await handle.send(this.resolveMentions(id, msg));
   }
@@ -1774,7 +1779,8 @@ export class SessionService {
    *  that is when one is, which then stays the person's only if this message is the person's too. */
   private notePersonTurn(id: string, byPerson: boolean): void {
     const status = this.d.sessions.get(id)?.status;
-    const midTurn = status === "running" || status === "waiting_permission";
+    const midTurn = status === "running" || status === "waiting_permission" || this.written.has(id);
+    this.written.add(id);
     if (byPerson && (!midTurn || this.personTurns.has(id))) this.personTurns.add(id);
     else this.personTurns.delete(id);
   }
@@ -1790,6 +1796,7 @@ export class SessionService {
     this.wakingTurn.delete(id);
     this.realmTurn.delete(id);
     this.personTurns.delete(id);
+    this.written.delete(id);
   }
 
   private noteBackground(id: string, toolUseId: string, status: "running" | "stopped"): void {
@@ -2509,7 +2516,7 @@ export class SessionService {
     else if (ev.type === "background_task") this.noteBackground(id, ev.payload.toolUseId, ev.payload.status);
     this.noteScheduling(id, ev);
     if (ev.type === "status" && (before.status === "running" || before.status === "waiting_permission")
-      && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission") this.personTurns.delete(id);
+      && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission") { this.personTurns.delete(id); this.written.delete(id); }
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);
