@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.9.2 - 2026-11-10
+
+- A security code Realm fills in for you stays out of everything an agent can read of the page afterwards: its snapshots, the page's text, and the console and network logs. In the agent's screenshots the field is painted over. A screenshot can still show the digits if the page draws them somewhere other than the field, or inside another site's frame.
+- Every empty page and pane shows the same empty state, and a button you cannot press yet is dimmed once, not twice.
+- Settings draws its controls one way: segmented controls sit at their own width with one line under each label, and sections open with the chevron the rest of the app uses.
+- The Engines page shows each engine's state as a dot and a word and its facts as plain text, and Update all is the page's one primary button.
+- Connections has its sections in the sidebar's column, as Settings and the Library do, and every Connect is a plain button.
+- On first run, agent names keep their width, the default folder gets its own line, and the caret stays on its field when something above it grows.
+- The tooltip for a two-line row sits under the row, not over the chip under the pointer.
+
 ## v2.9.1 - 2026-11-10
 
 - The key Realm's windows use to reach its own server no longer shows on any command line, where other programs on your Mac could read it, and agents working in a sandbox can no longer read it from a file or inherit it. After updating, quit Realm fully and reopen it, because windows that were already open keep the old command line.
