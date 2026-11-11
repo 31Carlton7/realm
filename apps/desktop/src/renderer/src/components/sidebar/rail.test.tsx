@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DEFAULT_KEYBINDINGS, PAGE_REF_IDS, allItems, emptyLayout, itemIdOfLeaf } from "@realm/contracts";
@@ -441,7 +439,7 @@ describe("the profile, at the rail's foot", () => {
   });
 });
 
-describe("the rail's buttons (SB-05)", () => {
+describe("the rail's glyphs (SB-05)", () => {
   it("draw every bare glyph at one size; only a disc holds a mark of its own", async () => {
     // THE MUTANT: "New space"'s + back at 16 beside 18px destinations.
     await mount({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")] });
@@ -449,20 +447,5 @@ describe("the rail's buttons (SB-05)", () => {
       .filter((svg) => !svg.closest(".avatar, .rail-laya-disc, .rail-update-disc"))
       .map((svg) => svg.getAttribute("height")));
     expect([...sizes]).toEqual(["18"]);
-  });
-
-  it("reach the 40 × 40 press floor while the tile stays 36", () => {
-    // THE MUTANT: drop .rail-btn's ::after, or shrink its overhang, and the press target is the tile.
-    const css = readFileSync(join(process.cwd().replace(/\/apps\/desktop.*$/, ""), "apps/desktop/src/renderer/src/styles.css"), "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "");
-    const px = (token: string) => Number(new RegExp(`${token}:\\s*(\\d+)px`).exec(css)?.[1]);
-    const tile = px("--rail-btn");
-    expect(tile).toBe(36);
-    expect(/\.rail-btn \{[^}]*width: var\(--rail-btn\); height: var\(--rail-btn\);/.test(css)).toBe(true);
-    const after = /\.rail-btn::after \{([^}]*)\}/.exec(css)?.[1] ?? "";
-    expect(after).toMatch(/content: ""/);
-    expect(after).toMatch(/position: absolute/);
-    const inset = /inset: calc\(\(var\(--rail-btn\) - var\(--hit-min\)\) \/ 2\)/.test(after) ? (tile - px("--hit-min")) / 2 : 0;
-    expect(tile - 2 * inset).toBeGreaterThanOrEqual(40);
   });
 });

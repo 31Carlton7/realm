@@ -17,7 +17,7 @@ import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
 import { CommandCopy } from "../../components/CommandCopy";
-import { agentAvailability, isBlocked } from "../../state/agent-availability";
+import { agentAvailability, isBlocked, probeReasonSentence } from "../../state/agent-availability";
 import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
@@ -466,7 +466,7 @@ function EngineCard({ kind }: { kind: AgentKind }) {
                 (it needs an API key, Vertex credentials, or a gateway), so the card would have gone
                 from a full explanation to nothing but "Not installed". */}
             {blocked && <p className="settings-hint">{AGENT_LOGIN_HINTS[kind]}</p>}
-            {p && !p.available && p.reason && <p className="settings-hint">{p.reason}</p>}
+            {p && !p.available && p.reason && <p className="settings-hint">{probeReasonSentence(p.reason)}</p>}
           </div>
         </details>
       )}

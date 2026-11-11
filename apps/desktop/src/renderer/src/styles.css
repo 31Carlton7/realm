@@ -9177,14 +9177,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .engine-card + .engine-card::before {
   content: ""; position: absolute; inset: 0 0 auto 16px; height: var(--hairline-w); background: var(--rl-hairline);
 }
-/* The one that needs you is the one that stands out — a warm edge rather than a colour on the text,
-   so it survives being read by someone who cannot tell the two apart. */
-/* An engine that needs something from you keeps its warning edge — as a bar down its inside edge,
-   not a ring. A ring on a meshed row would redraw the box the mesh just removed, and would have to
-   cross the dividers of the rows either side of it to do it. */
-.engine-card[data-state="missing"], .engine-card[data-state="logged_out"] {
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--orange) 55%, transparent);
-}
 .engine-head { display: flex; align-items: center; gap: 12px; }
 .engine-mark { flex: none; display: inline-flex; }
 .engine-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -9196,10 +9188,11 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .engine-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; font-size: 13px; line-height: 18px;
   color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 .engine-fact::before { content: "·"; margin-right: 6px; }
+/* The state is its word. Only what needs you — signed out, or a probe that failed — adds the one amber
+   dot the sidebar uses; Ready and Not installed are ordinary states and read as words alone. */
 .engine-state { display: inline-flex; align-items: center; gap: 6px; }
-.engine-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--mark); }
-.engine-state[data-state="ready"]::before { background: var(--green); }
-.engine-state:is([data-state="missing"], [data-state="logged_out"])::before { background: var(--orange); }
+.engine-state:is([data-state="logged_out"], [data-state="unchecked"])::before { content: ""; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--rl-warning); }
 .engine-run { flex: none; }
 /* The prose, folded. Open by default only when the engine wants something from you — which is the
    whole of how this page stopped being a wall: a ready engine is a title and some chips. */
@@ -9264,7 +9257,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .tcc-row .btn-quiet { flex: none; margin-top: 1px; }
 .tcc-state { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
   font-size: 12px; background: var(--rl-hover); color: var(--rl-text-dim); }
-.tcc-state[data-state="granted"] { color: var(--rl-success); }
 .tcc-state[data-state="denied"] { color: var(--rl-warning); }
 /* "Apps on this Mac" (the grantable half of the Permissions tab). A row can carry two or three
    actions — ask, open Settings, reveal the app — so they stack rather than fight for one line. */
