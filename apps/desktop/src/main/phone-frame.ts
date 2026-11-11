@@ -13,9 +13,12 @@
  *
  * The fields are found by `SECRET_FIELDS`, run in each frame in the page's own world, as `PAGE_BUSY`
  * is: a page that lies about its fields can only hide its own, which it could as well draw anywhere.
- * Which fields count is `isSecretField`'s rule, built from the same two constants.
+ * Which fields count is `isSecretField`'s rule, built from the same two constants, and every input of
+ * a code field by `CODE_FIELD_JS`. An agent's screenshot covers the same fields, and the ones Realm
+ * filled a password or code into whatever they now say (`readSecretRects`).
  */
 import { PLAIN_INPUT_TYPES, SECRET_FIELD_WORDS } from "@realm/contracts";
+import { CODE_FIELD_JS, type CdpSend } from "./browser-agent";
 
 /** A field's place in its frame's viewport, in CSS pixels: x, y, width, height. */
 export type FieldRect = [number, number, number, number];
@@ -25,34 +28,74 @@ export type SecretFields = { vw: number; vh: number; rects: FieldRect[] };
 /** How far past a field's edges the cover reaches, in CSS pixels: a focus ring, a caret's shadow. */
 export const COVER_MARGIN = 4;
 
-/** Every field of the frame (open shadow roots too) that holds or may hold a secret, by its place. */
-export const SECRET_FIELDS = `(() => {
+/** Every field of the frame (open shadow roots too) that holds or may hold a secret, and each of
+ *  `filled`, by its place in the frame's viewport. A filled field inside a same-origin frame is placed
+ *  by that frame's own place in the page. */
+const SECRET_FIELDS_FN = `(filled) => {
+  ${CODE_FIELD_JS}
   const words = ${SECRET_FIELD_WORDS.toString()};
   const plain = ${JSON.stringify(PLAIN_INPUT_TYPES)};
   const rects = [];
+  const place = (el) => {
+    const r = el.getBoundingClientRect();
+    let x = r.left, y = r.top;
+    for (let w = el.ownerDocument.defaultView; w && w !== window && w.frameElement; w = w.parent) {
+      const f = w.frameElement.getBoundingClientRect();
+      x += f.left; y += f.top;
+    }
+    if (r.width <= 0 || r.height <= 0) return;
+    if (x + r.width < 0 || y + r.height < 0 || x > innerWidth || y > innerHeight) return;
+    rects.push([x, y, r.width, r.height]);
+  };
   const visit = (root) => {
     for (const el of root.querySelectorAll("*")) {
       if (el.shadowRoot) visit(el.shadowRoot);
-      if (el.tagName !== "INPUT") continue;
+      if (el.tagName !== "INPUT" || filled.includes(el)) continue;
       const type = (el.getAttribute("type") || "text").toLowerCase();
       if (plain.includes(type)) continue;
       const said = [type, el.getAttribute("name"), el.id, el.getAttribute("autocomplete")].filter(Boolean).join(" ");
-      if (type !== "password" && !words.test(said)) continue;
-      const r = el.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) continue;
-      if (r.right < 0 || r.bottom < 0 || r.left > innerWidth || r.top > innerHeight) continue;
-      rects.push([r.left, r.top, r.width, r.height]);
+      if (type !== "password" && !words.test(said) && !codeGroupOf(el)) continue;
+      place(el);
     }
   };
   visit(document);
+  for (const el of filled) place(el);
   return { vw: innerWidth, vh: innerHeight, rects };
-})()`;
+}`;
+export const SECRET_FIELDS = `(${SECRET_FIELDS_FN})([])`;
 
 /** Whether `SECRET_FIELDS`' answer is one, rather than whatever a page that replaced its globals said. */
 export function isSecretFields(v: unknown): v is SecretFields {
   const s = v as SecretFields | null;
   return !!s && typeof s.vw === "number" && typeof s.vh === "number" && Array.isArray(s.rects)
     && s.rects.every((r) => Array.isArray(r) && r.length === 4 && r.every((n) => typeof n === "number" && Number.isFinite(n)));
+}
+
+/**
+ * The secret fields of the page's top frame, with every one of `filled` (refs Realm typed a password
+ * or code into) wherever it is, for covering an agent's screenshot. Null when the page answered
+ * something other than `SECRET_FIELDS`' shape.
+ */
+export async function readSecretRects(send: CdpSend, filled: readonly number[]): Promise<SecretFields | null> {
+  const objectIds: string[] = [];
+  for (const backendNodeId of filled) {
+    const resolved = (await send("DOM.resolveNode", { backendNodeId }).catch(() => null)) as { object?: { objectId?: string } } | null;
+    if (resolved?.object?.objectId) objectIds.push(resolved.object.objectId);
+  }
+  try {
+    const result = (objectIds.length === 0
+      ? await send("Runtime.evaluate", { expression: SECRET_FIELDS, returnByValue: true, silent: true })
+      : await send("Runtime.callFunctionOn", {
+        objectId: objectIds[0], returnByValue: true, silent: true,
+        functionDeclaration: `function (...filled) { return (${SECRET_FIELDS_FN})(filled); }`,
+        arguments: objectIds.map((objectId) => ({ objectId })),
+      })) as { result?: { value?: unknown } };
+    return isSecretFields(result.result?.value) ? result.result.value : null;
+  } catch {
+    return null;
+  } finally {
+    for (const objectId of objectIds) void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
 }
 
 /**

@@ -174,7 +174,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "browser_screenshot",
-    description: "Screenshot the pane's current viewport. Prefer browser_snapshot for acting; use this to check visual state. A screenshot is also attached automatically to any failed browser_act. Read-only.",
+    description: "Screenshot the pane's current viewport. Prefer browser_snapshot for acting; use this to check visual state. Password, card and security-code fields, and any field Realm filled a password or code into, are painted over in grey. A screenshot is also attached automatically to any failed browser_act. Read-only.",
     inputSchema: { type: "object", properties: { browserId: { type: "string" } }, required: ["browserId"], additionalProperties: false },
   },
   {

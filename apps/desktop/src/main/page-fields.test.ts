@@ -42,6 +42,18 @@ describe("a page's filled-in fields", () => {
     for (const secret of ["hunter2-secret", "shown-secret", "123456", "4242424242424242", "737"]) expect(said).not.toContain(secret);
   });
 
+  it("hides each box of a code row and a field named for a code, though neither says what a password does", () => {
+    // THE MUTANT: secret by `isSecretField`'s words alone — boxes past the first, and a field called
+    // verificationCode, gave their digits to a tab's card.
+    const boxes = [..."482913"].map((d, i) => `<input maxlength="1"${i === 0 ? ' autocomplete="one-time-code"' : ""} value="${d}">`).join("");
+    document.body.innerHTML = `<div>${boxes}</div><input name="verificationCode" value="771204"><input name="promo_code" value="SAVE10">`;
+    expect(read()).toEqual([
+      ...Array.from({ length: 6 }, () => ({ label: "", value: null, hidden: true })),
+      { label: "verificationCode", value: null, hidden: true },
+      { label: "promo_code", value: "SAVE10", hidden: false },
+    ]);
+  });
+
   it("finds a field inside an open shadow root", () => {
     document.body.innerHTML = `<sign-in></sign-in>`;
     const shadow = document.querySelector("sign-in")!.attachShadow({ mode: "open" });

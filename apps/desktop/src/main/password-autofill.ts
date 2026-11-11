@@ -49,8 +49,8 @@
  * code that arrived by Messages or Mail in the last few minutes, as the menu's one row, when
  * Settings ▸ Sign-ins ▸ Security codes is on (`security-codes.ts`). The same checks as a password
  * pick: Realm's world, the top frame, the committed origin, a trusted event, and the page still on
- * that origin when the code is typed. The code is in main's memory from the read to the typing and
- * nowhere else, and the fields it went into keep their value out of an agent's snapshot.
+ * that origin when the code is typed. The code is in main's memory and nowhere else, and it and the
+ * fields it went into are kept out of what an agent reads of the pane.
  */
 import {
   normalizeOrigin, SAVE_OFFER_TTL_MS,
@@ -105,8 +105,8 @@ export type AutofillDeps = {
   passwordFilled(paneId: string, backendNodeId: number): void;
   /** The security code to offer on `origin`, or null — null too while Settings has codes off. */
   codeFor?(paneId: string, origin: string): Promise<LatestCode | null>;
-  /** These nodes now hold a code: keep their value out of an agent's snapshot of the pane. */
-  codeFilled?(paneId: string, backendNodeIds: number[]): void;
+  /** These nodes now hold `code`: keep it out of what an agent reads of the pane. */
+  codeFilled?(paneId: string, backendNodeIds: number[], code: string): void;
   now(): number;
   newId(): string;
 };
@@ -397,7 +397,7 @@ export class PasswordAutofill {
     }
     const send: CdpSend = (method, params) => pane.cdp.send(method, params);
     const result = await performCodeFill(send, targets, { origin, code: found.code }).catch(() => ({ ok: false as const, error: "" }));
-    if (result.ok) this.d.codeFilled?.(paneId, await backendIdsOf(send, targets));
+    if (result.ok) this.d.codeFilled?.(paneId, await backendIdsOf(send, targets), found.code);
   }
 
   /** One of a report's fields, as a remote object in Realm's world: "user", "pass", or a code box. */
