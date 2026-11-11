@@ -1258,15 +1258,17 @@ export function registerMethods(d: Deps): void {
     return { seqs };
   });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
-  // A model or level picked on a teammate's chat is the teammate's from then on.
+  // A model, level or mode picked on a teammate's chat is the teammate's from then on, and a mode
+  // reaches its task sessions before this returns. The desktop composer and the phone's
+  // `session.configure` both set the chip through here.
   reg("sessions.setOptions", async (p) => {
     const s = await d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode });
-    d.team.followOptions(s);
+    await d.team.followOptions(s, p.permissionMode);
     return s;
   });
-  reg("sessions.setAgent", (p) => {
+  reg("sessions.setAgent", async (p) => {
     const s = d.sessions.setAgent(p.id, p.agentKind);
-    d.team.followOptions(s);
+    await d.team.followOptions(s);
     return s;
   });
   reg("sessions.setAccount", (p) => d.sessions.setAccount(p.id, p.accountId));

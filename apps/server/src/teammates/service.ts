@@ -27,6 +27,8 @@ const DEFAULT_TIMEOUTS = { waitMs: TEAM_MESSAGE_WAIT_MS, pollMs: 250 };
 
 const LIVE: ReadonlySet<SessionStatus> = new Set(["running", "waiting_permission"]);
 
+const isTeammateMode = (mode: string): mode is TeammatePermissionMode => (TEAMMATE_PERMISSION_MODES as readonly string[]).includes(mode);
+
 /** The state one session puts its teammate in. */
 const stateOf = (status: SessionStatus): TeammateState =>
   status === "waiting_permission" ? "needs-you" : status === "running" ? "working" : "idle";
@@ -411,7 +413,7 @@ export class TeammatesService {
     if (!row) return;
     const now = this.d.store.update(row.id, {
       agentKind: session.agentKind, model: session.model, effort: session.effort,
-      ...((TEAMMATE_PERMISSION_MODES as readonly string[]).includes(session.permissionMode) ? { permissionMode: session.permissionMode as TeammatePermissionMode } : {}),
+      ...(isTeammateMode(session.permissionMode) ? { permissionMode: session.permissionMode } : {}),
     });
     if (now && now.permissionMode !== row.permissionMode) void this.carryMode(row.id);
     this.changed(row.spaceId);
@@ -489,17 +491,20 @@ export class TeammatesService {
   }
 
   /**
-   * A model or level picked on a home session's chip (`sessions.setOptions`, `sessions.setAgent`). The
-   * teammate takes it, with the agent the model belongs to. Not its permission mode: a chip lowered for
-   * one chat leaves the mode the teammate's tasks run in. Written to the row alone, as `followSwitch`
-   * is, so it does not go back to the chat through `followHome`.
+   * A model, level or mode picked on a home session's chip (`sessions.setOptions`, `sessions.setAgent`).
+   * The teammate takes the model and level, with the agent the model belongs to, written to the row
+   * alone, as `followSwitch` is, so they do not go back to the chat through `followHome`. A mode the
+   * chip picked (`pickedMode`) goes through `setPermissionMode`, so the teammate's tasks follow it; that
+   * sets the chat with the session service directly, so this is not called again.
    */
-  followOptions(session: Session): void {
+  async followOptions(session: Session, pickedMode?: string): Promise<void> {
     const row = this.homeOf(session);
     if (!row) return;
-    if (row.agentKind === session.agentKind && row.model === session.model && row.effort === session.effort) return;
-    this.d.store.update(row.id, { agentKind: session.agentKind, model: session.model, effort: session.effort });
-    this.changed(row.spaceId);
+    if (row.agentKind !== session.agentKind || row.model !== session.model || row.effort !== session.effort) {
+      this.d.store.update(row.id, { agentKind: session.agentKind, model: session.model, effort: session.effort });
+      this.changed(row.spaceId);
+    }
+    if (pickedMode !== undefined && isTeammateMode(session.permissionMode)) await this.setPermissionMode(row.id, session.permissionMode);
   }
 
   /** The teammate whose home chat this is; a task session, or a chat it has moved off, has none. */
