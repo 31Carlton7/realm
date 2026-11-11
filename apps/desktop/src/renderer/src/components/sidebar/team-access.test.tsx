@@ -22,13 +22,14 @@ async function mount(modes: [TeammatePermissionMode, TeammatePermissionMode], sp
     spaces: [space("s1", "p1", "Versed")],
     teammates: [teammate("cto", "s1", { name: "cto", permissionMode: modes[0] }), teammate("ops", "s1", { name: "ops", permissionMode: modes[1], sortOrder: 1 })],
   });
-  const server = { mode: spaceMode };
+  const setAccess = api.setTeamAccess;
+  /** The server's side alone: another window setting the space, which this store does not see. */
+  const server = { mode: spaceMode, async set(mode: TeamAccessMode) { await setAccess("s1", mode); server.mode = mode; } };
   const list = api.teammates;
   const answer = async () => {
     const teammates = (await list("s1")).map((t) => ({ handle: t.handle, mode: t.permissionMode }));
     return { mode: server.mode, mixed: new Set([...teammates.map((t) => t.mode), ...(server.mode ? [server.mode] : [])]).size > 1, teammates };
   };
-  const setAccess = api.setTeamAccess;
   api.teamAccess = async (spaceId) => { api.calls.push(`teamAccess:${spaceId}`); return answer(); };
   api.setTeamAccess = async (spaceId, mode) => { await setAccess(spaceId, mode); server.mode = mode; return answer(); };
   const store = createAppStore(api); await store.getState().boot();
@@ -106,9 +107,8 @@ describe("Team access in the sidebar", () => {
     // THE MUTANT: the event handler that does not read the access again.
     const { store, server } = await mount(["default", "default"]);
     await waitFor(() => expect(chip()).toHaveTextContent("Ask each time"));
-    const st = store.getState();
-    for (const t of st.teammates.s1 ?? []) await st.updateTeammate({ id: t.id, permissionMode: "acceptEdits" });
-    server.mode = "acceptEdits";
+    await server.set("acceptEdits");
+    expect(chip()).toHaveTextContent("Ask each time");
     await act(() => store.getState().teamAccessChanged("s1"));
     expect(chip()).toHaveTextContent("Accept edits");
   });
