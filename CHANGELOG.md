@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.9.3 - 2026-11-10
+
+- A permission card says who is asking first ("Claude asks", or the teammate's name), then shows the command once. Its keys are drawn as the menus' key chips, with one Return glyph.
+- The /, @, + and model pickers share one width and one row height, and a picker that opens under a resting pointer keeps its first row lit.
+- An error that is a sentence reads in the app's own type, and captured output keeps the mono box.
+- A long server name on a tool row ends in an ellipsis, and the note about attachments an agent cannot see fits on one line.
+- A new tab's page shows the shortcut beside Terminal, as the + menu does.
+- In the side panel, the showing tab is marked by its label's ink, not an accent colour. The session summary sets only folders, branches and models in mono, and its section heads are easier to read.
+- The browser's address and find fields show the app's focus ring.
+- On a teammate's Computer tab, the Now and Done rows line up on one edge.
+
 ## v2.9.2 - 2026-11-10
 
 - A security code Realm fills in for you stays out of everything an agent can read of the page afterwards: its snapshots, the page's text, and the console and network logs. In the agent's screenshots the field is painted over. A screenshot can still show the digits if the page draws them somewhere other than the field, or inside another site's frame.
