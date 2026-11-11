@@ -4046,7 +4046,7 @@ describe("row and control layout", () => {
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".sb-lens") && /seg/.test(sel)))).toEqual([]);
     const title = bodiesFor(".sb-lens-title").join(" ");
     const label = bodiesFor(".group-label").join(" ");
-    for (const part of ["font-size: 13px", "font-weight: var(--fw-medium)", "color: var(--rl-text-faint)"]) {
+    for (const part of ["font-size: 13px", "font-weight: var(--fw-medium)", "color: var(--rl-text-dim)"]) {
       expect(label, part).toContain(part);
       expect(title, part).toContain(part);
     }
@@ -5501,4 +5501,15 @@ it("draws a disclosure with the icon set's chevron, never a typed triangle", () 
   const typed = RULES.filter((r) => /content:\s*"[▸▾▶]/.test(r.body)).flatMap((r) => r.selectors);
   expect(typed).toEqual([]);
   expect(bodiesFor("details[open] > summary > .disclosure-mark").join(" ")).toContain("rotate: 90deg");
+});
+
+/* Text a person has to read sits in the reading tier, `--ink-2`, which themes.test.ts holds to 4.5:1 on
+   every ground in the default faces. The hint tier measured 2.8 to 3.5:1 under these. */
+it("sets what is read in the reading tier, never the hint tier", () => {
+  const read = [".group-label", ".sb-lens-title", ".summary-row-meta", ".msg-run", ".msg-run-at", ".msg-transcript-summary"];
+  for (const selector of read) {
+    // THE MUTANT: any one of them back on `--rl-text-faint`.
+    const colours = bodiesFor(selector).join(" ").match(/(?:^|[ ;])color: [^;]+/g) ?? [];
+    expect(colours.map((c) => c.trim().replace(/^;\s*/, "")), selector).toEqual(["color: var(--rl-text-dim)"]);
+  }
 });
