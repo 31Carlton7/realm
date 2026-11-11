@@ -11115,6 +11115,10 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-brief-text { min-height: 112px; }
 .new-space-row > .tm-modes, .new-space-row > .tm-group, .new-space-row > .tm-lead { justify-self: end; }
 .tm-modes .seg-opt { display: inline-flex; align-items: center; gap: 6px; }
+/* Locked to the space's Team access: the same .6 as the sheet's busy lock, and the note under both. */
+.tm-modes:disabled { opacity: .6; }
+.tm-modes:disabled .seg-opt:not([data-selected]):hover { color: var(--rl-text-dim); }
+.new-space-row > .tm-modes-note { grid-column: 1 / -1; justify-self: end; }
 .tm-group { width: 180px; height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); font: inherit; outline: none; }
 .tm-group::placeholder { color: var(--rl-text-faint); }

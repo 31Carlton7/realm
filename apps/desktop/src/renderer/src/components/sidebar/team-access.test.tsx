@@ -13,6 +13,7 @@ import { Sidebar } from "./Sidebar";
 
 afterEach(cleanup);
 
+const LOCKED_LINE = "Set for the whole team in Team access.";
 const FULL_ACCESS_LINE = "Teammates run commands and edit files without asking. They still ask before deleting with rm, signing in, or using another app.";
 
 /** Versed with cto and ops, over a stand-in for `teams.access.*` that answers as the server does. */
@@ -131,5 +132,28 @@ describe("the New teammate sheet under a Team access", () => {
     cleanup();
     render(<StoreContext.Provider value={store}><TeammateSheet spaceId="s1" /></StoreContext.Provider>);
     await waitFor(() => expect(screen.getByRole("radio", { name: /Ask each time/ })).toBeChecked());
+  });
+
+  it("locks the picker on the space's mode, and says where it is set", async () => {
+    // THE MUTANTS: a picker left free under a Team access; the note missing while it is locked.
+    const { store } = await mount(["acceptEdits", "acceptEdits"], "acceptEdits");
+    cleanup();
+    render(<StoreContext.Provider value={store}><TeammateSheet spaceId="s1" /></StoreContext.Provider>);
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Accept edits/ })).toBeChecked());
+    for (const radio of screen.getAllByRole("radio", { name: /Ask each time|Accept edits|Full access/ })) expect(radio).toBeDisabled();
+    expect(screen.getByText(LOCKED_LINE)).toBeInTheDocument();
+  });
+
+  it("leaves the picker free, with no note, while teammates are set one by one", async () => {
+    // THE MUTANTS: a picker locked with no space mode; the note shown over a free picker.
+    const { store, api } = await mount(["acceptEdits", "acceptEdits"]);
+    cleanup();
+    render(<StoreContext.Provider value={store}><TeammateSheet spaceId="s1" /></StoreContext.Provider>);
+    await waitFor(() => expect(api.calls.filter((c) => c === "teamAccess:s1").length).toBeGreaterThan(1));
+    const full = screen.getByRole("radio", { name: /Full access/ });
+    expect(full).toBeEnabled();
+    fireEvent.click(full);
+    expect(full).toBeChecked();
+    expect(screen.queryByText(LOCKED_LINE)).toBeNull();
   });
 });
