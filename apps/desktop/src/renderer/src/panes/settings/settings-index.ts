@@ -140,6 +140,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "app-icon", tab: "appearance", label: "App icon", terms: "dock logo alternate custom realm",
     available: () => capabilities().dockIcons && typeof window.realm?.appIcon?.set === "function" },
   { id: "background", tab: "appearance", section: "Background", label: "New sessions", terms: "background backdrop wallpaper picture image gallery dither halftone shuffle off" },
+  { id: "background-credits", tab: "appearance", section: "Background", label: "Picture credits", terms: "background painting artist museum attribution licence credit nasa" },
   { id: "background-images", tab: "appearance", section: "Background", label: "Your images", terms: "background wallpaper picture photo custom add upload" },
   { id: "background-motion", tab: "appearance", section: "Background", label: "Background motion", terms: "background animation drift move" },
   { id: "ui-font", tab: "appearance", section: "Text", label: "UI font", terms: "typeface family weight interface" },
