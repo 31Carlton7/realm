@@ -29,7 +29,7 @@ export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover,
   // it trailing the caret while the sentence carries on is noise rather than motion.
   const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
   const active = Math.min(activeIndex, commands.length - 1);
-  const { list, hovered } = usePickerScroller(active);
+  const { list, hoverRow } = usePickerScroller(active, onHover);
   return createPortal(
     <div ref={ref} id="slash-list" className="mention-picker slash-picker" role="listbox" aria-label="Commands"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
@@ -38,7 +38,7 @@ export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover,
         {commands.map((c, i) => (
           <div key={c.id} id={`slash-${c.id}`} role="option" tabIndex={-1}
             className="mention-row slash-row" aria-selected={i === active} data-active={i === active || undefined}
-            onMouseEnter={() => { hovered.current = i; onHover(i); }}
+            onMouseMove={hoverRow(i)}
             onMouseDown={(e) => e.preventDefault() /* the textarea keeps focus; the caret must not move */}
             onClick={() => onPick(c)}>
             <Icon name={c.icon} size={12} className="slash-row-glyph" />

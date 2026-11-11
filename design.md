@@ -645,6 +645,9 @@ acronym that is uppercase anyway (a file extension on a tile).
 - The prompter's pickers — "+", the model list, `@` and `/` — are one surface opened from one row of
   controls, so they share one width and one row height (`--picker-w`, `--picker-row-h`). They had
   grown four widths, and the narrowest cut five of the `/` list's nine hints.
+- A list typed into takes its highlight from the keyboard. The pointer only takes it once it MOVES,
+  because a list that opens under a resting pointer is otherwise lit wherever the pointer happened
+  to be.
 - Menus are the system's. `Menu` hands its rows to an OS menu — material, type-to-select, and the
   only surface that can open over a browser pane's native view — and draws its own only where there
   is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the
