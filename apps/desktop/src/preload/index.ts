@@ -17,8 +17,9 @@ contextBridge.exposeInMainWorld("realm", {
   port: port === undefined ? NaN : Number(port), home: arg("realm-home") ?? "",
   /** The RPC token, offered as the `realm.<token>` subprotocol on every dial. Realm's socket binds
    *  loopback, which a WebSocket dial from any web page can reach — CORS does not apply to it — so
-   *  without this the renderer is not the only thing that can call `sessions.create`. */
-  token: arg("realm-token") ?? "",
+   *  without this the renderer is not the only thing that can call `sessions.create`. Asked of main
+   *  rather than read off the command line, which `ps` shows to every process this user runs. */
+  token: (ipcRenderer.sendSync("daemon:token") as string | null) ?? "",
   /** The profile this window was opened for — a window per profile (Plan 27 Phase 2) — or undefined
    *  for the first window. Main passes it on the command line it builds the window with; the store's
    *  boot lands in that profile. */

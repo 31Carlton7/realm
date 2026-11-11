@@ -41,6 +41,10 @@ const handedOver = {
   service: process.env.REALM_SERVICE === "1", remoteKeyFile: process.env.REALM_REMOTE_KEY_FILE || null,
 };
 for (const k of ["REALM_LISTEN", "REALM_TLS_CERT", "REALM_TLS_KEY", "REALM_ALLOW_PLAINTEXT", "REALM_HEADLESS", "REALM_SERVICE", "REALM_REMOTE_KEY_FILE"]) delete process.env[k];
+// The `realm` CLI's own credential for a remote server, which a server started from a shell that set
+// it would otherwise hand to every agent it runs. This server never reads either.
+delete process.env.REALM_TOKEN;
+delete process.env.REALM_SERVER;
 
 try {
   const home = realmHome();

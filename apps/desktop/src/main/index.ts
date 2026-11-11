@@ -1802,6 +1802,9 @@ ipcMain.handle("daemon:endpoint", () => {
   const endpoint = serverEndpoint();
   return endpoint ? { port: endpoint.port, token: endpoint.token } : null;
 });
+/** The token a window's preload dials with, synchronously so `window.realm.token` is there when the
+ *  page's first script runs. Only app windows load a preload; browser panes have none to ask with. */
+ipcMain.on("daemon:token", (e) => { e.returnValue = serverEndpoint()?.token ?? null; });
 ipcMain.handle("daemon:restart", () => restartRealmServer());
 ipcMain.handle("daemon:state-now", () => lastDaemonState);
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
