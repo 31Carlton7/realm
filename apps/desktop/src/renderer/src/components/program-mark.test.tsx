@@ -130,7 +130,9 @@ describe("a terminal's tab", () => {
     // The tab NOT on screen is exactly where "the agent in the other terminal" has to be said.
     const { say } = await mount({ t1: claude });
     expect(tab(/realm/)).toHaveTextContent("claude · realm");
-    expect(tab(/realm/)).toHaveAttribute("title", "claude · realm");
+    // Its whole name is a tooltip only when the strip cuts it (data-tip="clipped").
+    expect(tab(/realm/)).toHaveAttribute("data-tip", "clipped");
+    expect(tab(/realm/).querySelector("[data-tip-text]")).toHaveTextContent("claude · realm");
     expect(shown(tab(/realm/)).querySelector(".program-tile [data-brand='claude']")).not.toBeNull();
     say("t1", null);
     expect(tab(/realm/)).toHaveTextContent(/^realm$/);
