@@ -240,6 +240,38 @@ describe("where it is drawn", () => {
     expect(drawn()).toMatchObject({ shown: true, left: 123, top: 20, width: 2, height: 18 });
   });
 
+  it("follows its field when content above it grows, which neither resizes the field nor scrolls", () => {
+    /* OB-01: on first run, opening "11 more agents" moved the Name field from y 637 to 712 and the
+       caret stayed in the heading above it. Nothing about the field itself changed; the box it sits
+       in grew. THE MUTANT: observing the field alone. */
+    const observed: Element[] = [];
+    let fire: () => void = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: () => void) { fire = cb; }
+      observe(el: Element) { observed.push(el); }
+      unobserve() {}
+      disconnect() { observed.length = 0; }
+    });
+    stubGeometry();
+    install({ shape: "line" });
+    const form = field('<form><fieldset id="agents"></fieldset><label><input id="name"></label></form>');
+    const input = form.querySelector<HTMLInputElement>("#name")!;
+    // The stubbed text stands at y 20, so the field moves within reach of it: 5 down to 15.
+    let top = 5;
+    Object.defineProperty(input, "getBoundingClientRect", { value: () => new DOMRect(90, top, 600, 80) });
+    vi.spyOn(document, "elementFromPoint" as never).mockImplementation((() => input) as never);
+    input.value = "Realm";
+    input.focus();
+    flush();
+    const clipY = () => Number((document.querySelector(".caret-clip") as HTMLElement).style.transform.match(/-?[\d.]+/g)![1]);
+    expect(observed).toContain(form);
+    const before = clipY();
+    top = 15;
+    fire();
+    flush();
+    expect(clipY() - before).toBe(10);
+  });
+
   it("measures a plain field in its own mirror, and never copies a password into it", () => {
     /* THE plaintext mutant: mirror the value as typed, and the one field whose characters are never
        shown has them sitting in a DOM node anyone can read. */

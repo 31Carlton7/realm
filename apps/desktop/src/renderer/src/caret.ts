@@ -205,6 +205,10 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
     // The ancestors that clip what they hold: a field scrolled out of a pane is out of sight.
     const clips = (v: string) => v !== "" && v !== "visible";
     for (let a = el.parentElement; a && a !== doc.body; a = a.parentElement) {
+      // Every ancestor's size too: content growing above the field moves it without resizing it or
+      // scrolling anything — first run's "11 more agents" opening left the caret in the heading 75px
+      // over the field it had moved down — but it always grows something the field is inside.
+      ro?.observe(a);
       const cs = win.getComputedStyle(a);
       if (clips(cs.overflowX) || clips(cs.overflowY)) clippers.push(a);
     }
