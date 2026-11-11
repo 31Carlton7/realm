@@ -30,8 +30,8 @@ export type ColorLook = {
 /** The screened look, and the same picture as it is: one device px a cell and no screen, but the
  *  same feather, fade and contrast guard. */
 export const COLOR_LOOKS: Record<"dither-color" | "as-is", ColorLook> = {
-  "dither-color": { cell: 2, depth: 0.22, cover: 0.8, feather: 32, fade: [0, 0.2] },
-  "as-is": { cell: 1, depth: 0, cover: 0.8, feather: 32, fade: [0, 0.2] },
+  "dither-color": { cell: 2, depth: 0.22, cover: 0.8, feather: 72, fade: [0, 0.2] },
+  "as-is": { cell: 1, depth: 0, cover: 0.8, feather: 72, fade: [0, 0.2] },
 };
 
 /** A picture to draw: its URL, and a short key that names it in the cache (a data: URL is megabytes). */
@@ -200,8 +200,9 @@ const union = (rects: Rect[]): Rect => {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 };
 
-/** How far a hush reaches past its text before the picture is whole again, in CSS px. */
-const HUSH_REACH = 64;
+/** How far a hush reaches past its text before the picture is whole again, in CSS px: wide, so the
+ *  greeting sits on a softened picture rather than in a cleared patch. */
+const HUSH_REACH = 160;
 
 /**
  * The contrast guard: per group of runs, how far the picture must come down under it for every run
