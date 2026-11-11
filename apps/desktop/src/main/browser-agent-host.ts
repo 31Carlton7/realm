@@ -269,6 +269,9 @@ const newChooserState = (): FileChooserState => ({ armed: false, disarmAt: 0, ti
 
 export class BrowserAgentHost {
   private readonly attached = new Map<string, Attached>();
+  /** Per view, the refs a password was typed into, by the agent's fill or the person's menu. Kept
+   *  off `Attached`, which is dropped and re-made while the page (and its node ids) lives on. */
+  private readonly filledSecrets = new Map<string, Set<number>>();
 
   /**
    * The theme accent every mark this host draws inside a page is painted in — the action ring, the
@@ -298,9 +301,18 @@ export class BrowserAgentHost {
     if (entry) pushRing(entry.consoleLines, `[realm] download blocked (downloads are disabled for agent-driven browsing): ${url}`, CONSOLE_MAX);
   }
 
+  /** A password went into this node: its value stays out of every snapshot and field read of the
+   *  view, whatever type the page gives the field afterwards. */
+  secretFilled(browserId: string, ref: number): void {
+    let refs = this.filledSecrets.get(browserId);
+    if (!refs) this.filledSecrets.set(browserId, refs = new Set());
+    refs.add(ref);
+  }
+
   /** The pane's view is gone — drop its attachment and buffers. Snapshot indexes die with the view:
    *  a fresh view is a fresh page, and stale [new] markers would lie about it. */
   release(browserId: string): void {
+    this.filledSecrets.delete(browserId);
     // A pick armed on a view that just died resolves EMPTY rather than hanging: the renderer awaits
     // this promise to un-arm its button, and a pane closed mid-pick would otherwise leave the button
     // lit for a view that no longer exists.
@@ -529,7 +541,7 @@ export class BrowserAgentHost {
         // is Realm's statement, and the text is the site's.
         const failed = this.d.pageState(browserId)?.error ?? null;
         if (failed) return { url: failed.url, title: "", text: "", elementCount: 0, elements: [], page, loadError: failed } satisfies BrowserSnapshotResult;
-        const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot, (params.scope ?? {}) as Parameters<typeof buildSnapshot>[2]);
+        const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot, (params.scope ?? {}) as Parameters<typeof buildSnapshot>[2], this.filledSecrets.get(browserId));
         entry.lastSnapshot = result.index;
         const { index: _index, ...rest } = result;
         const wire: BrowserSnapshotResult = { ...rest, page };
@@ -559,7 +571,7 @@ export class BrowserAgentHost {
         if (failed) return { text: "", loadError: failed } satisfies BrowserReadResult;
         const text = await readPageText(entry.binding.send);
         // A pane handed over from the prompter also says what its form holds, its secrets hidden.
-        if (params.fields === true) return { text, fields: await readPageFields(entry.binding.send) } satisfies BrowserReadResult;
+        if (params.fields === true) return { text, fields: await readPageFields(entry.binding.send, [...this.filledSecrets.get(browserId) ?? []]) } satisfies BrowserReadResult;
         return { text };
       }
       case "act": {
@@ -777,6 +789,8 @@ export class BrowserAgentHost {
         // least in it, not the most. No ring, no cursor, no frame. The permission card already told
         // the user which pane.
         let result: BrowserActResult;
+        // Before typing: a fill that fails partway may still have put characters in the field.
+        this.secretFilled(browserId, ref);
         try {
           result = await performFillCredential(entry.binding.send, ref, fill);
         } catch {

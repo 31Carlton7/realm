@@ -34,11 +34,12 @@ function harness(over: Partial<AutofillDeps> & { rows?: SiteCredential[]; choice
         const which = String(params?.expression).includes('"pass"') ? "pass" : "user";
         return { result: { type: "object", objectId: `obj-${which}` } };
       }
+      if (method === "DOM.describeNode") return { node: { backendNodeId: params?.objectId === "obj-pass" ? 42 : 41 } };
       return {};
     },
     onEvent: (cb: (method: string, params: unknown) => void) => { emit = cb; },
   };
-  const calls = { menus: [] as unknown[], values: [] as string[], offers: [] as PasswordSaveOffer[], withdrawn: [] as string[], saved: [] as unknown[], never: [] as string[], settings: 0, audit: [] as unknown[] };
+  const calls = { filled: [] as [string, number][], menus: [] as unknown[], values: [] as string[], offers: [] as PasswordSaveOffer[], withdrawn: [] as string[], saved: [] as unknown[], never: [] as string[], settings: 0, audit: [] as unknown[] };
   let clock = 1_000;
   let ids = 0;
   const deps: AutofillDeps = {
@@ -53,6 +54,7 @@ function harness(over: Partial<AutofillDeps> & { rows?: SiteCredential[]; choice
     withdraw: (_b, id) => { calls.withdrawn.push(id); },
     openSettings: () => { calls.settings++; },
     audit: (e) => { calls.audit.push(e); },
+    passwordFilled: (paneId, ref) => { calls.filled.push([paneId, ref]); },
     now: () => clock,
     newId: () => `offer-${++ids}`,
     ...over,
@@ -96,6 +98,8 @@ describe("the menu", () => {
     expect(h.typed()).toBe(`ada${SECRET}`);
     expect(h.calls.audit).toEqual([expect.objectContaining({ outcome: "filled", by: "person", credentialId: "c1" })]);
     expect(JSON.stringify(h.calls.audit)).not.toContain(SECRET);
+    // The password's field, and only it, is marked as holding one, so no snapshot shows it later.
+    expect(h.calls.filled).toEqual([["b1", 42]]);
   });
 
   it("ignores the page's own world, a frame, and a context at another origin", async () => {

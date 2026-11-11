@@ -232,6 +232,35 @@ describe("buildSnapshot", () => {
     expect(snap.text).toContain('value="carlton"');
   });
 
+  it("never shows the value of a field Realm filled with a sign-in, after the page turned it into text (mutant: filled-ref lookup removed)", async () => {
+    // "Show password" flips the field to type=text: neither the type nor the AX protected bit says
+    // password any more, and only Realm's own record of the fill does.
+    const doc = makeSnapshotDoc();
+    const shown = doc.addNode({ tag: "INPUT", attrs: { type: "text", id: "field-2" }, backendId: 7, value: "hunter2-dom" });
+    doc.addLayout(shown, [0, 0, 200, 30]);
+    const ax = [{ backendDOMNodeId: 7, role: "textField", name: "Sign-in", value: "hunter2-ax" }];
+    const filled = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, null, {}, new Set([7]));
+    expect(filled.text).not.toContain("hunter2");
+    expect(filled.elements?.[0]).toMatchObject({ ref: 7, value: null, password: true });
+    // The same field, never filled by Realm, is an ordinary text field.
+    const plain = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, null);
+    expect(plain.elements?.[0]).toMatchObject({ ref: 7, value: "hunter2-dom", password: false });
+  });
+
+  it("hides the value of a field that says it holds a secret, whatever its type", async () => {
+    const doc = makeSnapshotDoc();
+    const shown = doc.addNode({ tag: "INPUT", attrs: { type: "text", name: "password" }, backendId: 7, value: "shown-secret" });
+    doc.addLayout(shown, [0, 0, 200, 30]);
+    const otp = doc.addNode({ tag: "INPUT", attrs: { autocomplete: "one-time-code" }, backendId: 8, value: "123456" });
+    doc.addLayout(otp, [0, 40, 200, 30]);
+    const user = doc.addNode({ tag: "INPUT", attrs: { type: "text", name: "username" }, backendId: 9, value: "carlton" });
+    doc.addLayout(user, [0, 80, 200, 30]);
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload() }).send, null);
+    expect(snap.text).not.toContain("shown-secret");
+    expect(snap.text).not.toContain("123456");
+    expect(snap.text).toContain('value="carlton"');
+  });
+
   it("drops an element covered by a later-painted opaque box (mutant: occlusion filter removed)", async () => {
     const doc = makeSnapshotDoc();
     const btn = doc.addNode({ tag: "BUTTON", backendId: 42 });
