@@ -9,7 +9,7 @@ import type { MenuItem } from "../Menu";
 const NO_AGENT = "team access setting";
 
 /** The one mode the whole team is on, or null when they differ. */
-export function teamAccessShown(access: TeamAccess): string | null {
+function teamAccessShown(access: TeamAccess): string | null {
   if (access.mixed) return null;
   return access.mode ?? access.teammates[0]?.mode ?? null;
 }

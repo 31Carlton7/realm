@@ -44,7 +44,7 @@ const NO_ICONS: Readonly<Record<string, string | null>> = {};
 const listNames = (names: readonly string[]): string =>
   names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
-/** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
+/** Borderless ghost chip that opens a Menu, upward unless placed down (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
 export function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true, placement = "up" }: { ariaLabel: string; title?: string; label: ReactNode;
