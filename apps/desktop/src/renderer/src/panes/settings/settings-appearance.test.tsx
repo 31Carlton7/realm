@@ -162,3 +162,22 @@ describe("Cursor", () => {
     expect(screen.queryByText(/blinks instead/)).toBeNull();
   });
 });
+
+describe("Background", () => {
+  const grid = () => within(screen.getByRole("group", { name: "Background" }));
+
+  it("shows Haze chosen by default, saves a pick, and offers Motion only for a look that moves", async () => {
+    const { api, store } = await appearance();
+    expect(grid().getByRole("radio", { name: "Haze" })).toBeChecked();
+    expect(grid().getAllByRole("radio").map((r) => (r as HTMLInputElement).value).slice(0, 2)).toEqual(["off", "shuffle"]);
+    expect(screen.getByRole("switch", { name: "Background motion" })).toBeEnabled();
+    fireEvent.click(grid().getByRole("radio", { name: "Sky" }));
+    await waitFor(() => expect(store.getState().background).toBe("sky"));
+    expect(api.calls).toContain("setSetting:ui.background=sky");
+    expect(screen.getByRole("switch", { name: "Background motion" })).toBeDisabled();
+    fireEvent.click(grid().getByRole("radio", { name: "Off" }));
+    await waitFor(() => expect(store.getState().background).toBe("off"));
+    // No pictures yet: the empty state offers the way to add one.
+    expect(screen.getByRole("button", { name: "Add image…" })).toBeInTheDocument();
+  });
+});

@@ -167,6 +167,7 @@ export class BackdropRenderer {
   ready = false;
 
   constructor(private canvas: HTMLCanvasElement) {
+    if (typeof WebGL2RenderingContext === "undefined") throw new Error("webgl2 unavailable");
     const gl = canvas.getContext("webgl2", { antialias: false, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: false });
     if (!gl) throw new Error("webgl2 unavailable");
     this.gl = gl;

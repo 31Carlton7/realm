@@ -204,6 +204,27 @@ const union = (rects: Rect[]): Rect => {
 const HUSH_REACH = 64;
 
 /**
+ * The contrast guard: per group of runs, how far the picture must come down under it for every run
+ * to keep its ratio against its worst pixel, and the opacity of the whole canvas if a run still
+ * misses with those in. `under` is the picture as it will land under a rect with the given hushes,
+ * one RGBA entry per cell, its alpha the mask's.
+ */
+export function guard(runs: TextRun[], under: (rect: Rect, hushes: Hush[]) => Uint8ClampedArray | null, ground: Rgb): { hushes: Hush[]; opacity: number } {
+  const sample = (members: TextRun[], hushes: Hush[]) => members.flatMap((r) => {
+    const pixels = under(r.rect, hushes);
+    return pixels ? [{ pixels, color: r.color, need: r.need }] : [];
+  });
+  const groups = new Map<string, TextRun[]>();
+  for (const r of runs) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
+  const hushes: Hush[] = [];
+  for (const members of groups.values()) {
+    const level = safeOpacity(sample(members, []), ground);
+    if (level < 1) hushes.push({ rect: union(members.map((m) => m.rect)), level, reach: HUSH_REACH });
+  }
+  return { hushes, opacity: hushes.length ? safeOpacity(sample(runs, hushes), ground) : 1 };
+}
+
+/**
  * Lays the screened picture onto `canvas`, feathered out round the prompter's `card` and down the
  * pane, and hushed under the text. The guard works the hushes out first, from the screened cells
  * and `pictureAlpha` rather than by reading the canvas back: per group of runs `texts` returns, how
@@ -232,19 +253,7 @@ export async function paintColorBackdrop(canvas: HTMLCanvasElement, look: ColorL
     }
     return px;
   };
-  const sample = (runs: TextRun[], hushes: Hush[]) => runs.flatMap((r) => {
-    const pixels = under(r.rect, hushes);
-    return pixels ? [{ pixels, color: r.color, need: r.need }] : [];
-  });
-  const runs = texts();
-  const groups = new Map<string, TextRun[]>();
-  for (const r of runs) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
-  const hushes: Hush[] = [];
-  for (const members of groups.values()) {
-    const level = safeOpacity(sample(members, []), ground);
-    if (level < 1) hushes.push({ rect: union(members.map((m) => m.rect)), level, reach: HUSH_REACH });
-  }
-  const opacity = hushes.length ? safeOpacity(sample(runs, hushes), ground) : 1;
+  const { hushes, opacity } = guard(texts(), under, ground);
   const g = canvas.getContext("2d")!;
   g.save();
   g.clearRect(0, 0, w, h);

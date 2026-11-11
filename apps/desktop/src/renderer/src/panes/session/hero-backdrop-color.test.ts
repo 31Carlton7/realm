@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { contrast, ditherColor, pictureAlpha, safeOpacity, type GuardSample } from "./hero-backdrop-color";
+import { COLOR_LOOKS, contrast, ditherColor, guard, pictureAlpha, safeOpacity, type GuardSample, type Hush, type TextRun } from "./hero-backdrop-color";
+import type { Rect, Rgb } from "./hero-backdrop";
 
 const fill = (w: number, h: number, rgb: [number, number, number]) => {
   const px = new Uint8ClampedArray(w * h * 4);
@@ -99,4 +100,51 @@ describe("pictureAlpha", () => {
     expect(pictureAlpha(500, 100 - 40, 900, card, look, [hush])).toBeCloseTo(1, 5);
     expect(pictureAlpha(50, 120, 900, card, look, [hush])).toBe(1);
   });
+});
+
+describe("a picture shown as it is", () => {
+  const W = 1000, H = 800;
+  const look = COLOR_LOOKS["as-is"];
+  const card: Rect = { x: 200, y: 400, w: 600, h: 120 };
+  // Busy on purpose: saturated colour changing every pixel, bright and dark side by side.
+  let seed = 7;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+  const busy = Array.from({ length: W * H }, () => [rand() > 0.5 ? 255 : 0, Math.floor(rand() * 256), rand() > 0.5 ? 255 : 20]);
+  const under = (rect: Rect, hushes: Hush[]) => {
+    const x0 = Math.floor(rect.x), y0 = Math.floor(rect.y), x1 = Math.ceil(rect.x + rect.w), y1 = Math.ceil(rect.y + rect.h);
+    const px = new Uint8ClampedArray((x1 - x0) * (y1 - y0) * 4);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const i = ((y - y0) * (x1 - x0) + x - x0) * 4;
+      px.set([...busy[y * W + x]!, 255 * pictureAlpha(x + 0.5, y + 0.5, H, card, look, hushes)], i);
+    }
+    return px;
+  };
+  const worst = (run: TextRun, hushes: Hush[], opacity: number, ground: Rgb) => {
+    const p = under(run.rect, hushes);
+    let min = Infinity;
+    for (let i = 0; i < p.length; i += 4) {
+      const a = (p[i + 3]! / 255) * opacity;
+      const bg = [0, 1, 2].map((k) => ground[k]! * (1 - a) + (p[i + k]! / 255) * a) as Rgb;
+      min = Math.min(min, contrast(run.color.slice(0, 3) as Rgb, bg));
+    }
+    return min;
+  };
+
+  for (const face of [
+    { name: "light", ground: [0.98, 0.98, 0.98] as Rgb, ink: [0.1, 0.1, 0.12] as Rgb, quiet: [0.33, 0.33, 0.37] as Rgb },
+    { name: "dark", ground: [0.09, 0.09, 0.1] as Rgb, ink: [0.95, 0.95, 0.96] as Rgb, quiet: [0.7, 0.7, 0.74] as Rgb },
+  ]) {
+    it(`keeps every run of text at its ratio over a busy picture, ${face.name}`, () => {
+      expect(look.depth).toBe(0);
+      const runs: TextRun[] = [
+        { rect: { x: 300, y: 250, w: 400, h: 40 }, color: [...face.ink, 1], need: 3, group: "greeting" },
+        { rect: { x: 420, y: 310, w: 160, h: 16 }, color: [...face.quiet, 1], need: 4.5, group: "1" },
+      ];
+      // Unguarded, the picture would bury the words.
+      for (const r of runs) expect(worst(r, [], 1, face.ground)).toBeLessThan(2);
+      const { hushes, opacity } = guard(runs, under, face.ground);
+      expect(hushes.length).toBeGreaterThan(0);
+      for (const r of runs) expect(worst(r, hushes, opacity, face.ground)).toBeGreaterThanOrEqual(r.need);
+    });
+  }
 });
