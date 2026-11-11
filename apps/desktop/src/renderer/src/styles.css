@@ -2435,9 +2435,6 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
    direction, and a horizontal move would imply it came from the sidebar it is not part of. */
 @keyframes rl-page-in { from { translate: 0 6px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
-/* …except a page that opens or closes the sidebar as it arrives (PageOverlay, `data-cut`): the column
-   goes in that frame, and through a page still fading in the panes under it were seen taking its room. */
-.page-overlay[data-cut] { animation: none; }
 /* One bar, carrying what the overlay IS. The hairline is earned here — the page's own scroller
    genuinely passes under it. */
 /* No rule under it. The bar holds the page's own name — chrome FOR the page, not a section beside it —
@@ -5822,8 +5819,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .market-blurb { font-size: 12px; line-height: 1.45; color: var(--rl-text-dim); }
 .market-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .market-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-success); }
-.market-docs { font-size: 12px; color: var(--rl-text-faint); text-decoration: none; }
-.market-docs:hover { color: var(--rl-text-dim); text-decoration: underline; text-underline-offset: 2px; }
+.market-docs { font-size: 12px; color: var(--rl-text-dim); text-decoration: none; }
+.market-docs:hover { color: var(--rl-text-bright); text-decoration: underline; text-underline-offset: 2px; }
 .market-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 .market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
 /* The sign-in sheet (McpSignInSheet.tsx): a block per way in, parted by space rather than rules, and
@@ -7656,6 +7653,7 @@ select { appearance: none; padding-right: 22px;
    its own label styling has to be restated here rather than inherited from `.field > span`. */
 .mcp-section-head { display: flex; align-items: center; justify-content: space-between; }
 .mcp-section-head > span { font-size: 12px; color: var(--rl-text-dim); }
+.mcp-section-head > :only-child { margin-left: auto; }
 
 /* ── Activity: Realm's log of every proxied MCP call (W7) ───── */
 .activity-filters { display: flex; flex-direction: column; gap: 6px; }

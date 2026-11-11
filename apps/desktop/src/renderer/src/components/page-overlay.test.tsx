@@ -141,29 +141,6 @@ describe("the page about you", () => {
   });
 });
 
-describe("how a page arrives", () => {
-  it("at once when it takes or gives back the sidebar as it opens, rising in when it does not — decided as it opens", async () => {
-    /* Connections from a session takes the spaces away in the frame it arrives (App.tsx,
-       `useSidebarCut`), and the panes under the page take their width: through a page still fading in,
-       they were seen doing it. So that page is drawn at once (`data-cut`, no entrance). The Library from
-       a session leaves the sidebar where it is, and rises in as every page does. Held while the page is
-       up, because an entrance plays once: re-deciding it later would take `animation: none` away and
-       replay the rise over a page already there. THE MUTANTS: every page cut, none cut, or the cut
-       re-decided at the next page. */
-    const { store } = await mount();
-    const page = () => document.querySelector(".page-overlay")!;
-    act(() => store.getState().openDestinationPage("connections-page"));
-    expect(page()).toHaveAttribute("data-cut");
-    act(() => store.getState().openDestinationPage("library-page"));
-    expect(page(), "the Library after Connections: up already, and still as it arrived").toHaveAttribute("data-cut");
-    act(() => store.getState().closePageOverlay());
-    act(() => store.getState().openDestinationPage("library-page"));
-    expect(page()).not.toHaveAttribute("data-cut");
-    act(() => store.getState().openDestinationPage("connections-page"));
-    expect(page(), "Connections after the Library: the page was already up").not.toHaveAttribute("data-cut");
-  });
-});
-
 describe("the workspace under a page", () => {
   it("takes no keyboard while a page covers it, and answers again once the page is put away", async () => {
     // Tab from the Scheduled page walked into the session hidden under it — its Retry, its tool

@@ -1,16 +1,23 @@
 import { Icon } from "@realm/ui";
 import { CONNECTORS, SYSTEM_BROWSER_FRAME, connectorServerName, type Connector, type McpServer } from "@realm/contracts";
-import { useState, type FormEvent } from "react";
-import { PageScroll } from "../../components/ScrollFades";
+import { useRef, useState, type FormEvent } from "react";
+import { PageRail } from "../../components/page-nav";
+import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
-import { useApp } from "../../state/store";
+import { useApp, type ConnectionsTab } from "../../state/store";
 import { McpSection } from "../../components/sidebar/McpSection";
 import { McpSignInSheet } from "../../components/sidebar/McpSignInSheet";
 import type { PaneProps } from "../registry";
 
+const SECTIONS: readonly { id: ConnectionsTab; label: string; icon: string }[] = [
+  { id: "apps", label: "Apps", icon: "grid" }, { id: "servers", label: "MCP servers", icon: "plug" },
+];
+
 /**
  * The Connections page (Plan 12 W4): the sidebar destination for MCP servers, on the W3 page pattern.
- * No rail — one section, so the head leads straight into the content column.
+ * Its two sections, the apps a click connects and the servers they become, are drawn in the sidebar's
+ * column as the Library's are (`PageRail`), so the page keeps the column every other rail page keeps
+ * and its crumb stays where theirs is.
  *
  * The body IS McpSection, the same component the space page's Connections tab mounts — scope groups,
  * provider rows, hub status dots, Test, the add/edit form and MCP_SECRET_STORAGE_NOTE all live THERE,
@@ -21,22 +28,39 @@ import type { PaneProps } from "../registry";
 export function ConnectionsPage({ item }: PaneProps) {
   const spaceId = item.spaceId;
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
+  const tab = useApp((s) => s.connectionsTab);
+  const setTab = useApp((s) => s.setConnectionsTab);
+  const railStrip = useRef<HTMLFieldSetElement>(null);
+  useDissolve(railStrip, "x");
 
   if (!space) return <div className="pane-placeholder muted">This page's space no longer exists.</div>;
 
   return (
     <div className="page connections-page-pane">
       <div className="page-body">
+        <PageRail label="Connections" title="Connections">
+          <fieldset className="page-rail" ref={railStrip}>
+            <legend className="visually-hidden">Connections section</legend>
+            {SECTIONS.map((t) => (
+              <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
+                <input type="radio" name={`connections-tab-${item.id}`} value={t.id} checked={tab === t.id} onChange={() => setTab(t.id)} />
+                <Icon name={t.icon} size={16} className="page-rail-glyph" />
+                {t.label}
+              </label>
+            ))}
+          </fieldset>
+        </PageRail>
         {/* Both ends dissolve, but only when there is something under them — and only over the
             column, which is what `PageScroll` wraps. The column pads by their depth so a row under
             one is still clickable. */}
         <PageScroll>
           <header className="page-head">
-            <div className="page-title"><h1>Connections</h1></div>
+            <div className="page-title"><h1>{SECTIONS.find((t) => t.id === tab)!.label}</h1></div>
             <span className="page-vantage">{space.name}</span>
           </header>
-          <ConnectorMarket spaceId={spaceId} />
-          <McpSection spaceId={spaceId} />
+          {/* Both stay mounted: the cards read their state from the server list McpSection fetches. */}
+          <div hidden={tab !== "apps"}><ConnectorMarket spaceId={spaceId} /></div>
+          <div hidden={tab !== "servers"}><McpSection spaceId={spaceId} titled={false} /></div>
         </PageScroll>
       </div>
     </div>
@@ -85,7 +109,6 @@ function ConnectorMarket({ spaceId }: { spaceId: string }) {
   };
   return (
     <section className="market" aria-label="Connect an app">
-      <div className="mcp-section-head"><span>Connect an app</span></div>
       <p className="market-lede">One click, signed in through the app itself. Paste a link from any of these into a prompt and the agent gets a chip it can follow.</p>
       <ul className="market-grid">
         {CONNECTORS.map((c) => {
@@ -101,7 +124,7 @@ function ConnectorMarket({ spaceId }: { spaceId: string }) {
                 {state === "connected" && <span className="market-state" data-tone="ready"><Icon name="check" size={12} /> Connected</span>}
                 {state === "reconnect" && <button type="button" className="btn" onClick={() => press(c, state)}>Reconnect</button>}
                 {state === "pending" && <button type="button" className="btn" onClick={() => press(c, state)}>Finish signing in</button>}
-                {state === "none" && <button type="button" className="btn primary" onClick={() => press(c, state)}>Connect</button>}
+                {state === "none" && <button type="button" className="btn" onClick={() => press(c, state)}>Connect</button>}
                 <a className="market-docs" href={c.docs} target="_blank" rel="noreferrer" aria-label={`About the ${c.name} server`}>Docs</a>
               </span>
             </li>

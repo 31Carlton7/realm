@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 import { AppShell } from "../../App";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
-import type { DestinationPageKind } from "@realm/contracts";
 
 /** The shell, not the Sidebar alone: the whole point of this control is that it survives its own
  *  container closing, which only the app shell can show. */
@@ -92,60 +91,21 @@ describe("sidebar collapse toggle", () => {
   });
 });
 
-describe("a page with no use for the spaces", () => {
+describe("a page over the panes", () => {
   const shown = () => !document.querySelector(".app")!.hasAttribute("data-sidebar-collapsed");
 
-  it("takes the sidebar away while Connections is up, and gives it back as it was", async () => {
-    /* The owner, 10-04: no sidebar on Connections. The page takes the width right of the rail. THE
-       MUTANTS: the page left out of the declaration, or the page writing the person's own collapse
-       setting (so leaving it would not bring the sidebar back). */
-    const { store, api } = await mountShell();
-    for (const kind of ["connections-page"] as const) {
-      act(() => store.getState().openDestinationPage(kind));
-      await waitFor(() => expect(shown(), kind).toBe(false));
-      expect(document.getElementById("app-sidebar")).toHaveAttribute("inert");
-      expect(within(lead()).getByRole("button", { name: "Show sidebar (⌘B)" })).toBeInTheDocument();
-      act(() => store.getState().closePageOverlay());
-      await waitFor(() => expect(shown(), kind).toBe(true));
-    }
-    expect(store.getState().sidebarCollapsed).toBe(false);
-    expect(api.calls.some((c) => c.startsWith("setSetting:ui.sidebarCollapsed"))).toBe(false);
-  });
-
-  it("leaves the sidebar alone on every other page — the Scheduled and Code review pages' columns take its place", async () => {
+  it("leaves the sidebar where it is on every page — a page's sections take its column", async () => {
     /* The owner, 10-05: "The sidebar for scheduled tasks needs to be the same as the home sidebar and
-       the library sidebar … Same for the code review part." Their columns are the sidebar's now
-       (page-nav.tsx), so the sidebar stays. THE MUTANT: either page back in PAGE_SHELL. */
-    const { store } = await mountShell();
-    for (const kind of ["library-page", "settings-page", "you-page", "schedules-page", "code-review-page"] as const) {
+       the library sidebar … Same for the code review part." Connections was the one page that took the
+       column away and moved its crumb 172px; its sections are in the column now, as Settings' are.
+       THE MUTANT: any page folding the column, or writing the person's own collapse setting. */
+    const { store, api } = await mountShell();
+    for (const kind of ["library-page", "connections-page", "settings-page", "you-page", "schedules-page", "code-review-page"] as const) {
       act(() => store.getState().openDestinationPage(kind));
       await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe(kind));
       expect(shown(), kind).toBe(true);
     }
-  });
-
-  it("brings back a sidebar the person had folded away as folded", async () => {
-    const { store } = await mountShell(fakeApi({ settings: { "ui.sidebarCollapsed": true } }));
-    act(() => store.getState().openDestinationPage("connections-page"));
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("connections-page"));
-    act(() => store.getState().closePageOverlay());
-    expect(shown()).toBe(false);
-  });
-
-  it("answers ⌘B with the sidebar for that visit alone, and persists nothing", async () => {
-    // THE MUTANT: a ⌘B that does nothing on these pages, or one that flips the setting every other
-    // screen reads.
-    const { store, api } = await mountShell();
-    act(() => store.getState().openDestinationPage("connections-page"));
-    await waitFor(() => expect(shown()).toBe(false));
-    fireEvent.click(within(lead()).getByRole("button", { name: "Show sidebar (⌘B)" }));
-    await waitFor(() => expect(shown()).toBe(true));
-    expect(within(head()).getByRole("button", { name: "Hide sidebar (⌘B)" })).toBeInTheDocument();
     expect(api.calls.some((c) => c.startsWith("setSetting:ui.sidebarCollapsed"))).toBe(false);
-    // The visit ends with the page: the next time it opens, it opens without the sidebar again.
-    act(() => store.getState().closePageOverlay());
-    act(() => store.getState().openDestinationPage("connections-page"));
-    await waitFor(() => expect(shown()).toBe(false));
   });
 });
 
@@ -169,39 +129,10 @@ describe("what moves the column", () => {
     await waitFor(() => expect(shown()).toBe(true));
     expect(cut(), "the lead's Show").toBe(false);
 
-    // Home → Scheduled → Library → Connections → the session, then back the other way. Scheduled and
-    // Code review keep the column (their own lists are in it); Connections is the page that has none.
-    const open = (kind: DestinationPageKind) => () => store.getState().openDestinationPage(kind);
-    const close = () => store.getState().closePageOverlay();
-    const home = () => { void store.getState().goHome(); };
-    const route: [string, () => void, boolean][] = [
-      ["Home", home, true], ["Scheduled", open("schedules-page"), true], ["Library", open("library-page"), true],
-      ["Connections", open("connections-page"), false], ["the session", close, true],
-      ["Connections again", open("connections-page"), false], ["Code review", open("code-review-page"), true],
-      ["Connections a third time", open("connections-page"), false], ["Library again", open("library-page"), true],
-      ["Scheduled again", open("schedules-page"), true], ["Home again", home, true],
-    ];
-    let changes = 0;
-    for (const [name, go, sidebar] of route) {
-      const before = shown();
-      act(() => go());
-      expect(shown(), name).toBe(sidebar);
-      if (sidebar === before) continue;
-      // In the same act: the cut is committed with the change it governs, never a render behind it.
-      expect(cut(), name).toBe(true);
-      changes++;
+    // A page opening or closing never moves it: its sections take the column it is already in.
+    for (const kind of ["schedules-page", "connections-page", "library-page"] as const) {
+      act(() => store.getState().openDestinationPage(kind));
+      expect(shown(), kind).toBe(true);
     }
-    expect(changes).toBe(6);
-
-    // ⌘B on a page that has no sidebar moves it — it is the person asking — and the next page that
-    // takes it away again cuts.
-    act(() => store.getState().openDestinationPage("connections-page"));
-    await act(async () => { await store.getState().toggleSidebar(); });
-    expect(shown()).toBe(true);
-    expect(cut(), "⌘B on Connections").toBe(false);
-    act(() => store.getState().closePageOverlay());
-    act(() => store.getState().openDestinationPage("connections-page"));
-    expect(shown()).toBe(false);
-    expect(cut(), "Connections opened again").toBe(true);
   });
 });

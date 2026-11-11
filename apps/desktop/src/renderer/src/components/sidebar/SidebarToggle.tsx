@@ -1,6 +1,5 @@
 import { Icon } from "@realm/ui";
 import { useApp } from "../../state/store";
-import { sidebarHidden } from "../../state/selectors";
 import { useChord } from "./use-sidebar-model";
 
 /**
@@ -13,7 +12,7 @@ import { useChord } from "./use-sidebar-model";
  * on collapse is a trap, so there is never a state without one on screen.
  */
 export function SidebarToggle() {
-  const hidden = useApp(sidebarHidden);
+  const hidden = useApp((s) => s.sidebarCollapsed);
   const toggleSidebar = useApp((s) => s.toggleSidebar);
   const run = useApp((s) => s.run);
   const chord = useChord("sidebar.toggle");

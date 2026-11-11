@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useApp } from "../state/store";
-import { sidebarHidden } from "../state/selectors";
 
 /**
  * A page's own navigation, in the sidebar's place.
@@ -77,7 +76,7 @@ export function PageRail({ label, inline = true, back = false, title, children }
 }) {
   const host = useContext(HostContext);
   const inOverlay = useContext(OverlayContext);
-  const collapsed = useApp(sidebarHidden);
+  const collapsed = useApp((s) => s.sidebarCollapsed);
   const moves = host !== null && inOverlay && !collapsed;
   const claim = host?.claim;
   // A layout effect, so the column changes hands before the first paint: the rail is never seen in

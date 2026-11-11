@@ -230,6 +230,8 @@ describe("store — the desktop (OS) hop", () => {
     await store.getState().activateDesktopNotification("h1");
     // Over the workspace, as every page is: no item, no pane, no split.
     expect(store.getState().pageOverlay?.kind).toBe("connections-page");
+    // On the servers, where the one that fell over is listed, not on the apps.
+    expect(store.getState().connectionsTab).toBe("servers");
     expect(store.getState().items.some((i) => i.kind.endsWith("-page"))).toBe(false);
     expect(allItems(store.getState().layout!)).toEqual(layout);
     expect(api.calls).toContain("markNotificationsRead:h1");

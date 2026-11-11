@@ -30,7 +30,7 @@ type SecretRow = { key: string; value: string };
  * names the action that would get it some; a blocked circuit names its own fix; a secret field never
  * lets the user forget where the value is going.
  */
-export function McpSection({ spaceId }: { spaceId: string }) {
+export function McpSection({ spaceId, titled = true }: { spaceId: string; titled?: boolean }) {
   const servers = useApp((s) => s.mcpServers);
   const sessions = useApp((s) => s.sessions);
   const refreshMcpServers = useApp((s) => s.refreshMcpServers);
@@ -60,7 +60,8 @@ export function McpSection({ spaceId }: { spaceId: string }) {
     <div className="form settings-panel">
       <div className="field">
         <div className="mcp-section-head">
-          <span>MCP servers</span>
+          {/* Untitled where the page's own head already says "MCP servers". */}
+          {titled && <span>MCP servers</span>}
           {/* Activity is still a sheet; it opens OVER the page (one sheet slot, ruling 4). */}
           <button type="button" className="btn-quiet" onClick={() => run(() => openActivity())}>Activity</button>
         </div>

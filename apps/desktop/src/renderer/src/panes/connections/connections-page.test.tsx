@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MCP_SECRET_STORAGE_NOTE, PAGE_REF_IDS } from "@realm/contracts";
 import { ConnectionsPage } from "./ConnectionsPage";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -25,14 +25,32 @@ describe("the Connections page (Plan 12 W4)", () => {
       mcpServer("m1", { name: "srv1", scope: { kind: "profile", profileId: "p1" } }),
       mcpServer("m2", { name: "srv2" }),
     ] });
-    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Apps" })).toBeInTheDocument();
     await waitFor(() => expect(api.calls).toContain("listMcpServers:s1"));
+    fireEvent.click(screen.getByRole("radio", { name: "MCP servers" }));
+    expect(screen.getByRole("heading", { name: "MCP servers" })).toBeInTheDocument();
     expect(within(await screen.findByRole("region", { name: "From Work" })).getByText("srv1")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Everywhere" })).getByText("srv2")).toBeInTheDocument();
     // MCP_SECRET_STORAGE_NOTE is a property of the servers listed, on screen whenever the page is.
     expect(screen.getByText(MCP_SECRET_STORAGE_NOTE)).toBeInTheDocument();
     // The provider rows ride along.
     expect(screen.getByRole("switch", { name: "Provider realm-browser in this space" })).toBeInTheDocument();
+  });
+
+  it("lists its two sections as a rail, and lands a server's health notice on the servers", async () => {
+    const { store } = await mount();
+    const rail = screen.getByRole("group", { name: "Connections section" });
+    expect(within(rail).getAllByRole("radio").map((r) => r.closest("label")!.textContent)).toEqual(["Apps", "MCP servers"]);
+    act(() => store.getState().setConnectionsTab("servers"));
+    expect(screen.getByRole("heading", { name: "MCP servers" })).toBeInTheDocument();
+  });
+
+  it("asks for no app with the accent: every Connect is a plain button", async () => {
+    /* Seven filled "Connect"s were seven equal calls to action in one viewport. THE MUTANT: Connect
+       back to `btn primary`. */
+    await mount();
+    expect(screen.getAllByRole("button", { name: "Connect" }).length).toBeGreaterThan(1);
+    expect(document.querySelectorAll(".btn.primary")).toHaveLength(0);
   });
 
   it("keeps its vantage when opened for a non-active space", async () => {

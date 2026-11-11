@@ -1568,7 +1568,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".window-lead > .icon-btn").join(" ")).toContain("animation: rl-lead-in");
     expect(bodiesFor(".app[data-sidebar-cut] > .window-lead > .icon-btn").join(" ")).toContain("animation: none");
     expect(bodiesFor(".page-overlay").join(" ")).toContain("animation: rl-page-in");
-    expect(bodiesFor(".page-overlay[data-cut]").join(" ")).toContain("animation: none");
   });
 
   it("the left chrome's edge is a BORDER on .main, in both states", () => {
