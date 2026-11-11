@@ -64,7 +64,7 @@ describe("modelRows with a probe catalog", () => {
       const rows = modelRows({ kind: "claude", model: null, agentProbe: [probe("claude", models as AgentProbe["models"])], canSwitchAgent: true });
       const claude = rows.filter((r) => r.kind === "claude");
       // Led by the un-pinned session's own Default row: nothing has said which of these is the default.
-      expect(claude.map((r) => r.modelId)).toEqual([null, "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"]);
+      expect(claude.map((r) => r.modelId)).toEqual([null, "claude-fable-5-2", "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"]);
     }
   });
 
