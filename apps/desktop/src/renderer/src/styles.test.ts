@@ -1657,12 +1657,43 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // THE second-ground mutant: give .main or a pane a color-mix over --page too. The window looks
     // better on a nice wallpaper and every pane's body text starts depending on it.
     const translucent = RULES.filter((r) => /background:[^;]*var\(--sidebar-ground\)/.test(r.body)).flatMap((r) => r.selectors);
-    // The sidebar's column only: the rail and the sidebar. Never the panes, bar row included — the
-    // head row over them was the sidebar's ground once, and read as a glass band across the reading
-    // (the owner, 11-04). The panes are --pane-ground, painted once by `.main`, top to bottom.
-    expect(translucent.sort()).toEqual([".app-rail", ".sidebar"].sort());
+    // The frame only: the rail, the sidebar, and the side panel's tab strip with the corner under it
+    // (the owner, 11-10). Never the main panes, bar row included — the head row over them was the
+    // sidebar's ground once, and read as a glass band across the reading (the owner, 11-04).
+    expect(translucent.sort()).toEqual([".app-rail", ".sidebar", ".view-panel > .panel > .panel-bar", ".view-panel::after"].sort());
     expect(bodiesFor(".main").join(" ")).toContain("background: var(--pane-ground)");
     expect(bodiesFor(".main").join(" ")).not.toContain("--chrome-tint");
+  });
+
+  it("the frame over the side panel is the sidebar's: one chrome, one height, one rim and corner", () => {
+    const chrome = "linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground)";
+    const strip = bodiesFor(".view-panel > .panel > .panel-bar").join(" ");
+    // The rail's own layers, so the two strips are one colour over whatever the window sits on.
+    expect(bodiesFor(".app-rail").join(" ")).toContain(`background: ${chrome}`);
+    expect(strip).toContain(`background: ${chrome}`);
+    expect(strip).toContain("height: var(--frame-top)");
+    expect(bodiesFor(".sb-header").join(" ")).toContain("height: var(--frame-top)");
+    // The sheet under it starts where the sidebar's does, under the same rim, on the same radius.
+    const sheet = bodiesFor(".view-panel::before").join(" ");
+    const rim = "border-top: var(--hairline-w) solid var(--rl-line-strong)";
+    expect(sheet).toContain("inset: var(--frame-top) 0 0");
+    expect(sheet).toContain(rim);
+    expect(bodiesFor(".sidebar::before").join(" ")).toContain(rim);
+    expect(sheet).toContain("border-top-right-radius: var(--frame-r)");
+    expect(sheet).toContain("background: var(--pane-ground)");
+    const corner = bodiesFor(".view-panel::after").join(" ");
+    expect(corner).toContain(`background: ${chrome}`);
+    expect(corner).toContain("top: var(--frame-top)");
+    expect(corner).toContain("width: var(--frame-r); height: var(--frame-r)");
+    // THE two-colour mutant: leave `.main`'s ground under the strip. The chrome is translucent, so
+    // over the panes' ground it is a different colour from the same chrome over the bare window.
+    const main = bodiesFor(".main:has(> .panehost > .view-panel:not([hidden]))").join(" ");
+    expect(main).toContain("background: linear-gradient(var(--pane-ground), var(--pane-ground)) left / var(--hairline-w) 100% no-repeat");
+    const panes = bodiesFor(".panehost:has(> .view-panel:not([hidden])) > .view-main").join(" ");
+    expect(panes).toContain("background: var(--pane-ground)");
+    // …and the ground still runs under the divider between the panes and the panel.
+    expect(panes).toContain("box-shadow: var(--pane-divider-w) 0 0 var(--pane-ground)");
+    expect(bodiesFor(".resize-handle").join(" ")).toContain("flex: 0 0 var(--pane-divider-w)");
   });
 
   it("the ground's alpha is driven, defaulted opaque in CSS, and overridden by reduced transparency", () => {

@@ -513,16 +513,17 @@ kbd { font: 11px var(--font-mono); }
 /* ── The window's frame ───────────────────────────────────────────────────────────────────────────
    The rail and the sidebar's 40px head row are chrome: the sidebar's ground, a step off it
    (`--chrome-tint`). Below that row the sidebar's list sits in a sheet under a rim that runs along its
-   top and down its left edge and rounds the corner. The panes take none of it: their bar row is the
-   panes' own ground, so a pane is one plain surface from its bar down and its content dissolves into
-   the bar through the edge blur rather than meeting a strip. The row used to be the chrome across the
-   whole window, and over the panes that read as a frosted glass band — the sidebar's translucency
-   laid over the reading (the owner, 11-04: "I don't want this liquid glass like nav background").
+   top and down its left edge and rounds the corner. The side panel's tab strip is the same chrome over
+   the same kind of sheet (below). The main panes take none of it: their bar row is the panes' own
+   ground, so a pane is one plain surface from its bar down and its content dissolves into the bar
+   through the edge blur rather than meeting a strip. The row used to be the chrome across the whole
+   window, and over the panes that read as a frosted glass band — the sidebar's translucency laid over
+   the reading (the owner, 11-04: "I don't want this liquid glass like nav background").
    The rim is `--rl-line-strong`, the rung lighter than both sides of it, which is what Codex's is:
    measured off its window, the chrome at 60 and its sheet at 47, the rim at 65. The corner's outside
    is tinted by a quarter-disc (`radial-gradient`) rather than by rounding the sheet itself, because
    the sheet is two elements (the sidebar's list, the panes) and only one of them owns the corner. */
-:root { --chrome-tint: var(--overlay-lighten-200); --frame-r: var(--r-panel); --frame-top: 40px; }
+:root { --chrome-tint: var(--overlay-lighten-200); --frame-r: var(--r-panel); --frame-top: 40px; --pane-divider-w: 1px; }
 :root[data-mode="light"] { --chrome-tint: var(--overlay-darken-200); }
 .app-rail { background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground); }
 /* The column's rim and corner are the COLUMN's, which does not slide: it closes from its right edge,
@@ -538,6 +539,28 @@ kbd { font: 11px var(--font-mono); }
    down the panes' left edge. Folded, the rail beside them is chrome and the line between is this
    same border. */
 .main { position: relative; background-origin: border-box; background: var(--pane-ground); }
+/* ── The frame over the side panel ──
+   The frame runs across the top of the side panel as it does over the sidebar (the owner, 11-10: "it
+   should also go around the top of the right panels"): the panel's tab strip is the head row's chrome,
+   at the head row's height, and what the tabs show is a sheet under the sidebar's rim, its corner
+   rounded at the window's edge. The chrome is the rail's own two layers on the bare window, never laid
+   over the panes' ground, or the two strips would be two colours. So while the panel is drawn `.main`
+   keeps only the sliver under its own border, the main panes paint their ground themselves (and under
+   the divider beside them), and the panel's sheet starts below its strip. */
+.main:has(> .panehost > .view-panel:not([hidden])) {
+  background: linear-gradient(var(--pane-ground), var(--pane-ground)) left / var(--hairline-w) 100% no-repeat; }
+.panehost:has(> .view-panel:not([hidden])) > .view-main { background: var(--pane-ground);
+  box-shadow: var(--pane-divider-w) 0 0 var(--pane-ground); }
+.view-panel > .panel > .panel-bar { height: var(--frame-top);
+  background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground); }
+.view-panel::before { content: ""; position: absolute; pointer-events: none; inset: var(--frame-top) 0 0;
+  background: var(--pane-ground); border-top: var(--hairline-w) solid var(--rl-line-strong);
+  border-top-right-radius: var(--frame-r); }
+/* Outside the sheet's corner the chrome goes on: a square of it, cut to the corner's far side. */
+.view-panel::after { content: ""; position: absolute; pointer-events: none; top: var(--frame-top); right: 0;
+  width: var(--frame-r); height: var(--frame-r);
+  background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground);
+  mask-image: radial-gradient(circle at 0 100%, transparent calc(var(--frame-r) - 0.5px), #000 var(--frame-r)); }
 /* A page over the panes covers their bars too; their titles would show through the page's own bar,
    which is clear over the page's ground (below). */
 :root:has(.page-overlay) .main .panel-bar { visibility: hidden; }
@@ -2348,7 +2371,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 
    Not thicker: 1px is right, and a 2px seam between every pair of panes is the gridded look §3 spent
    a pass removing. The fix is the alpha, not the width. */
-.resize-handle { flex: 0 0 1px; background: var(--rl-divider); position: relative;
+.resize-handle { flex: 0 0 var(--pane-divider-w); background: var(--rl-divider); position: relative;
   /* Above the panels, so the lit line below reads the same on both sides of the seam. Handle i is
      rendered before panel i, both are positioned, and `.panel` is a stacking context of its own
      (`container-type` carries layout containment) — so without this the overhang is painted over on

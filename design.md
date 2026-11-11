@@ -224,8 +224,8 @@ Rules:
 - No liquid glass, and no translucent slab, anywhere (the owner, 11-04: "I don't want this liquid
   glass like nav background anywhere else in the app"). A bar, a menu, a sheet, a card or a button
   never wears a backdrop blur or a see-through fill of its own. The window's material shows through
-  two grounds only, each on its own control: the sidebar's column, and the panes' one ground from
-  their bar down.
+  two grounds only, each on its own control: the frame's (the rail, the sidebar's column and the
+  side panel's tab strip), and the panes' one ground from their bar down.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha
@@ -242,8 +242,12 @@ Rules:
   material.
 - The window is chrome beside a sheet. The rail and the sidebar's head row are one ground, a step off
   the sidebar's; the sidebar's list sits under a rim that runs along its top and down its left edge
-  and rounds the corner. The panes take none of it: their bar row is the panes' own ground, and the
-  line between them and the column is `.main`'s border. Move the CHROME a step, not the sheet: the
+  and rounds the corner. The side panel's tab strip is the same chrome at the same height, over a
+  sheet under the same rim, rounded at the window's edge, so both ends of the window read as one
+  frame (the owner, 11-10: "it should also go around the top of the right panels"). The chrome is
+  laid on the bare window there, never over the panes' ground: a translucent strip over a second
+  ground is a second colour. The main panes take none of it: their bar row is the panes' own ground,
+  and the line between them and the column is `.main`'s border. Move the CHROME a step, not the sheet: the
   grounds are the ones the translucency controls are calibrated on. The rim is the rung lighter than
   both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
 - The sidebar's column stands a hair above the chrome: a very light shade off its LEFT edge, over the
