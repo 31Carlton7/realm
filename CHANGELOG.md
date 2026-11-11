@@ -1,9 +1,17 @@
 # Changelog
 
+## v2.9.1 - 2026-11-10
+
+- The key Realm's windows use to reach its own server no longer shows on any command line, where other programs on your Mac could read it, and agents working in a sandbox can no longer read it from a file or inherit it. After updating, quit Realm fully and reopen it, because windows that were already open keep the old command line.
+- The / picker is as wide as the @ picker, so its hints are no longer cut short. A note about attachments names each file by the name you picked, and two files with the same name are told apart.
+- Machine cards and simulator devices are drawn as cards, and the side panel's tabs are no longer crushed when the panel is narrow.
+- Every picture gets the same edge, in light and dark.
+- A sidebar row shows a tooltip only when its name is cut short. The tooltip sits beside the row and no longer repeats the row's state.
+
 ## v2.9.0 - 2026-11-10
 
 - A turn's sources show as a stack of site icons: three, then a count of the rest.
-- Security codes sent to Messages and Mail can be offered in a site's one-time-code field in a browser pane. Turn it on in Settings, under Sign-ins. An agent has to ask each time, and never sees the code.
+- Security codes sent to Messages and Mail can be offered in a site's one-time-code field in a browser pane. Turn it on in Settings, under Passwords. An agent has to ask each time, and never sees the code.
 - Every row of a run lines up on one edge, and a tooltip no longer covers the row it describes.
 - Realm Mobile: the diff pane and the pull request on the phone. See a session's changes, stage files, commit, push and open a pull request, and read a pull request's checks, files, comments and reviews.
 - Allow always now lasts for the session only, and never writes to your Claude settings.
