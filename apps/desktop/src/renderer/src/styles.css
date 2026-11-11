@@ -1124,9 +1124,12 @@ input.sb-space-name { flex: 1; }
    chip. The padding is untouched; the row is 30px because the line box is 16. */
 .menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 7px 11px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px;
   font-size: 13px; line-height: 16px; }
-.menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--hover); }
-/* Roving focus moves programmatically, which browsers don't always mark :focus-visible — use :focus. */
-.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--hover); outline: none; }
+/* ONE highlight: the focused row. The pointer moves the focus (Menu.tsx), so a hover fill of its own
+   was a second lit row wherever the arrows had left the focus. Roving focus moves programmatically,
+   which browsers don't always mark :focus-visible — use :focus. A menu a press opened is `resting`
+   until the pointer moves or a key goes down, and lights nothing until then. */
+.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { outline: none; }
+.menu:not([data-resting]) :is([role="menuitem"], [role="menuitemcheckbox"]):focus { background: var(--hover); }
 .menu .menu-check { margin-left: auto; color: var(--rl-accent); flex: none; }
 .menu [role="menuitem"].danger { color: var(--rl-danger); }
 /* A row, not a bare span. A label carrying an icon and a word — "New spreadsheet", "Open a file…" —

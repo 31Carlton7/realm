@@ -323,6 +323,15 @@ describe("§6 motion table", () => {
     for (const control of ["button", '[role="button"]', '[role^="menuitem"]', ".item-row"]) expect(sel).toContain(control);
   });
 
+  it("lights one menu row: the focused one, and none while a press-opened menu rests (MN-04)", () => {
+    // THE MUTANTS: a hover fill of its own, a second lit row beside the focus; the focus fill
+    // ungated, the first row lit under a pointer that has not moved.
+    const fills = RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".menu") && /menuitem/.test(sel)) && /background:/.test(r.body));
+    expect(fills.flatMap((r) => r.selectors).filter((sel) => sel.includes(":hover"))).toEqual([]);
+    expect(fills.flatMap((r) => r.selectors).filter((sel) => sel.includes(":focus") && !sel.includes(":not([data-resting])"))).toEqual([]);
+    expect(fills.some((r) => r.selectors.some((sel) => sel.includes(":not([data-resting])") && sel.includes(":focus")))).toBe(true);
+  });
+
   /* A choice is never half-made: the rows a person picks from change instantly in BOTH directions,
      so the zero sits on their base rule, not only on their hovered state. */
   it("rows chosen from a list highlight and unhighlight instantly", () => {
