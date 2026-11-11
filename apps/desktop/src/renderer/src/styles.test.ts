@@ -2954,12 +2954,13 @@ describe("dividers", () => {
   it("the seams INSIDE one surface, between a head or a field and the rows below it, are kept", () => {
     // A card's head over its body, and a popover's search field over its list. These separate two
     // different KINDS of thing sharing one surface, which is what a hairline is for.
-    for (const sel of [".diff-head", ".fd-head", ".mp-search", ".spaces-search"])
+    for (const sel of [".diff-head", ".fd-head", ".spaces-search"])
       expect(bodiesFor(sel).join(" "), sel).toMatch(/border-bottom: var\(--hairline-w\) solid/);
-    /* `.palette-input` left that list. The rule is for a seam between two different KINDS of thing
-       sharing a surface; a search field over its own results is a search and its results, and the
-       line between them was the divider this app spent a pass removing everywhere else. */
-    expect(bodiesFor(".palette-input").join(" ")).not.toMatch(/border-bottom/);
+    /* `.palette-input` left that list, and the model picker's `.mp-search` after it. The rule is for
+       a seam between two different KINDS of thing sharing a surface; a search field over its own
+       results is a search and its results, and the line between them was the divider this app spent
+       a pass removing everywhere else. */
+    for (const sel of [".palette-input", ".mp-search"]) expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom/);
     // `.md-code-head` is deliberately NOT in that list any more. The rule above is for a seam
     // between two different KINDS of thing sharing a surface; a code block's head holds the
     // language label and the copy control, which are chrome FOR the code rather than a section

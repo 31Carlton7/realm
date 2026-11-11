@@ -1502,7 +1502,9 @@ input.sb-space-name { flex: 1; }
    second harness's mark beside it and the five effort levels each fit on one line. */
 .model-picker { z-index: 100; width: var(--picker-w); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.mp-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-faint); }
+/* No rule under the search: the list below is a flex sibling that clips at its own edge and dissolves
+   there, so nothing ever passes under this bar. */
+.mp-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
 /* The list scrolls on its own and dissolves at both ends; it pads its foot by the band's depth, so
