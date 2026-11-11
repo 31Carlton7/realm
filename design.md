@@ -224,8 +224,9 @@ Rules:
 - No liquid glass, and no translucent slab, anywhere (the owner, 11-04: "I don't want this liquid
   glass like nav background anywhere else in the app"). A bar, a menu, a sheet, a card or a button
   never wears a backdrop blur or a see-through fill of its own. The window's material shows through
-  two grounds only, each on its own control: the sidebar's column, and the panes' one ground from
-  their bar down.
+  two grounds only, each on its own control: the frame (the rail, the sidebar's column and the strip
+  across the window's top), and the panes' one ground under the rim. The strip over the panes once
+  read as a frosted band because the reading dissolved up into it; nothing scrolls under it now.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha
@@ -240,12 +241,19 @@ Rules:
   are `--surface` with the overlay stack's edge; cards are their fill and lift. Nothing scrolls under
   them, so a blur there has nothing to say. A scrim that dims what is behind a modal is a dim, not a
   material.
-- The window is chrome beside a sheet. The rail and the sidebar's head row are one ground, a step off
-  the sidebar's; the sidebar's list sits under a rim that runs along its top and down its left edge
-  and rounds the corner. The panes take none of it: their bar row is the panes' own ground, and the
-  line between them and the column is `.main`'s border. Move the CHROME a step, not the sheet: the
-  grounds are the ones the translucency controls are calibrated on. The rim is the rung lighter than
-  both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
+- The window is a frame with sheets set into it. The rail and the top row across the whole window
+  are one ground, a step off the sidebar's, and the sidebar's toggle, the panes' bars and the side
+  panel's tabs all stand in that strip (the owner, 11-11: the outer colour on the top strip and the
+  left side "should also go around the top of the right panels"). Under it the sidebar's list, the
+  panes and the side panel are sheets beneath one rim that runs along their tops, comes down the left
+  edge beside the rail, and rounds the corner at each end of the window. The strip is every sheet's
+  gap, so a pane's content starts where the sidebar's list does, and the strip and its corners belong
+  to the window rather than to the panel, so a panel that closes leaves no band behind. The lines
+  between sheets (the column's seam, a divider between panes side by side, the panel's edge) start
+  at the rim: a line through the strip is chrome ruled off from more chrome. A pane in a rounded
+  corner rounds its content to it; a native view there still draws square. Move the CHROME a step,
+  not the sheet: the grounds are the ones the translucency controls are calibrated on. The rim is
+  the rung lighter than both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
 - The sidebar's column stands a hair above the chrome: a very light shade off its LEFT edge, over the
   rail (the owner, 10-05: "on the outside of it… a little bit elevated"), and none on the panes' edge.
   A shadow belongs to what stands up and keeps to its shape: round the corner it runs out before the
