@@ -191,6 +191,7 @@
   --r-panel: 12px;                               /* --radius-card: menus, pickers, permission card */
   --r-float: 16px;                               /* --radius-window: composer, sheets, palette */
   --r-pill: 999px;                               /* --radius-pill */
+  --hit-min: 40px;                               /* the smallest desktop press target (design.md) */
   /* The floating cards the paint worklet draws. Its own rung rather than a step off --r-float:
      a superellipse at a given radius reads visually smaller than a circular corner at the same
      one, so the two scales were never going to stay in step by arithmetic. Every squircle surface
@@ -667,7 +668,7 @@ input.sb-space-name { flex: 1; }
    Chrome, with the head row: a step off the sidebar's ground (the window's frame, above), so the
    sidebar's list and the panes read as one sheet set into it. It carries the window's rounded left
    corners, and stacks over the sidebar's column. */
-:root { --rail-w: 52px;
+:root { --rail-w: 52px; --rail-btn: 36px;
   /* Where the traffic lights end, and the window's lead after them: back and forward (two 28px
      buttons, 2px apart), then — while the sidebar is folded — its toggle, 4px on. Content under the
      lead starts 8px past whichever of the two it has to clear. */
@@ -763,7 +764,7 @@ input.sb-space-name { flex: 1; }
 .rail-group, .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 /* The foot sits at the bottom of the column however tall the window is. */
 .rail-foot { margin-top: auto; }
-.rail-btn { position: relative; overflow: visible; display: grid; place-items: center; width: 36px; height: 36px;
+.rail-btn { position: relative; overflow: visible; display: grid; place-items: center; width: var(--rail-btn); height: var(--rail-btn);
   border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-dim); }
 .rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Lit while its page is up — one rung past hover, so on always reads as more than under the pointer. */
@@ -889,6 +890,9 @@ input.sb-space-name { flex: 1; }
    never crosses another interactive element. */
 .icon-btn, .item-close, .item-shelf, .item-disclose, .item-act, .tool-copy { position: relative; }
 .icon-btn::after, .item-close::after, .item-shelf::after, .item-disclose::after, .item-act::after, .tool-copy::after { content: ""; position: absolute; inset: -6px; }
+/* A rail button's tile stays 36px; its press reaches the 40px floor. The rail's 8px gap leaves 4px
+   between neighbours' targets, so a press near the gap still lands on the nearer button. */
+.rail-btn::after { content: ""; position: absolute; inset: calc((var(--rail-btn) - var(--hit-min)) / 2); }
 
 /* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
 .group-label { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
