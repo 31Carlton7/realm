@@ -24,6 +24,7 @@ import { latestTodos } from "./session-todos";
 import { SessionSummaryHost, useSummaryLive } from "./SessionSummary";
 import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
+import { HeroBackdrop, chosenBackdrop } from "./HeroBackdrop";
 import { useSessionSubagents } from "./session-subagents";
 import { orchestratorOrder } from "../agents-tab/subagent-state";
 import { useAsSubagent } from "../agents-tab/SubagentViewer";
@@ -227,6 +228,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const addSessionRef = useApp((st) => st.addSessionRef);
   const removeSessionRef = useApp((st) => st.removeSessionRef);
   const [refNote, setRefNote] = useState<string | null>(null);
+  const [backdrop] = useState(chosenBackdrop);
   /* The agent kind is read off the session the item points at, so the pill wears the right mark. A
      session whose row has not loaded yet falls back to this one's kind rather than to nothing —
      a pill with no mark reads as a broken image. */
@@ -710,6 +712,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
+      {hero && !peek && backdrop && <HeroBackdrop look={backdrop} />}
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track teammates={spaceTeammates}
         saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken} onEarlier={onEarlier}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}

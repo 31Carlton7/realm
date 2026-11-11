@@ -3467,6 +3467,11 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 /* ── Session pane ──────────────────────────────────────────────────────── */
 /* A size container so the prompter's hero lift can be expressed in cqh (pane-height units). */
 .session-pane { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: transparent; container-type: size; }
+/* An empty session's backdrop (HeroBackdrop.tsx): a picture printed in the theme's tones under the
+   greeting and the prompter. The pane isolates so the canvas can sit under its in-flow content
+   without dropping under the pane's own ground. The prompter over it stays the opaque card it is. */
+.session-pane[data-composer="hero"] { isolation: isolate; }
+.hero-backdrop { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; pointer-events: none; }
 /* Dropping a file anywhere on the pane. Inset from the panel edge rather than flush to it, so the
    glow reads as this pane's — in a four-way split a flush ring would run straight into its
    neighbour's and the two would look like one target.
