@@ -173,7 +173,7 @@ describe("grantBindingProblems — refuse a build whose grants would not survive
 });
 
 /**
- * The fuses electron-builder flips in the packaged binary (SEC-03, SEC-05). Each one closes a way for
+ * The fuses electron-builder flips in the packaged binary. Each one closes a way for
  * a same-user process to borrow Realm's signature and grants, or to read what Realm keeps on disk.
  */
 describe("Electron fuses (packaged builds only)", () => {
