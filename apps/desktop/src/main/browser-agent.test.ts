@@ -285,6 +285,11 @@ describe("buildSnapshot", () => {
     const said = hideCodes({ url: "https://a.example/v?code=482913", text: "Your code\n4\n8\n2\n9\n1\n3\nOrder 14829130", rows: [{ value: "4 8 2 9 1 3" }], n: 3 }, ["482913"]);
     expect(said).toEqual({ url: `https://a.example/v?code=${CODE_HIDDEN}`, text: `Your code\n${CODE_HIDDEN}\nOrder 14829130`, rows: [{ value: CODE_HIDDEN }], n: 3 });
     expect(hideCodes("a.b+c", ["a.b"])).toBe(`${CODE_HIDDEN}+c`);
+    // A page that logs each key logs the code's starts too; the short ones say nothing and stay.
+    expect(hideCodes("entered 4\nentered 48\nentered 482\nentered 48291\nentered 482913", ["482913"]))
+      .toBe(`entered 4\nentered 48\nentered ${CODE_HIDDEN}\nentered ${CODE_HIDDEN}\nentered ${CODE_HIDDEN}`);
+    expect(hideCodes("1234 and 12345678", ["12345678"])).toBe(`${CODE_HIDDEN} and ${CODE_HIDDEN}`);
+    expect(hideCodes("123", ["12345678"])).toBe("123");
     expect(hideCodes("482913", [])).toBe("482913");
   });
 

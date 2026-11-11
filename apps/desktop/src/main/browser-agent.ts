@@ -823,11 +823,17 @@ export const CODE_HIDDEN = "(security code hidden by Realm)";
  * `value` with every appearance of one of `codes` replaced by `CODE_HIDDEN`: in a string, and in the
  * strings of an array or object, all the way down. A code is matched with any whitespace between its
  * characters (a page that draws one digit per box reads as "4\n8\n2…") and never as part of a longer
- * run of letters and digits.
+ * run of letters and digits. So is each start of it at least half its length and three long: a code
+ * goes in a key at a time, and a page that logs every input logs "4829" and "48291" on the way.
  */
 export function hideCodes<T>(value: T, codes: readonly string[]): T {
   if (codes.length === 0) return value;
-  const alternatives = codes.map((code) => [...code].map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*"));
+  const starts = codes.flatMap((code) => {
+    const chars = [...code];
+    const shortest = Math.min(chars.length, Math.max(3, Math.ceil(chars.length / 2)));
+    return Array.from({ length: chars.length - shortest + 1 }, (_, i) => chars.slice(0, chars.length - i));
+  });
+  const alternatives = starts.map((chars) => chars.map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*"));
   const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}])`, "gu");
   const walk = (v: unknown): unknown => {
     if (typeof v === "string") return v.replace(pattern, CODE_HIDDEN);
