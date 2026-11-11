@@ -885,6 +885,15 @@ describe("Ara refresh §3/§4 geometry", () => {
     }
   });
 
+  it("a tool row's server name ends in an ellipsis, never in half a glyph", () => {
+    // "Reali" in a 280px pane: `flex: none` inside an `overflow: hidden` row with no ellipsis.
+    const server = bodiesFor(".tool-server").join(" ");
+    expect(server).toContain("text-overflow: ellipsis");
+    expect(server).toContain("overflow: hidden");
+    expect(server).toContain("min-width: 0");
+    expect(server).not.toMatch(/flex: none/);
+  });
+
   it("an app-level page is the BOTTOM of the overlay stack, not the top", () => {
     /* THE BUG this pins, which was four bugs wearing one number: the page overlay sat at z-index 200,
        above every floating surface in the app. Quick chat opened behind Settings, ⌘K opened behind

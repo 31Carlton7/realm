@@ -4599,8 +4599,10 @@ button.edit-file:hover { background: var(--rl-hover); }
    never take the object's width the way the raw `mcp__…` name used to. */
 .tool-row > .tool-name { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 .tool-object { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
-/* Who answered an MCP call, before what it was asked — the server reads as a name, not a chip. */
-.tool-server { flex: none; font-size: 13px; color: var(--ink-3); }
+/* Who answered an MCP call, before what it was asked — the server reads as a name, not a chip. What
+   it was asked is the unbounded part and gives way first; the server keeps its width until that is
+   gone, then ends in an ellipsis rather than a glyph cut in half ("Reali" in a 280px pane). */
+.tool-server { flex: 0 0.001 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--ink-3); }
 .tool-server::after { content: " ·"; }
 /* A read's or an edit's object (ToolCard's `ToolFile`): the directory dimmed and the name bright —
    the edit card's own row, so the call and the turn's summary name a file one way. The directory
