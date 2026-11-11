@@ -542,7 +542,11 @@ acronym that is uppercase anyway (a file extension on a tile).
 
 ## Controls and interaction
 
-- Desktop hit areas are at least 40 × 40 px; touch targets are at least 44 × 44 px.
+- Desktop hit areas are at least 40 × 40 px; touch targets are at least 44 × 44 px. A control drawn
+  smaller keeps its tile and reaches the floor through an overhang (`--hit-min`): the rail's 36px
+  buttons press at 40, and the overhang stays inside the gap so two neighbours never share a press.
+  Glyphs on one bar are drawn at one size; the rail had 18, 16 and 14 side by side, which read as
+  three kinds of thing. A disc (the avatar, an update) holds a mark sized to the disc.
 - Primary actions use the accent only when there is a clear primary action.
 - Focus is always visible and uses the accent ring.
 - Icon-only actions need an accessible name and a tooltip when the meaning is not universal.
@@ -686,6 +690,12 @@ acronym that is uppercase anyway (a file extension on a tile).
   not open on controls that do nothing. What the page leads with is asked for on its own: the two
   cards are probed ahead of the agents behind the fold, because a card that says "Checking…" until
   every agent has answered is waiting on the slowest one to say nothing about it.
+- A state on a settings card is its word, and the one amber dot joins it only where the card needs
+  you or a check failed (Signed out, Couldn't check). Ready wore a green dot and every missing engine
+  an orange stripe down its edge, so a page of twelve read as a dashboard of alarms over engines
+  nobody had asked for. Not installed is an ordinary state on a plain card; its Install says the rest.
+  A probe's failure is a sentence Realm writes ("Realm found no cursor-agent command on this Mac."),
+  never Node's `spawn cursor-agent ENOENT`.
 - A row is a label and its control. A sentence under it has to say something neither of them says:
   what else the switch does, why the control you expected is absent, what a click will execute on
   your machine. A description that restates the row's own state chip — "macOS reports the grant"
@@ -997,6 +1007,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   count.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
+- A control under a space's list acts on that space. "Show all 10" under a space's Sessions opened
+  Activity, every space's sessions by time, so the count named one list and the click showed another;
+  it now lists the rest of the space's own sessions in place, and Activity keeps its own toggle. For
+  the same reason a Needs you row drops the name of the space on screen — the column's head already
+  says it, and the title needs the width — and keeps it in its accessible name.
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a
   profile's or a space's page — draws them IN the sidebar's column while it is up, rather than as a
   rail beside the sidebar: two side-by-side lists of places, the left one about somewhere else, read
