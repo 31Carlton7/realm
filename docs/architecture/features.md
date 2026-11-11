@@ -154,6 +154,24 @@ cards are drawn even under Full access (`alwaysPrompt` for a generated password,
 for driving another app or filling a saved password). The space's Seatbelt sandbox is a separate
 layer again: it wraps the spawn, not the permission.
 
+Full access is not "no cards". The Claude CLI still brings some Bash commands to `canUseTool` in
+`bypassPermissions` (a `$$(` inside a quoted argument is enough). Realm answers those itself and
+writes a `permission_response` with `fullAccess` naming the call, so the call's row says it ran
+without asking. Everything else in this table keeps its card:
+
+| Asked in Full access | Why | Where |
+|---|---|---|
+| A Bash command that names `rm`, asks to leave the CLI's sandbox, or carries a field Realm does not know | the CLI's check exists to catch a delete, and the other two are a different question | `packages/contracts/src/presets.ts:fullAccessAllows` |
+| Any other tool a harness asks about, a question, a plan to approve | not Realm's to wave through | `packages/contracts/src/presets.ts:ASKS_IN_FULL_ACCESS` |
+| Computer use, once per application | driving the Mac has no bound a coding mode can express | `apps/server/src/computer/agent-tools.ts` (`promptUnderBypass`) |
+| A saved password filled on its own site | a secret entering a page is not an ordinary action | `apps/server/src/browsers/agent-tools.ts` (`promptUnderBypass`) |
+| A generated password, a saved password on another site, a security code | asked on every fill | `apps/server/src/browsers/agent-tools.ts` (`alwaysPrompt`) |
+| Writing to a terminal the session did not open | someone else's shell | `apps/server/src/terminals/agent-tools.ts` (`promptUnderBypass`) |
+| A real iPhone, or another computer Realm drives | somebody's phone, or a whole other machine | `apps/server/src/simulators/agent-tools.ts`, `apps/server/src/machines/agent-tools.ts` (`promptUnderBypass`) |
+
+`apps/server/src/sessions/full-access.test.ts` and the "cards Full access does not skip" table in
+`apps/server/src/browsers/permissions.test.ts` hold these.
+
 **Key files**
 
 - `packages/contracts/src/presets.ts:PERMISSION_MODES`, `SESSION_MODES`, `AGENT_SUPPORTS_PERMISSION_MODES`

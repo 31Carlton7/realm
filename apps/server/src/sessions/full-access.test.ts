@@ -61,8 +61,9 @@ describe("a session in Full access", () => {
       await waitFor(() => ran(id));
       expect(cards(id)).toEqual([]);
       expect(answered(id)).toHaveLength(1);
-      expect(answered(id)[0]).toMatchObject({ decision: "allow", fullAccess: { toolName: "Bash", title: "Allow Bash?" } });
-      expect(events(id).some((e) => e.type === "tool_call" && e.payload.input.command === command)).toBe(true);
+      const calls = events(id).flatMap((e) => (e.type === "tool_call" && e.payload.input.command === command ? [e.payload.toolUseId] : []));
+      expect(calls).toHaveLength(1);
+      expect(answered(id)[0]).toMatchObject({ decision: "allow", fullAccess: { toolName: "Bash", title: "Allow Bash?", toolUseId: calls[0] } });
     });
 
   it("says so in the daemon log, with the start of the command and not all of it", async () => {

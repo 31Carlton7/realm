@@ -64,7 +64,7 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
           asked = true;
           const cut = options.canUseTool as (n: string, i: unknown, o: unknown) => Promise<{ behavior: string }>;
           const ac = new AbortController();
-          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, opts.permissionInput ?? { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?`, suggestions: opts.permissionSuggestions }));
+          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, opts.permissionInput ?? { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?`, suggestions: opts.permissionSuggestions, toolUseID: `toolu_ask${i}` }));
           if (opts.abortPermission) setTimeout(() => ac.abort(), 5);
           const rs = await Promise.all(asks); const r = rs[0]!;
           opts.permissionResults?.push(...rs);
@@ -316,7 +316,7 @@ describe("Full access and the Bash check the CLI keeps", () => {
     const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { command: SNIPPET } });
     const answered = got.flatMap((e) => (e.type === "permission_response" ? [e.payload] : []));
     expect(answered).toHaveLength(1);
-    expect(answered[0]).toMatchObject({ decision: "allow", fullAccess: { toolName: "Bash", title: "Read a0?" } });
+    expect(answered[0]).toMatchObject({ decision: "allow", fullAccess: { toolName: "Bash", title: "Read a0?", toolUseId: "toolu_ask0" } });
     // A card the person answers carries no such mark.
     const asked = await run({ permissionMode: "default" }, { permissionOnTool: "Bash", permissionInput: { command: SNIPPET } });
     const clicked = asked.got.flatMap((e) => (e.type === "permission_response" ? [e.payload] : []));

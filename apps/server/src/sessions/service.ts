@@ -1067,7 +1067,7 @@ export class SessionService {
     if (!fullAccessAllows(this.d.sessions.get(id)?.permissionMode, request)) return false;
     console.error(`[session ${id.slice(-6)}] ${fullAccessLogLine(request.input, "the agent asked")}`);
     this.allowedInFullAccess.add(request.requestId);
-    this.onEvent(id, sessionEvent("permission_response", { requestId: request.requestId, decision: "allow", fullAccess: { toolName: request.toolName, title: request.title } }));
+    this.onEvent(id, sessionEvent("permission_response", { requestId: request.requestId, decision: "allow", fullAccess: { toolName: request.toolName, title: request.title, ...(request.toolUseId ? { toolUseId: request.toolUseId } : {}) } }));
     handle.respondPermission(request.requestId, "allow");
     return true;
   }

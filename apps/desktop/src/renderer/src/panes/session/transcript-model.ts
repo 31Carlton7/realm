@@ -32,11 +32,14 @@ export type Block =
    *  and `paths`) — absent for every other agent, whose tool names say both. */
   /** `view` is the view an MCP server drew for this call (MCP Apps), carried by its result — absent
    *   on every call that drew none, and on every call from before views existed. */
+  /** `ranUnasked`: the agent's CLI asked about this call and Full access said Allow without a card
+   *   (`permission_response.fullAccess`). Absent on every call nobody was asked about, and on every
+   *   call a person answered. */
   | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped";
       /** When the call stopped working: its result landing, or — for a background agent — the stop
        *  notification, which comes minutes after the result. What a finished sub-agent's elapsed
        *  time is measured to. */
-      endedAt?: number; toolKind?: string; paths?: string[]; view?: AppViewRef; ts: number }
+      endedAt?: number; toolKind?: string; paths?: string[]; view?: AppViewRef; ranUnasked?: true; ts: number }
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
@@ -203,6 +206,9 @@ export type Transcript = {
   /** A move under way, at the step its newest `moving` names. The `moved` or `move_failed` with the
    *  same `moveId` clears it, so a move that ended never reads as in progress. */
   move?: { moveId: string; step: MoveStep } | null;
+  /** Calls Full access allowed before the call itself reached the transcript: the Claude CLI asks
+   *  ahead of the message that carries the call. Taken off as each call lands. */
+  allowedAhead?: string[];
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -364,9 +370,10 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       const known = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const was = known >= 0 ? blocks[known] : undefined;
       if (was && was.kind === "tool") { blocks[known] = { ...was, input: e.payload.input }; return { ...t, blocks }; }
+      const ahead = t.allowedAhead?.includes(e.payload.toolUseId) ?? false;
       blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}),
-        ...(e.payload.kind ? { toolKind: e.payload.kind } : {}), ...(e.payload.paths?.length ? { paths: e.payload.paths } : {}), result: null, ts: e.ts });
-      return { ...t, blocks };
+        ...(e.payload.kind ? { toolKind: e.payload.kind } : {}), ...(e.payload.paths?.length ? { paths: e.payload.paths } : {}), ...(ahead ? { ranUnasked: true as const } : {}), result: null, ts: e.ts });
+      return ahead ? { ...t, blocks, allowedAhead: t.allowedAhead!.filter((id) => id !== e.payload.toolUseId) } : { ...t, blocks };
     }
     case "tool_result": {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
@@ -407,6 +414,14 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       return { ...t, blocks, pendingPermissions: [...t.pendingPermissions.filter((x) => x.requestId !== p.requestId), p] };
     }
     case "permission_response": {
+      const unasked = e.payload.fullAccess?.toolUseId;
+      if (unasked) {
+        const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === unasked);
+        const b = i >= 0 ? blocks[i] : undefined;
+        if (b?.kind !== "tool") return { ...t, allowedAhead: [...(t.allowedAhead ?? []), unasked] };
+        blocks[i] = { ...b, ranUnasked: true };
+        return { ...t, blocks };
+      }
       const q = findLast(blocks, (b) => b.kind === "question" && b.requestId === e.payload.requestId);
       const asked = q >= 0 ? blocks[q] : undefined;
       if (asked && asked.kind === "question") blocks[q] = { ...asked, decision: e.payload.decision, ...(e.payload.answers ? { answers: e.payload.answers } : {}) };

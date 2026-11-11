@@ -287,6 +287,9 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
         {state === "waiting" && <span className="tool-meta" data-tone="warning">Waiting for you</span>}
         {state === "error" && <span className="tool-meta" data-tone="danger">{exit ? `exit ${exit.code}` : "Failed"}</span>}
         {state === "none" && <span className="tool-meta" data-tone="quiet">Stopped</span>}
+        {block.ranUnasked && state !== "error" && (
+          <span className="tool-meta" data-tone="quiet" title="The agent's CLI asked about this call, and Full access allowed it without asking you.">Ran without asking</span>
+        )}
         <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>
       {/* Why it failed, without opening it: that is the thing a reader of a failed call came for. */}

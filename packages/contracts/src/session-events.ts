@@ -86,17 +86,19 @@ const P = {
    *  feeds `ui-ask.ts` describes — and it is Realm's own: an adapter or the server writes it, never an
    *  agent's arguments, which is what makes it safe to route the card on. Optional, so every request
    *  ever persisted still parses. */
+  /** `toolUseId` is the call the request is about, when the agent's harness names one. */
   permission_request: z.object({ requestId: z.string(), toolName: z.string(), input: z.record(z.unknown()), title: z.string(), suggestions: z.array(z.unknown()),
-    ask: AskCardSchema.optional() }),
+    ask: AskCardSchema.optional(), toolUseId: z.string().optional() }),
   /** `answers` present only for a question: its id (Claude's: the question text) -> what was chosen or
    *  typed, several as a list. Persisted so a replayed transcript records what was actually answered,
    *  not just that it was allowed — and so a masked answer is only ever `HIDDEN_ANSWER` here.
    *
    *  `fullAccess` marks an Allow nobody clicked: the agent's own harness asked about a tool call in a
    *  session in Full access, and Realm answered it without drawing a card (`fullAccessAllows`). The
-   *  transcript holds no card for that id; this row is the record that the call was asked about at all. */
+   *  transcript holds no card for that id; this row is the record that the call was asked about at all,
+   *  and `toolUseId` is the call, when the harness named one, so its row can say it ran without asking. */
   permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional(),
-    fullAccess: z.object({ toolName: z.string(), title: z.string() }).optional() }),
+    fullAccess: z.object({ toolName: z.string(), title: z.string(), toolUseId: z.string().optional() }).optional() }),
   status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]),
     /** The turn ended because the USER pressed stop, not because the agent finished or failed.
      *  Present only on the settle that an interrupt produced. It is what lets the transcript say
