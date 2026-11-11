@@ -7,22 +7,15 @@
  * (image, face, size) and kept; a move of the prompter only re-lays the mask over the kept bitmap.
  * The picture runs behind the greeting and beside the prompter, feathers out round the prompter's
  * card, and fades to the plain ground below it. Under each run of text a contrast guard lowers the
- * picture there, and only there, until the words still read.
+ * picture there, and only there, until the words still read. A person's own picture shown as it is
+ * takes the same path with no screen, so the feather and the guard are the same for it.
  */
-import skyDay from "../../assets/hero-backdrops/sky-day.jpg";
-import skyDusk from "../../assets/hero-backdrops/sky-dusk.jpg";
 import type { Rect, Rgb } from "./hero-backdrop";
 
-export type ColorLookId = "sky";
-
 export type ColorLook = {
-  id: ColorLookId;
-  name: string;
-  /** The light face's picture and the dark face's. */
-  image: { light: string; dark: string };
   /** Device px per dither cell. */
   cell: number;
-  /** How much darker a screened cell is than its colour. */
+  /** How much darker a screened cell is than its colour; 0 shows the picture as it is. */
   depth: number;
   /** The share of the pane's height the picture is fitted to, from the top: the part below it is
    *  faded out anyway, so fitting the whole height would only crop the sides. */
@@ -34,9 +27,15 @@ export type ColorLook = {
   fade: [number, number];
 };
 
-export const COLOR_LOOKS: Record<ColorLookId, ColorLook> = {
-  sky: { id: "sky", name: "Sky", image: { light: skyDay, dark: skyDusk }, cell: 2, depth: 0.22, cover: 0.8, feather: 32, fade: [0, 0.2] },
+/** The screened look, and the same picture as it is: one device px a cell and no screen, but the
+ *  same feather, fade and contrast guard. */
+export const COLOR_LOOKS: Record<"dither-color" | "as-is", ColorLook> = {
+  "dither-color": { cell: 2, depth: 0.22, cover: 0.8, feather: 32, fade: [0, 0.2] },
+  "as-is": { cell: 1, depth: 0, cover: 0.8, feather: 32, fade: [0, 0.2] },
 };
+
+/** A picture to draw: its URL, and a short key that names it in the cache (a data: URL is megabytes). */
+export type Picture = { key: string; url: string };
 
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
@@ -111,13 +110,13 @@ type Screened = { bitmap: HTMLCanvasElement; ms: number };
 const cache = new Map<string, Screened>();
 
 /** The image screened at `w`×`h` device px, cover-fit: worked out the first time and kept after. */
-async function screened(url: string, look: ColorLook, w: number, h: number): Promise<Screened & { cached: boolean }> {
+async function screened(pic: Picture, look: ColorLook, w: number, h: number): Promise<Screened & { cached: boolean }> {
   const cols = Math.ceil(w / look.cell), rows = Math.ceil(h / look.cell);
-  const key = `${url}|${look.cell}|${look.depth}|${look.cover}|${cols}x${rows}`;
+  const key = `${pic.key}|${look.cell}|${look.depth}|${look.cover}|${cols}x${rows}`;
   const hit = cache.get(key);
   if (hit) return { ...hit, cached: true };
   const img = new Image();
-  img.src = url;
+  img.src = pic.url;
   await img.decode();
   const start = performance.now();
   const bitmap = document.createElement("canvas");
@@ -130,7 +129,7 @@ async function screened(url: string, look: ColorLook, w: number, h: number): Pro
   // Cover-fit from the top, so the sky's upper edge stays in the window as it narrows.
   g.drawImage(img, (cols - dw) / 2, 0, dw, dh);
   const data = g.getImageData(0, 0, cols, rows);
-  ditherColor(data.data, cols, rows, look.depth);
+  if (look.depth > 0) ditherColor(data.data, cols, rows, look.depth);
   g.putImageData(data, 0, 0);
   const entry = { bitmap, ms: performance.now() - start };
   // A window resized by hand passes through many sizes; keep the last few, not every one.
@@ -211,11 +210,11 @@ const HUSH_REACH = 64;
  * far the picture must come down there for every run to keep its ratio against its worst pixel.
  * The canvas's own opacity is the backstop if a run still misses with the hushes in.
  */
-export async function paintColorBackdrop(canvas: HTMLCanvasElement, look: ColorLook, dark: boolean, card: Rect, dpr: number,
+export async function paintColorBackdrop(canvas: HTMLCanvasElement, look: ColorLook, pic: Picture, card: Rect, dpr: number,
   ground: Rgb, texts: () => TextRun[]): Promise<ColorRender | null> {
   const { width: w, height: h } = canvas;
   if (!w || !h) return null;
-  const art = await screened(dark ? look.image.dark : look.image.light, look, w, h);
+  const art = await screened(pic, look, w, h);
   if (canvas.width !== w || canvas.height !== h) return null;
   const start = performance.now();
   const cells = art.bitmap.getContext("2d", { willReadFrequently: true })!;

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
 import type { BrowserCredentialEdit, KeychainPasswordsStatus, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
+import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
@@ -193,6 +193,16 @@ contextBridge.exposeInMainWorld("realm", {
   appIcon: {
     get: (): Promise<string> => ipcRenderer.invoke("app-icon:get"),
     set: (id: string, png: Uint8Array): Promise<boolean> => ipcRenderer.invoke("app-icon:set", id, png),
+  },
+  /** The person's own backgrounds (main/backgrounds.ts). `pick` opens the system's file dialog; `add`
+   *  takes the paths of pictures dropped on the picker. Pictures come back as data: URLs by id. */
+  backgrounds: {
+    list: (): Promise<BackgroundImage[]> => ipcRenderer.invoke("backgrounds:list"),
+    pick: (): Promise<BackgroundsAdded> => ipcRenderer.invoke("backgrounds:pick"),
+    add: (paths: string[]): Promise<BackgroundsAdded> => ipcRenderer.invoke("backgrounds:add", paths),
+    update: (id: string, patch: Partial<Pick<BackgroundImage, "name" | "effect" | "asIs">>): Promise<BackgroundImage | null> => ipcRenderer.invoke("backgrounds:update", id, patch),
+    remove: (id: string): Promise<boolean> => ipcRenderer.invoke("backgrounds:remove", id),
+    image: (id: string, size: "thumb" | "full"): Promise<string | null> => ipcRenderer.invoke("backgrounds:image", id, size),
   },
   /** Describe paths dropped from Finder. The renderer knows a dropped item's NAME and can guess a
    *  mime from it, but it cannot `stat` — so it cannot tell a folder from an extensionless file, and

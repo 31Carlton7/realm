@@ -8,11 +8,6 @@
  * the dither thins out over a measured rect (the calm zone), so the words keep their contrast, and
  * the whole picture fades out toward the pane's foot.
  */
-import haze from "../../assets/hero-backdrops/haze.jpg";
-import dunes from "../../assets/hero-backdrops/dunes.jpg";
-import silk from "../../assets/hero-backdrops/silk.jpg";
-
-export type BackdropId = "haze" | "dunes" | "silk";
 
 /** How one face prints the image. Coverage is the share of cells inked, mapped from luminance. */
 type Face = {
@@ -21,7 +16,7 @@ type Face = {
   /** Bright areas take ink (dark face) or dark areas do (light face). */
   invert: boolean;
   gamma: number;
-  /** How far the ink tone stands from the ground, toward the theme's ink (or accent). */
+  /** How far the ink tone stands from the ground, toward the theme's ink. */
   inkAmt: number;
   /** How much of the image's hue rides on both tones. */
   tint: number;
@@ -31,36 +26,27 @@ type Face = {
   calm: number;
 };
 
+/** One of the two printed effects: a fine two-tone Bayer dither, or round halftone dots. */
 export type Look = {
-  id: BackdropId;
-  name: string;
-  image: string;
   /** CSS px per dither cell. */
   cell: number;
-  /** 0: square cells on a Bayer 8×8; 1: round halftone dots on a 45° screen; 2: a grid of square dots on Bayer 4×4. */
-  shape: 0 | 1 | 2;
-  /** The tone the ink moves toward. */
-  ink: "ink" | "accent";
+  /** 0: square cells on a Bayer 8×8; 1: round halftone dots on a 45° screen. */
+  shape: 0 | 1;
   /** The accent laid over the brightest cells, 0 for none. */
   highlight: number;
-  /** Noise displacement of the image, in its own UV units, and how fast it moves (0 = still). */
+  /** Noise displacement of the image, in its own UV units, and how fast it moves when it may. */
   flow: number; speed: number;
   light: Face; dark: Face;
 };
 
-export const LOOKS: Record<BackdropId, Look> = {
-  haze: {
-    id: "haze", name: "Haze", image: haze, cell: 1, shape: 0, ink: "ink", highlight: 0, flow: 0.018, speed: 0.035,
+export const LOOKS: Record<"dither" | "halftone", Look> = {
+  dither: {
+    cell: 1, shape: 0, highlight: 0, flow: 0.018, speed: 0.035,
     light: { lo: 0.08, hi: 0.95, invert: true, gamma: 1.1, inkAmt: 0.22, tint: 0.6, photo: 0.75, photoGain: 1, calm: 1 },
     dark: { lo: 0.05, hi: 0.8, invert: false, gamma: 1.3, inkAmt: 0.2, tint: 0.5, photo: 0.6, photoGain: 0.3, calm: 1 },
   },
-  dunes: {
-    id: "dunes", name: "Dunes", image: dunes, cell: 3, shape: 2, ink: "accent", highlight: 0, flow: 0, speed: 0,
-    light: { lo: 0, hi: 0.75, invert: false, gamma: 1.6, inkAmt: 0.28, tint: 0, photo: 0, photoGain: 1, calm: 1 },
-    dark: { lo: 0, hi: 0.8, invert: false, gamma: 1.4, inkAmt: 0.36, tint: 0, photo: 0, photoGain: 1, calm: 1 },
-  },
-  silk: {
-    id: "silk", name: "Silk", image: silk, cell: 6, shape: 1, ink: "ink", highlight: 0.2, flow: 0.08, speed: 0.04,
+  halftone: {
+    cell: 6, shape: 1, highlight: 0.2, flow: 0.08, speed: 0.04,
     light: { lo: 0.02, hi: 0.8, invert: false, gamma: 1.2, inkAmt: 0.26, tint: 0, photo: 0, photoGain: 1, calm: 1 },
     dark: { lo: 0.02, hi: 0.85, invert: false, gamma: 1.2, inkAmt: 0.3, tint: 0, photo: 0, photoGain: 1, calm: 1 },
   },
@@ -134,10 +120,6 @@ void main() {
     float r = sqrt(cov) * 0.62;
     float aa = 0.75 / u_cell;
     on = 1.0 - smoothstep(r - aa, r + aa, length(local));
-  } else if (u_shape == 2) {
-    on = step(bayer4(id), cov - 0.001);
-    vec2 inside = step(abs(local), vec2(0.5 - 0.5 / u_cell));
-    on *= inside.x * inside.y;
   } else {
     on = step(bayer8(id), cov - 0.001);
   }
@@ -231,7 +213,8 @@ export class BackdropRenderer {
     return this.loc.get(name) ?? null;
   }
 
-  /** One frame. `dpr` maps the look's CSS cell and the calm rect onto the canvas's pixels. */
+  /** One frame. `dpr` maps the look's CSS cell and the calm rect onto the canvas's pixels; `time` is
+   *  in the look's own units, 0 for a look held still. */
   draw(look: Look, pal: Palette, calm: Rect, dpr: number, time: number) {
     if (!this.ready) return;
     const gl = this.gl;
@@ -242,10 +225,10 @@ export class BackdropRenderer {
     gl.uniform2f(this.u("u_imgSize"), this.imgSize[0], this.imgSize[1]);
     gl.uniform1f(this.u("u_cell"), Math.max(1, Math.round(look.cell * dpr)));
     gl.uniform1i(this.u("u_shape"), look.shape);
-    gl.uniform1f(this.u("u_time"), time * look.speed);
+    gl.uniform1f(this.u("u_time"), time);
     gl.uniform1f(this.u("u_flow"), look.flow);
     gl.uniform3fv(this.u("u_ground"), pal.ground);
-    gl.uniform3fv(this.u("u_ink"), look.ink === "accent" ? pal.accent : pal.ink);
+    gl.uniform3fv(this.u("u_ink"), pal.ink);
     gl.uniform3fv(this.u("u_hi"), pal.accent);
     gl.uniform1f(this.u("u_lo"), face.lo);
     gl.uniform1f(this.u("u_hiCov"), face.hi);

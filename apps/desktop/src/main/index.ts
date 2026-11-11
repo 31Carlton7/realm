@@ -23,6 +23,7 @@ import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { readTextFile } from "./read-text";
+import { addBackgrounds, backgroundImageUrl, listBackgrounds, removeBackground, updateBackground, type Reencode } from "./backgrounds";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { shareImage } from "./share-images";
 import { clearBrowserPartition, coverJpeg, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
@@ -1372,6 +1373,37 @@ ipcMain.handle("pick-icon-image", async (): Promise<PickedFile | null> => {
   if (r.canceled || r.filePaths.length === 0) return null;
   return (await describeFiles(r.filePaths))[0] ?? null;
 });
+
+/** Settings ▸ Appearance ▸ Background: the person's own pictures (backgrounds.ts). Main reads only
+ *  the files picked in its dialog or dropped on the picker, and `addBackgrounds` refuses anything the
+ *  renderer could not decode before it opens it. `nativeImage` decodes and writes the JPEG copy. */
+const reencodeBackground: Reencode = (bytes, maxEdge) => {
+  const img = nativeImage.createFromBuffer(bytes);
+  if (img.isEmpty()) return null;
+  const { width, height } = img.getSize();
+  const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
+  const out = scale < 1 ? img.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: "best" }) : img;
+  const jpeg = out.toJPEG(88);
+  return jpeg.byteLength ? { jpeg, ...out.getSize() } : null;
+};
+const backgroundsHome = () => {
+  if (!realmHome) throw new Error("Realm is still starting up; try again in a moment.");
+  return realmHome;
+};
+ipcMain.handle("backgrounds:list", () => listBackgrounds(backgroundsHome()));
+ipcMain.handle("backgrounds:pick", async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const options = { title: "Add images", buttonLabel: "Add", properties: ["openFile" as const, "multiSelections" as const],
+    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }] };
+  const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return addBackgrounds(backgroundsHome(), r.canceled ? [] : r.filePaths, reencodeBackground);
+});
+ipcMain.handle("backgrounds:add", (_e, paths: unknown) =>
+  addBackgrounds(backgroundsHome(), Array.isArray(paths) ? paths.filter((p): p is string => typeof p === "string").slice(0, 64) : [], reencodeBackground));
+ipcMain.handle("backgrounds:update", (_e, id: unknown, patch: unknown) =>
+  updateBackground(backgroundsHome(), id, patch && typeof patch === "object" ? patch : {}));
+ipcMain.handle("backgrounds:remove", (_e, id: unknown) => removeBackground(backgroundsHome(), id));
+ipcMain.handle("backgrounds:image", (_e, id: unknown, size: unknown) => backgroundImageUrl(backgroundsHome(), id, size));
 
 /** A VS Code colour theme, for `themes.import`. `.jsonc` alongside `.json` because VS Code accepts
  *  comments in these files and plenty of published themes use them; the server's reader strips them. */

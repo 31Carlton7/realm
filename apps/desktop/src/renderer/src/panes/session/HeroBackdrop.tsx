@@ -1,11 +1,18 @@
-import { useEffect, useRef } from "react";
-import { BackdropRenderer, LOOKS, readPalette, resolveColor, type BackdropId, type Palette, type Rect } from "./hero-backdrop";
-import { COLOR_LOOKS, paintColorBackdrop, type ColorLookId, type ColorRender, type TextRun } from "./hero-backdrop-color";
+import { useEffect, useMemo, useRef } from "react";
+import { useApp } from "../../state/store";
+import { BackdropRenderer, LOOKS, readPalette, resolveColor, type Palette, type Rect } from "./hero-backdrop";
+import { COLOR_LOOKS, paintColorBackdrop, type ColorRender, type Picture, type TextRun } from "./hero-backdrop-color";
+import { loopMayRun, resolveBackdrop, type Backdrop } from "./backdrop-gallery";
+import { useYourBackgrounds, yourBackgroundUrl } from "../../state/your-backgrounds";
 
-/** Phase 1 picks the look from localStorage; Settings ▸ App takes this over. Unset is off. */
-export function chosenBackdrop(): BackdropId | ColorLookId | null {
-  const v = window.localStorage?.getItem("realm.heroBackdrop");
-  return v && (v in LOOKS || v in COLOR_LOOKS) ? (v as BackdropId | ColorLookId) : null;
+/** The picture for a face, as a URL: a shipped look's own file, or a kept picture asked of main. */
+async function pictureFor(b: Backdrop, dark: boolean): Promise<Picture | null> {
+  if ("mine" in b.image) {
+    const url = await yourBackgroundUrl(b.image.mine, "full");
+    return url ? { key: `mine:${b.image.mine}`, url } : null;
+  }
+  const url = dark ? b.image.dark : b.image.light;
+  return { key: url, url };
 }
 
 /** The box round the greeting and the prompter, in the pane's CSS px, with room to breathe. */
@@ -23,24 +30,36 @@ const FRAME_MS = 1000 / 30;
 
 /**
  * The backdrop behind an empty session's greeting and prompter. A canvas laid under the pane's
- * content; it reads the greeting's and the card's boxes so the dither thins out behind them.
+ * content; it reads the greeting's and the card's boxes so the picture clears round them.
  *
- * A frame loop is outside the CSS that governs motion (design.md, Motion), so it re-reads each
- * control itself and STOPS rather than throttling: under Reduce motion, while the root is quiet
- * (Low power, a window not in front, idle) and while the document is hidden. The canvas keeps its
- * last frame, so a stopped backdrop is a still one.
+ * A look moves only when it can and Motion is on, and a frame loop is outside the CSS that governs
+ * motion (design.md, Motion), so it re-reads each control itself and STOPS rather than throttling:
+ * under Reduce motion, while the root is quiet (Low power, a window not in front, idle) and while
+ * the document is hidden. The canvas keeps its last frame, so a stopped backdrop is a still one.
  */
-export function HeroBackdrop({ look: id }: { look: BackdropId | ColorLookId }) {
-  return id in COLOR_LOOKS ? <ColorBackdrop look={id as ColorLookId} /> : <ShaderBackdrop look={id as BackdropId} />;
+/** The background an empty session shows, from Settings ▸ Appearance ▸ Background; nothing when
+ *  it is Off. Shuffle's pick is the session's own, from its id. */
+export function SessionBackdrop({ sessionId }: { sessionId: string }) {
+  const pref = useApp((s) => s.background);
+  const motion = useApp((s) => s.backgroundMotion);
+  const mine = useYourBackgrounds();
+  const backdrop = useMemo(() => resolveBackdrop(pref, sessionId, motion, mine), [pref, sessionId, motion, mine]);
+  return backdrop ? <HeroBackdrop backdrop={backdrop} /> : null;
 }
 
-function ShaderBackdrop({ look: id }: { look: BackdropId }) {
+export function HeroBackdrop({ backdrop }: { backdrop: Backdrop }) {
+  return backdrop.effect === "dither" || backdrop.effect === "halftone"
+    ? <ShaderBackdrop backdrop={backdrop} look={backdrop.effect} />
+    : <ColorBackdrop backdrop={backdrop} look={backdrop.effect} />;
+}
+
+function ShaderBackdrop({ backdrop, look: lookId }: { backdrop: Backdrop; look: keyof typeof LOOKS }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
     const pane = canvas?.parentElement;
     if (!canvas || !pane) return;
-    const look = LOOKS[id];
+    const look = LOOKS[lookId];
     const root = document.documentElement;
     let r: BackdropRenderer;
     try { r = new BackdropRenderer(canvas); } catch { canvas.hidden = true; return; }
@@ -50,14 +69,16 @@ function ShaderBackdrop({ look: id }: { look: BackdropId }) {
     let raf = 0;
     let last = 0;
     let disposed = false;
+    let loaded = "";
     const t0 = performance.now();
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
     const profile = window.localStorage?.getItem("realm.heroBackdropProfile") === "1";
     const stats = { frames: 0, drawMs: [] as number[] };
+    const time = (now: number) => (backdrop.moves ? ((now - t0) / 1000) * look.speed : 0);
     if (profile) {
       // A frame's whole cost, CPU and GPU, read back n times in a row: an upper bound, since each
       // read waits out the GPU process's round trip as well as the draw.
-      const bench = (n: number) => { const s = performance.now(); for (let i = 0; i < n; i++) { r.draw(look, pal, calm, dpr, i / 30); r.sync(); } return (performance.now() - s) / n; };
+      const bench = (n: number) => { const s = performance.now(); for (let i = 0; i < n; i++) { r.draw(look, pal, calm, dpr, (i / 30) * look.speed); r.sync(); } return (performance.now() - s) / n; };
       Object.assign(window, { __heroBackdrop: stats, __heroBackdropBench: bench });
     }
 
@@ -70,10 +91,10 @@ function ShaderBackdrop({ look: id }: { look: BackdropId }) {
     };
     const paint = (now: number) => {
       const s = profile ? performance.now() : 0;
-      r.draw(look, pal, calm, dpr, (now - t0) / 1000);
+      r.draw(look, pal, calm, dpr, time(now));
       if (profile) { stats.frames++; stats.drawMs.push(performance.now() - s); }
     };
-    const moving = () => look.speed > 0 && !reduce?.matches && !root.hasAttribute("data-quiet") && !document.hidden;
+    const moving = () => loopMayRun(backdrop.moves, root, reduce);
     const tick = (now: number) => {
       raf = 0;
       if (disposed || !moving()) return;
@@ -86,17 +107,25 @@ function ShaderBackdrop({ look: id }: { look: BackdropId }) {
       paint(performance.now());
       if (!raf && moving()) raf = requestAnimationFrame(tick);
     };
+    // The face's picture, loaded again only when the face changes to one with another picture.
+    const load = async () => {
+      const pic = await pictureFor(backdrop, pal.dark);
+      if (disposed || !pic || pic.key === loaded) return;
+      loaded = pic.key;
+      await r.load(pic.url);
+      refresh();
+    };
 
     const resize = new ResizeObserver(refresh);
     resize.observe(pane);
     const dock = pane.querySelector(".composer-dock");
     if (dock) resize.observe(dock);
     dock?.addEventListener("transitionend", refresh);
-    const watch = new MutationObserver(() => { pal = readPalette(root); refresh(); });
+    const watch = new MutationObserver(() => { pal = readPalette(root); refresh(); void load(); });
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "data-quiet", "style"] });
     reduce?.addEventListener?.("change", refresh);
     document.addEventListener("visibilitychange", refresh);
-    void r.load(look.image).then(refresh);
+    void load();
 
     return () => {
       disposed = true;
@@ -108,8 +137,9 @@ function ShaderBackdrop({ look: id }: { look: BackdropId }) {
       document.removeEventListener("visibilitychange", refresh);
       r.destroy();
     };
-  }, [id]);
-  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={id} />;
+  // The key names the picture and its treatment; a new object for the same backdrop is not a new one.
+  }, [backdrop.key, backdrop.moves, lookId]);
+  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
 }
 
 /** The prompter, in the pane's CSS px: its card with the tabs above and the strip below, which
@@ -148,18 +178,18 @@ function textRuns(pane: Element): TextRun[] {
 }
 
 /**
- * A colour-kept look (hero-backdrop-color.ts): drawn once into a 2D canvas, with no frame loop, so
- * there is nothing to stop under Reduce motion or Low power. It is drawn again only when the pane
- * changes size, the face or theme changes, or the prompter moves, and a move re-lays the mask over
- * the screened picture rather than screening it again.
+ * A colour-kept look (hero-backdrop-color.ts), or a picture shown as it is: drawn once into a 2D
+ * canvas, with no frame loop, so there is nothing to stop under Reduce motion or Low power. It is
+ * drawn again only when the pane changes size, the face or theme changes, or the prompter moves,
+ * and a move re-lays the mask over the screened picture rather than screening it again.
  */
-function ColorBackdrop({ look: id }: { look: ColorLookId }) {
+function ColorBackdrop({ backdrop, look: lookId }: { backdrop: Backdrop; look: keyof typeof COLOR_LOOKS }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
     const pane = canvas?.parentElement;
     if (!canvas || !pane) return;
-    const look = COLOR_LOOKS[id];
+    const look = COLOR_LOOKS[lookId];
     const root = document.documentElement;
     const profile = window.localStorage?.getItem("realm.heroBackdropProfile") === "1";
     const renders: ColorRender[] = [];
@@ -185,7 +215,9 @@ function ColorBackdrop({ look: id }: { look: ColorLookId }) {
       const key = JSON.stringify([w, h, pal, [card.x, card.y, card.w, card.h, words?.left, words?.top, words?.width, words?.height].map((v) => Math.round(v ?? 0))]);
       if (key === drawn) return;
       drawn = key;
-      const done = await paintColorBackdrop(canvas, look, pal.dark, card, dpr, pal.ground, () => textRuns(pane));
+      const pic = await pictureFor(backdrop, pal.dark);
+      if (!pic || disposed) return;
+      const done = await paintColorBackdrop(canvas, look, pic, card, dpr, pal.ground, () => textRuns(pane));
       if (done && profile) renders.push(done);
     };
     const refresh = () => void draw();
@@ -205,6 +237,7 @@ function ColorBackdrop({ look: id }: { look: ColorLookId }) {
       watch.disconnect();
       dock?.removeEventListener("transitionend", refresh);
     };
-  }, [id]);
-  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={id} />;
+  // The key names the picture and its treatment; a new object for the same backdrop is not a new one.
+  }, [backdrop.key, backdrop.moves, lookId]);
+  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
 }

@@ -1,0 +1,6 @@
+[
+  { "id": "haze", "name": "Haze", "mood": "A soft long-exposure sky over hazy hills", "light": "haze.jpg", "dark": "haze.jpg", "effect": "dither", "motion": true },
+  { "id": "silk", "name": "Silk", "mood": "Satin folds in a print's halftone", "light": "silk.jpg", "dark": "silk.jpg", "effect": "halftone", "motion": true },
+  { "id": "sky", "name": "Sky", "mood": "Clouds in their own colours, by day and at dusk", "light": "sky-day.jpg", "dark": "sky-dusk.jpg", "effect": "dither-color", "motion": false },
+  { "id": "dunes", "name": "Dunes", "mood": "Long wind-laid ridges", "light": "dunes.jpg", "dark": "dunes.jpg", "effect": "dither", "motion": false }
+]
