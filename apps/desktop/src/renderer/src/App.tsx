@@ -635,7 +635,7 @@ export function App() {
     // A space's Team access was set or cleared, here or in another window: read again where held.
     const offTeamAccess = rpc().on("teams.access.changed", ({ spaceId }) => {
       const st = store.getState();
-      if (st.teamAccess[spaceId]) st.run(() => st.loadTeamAccess(spaceId));
+      st.run(() => st.teamAccessChanged(spaceId));
     });
     // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
     // that environment: this fires on every turn, and a store holding a list nobody is looking at is

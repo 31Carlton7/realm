@@ -58,6 +58,9 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
   const lastAgent = useApp((s) => s.lastAgentKind ?? FALLBACK_AGENT);
   const lastModel = useApp((s) => s.lastModels[s.lastAgentKind ?? FALLBACK_AGENT] ?? null);
   const defaultMode = useApp((s) => s.settingsPrefs?.defaultPermissionMode);
+  // While the space has a Team access, a new teammate is made on it whatever the sheet sends.
+  const spaceMode = useApp((s) => (id ? null : s.teamAccess[spaceId]?.mode ?? null));
+  const loadTeamAccess = useApp((s) => s.loadTeamAccess);
   const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
   const createTeammate = useApp((s) => s.createTeammate);
   const updateTeammate = useApp((s) => s.updateTeammate);
@@ -78,9 +81,12 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
   const put = (patch: Partial<Fields>) => setF((v) => ({ ...v, ...patch }));
   useEffect(() => { nameRef.current?.focus(); }, []);
   useEffect(() => { run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
-  // The permission new sessions start in, once it is known, unless the person has chosen already.
-  const shownMode: TeammatePermissionMode = modeTouched || !defaultMode ? f.permissionMode
-    : (MODES as readonly string[]).includes(defaultMode) ? defaultMode as TeammatePermissionMode : "default";
+  useEffect(() => { if (!id) run(() => loadTeamAccess(spaceId)); }, [run, loadTeamAccess, spaceId, id]);
+  // The space's Team access, else the permission new sessions start in, once it is known, unless the
+  // person has chosen already.
+  const startMode = spaceMode ?? defaultMode;
+  const shownMode: TeammatePermissionMode = modeTouched || !startMode ? f.permissionMode
+    : (MODES as readonly string[]).includes(startMode) ? startMode as TeammatePermissionMode : "default";
 
   const quickStart = (q: QuickStart) => setF((v) => ({
     ...v, brief: q.brief, icon: q.icon, lead: !!q.lead,

@@ -56,7 +56,8 @@ describe("the space's team", () => {
     // THE MUTANTS: the Lead in its sort order; the "Team" caption back over the list.
     await mount();
     await waitFor(() => expect(titles()).toEqual(["Lead", "cto", "Strat", "research"]));
-    expect(screen.queryByRole("button", { name: /^Team/ })).toBeNull();
+    // Team access heads the list as a setting, not a caption.
+    expect(screen.queryByRole("button", { name: /^Team(?! access$)/ })).toBeNull();
     expect(within(teamList()).queryByText("Team")).toBeNull();
   });
 
