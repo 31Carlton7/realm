@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.9.0 - 2026-11-10
+
+- A turn's sources show as a stack of site icons: three, then a count of the rest.
+- Security codes sent to Messages and Mail can be offered in a site's one-time-code field in a browser pane. Turn it on in Settings, under Sign-ins. An agent has to ask each time, and never sees the code.
+- Every row of a run lines up on one edge, and a tooltip no longer covers the row it describes.
+- Realm Mobile: the diff pane and the pull request on the phone. See a session's changes, stage files, commit, push and open a pull request, and read a pull request's checks, files, comments and reviews.
+- Allow always now lasts for the session only, and never writes to your Claude settings.
+- Web pages in browser panes are refused the camera, microphone, location, notifications and every other permission, except fullscreen and writing to the clipboard.
+- A password Realm fills stays out of what an agent can read, even if the page later shows the field as plain text.
+- The packaged app ignores NODE_OPTIONS and debugging switches, loads only its own sealed code and checks it first, and encrypts the cookies its browser panes keep. Agents are kept out of the data Realm's browser engine stores.
+- PDFs are read with a newer pdf.js, past a flaw that let a PDF run script.
+- Electron moves to 45.3.0, which brings three weeks of browser security fixes to every pane.
+
 ## v2.8.5 - 2026-11-09
 
 - The About window no longer opens by itself. It now opens only when you pick About Realm from the menu.
