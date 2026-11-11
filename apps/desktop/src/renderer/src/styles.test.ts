@@ -5513,3 +5513,17 @@ it("sets what is read in the reading tier, never the hint tier", () => {
     expect(colours.map((c) => c.trim().replace(/^;\s*/, "")), selector).toEqual(["color: var(--rl-text-dim)"]);
   }
 });
+
+/* In light the bubble's raised fill is white on the default palette's white canvas, 1.01:1. It
+   takes the translucent step down, on both paths; dark keeps the raised fill. */
+it("gives your own message a tone in light, and leaves dark's bubble alone", () => {
+  // THE MUTANTS: either light rule deleted (the painted path reads only `--sq-fill`), or the step
+  // spread to dark by dropping the mode from the selector.
+  expect(bodiesFor(':root[data-mode="light"]:not([data-squircle]) .msg-user').join(" ")).toContain("background: var(--rl-hover)");
+  expect(bodiesFor(':root[data-mode="light"][data-squircle] .msg-user').join(" ")).toContain("--sq-fill: var(--rl-hover)");
+  expect(bodiesFor(".msg-user").join(" ")).toContain("background: var(--rl-raised)");
+  expect(bodiesFor(":root[data-squircle] .msg-user").join(" ")).toContain("--sq-fill: var(--rl-raised)");
+  const unscoped = RULES.filter((r) => partsOf(r).some((p) => /(^|\s)\.msg-user$/.test(p) && !p.includes("light") && !p.includes("quick-chat"))
+    && /--rl-hover/.test(r.body));
+  expect(unscoped).toEqual([]);
+});

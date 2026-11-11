@@ -6452,6 +6452,11 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --sq-radius-top: var(--r-squircle-msg);
   --sq-radius-bottom: var(--r-squircle-msg);
 }
+/* In light the raised fill is white, and so is the default palette's canvas (Codex), so the bubble
+   read 1.01:1 against it. It takes the translucent step quick chat's bubble takes: a rung down from
+   whatever ground it is laid on. Dark's raised fill already steps off its canvas and keeps it. */
+:root[data-mode="light"]:not([data-squircle]) .msg-user { background: var(--rl-hover); }
+:root[data-mode="light"][data-squircle] .msg-user { --sq-fill: var(--rl-hover); }
 /* A message another SESSION delivered keeps its accent ring — traced on the painted curve now,
    rather than as a box-shadow around a rounded rect the fill has already bulged past. */
 :root[data-squircle] .msg-user-row[data-from] .msg-user {

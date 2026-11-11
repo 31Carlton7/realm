@@ -1066,6 +1066,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   and the composer available without obscuring the last message.
 - User messages, assistant prose, plans, tool calls, permissions, diffs, and attachments must have
   distinct shapes because they lead to different actions.
+  Your own message's bubble keeps its shape in both faces: dark lays it on the raised fill, a step
+  over the canvas, and light lays it on the hover step, because Codex light's raised fill and canvas
+  are the same white and the bubble measured 1.01:1 against it.
 - Running, waiting, stopped, and failed states must be readable without color alone.
 - Provider, model, mode, workspace, and connector context belong near the composer because they
   change what the next send means.
