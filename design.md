@@ -427,10 +427,15 @@ order is the light ramp in `packages/ui/src/themes.ts`, so every light theme tak
 background is its paper, and the window ground sits a shade under it, which is a Mac sidebar beside
 light work and grey grouped boxes on light paper, the way System Settings is built.
 
-Quiet text is text. Every ink tier — hints and timestamps included — and link ink clear 4.5:1 on every
-ground they appear on, in both faces. The light hint tier once measured 2.4:1, which was below the
+Quiet text is text. Text people must read sits on an ink that clears 4.5:1 on every ground it appears
+on, in both faces, and so does link ink. The light hint tier once measured 2.4:1, which was below the
 floor this file sets and well under its own dark counterpart; a light face may need different values
 from dark to reach the same contrast, and that is a reason to author them, not to accept less.
+That ink is `--ink-2`. On the page, canvas, surface, inset and hover it measures 5.97 to 7.48:1 in
+Realm dark, 6.53 to 7.16:1 in Realm light and 5.59 to 6.21:1 in Codex light, the default light face.
+`--ink-3` measures 2.82 to 3.54:1 in Realm dark and 2.91 to 3.23:1 in Codex light, so it is left to
+what a reader may skip (a row's age, a count, a placeholder), and a section's name, a run's line and a
+session's closing line take `--ink-2`.
 
 ## Shape
 
@@ -1061,6 +1066,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   and the composer available without obscuring the last message.
 - User messages, assistant prose, plans, tool calls, permissions, diffs, and attachments must have
   distinct shapes because they lead to different actions.
+  Your own message's bubble keeps its shape in both faces: dark lays it on the raised fill, a step
+  over the canvas, and light lays it on the hover step, because Codex light's raised fill and canvas
+  are the same white and the bubble measured 1.01:1 against it.
 - Running, waiting, stopped, and failed states must be readable without color alone.
 - Provider, model, mode, workspace, and connector context belong near the composer because they
   change what the next send means.

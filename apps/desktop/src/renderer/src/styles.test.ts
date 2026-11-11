@@ -4046,7 +4046,7 @@ describe("row and control layout", () => {
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".sb-lens") && /seg/.test(sel)))).toEqual([]);
     const title = bodiesFor(".sb-lens-title").join(" ");
     const label = bodiesFor(".group-label").join(" ");
-    for (const part of ["font-size: 13px", "font-weight: var(--fw-medium)", "color: var(--rl-text-faint)"]) {
+    for (const part of ["font-size: 13px", "font-weight: var(--fw-medium)", "color: var(--rl-text-dim)"]) {
       expect(label, part).toContain(part);
       expect(title, part).toContain(part);
     }
@@ -5501,4 +5501,29 @@ it("draws a disclosure with the icon set's chevron, never a typed triangle", () 
   const typed = RULES.filter((r) => /content:\s*"[▸▾▶]/.test(r.body)).flatMap((r) => r.selectors);
   expect(typed).toEqual([]);
   expect(bodiesFor("details[open] > summary > .disclosure-mark").join(" ")).toContain("rotate: 90deg");
+});
+
+/* Text a person has to read sits in the reading tier, `--ink-2`, which themes.test.ts holds to 4.5:1 on
+   every ground in the default faces. The hint tier measured 2.8 to 3.5:1 under these. */
+it("sets what is read in the reading tier, never the hint tier", () => {
+  const read = [".group-label", ".sb-lens-title", ".summary-row-meta", ".msg-run", ".msg-run-at", ".msg-transcript-summary"];
+  for (const selector of read) {
+    // THE MUTANT: any one of them back on `--rl-text-faint`.
+    const colours = bodiesFor(selector).join(" ").match(/(?:^|[ ;])color: [^;]+/g) ?? [];
+    expect(colours.map((c) => c.trim().replace(/^;\s*/, "")), selector).toEqual(["color: var(--rl-text-dim)"]);
+  }
+});
+
+/* In light the bubble's raised fill is white on the default palette's white canvas, 1.01:1. It
+   takes the translucent step down, on both paths; dark keeps the raised fill. */
+it("gives your own message a tone in light, and leaves dark's bubble alone", () => {
+  // THE MUTANTS: either light rule deleted (the painted path reads only `--sq-fill`), or the step
+  // spread to dark by dropping the mode from the selector.
+  expect(bodiesFor(':root[data-mode="light"]:not([data-squircle]) .msg-user').join(" ")).toContain("background: var(--rl-hover)");
+  expect(bodiesFor(':root[data-mode="light"][data-squircle] .msg-user').join(" ")).toContain("--sq-fill: var(--rl-hover)");
+  expect(bodiesFor(".msg-user").join(" ")).toContain("background: var(--rl-raised)");
+  expect(bodiesFor(":root[data-squircle] .msg-user").join(" ")).toContain("--sq-fill: var(--rl-raised)");
+  const unscoped = RULES.filter((r) => partsOf(r).some((p) => /(^|\s)\.msg-user$/.test(p) && !p.includes("light") && !p.includes("quick-chat"))
+    && /--rl-hover/.test(r.body));
+  expect(unscoped).toEqual([]);
 });

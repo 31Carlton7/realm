@@ -189,7 +189,7 @@ export function PaneTabs({ leafId, tabs, activeId, owners, onRename }: {
               ) : (
                 <button type="button" className="icon-btn pane-tab-close" aria-label={deletes ? `Delete ${t.title}` : `Close ${t.title}`}
                   title={deletes ? "Delete — removes it from the space, not just this tab" : "Close tab (keep in space)"}
-                  onClick={close}><Icon name="close" size={12} /></button>
+                  onClick={close}><Icon name={deletes ? "trash" : "close"} size={12} /></button>
               )}
             </div>
             </Fragment>

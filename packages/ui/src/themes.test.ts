@@ -118,6 +118,17 @@ describe("what a theme states survives derivation", () => {
   });
 });
 
+/* The reading tier: what a person has to read and the hint tier is too faint for (a section's name, a
+   run's line) sits in `--ink-2`, and in the faces Realm opens in that clears AA on every
+   ground it is drawn on. The hint tier measures 2.8:1 in the same places, which is why it is not used. */
+it("keeps the reading tier at 4.5:1 on every ground in the default faces", () => {
+  const defaults = [deriveVars(REALM_SEED.dark, "dark"), deriveVars(REALM_SEED.light, "light"), themeVars("codex", "light")];
+  for (const v of defaults) {
+    const worst = Math.min(...INK_GROUNDS.ink2.map((g) => contrast(parse(v["--ink-2"]!), parse(v[g]!))));
+    expect(worst).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
 describe(`every theme clears the floor (ink ${CONTRAST_FLOOR.ink}:1, ink-2 ${CONTRAST_FLOOR.ink2}:1, syntax ${CONTRAST_FLOOR.syntax}:1)`, () => {
   it.each(faces().filter(({ theme }) => theme.name !== "realm").map(({ theme, mode }) => [`${theme.label} ${mode}`, theme.name, mode] as const))(
     "%s", (_label, name, mode) => {
