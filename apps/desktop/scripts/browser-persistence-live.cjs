@@ -49,6 +49,7 @@ esbuild().buildSync({
 });
 
 const { app, BrowserWindow } = require("electron");
+const { QUIET_WINDOW_OPTIONS } = require("./lib/quiet-electron.cjs");
 const { createBrowserPane } = require(outfile);
 const { RETAINED_VIEW_LIMIT } = require(hostOut);
 
@@ -87,7 +88,9 @@ app.whenReady().then(async () => {
     const win = new BrowserWindow({
       width: 700, height: 560, x: 60, y: 60, title: "Realm browser-persistence live check (auto-closes)",
       ...(process.platform === "darwin" ? { vibrancy: "sidebar", backgroundColor: "#00000000" } : { backgroundColor: "#17181a" }),
+      ...QUIET_WINDOW_OPTIONS,
     });
+    win.show();
     // A DOM decoy under the view's rect, so check 2 can tell "hidden" from "still painting".
     await win.webContents.loadURL(`data:text/html,${encodeURIComponent(
       `<body style="margin:0;background:#111"><div style="position:absolute;left:0;top:0;width:360px;height:240px;background:#1e8e3e"></div></body>`)}`);

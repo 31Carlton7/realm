@@ -1,6 +1,6 @@
 // Checks and draws the architecture docs with the Electron and Mermaid Realm already ships.
 //
-//   apps/desktop/node_modules/.bin/electron docs/architecture/render.mjs [--blocks <dir>] [--no-poster]
+//   node apps/desktop/scripts/lib/live-app.mjs docs/architecture/render.mjs [--blocks <dir>] [--no-poster]
 //
 // 1. Every ```mermaid block in docs/architecture/*.md is drawn by Mermaid (the copy the renderer uses
 //    for an agent's diagrams). A block that does not parse fails the run with its file and line.

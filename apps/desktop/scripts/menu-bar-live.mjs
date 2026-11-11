@@ -10,12 +10,13 @@
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the processes it started.
  */
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9377), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8944);
@@ -115,10 +116,7 @@ async function launch() {
   for (const p of [CDP_PORT, SERVER_PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, WRAPPER);
-  const electronBin = process.platform === "darwin"
-    ? path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
-    : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
-  electron = spawn(electronBin, [wrapper], {
+  electron = spawnLiveElectron([wrapper], {
     env: { ...process.env,
       REALM_HOME: path.join(scratch, "home"), REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),

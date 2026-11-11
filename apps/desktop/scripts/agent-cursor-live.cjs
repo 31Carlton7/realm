@@ -71,6 +71,7 @@ const bundled = path.join(scratch, "marks.cjs");
 esbuild().buildSync({ entryPoints: [entry], bundle: true, platform: "node", format: "cjs", external: ["electron"], outfile: bundled });
 
 const { app, BrowserWindow } = require("electron");
+const { QUIET_WINDOW_OPTIONS } = require("./lib/quiet-electron.cjs");
 const { createBrowserPane, BrowserAgentHost, AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION } = require(bundled);
 app.setPath("userData", path.join(scratch, "userData"));
 // Same switch main/index.ts carries: an occluded window's WebContentsView drops synthetic input and
@@ -171,7 +172,8 @@ function expectedInk(formName, point) {
 }
 
 async function main() {
-  const win = new BrowserWindow({ width: 900, height: 700, show: true });
+  const win = new BrowserWindow({ width: 900, height: 700, ...QUIET_WINDOW_OPTIONS });
+  win.show();
   await win.loadURL("data:text/html,<title>host</title><body style='margin:0;background:#fff'>");
   const pane = createBrowserPane(win);
   const host = new BrowserAgentHost({

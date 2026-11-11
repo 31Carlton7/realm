@@ -76,10 +76,15 @@ export default defineConfig({
   // __REALM_SIGNED_BUILD__ feeds the updater gate (src/main/updater.ts): true only when the build
   // env carries signing credentials — the same CSC_* vars electron-builder signs from — so a signed
   // `pnpm dist` flips the gate's `signed` input with zero code changes (Plan 15 W1/W3).
-  main: { define: {
-    __REALM_SIGNED_BUILD__: JSON.stringify(Boolean(process.env.CSC_LINK || process.env.CSC_NAME)),
-    __REALM_WHATS_NEW__: JSON.stringify(whatsNew),
-  } },
+  main: {
+    define: {
+      __REALM_SIGNED_BUILD__: JSON.stringify(Boolean(process.env.CSC_LINK || process.env.CSC_NAME)),
+      __REALM_WHATS_NEW__: JSON.stringify(whatsNew),
+    },
+    // quiet-windows is its own entry as well, for a live check that boots Electron without Realm's
+    // main (scripts/lib/live-app.mjs) and still has to stay off the screen.
+    build: { rollupOptions: { input: { index: "src/main/index.ts", "quiet-windows": "src/main/quiet-windows.ts" } } },
+  },
   preload: {},
   // host 127.0.0.1 so the dev-server / HMR socket matches the renderer CSP (connect-src 127.0.0.1 only)
   // Tailwind v4 runs in the renderer only (Plan 9 W1): electron-vite composes vite plugins per target.

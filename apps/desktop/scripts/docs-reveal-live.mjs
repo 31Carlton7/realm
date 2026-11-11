@@ -11,7 +11,7 @@
  * Ports: env-overridable (8795 server, 9235 CDP, 9236 main's inspector). Touches only a scratch dir;
  * stops the daemon it started and reaps the ports. LIVE_SHOTS names where the screenshots go.
  */
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 import { openSideTool } from "./lib/side-tools.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -114,8 +115,7 @@ async function main() {
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);',
     "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [`--inspect=${MAIN_INSPECT_PORT}`, wrapper, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([`--inspect=${MAIN_INSPECT_PORT}`, wrapper, ...UNTHROTTLED], {
     env: { ...process.env, REALM_HOME: home, REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1", REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), LIVE_USER_DATA: path.join(scratch, "userData"),
       LIVE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js") },

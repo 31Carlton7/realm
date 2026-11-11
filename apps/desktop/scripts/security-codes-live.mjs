@@ -1,5 +1,6 @@
 /**
- * Live check for security codes in the browser pane (run with: pnpm build && node apps/desktop/scripts/security-codes-live.mjs)
+ * Live check for security codes in the browser pane (run with: pnpm build && node apps/desktop/scripts/security-codes-live.mjs;
+ * LIVE_FRONT=1 for the pictures)
  *
  * Boots the BUILT app on a scratch REALM_HOME with a scripted ACP agent (nothing billed), a local page
  * with a one-time-code field and a row of six single-digit boxes on 127.0.0.1, and the stand-in code
@@ -14,8 +15,10 @@
  *       "filled" without the code; its next snapshot does not carry the code; a declined card fills
  *       nothing and answers "declined";
  *   C5  no code is in realm.db or any log;
- *   C6  every surface in dark and light, captured from the screen (`screencapture`), because the menu
- *       and the pane are native views no CDP capture can see.
+ *   C6  with LIVE_FRONT=1, every surface in dark and light, captured from the screen
+ *       (`screencapture`), because the menu and the pane are native views no CDP capture can see.
+ *       That run is seen (scripts/README.md): the window comes to the front for each menu. Without
+ *       it the run is quiet, the hand picks at once, and there are no pictures.
  *
  * The OS menu cannot be pressed from a script, so the wrapper stands in for the hand: it records the
  * rows of every menu main pops, lets the REAL menu stand on screen long enough to be photographed when
@@ -24,7 +27,7 @@
  * Ports: LIVE_SERVER_PORT / LIVE_CDP_PORT (8801 / 9241) and LIVE_SITE_PORT (18801), refused if taken
  * and reaped by port. Screenshots go to LIVE_OUT.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
 import http from "node:http";
 import fs from "node:fs";
@@ -33,12 +36,14 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateRawSync } from "node:zlib";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9241);
 const SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8801);
 const SITE_PORT = Number(process.env.LIVE_SITE_PORT ?? 18801);
+const FRONT = process.env.LIVE_FRONT === "1";
 const OUT_DIR = process.env.LIVE_OUT ?? path.join(os.tmpdir(), "realm-security-codes-live");
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-codes-live-"));
@@ -208,6 +213,7 @@ async function windowCmd(cmd) {
 }
 /** The window as macOS draws it, its panes and their native views included, even under another window. */
 async function shotWindow(tag) {
+  if (!FRONT) return;
   await sleep(700);
   const info = await windowCmd("info");
   const cgId = info.id.split(":")[1];
@@ -225,6 +231,7 @@ function frontApp() {
  * opens the menu — and the app that was in front gets the keyboard back after.
  */
 async function shotMenu(tag, act) {
+  if (!FRONT) return act();
   const was = frontApp();
   const { bounds } = await windowCmd("front");
   await sleep(500);
@@ -250,8 +257,8 @@ async function main() {
   fs.chmodSync(agent, 0o755);
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, WRAPPER);
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [wrapper, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([wrapper, ...UNTHROTTLED], {
+    ...(FRONT ? { visible: "the code menu and the pane are native views, captured with screencapture" } : {}),
     env: {
       ...process.env, REALM_HOME: home, REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), REALM_GEMINI_BIN: agent, REALM_ENABLE_FAKE_AGENT: "1",
@@ -381,7 +388,7 @@ async function main() {
     /* ── C3: the person's menu, one field ─────────────────────────────────────────────────────── */
     const single = mode === "dark" ? "482913" : "306118";
     receive("Messages", single, "Your Fixture verification code is {code}. Don't share it with anyone.");
-    fs.writeFileSync(pickFile, `real:2500:${single.slice(0, 3)}`);
+    fs.writeFileSync(pickFile, `${FRONT ? "real:2500:" : ""}${single.slice(0, 3)}`);
     const m0 = lines(menuLog).length;
     await shotMenu(`03-suggestion-field-${mode}`, async () => click(await centre("#otp")));
     await until(async () => (await otpValue()) === single, 15_000, "field filled");
@@ -393,7 +400,7 @@ async function main() {
     await go("/split");
     const split = mode === "dark" ? "731904" : "558270";
     receive("Mail", split, "Your sign-in code\nUse {code} to sign in. It expires in 10 minutes.", 5_000);
-    fs.writeFileSync(pickFile, `real:2500:${split.slice(0, 3)}`);
+    fs.writeFileSync(pickFile, `${FRONT ? "real:2500:" : ""}${split.slice(0, 3)}`);
     const m1 = lines(menuLog).length;
     await shotMenu(`05-suggestion-boxes-${mode}`, async () => click(await centre("#d0")));
     await until(async () => (await boxValues()) === split, 15_000, "boxes filled");

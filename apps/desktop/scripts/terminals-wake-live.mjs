@@ -11,11 +11,12 @@
  * Ports: LIVE_SERVER_PORT (8795). Touches only a scratch dir under LIVE_SCRATCH_ROOT. Bills nothing:
  * no session is sent a message.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PORT = Number(process.env.LIVE_SERVER_PORT ?? 8795);
@@ -23,14 +24,13 @@ const root = process.env.LIVE_SCRATCH_ROOT ?? path.join(repoRoot, "..", ".verify
 fs.mkdirSync(root, { recursive: true });
 const scratch = fs.mkdtempSync(path.join(root, "realm-terminals-wake-live-"));
 const home = path.join(scratch, "home");
-const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const check = (name, cond, detail) => { if (!cond) process.exitCode = 1; console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`); };
 const seen = [];
 let server = null;
 
 async function boot() {
-  server = spawn(electronBin, [path.join(repoRoot, "apps/server/dist/main.js")], {
+  server = spawnLiveElectron([path.join(repoRoot, "apps/server/dist/main.js")], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", REALM_HOME: home, REALM_PORT: String(PORT), REALM_ENABLE_FAKE_AGENT: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });

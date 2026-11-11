@@ -23,13 +23,14 @@
  * LIVE_DIR. Nothing is billed: every session is moved to the fake agent before anything is sent, the
  * schedule runs on it, and nothing is ever typed into a composer. Kills only what listens on its ports.
  */
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { connect } from "node:net";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9252), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8812);
@@ -271,8 +272,7 @@ async function boot() {
   await new Promise((r) => site.listen(SITE_PORT, "127.0.0.1", r));
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [wrapper,
+  electron = spawnLiveElectron([wrapper,
     "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
     env: { ...process.env, REALM_HOME: home, REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),

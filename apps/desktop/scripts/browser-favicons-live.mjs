@@ -26,7 +26,7 @@
  * the onboarding session is moved to it too before anything else, and REALM_ENABLE_FAKE_AGENT=1 turns
  * the recap off. Nothing is ever typed into a composer.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
 import http from "node:http";
 import fs from "node:fs";
@@ -35,6 +35,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -239,8 +240,7 @@ async function launch() {
   for (const p of [CDP_PORT, SERVER_PORT, MAIN_INSPECT_PORT]) await until(() => portFree(p), 10_000, `port ${p} free`);
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [`--inspect=${MAIN_INSPECT_PORT}`, wrapper, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([`--inspect=${MAIN_INSPECT_PORT}`, wrapper, ...UNTHROTTLED], {
     env: {
       ...process.env,
       REALM_HOME: home,

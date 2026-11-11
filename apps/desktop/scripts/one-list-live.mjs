@@ -23,7 +23,7 @@
  * was started from this checkout; browses nothing but its own 127.0.0.1 fixture. Screenshots go to
  * LIVE_SHOTS (default: the OS temp dir) for a person to read.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
 import http from "node:http";
 import fs from "node:fs";
@@ -32,6 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 import { openSideTool } from "./lib/side-tools.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 /** A window this script starts opens behind whatever the person at the Mac has in front, and Chromium
@@ -47,7 +48,6 @@ const WINDOW = { width: 1600, height: 1000 };
 const SHOTS = process.env.LIVE_SHOTS ?? os.tmpdir();
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-one-list-live-"));
 const home = path.join(scratch, "home");
-const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 const ALPHA = "Alpha in Homework", BRAVO = "Bravo in Thesis", CHARLIE = "Charlie in Thesis";
 const PAGE_TITLE = "Thesis sources";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -300,7 +300,7 @@ async function launch() {
   for (const p of [CDP_PORT, SERVER_PORT, MAIN_INSPECT_PORT]) await until(() => portFree(p), 15_000, `port ${p} free`);
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  electron = spawn(electronBin, [`--inspect=${MAIN_INSPECT_PORT}`, wrapper, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([`--inspect=${MAIN_INSPECT_PORT}`, wrapper, ...UNTHROTTLED], {
     env: {
       ...process.env,
       REALM_HOME: home,

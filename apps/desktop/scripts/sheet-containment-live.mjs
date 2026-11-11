@@ -21,12 +21,12 @@
  * Refuses to run if either is taken.
  * Touches only a scratch dir (REALM_HOME + userData); kills only the process it started.
  */
-import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 // Its own ports, overridable: 9223/8788 are what the other live checks and `run` use, and a peer
@@ -118,10 +118,9 @@ async function main() {
     'app.setPath("userData", process.env.LIVE_USER_DATA);',
     "await import(process.env.LIVE_MAIN);",
   ].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   // Own process group: the app spawns realm-server as a CHILD, and SIGTERM to the Electron pid alone
   // leaves that child holding the port — which then refuses the next run.
-  electron = spawn(electronBin, [wrapper], {
+  electron = spawnLiveElectron([wrapper], {
     detached: true,
     env: {
       ...process.env,

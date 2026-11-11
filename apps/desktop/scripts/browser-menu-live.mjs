@@ -39,7 +39,7 @@
  * own 127.0.0.1 fixture. Nothing is billed: the session is the fake agent's and is never sent a turn,
  * and REALM_ENABLE_FAKE_AGENT=1 keeps the titler and the recap off.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
 import http from "node:http";
 import fs from "node:fs";
@@ -48,6 +48,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 import { openSideTool } from "./lib/side-tools.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 /** Chromium's switches for a window that is covered or in the background: lay it out and run its timers
@@ -202,8 +203,7 @@ async function main() {
 
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [`--inspect=${MAIN_INSPECT_PORT}`, wrapper, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([`--inspect=${MAIN_INSPECT_PORT}`, wrapper, ...UNTHROTTLED], {
     env: {
       ...process.env,
       REALM_HOME: home,

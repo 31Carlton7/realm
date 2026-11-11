@@ -18,13 +18,14 @@
  * Ports: REALM_PORT 8800, CDP 9240 (override with env). Refuses to run if either is taken. Touches
  * only its scratch dir; kills only the process it started. Needs ffmpeg for the fixtures.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.REALM_DEVTOOLS_PORT ?? 9240), SERVER_PORT = Number(process.env.REALM_PORT ?? 8800);
@@ -158,8 +159,7 @@ async function main() {
     '  w.on("page-title-updated", (e) => e.preventDefault()); });',
     "await import(process.env.LIVE_MAIN);",
   ].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
+  electron = spawnLiveElectron([wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
     env: {
       ...process.env, REALM_HOME: home, REALM_HTML_MENUS: "1", REALM_ENABLE_FAKE_AGENT: "1",
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),

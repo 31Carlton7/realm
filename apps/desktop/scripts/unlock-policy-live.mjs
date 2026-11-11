@@ -20,11 +20,12 @@
  * Chromium's mock and no Keychain item is read or written — checked before and after. Scratch
  * REALM_HOME and userData, one port on 127.0.0.1, and everything is removed at the end.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const desktop = path.join(repoRoot, "apps/desktop");
@@ -85,8 +86,7 @@ fs.mkdirSync(home);
 fs.writeFileSync(path.join(scratch, "package.json"), JSON.stringify({ name: "realm-unlock-policy-live", main: "main.cjs" }));
 fs.writeFileSync(path.join(scratch, "main.cjs"), MAIN_SOURCE());
 
-const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-const child = spawn(electronBin, [scratch, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"], {
+const child = spawnLiveElectron([scratch, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"], {
   env: { ...process.env, LIVE_SCRATCH: scratch, LIVE_HOME: home, LIVE_CONTROL: control, LIVE_OWNER_LOG: ownerLog, LIVE_LISTWIN: listwin, LIVE_REAL_HELPER: realHelper },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -121,6 +121,8 @@ const fs = require("node:fs");
 const http = require("node:http");
 const { execFileSync, execFile } = require("node:child_process");
 const { app, BrowserWindow, safeStorage, systemPreferences } = require("electron");
+const { installQuietWindows, QUIET_WINDOW_OPTIONS } = require(process.env.REALM_QUIET_MAIN);
+installQuietWindows();
 app.commandLine.appendSwitch("use-mock-keychain");
 app.setPath("userData", path.join(process.env.LIVE_SCRATCH, "userData"));
 const { SecretStore } = require(path.join(process.env.LIVE_SCRATCH, "secret-store.cjs"));
@@ -172,7 +174,8 @@ app.whenReady().then(async () => {
     check("the device-owner check can run here", owner.canPromptDeviceOwner(), null);
     check("info: Touch ID sensor present", true, systemPreferences.canPromptTouchID());
 
-    const win = new BrowserWindow({ width: 640, height: 360, x: 40, y: 40, show: true });
+    const win = new BrowserWindow({ width: 640, height: 360, x: 40, y: 40, ...QUIET_WINDOW_OPTIONS });
+    win.show();
     await win.loadURL(origin + "/");
     const host = new BrowserAgentHost({
       attach: () => {

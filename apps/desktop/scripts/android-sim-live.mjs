@@ -11,13 +11,13 @@
  *
  * Hygiene: scratch REALM_HOME + userData under mkdtemp, removed at exit. Never the real ~/Realm.
  */
-import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openSideTool } from "./lib/side-tools.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP = Number(process.env.LIVE_CDP_PORT ?? 9357), PORT = Number(process.env.LIVE_SERVER_PORT ?? 8919);
@@ -40,7 +40,7 @@ function cdp(url) {
 async function main() {
   for (const p of [CDP, PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use`);
   fs.writeFileSync(path.join(scratch, "w.mjs"), 'import { app } from "electron";\napp.setPath("userData", process.env.UD);\nawait import(process.env.MAIN);');
-  electron = spawn(path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"), [path.join(scratch, "w.mjs")], {
+  electron = spawnLiveElectron([path.join(scratch, "w.mjs")], {
     env: { ...process.env, REALM_HOME: path.join(scratch, "home"), REALM_PORT: String(PORT), REALM_DEVTOOLS_PORT: String(CDP),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), UD: path.join(scratch, "ud"), MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js") },
     stdio: ["ignore", "ignore", "pipe"],

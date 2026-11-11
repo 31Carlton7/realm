@@ -35,7 +35,7 @@
  * Env: LIVE_CDP_PORT / LIVE_SERVER_PORT (defaults 9341 / 8907), LIVE_SHOTS (where screenshots go,
  * default a temp dir), LIVE_TMP (where the scratch home goes, default the OS temp dir).
  */
-import { spawn, execSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
@@ -43,6 +43,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 import { buildFixture } from "../../server/scripts/fixtures/code-review-fixture.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9341), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8907);
@@ -229,11 +230,8 @@ async function boot(env, label) {
   const home = path.join(scratch, `${label}-home`);
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = process.platform === "darwin"
-    ? path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
-    : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
   // The window opens behind whatever the person is doing; these keep Chromium laying it out.
-  electron = spawn(electronBin, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
+  electron = spawnLiveElectron([wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
     env: { ...process.env, ...env, REALM_HOME: home, REALM_ENABLE_FAKE_AGENT: "1",
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),

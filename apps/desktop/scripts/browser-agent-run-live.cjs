@@ -64,6 +64,7 @@ const bundled = path.join(scratch, "agent.cjs");
 esbuild().buildSync({ entryPoints: [entry], bundle: true, platform: "node", format: "cjs", external: ["electron"], outfile: bundled });
 
 const { app, BrowserWindow, screen } = require("electron");
+const { QUIET_WINDOW_OPTIONS } = require("./lib/quiet-electron.cjs");
 const { createBrowserPane, blockBrowserDownloads, BrowserAgentHost, startBrowserAgentBridge } = require(bundled);
 app.setPath("userData", path.join(scratch, "userData"));
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
@@ -147,7 +148,8 @@ async function main() {
   const info = await ready;
   log(`realm-server up on :${info.port}, home ${info.home}`);
 
-  const win = new BrowserWindow({ width: 1000, height: 700, x: 40, y: 40, title: "Realm W5 live check (auto-closes)", backgroundColor: "#17181a" });
+  const win = new BrowserWindow({ width: 1000, height: 700, x: 40, y: 40, title: "Realm W5 live check (auto-closes)", backgroundColor: "#17181a", ...QUIET_WINDOW_OPTIONS });
+  win.show();
   await win.loadURL("data:text/html," + encodeURIComponent("<body style='background:#17181a;color:#eee;font:13px sans-serif;padding:8px'>W5 live check — the browser view mounts below when the CHILD agent opens it</body>"));
   const pane = createBrowserPane(win);
   const host = new BrowserAgentHost({

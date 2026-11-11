@@ -52,6 +52,7 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
+import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietWindowsOn } from "./quiet-windows";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -92,6 +93,11 @@ registerMediaScheme();
 /** What this OS can do for Realm (packages/contracts/src/platform.ts) — read here, by the server, and by
  *  the renderer through the preload, so a feature that does not exist here is gated in one place. */
 const platform = platformCapabilities(process.platform);
+/** A live check's app, which nobody at the Mac sees or hears (quiet-windows.ts). Before anything
+ *  else here, so its Chromium switches land before `ready` and its patches before the first window. */
+const quiet = quietWindowsOn({ packaged: app.isPackaged, env: process.env });
+if (quiet) installQuietWindows();
+else delete process.env[QUIET_WINDOWS_ENV];
 // Windows shows a notification only for an app it can name, and names it by this id — the appId
 // electron-builder registers the Start menu shortcut under.
 if (process.platform === "win32") app.setAppUserModelId("co.charmtechnologies.realm");
@@ -580,13 +586,17 @@ async function createWindow(info: { port: number; home: string; token: string },
     // Inset traffic lights over the sidebar's material on a Mac; the system's own controls over the
     // head row's right end on Linux and Windows (window-chrome.ts).
     ...windowChrome(platform, nativeTheme.shouldUseDarkColors),
+    ...(quiet ? QUIET_WINDOW_OPTIONS : {}),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
+      ...(quiet ? { backgroundThrottling: false } : {}),
       additionalArguments: windowArguments({ ...info, profileId, spaceId, land }) },
   });
   windows.add(win, profileId, spaceId);
   presence.check();
   win.on("focus", () => { windows.focused(win); saveWindows(); });
+  // Shown now, as a window constructed visible would be — only never in front, and all but transparent.
+  if (quiet) win.show();
   // The title is the space's name — what the Window menu, Mission Control and the Dock list the
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
   win.on("page-title-updated", (e) => e.preventDefault());

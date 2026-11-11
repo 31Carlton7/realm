@@ -38,6 +38,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { CAPTURE_DENSITY, WINDOW } from "../lib/frames.ts"
 import { encode, rawDir } from "./encode-product.mjs"
+import { spawnLiveElectron } from "../../apps/desktop/scripts/lib/live-app.mjs"
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const outputDir = path.join(repoRoot, "site/public/product")
@@ -1223,14 +1224,6 @@ async function main() {
     ].join("\n"),
   )
 
-  const electronBinary =
-    process.platform === "darwin"
-      ? path.join(
-          repoRoot,
-          "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
-        )
-      : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron")
-
   // The terminals' shell is a clean zsh: its dotfiles are this run's, so the captures show nobody's
   // prompt and nothing typed into them reaches anybody's history.
   const zdot = path.join(scratch, "zsh")
@@ -1241,7 +1234,7 @@ async function main() {
   // covered window; the first three switches keep it drawing. The last renders in sRGB whatever
   // display the window lands on: left to the display, a capture carries that display's own profile,
   // and the same scene came out vivid from one screen and washed out from the Mac's P3 panel.
-  electron = spawn(electronBinary, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--force-color-profile=srgb"], {
+  electron = spawnLiveElectron([wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--force-color-profile=srgb"], {
     env: {
       ...process.env,
       SHELL: "/bin/zsh",

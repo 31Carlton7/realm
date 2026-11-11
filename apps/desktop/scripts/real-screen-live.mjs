@@ -7,7 +7,8 @@
  * NSSharingServicePicker, and the Dock tile is the Dock's. So this one drives the built app on a
  * scratch home and takes `screencapture` of the screen while each is up.
  *
- * It TAKES OVER THE SCREEN with LIVE_FRONT=1 — the window is brought to the front, menus and panels
+ * It is the one live script that may be seen (scripts/README.md), and only with LIVE_FRONT=1, which
+ * TAKES OVER THE SCREEN — the window is brought to the front, menus and panels
  * open over whatever the person was doing. Without it the flow still runs (useful to check the
  * plumbing) and the window stays wherever macOS put it. Captures need Screen Recording for the app
  * this runs under; without it each capture is reported as SKIP rather than as a pass.
@@ -21,13 +22,14 @@
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the processes it started.
  */
-import { execSync, spawn, spawnSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
+import { electronBinary, quietEnv } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9377), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8944);
@@ -162,13 +164,14 @@ const key = async (c, k, code, vk, modifiers = 0, text) => {
 async function launch() {
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, WRAPPER);
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  const env = { REALM_HOME: path.join(scratch, "home"), REALM_ENABLE_FAKE_AGENT: "1",
+  // Quiet unless it is to take the screen: the plumbing run must not put a window in front of anyone.
+  const base = { REALM_HOME: path.join(scratch, "home"), REALM_ENABLE_FAKE_AGENT: "1",
     REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
     REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), LIVE_CMD_PORT: String(CMD_PORT),
     LIVE_USER_DATA: path.join(scratch, "userData"), LIVE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js") };
-  const app = path.resolve(electronBin, "../../..");
-  execSync(`open -n -a ${JSON.stringify(app)} ${Object.entries(env).map(([k, v]) => `--env ${k}=${JSON.stringify(v)}`).join(" ")} --args ${JSON.stringify(wrapper)}`);
+  const env = process.env.LIVE_FRONT === "1" ? base : quietEnv(base);
+  const app = path.resolve(electronBinary(), "../../..");
+  execSync(`open -n ${process.env.LIVE_FRONT === "1" ? "" : "-g "}-a ${JSON.stringify(app)} ${Object.entries(env).map(([k, v]) => `--env ${k}=${JSON.stringify(v)}`).join(" ")} --args ${JSON.stringify(wrapper)}`);
   await until(async () => !(await portFree(CMD_PORT)), 30000, "command port");
   const targets = () => fetch(`http://127.0.0.1:${CDP_PORT}/json/list`).then((r) => r.json()).catch(() => []);
   const target = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file://")), 30000, "renderer target");

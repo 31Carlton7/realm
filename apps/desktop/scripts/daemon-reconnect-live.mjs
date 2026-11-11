@@ -21,13 +21,14 @@
  * one whose daemon.json is in this scratch home and whose command line runs this worktree's bundle.
  * Screenshots go to LIVE_OUT.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonState, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9262);
@@ -169,10 +170,9 @@ async function main() {
     "shell.showItemInFolder = (p) => fs.appendFileSync(process.env.LIVE_REVEAL_LOG, p + '\\n');",
     "await import(process.env.LIVE_MAIN);",
   ].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   const env = { ...process.env };
   delete env.REALM_PORT;
-  electron = spawn(electronBin, [wrapper, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([wrapper, ...UNTHROTTLED], {
     env: {
       ...env, REALM_HOME: HOME, REALM_DEVTOOLS_PORT: String(CDP_PORT), REALM_DAEMON: "1",
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), REALM_ENABLE_FAKE_AGENT: "1", REALM_LIVE_SCRATCH: "1",
