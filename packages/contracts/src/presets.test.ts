@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, ASKS_IN_FULL_ACCESS, fullAccessAllows, fullAccessLogLine, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has no duplicate icon names", () => { expect(new Set(SPACE_ICONS).size).toBe(SPACE_ICONS.length); });
@@ -454,5 +454,35 @@ describe("mid-turn prompts", () => {
       expect(note, kind).toContain("aborts the tool call in flight");
       expect(note, kind).toContain("denies any permission prompt waiting");
     }
+  });
+});
+
+describe("fullAccessAllows", () => {
+  const SNIPPET = `node cdp.mjs eval '(()=>$$(".a"))()'`;
+  const bash = (input: Record<string, unknown>) => fullAccessAllows("bypassPermissions", { toolName: "Bash", input });
+
+  it("answers a Bash command only in Full access", () => {
+    expect(bash({ command: SNIPPET })).toBe(true);
+    for (const mode of ["default", "acceptEdits", "plan", "ask", null, undefined]) expect(fullAccessAllows(mode, { toolName: "Bash", input: { command: SNIPPET } }), String(mode)).toBe(false);
+  });
+  it("leaves a command that names rm to the person, and does not read rm inside a longer word", () => {
+    for (const command of ["rm -rf build", "cd /tmp && rm -rf $$(ls)", "find . -name x -exec rm {} +", "docker run --rm img"]) expect(bash({ command }), command).toBe(false);
+    expect(bash({ command: `node x.mjs '$$(".form .term")'` })).toBe(true);
+  });
+  it("leaves every other tool to the person, a question and a plan among them", () => {
+    expect([...ASKS_IN_FULL_ACCESS]).toEqual(["AskUserQuestion", "ExitPlanMode"]);
+    // Each carries a `command` too, so it is the tool's name that keeps the question.
+    for (const toolName of [...ASKS_IN_FULL_ACCESS, "Edit", "Write", "mcp__realm__realm-computer__computer_act"]) expect(fullAccessAllows("bypassPermissions", { toolName, input: { command: SNIPPET } }), toolName).toBe(false);
+    expect(fullAccessAllows("bypassPermissions", { toolName: "Bash", input: { command: SNIPPET }, ask: { questions: [] } })).toBe(false);
+  });
+  it("answers only a call made of the fields a Bash call ordinarily carries", () => {
+    expect(bash({ command: SNIPPET, description: "read the page", timeout: 1000, run_in_background: false, dangerouslyDisableSandbox: false })).toBe(true);
+    for (const extra of [{ dangerouslyDisableSandbox: true }, { somethingNew: 1 }]) expect(bash({ command: SNIPPET, ...extra }), JSON.stringify(extra)).toBe(false);
+    expect(bash({ cmd: SNIPPET })).toBe(false);
+  });
+  it("logs the start of a long command, not all of it", () => {
+    const command = `node x.mjs '$$(".a")' ${"y".repeat(400)} TAIL`;
+    const line = fullAccessLogLine({ command }, "the CLI asked");
+    expect(line).toBe(`Full access ran a command without asking (the CLI asked): ${command.slice(0, 200)}`);
   });
 });

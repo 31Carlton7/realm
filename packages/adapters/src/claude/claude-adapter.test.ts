@@ -312,6 +312,18 @@ describe("Full access and the Bash check the CLI keeps", () => {
     expect(logged.some((l) => l.includes("Full access") && l.includes(SNIPPET))).toBe(true);
   });
 
+  it("puts the Allow nobody clicked on the session's own record", async () => {
+    const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { command: SNIPPET } });
+    const answered = got.flatMap((e) => (e.type === "permission_response" ? [e.payload] : []));
+    expect(answered).toHaveLength(1);
+    expect(answered[0]).toMatchObject({ decision: "allow", fullAccess: { toolName: "Bash", title: "Read a0?" } });
+    // A card the person answers carries no such mark.
+    const asked = await run({ permissionMode: "default" }, { permissionOnTool: "Bash", permissionInput: { command: SNIPPET } });
+    const clicked = asked.got.flatMap((e) => (e.type === "permission_response" ? [e.payload] : []));
+    expect(clicked).toHaveLength(1);
+    expect(clicked[0]).not.toHaveProperty("fullAccess");
+  });
+
   it("still asks before a command that names rm", async () => {
     for (const command of ["rm -rf build", "cd /tmp && rm -rf $$(ls)", "find . -name x -exec rm {} +", "docker run --rm img"]) {
       const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { command } });

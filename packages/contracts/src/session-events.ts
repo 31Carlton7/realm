@@ -90,8 +90,13 @@ const P = {
     ask: AskCardSchema.optional() }),
   /** `answers` present only for a question: its id (Claude's: the question text) -> what was chosen or
    *  typed, several as a list. Persisted so a replayed transcript records what was actually answered,
-   *  not just that it was allowed — and so a masked answer is only ever `HIDDEN_ANSWER` here. */
-  permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }),
+   *  not just that it was allowed — and so a masked answer is only ever `HIDDEN_ANSWER` here.
+   *
+   *  `fullAccess` marks an Allow nobody clicked: the agent's own harness asked about a tool call in a
+   *  session in Full access, and Realm answered it without drawing a card (`fullAccessAllows`). The
+   *  transcript holds no card for that id; this row is the record that the call was asked about at all. */
+  permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional(),
+    fullAccess: z.object({ toolName: z.string(), title: z.string() }).optional() }),
   status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]),
     /** The turn ended because the USER pressed stop, not because the agent finished or failed.
      *  Present only on the settle that an interrupt produced. It is what lets the transcript say
