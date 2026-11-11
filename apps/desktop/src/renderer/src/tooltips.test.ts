@@ -211,6 +211,20 @@ describe("the tooltip layer", () => {
     expect(parseFloat(tip().style.left)).toBe(300 - 130); // where the pointer is along it
   });
 
+  it("puts a two-line settings row's tooltip under the row, never on the chip the pointer is over", () => {
+    // ST-05: Reminders' row, 72 tall, its "Granted" chip 30 down it. Read as a region, the tooltip
+    // went under the pointer and covered the chip. THE MUTANT: the region cut back at 64.
+    setup('<ul><li id="row" title="macOS reports the grant."><span id="chip">Granted</span></li></ul>');
+    const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    $("#row").getBoundingClientRect = rect(40, 440, 640, 72);
+    $("#chip").getBoundingClientRect = rect(100, 470, 70, 20);
+    tip().getBoundingClientRect = rect(0, 0, 180, 24);
+    fire($("#chip"), "pointerover", { clientX: 120, clientY: 478 });
+    vi.advanceTimersByTime(TIP_DELAY_MS);
+    expect(open()).toBe(true);
+    expect(parseFloat(tip().style.top)).toBeGreaterThanOrEqual(512);
+  });
+
   describe("a row that shows its own name", () => {
     const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
     /** A sidebar row at y 92, widened past the 320 at which other rows anchor to the pointer, whose
