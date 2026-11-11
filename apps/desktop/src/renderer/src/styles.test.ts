@@ -3440,7 +3440,12 @@ describe("one card", () => {
       expect(layer, "no layer is inset").not.toContain("inset");
       // Every layer is blurred — a layer with no blur is a ring, whatever its offsets say.
       expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
+      // …and falls: a close layer with no offset is a soft line round all four edges (LT-04: light's
+      // cards wore one that dark's did not).
+      expect(Number.parseFloat(layer.trim().split(/\s+/)[1]!), layer).toBeGreaterThan(0);
     }
+    for (const filter of [...tokensCss.matchAll(/--card-lift-filter: ([^;]+);/g)].map((m) => m[1]!))
+      for (const drop of filter.matchAll(/drop-shadow\(([^)]+)\)/g)) expect(Number.parseFloat(drop[1]!.trim().split(/\s+/)[1]!), drop[0]).toBeGreaterThan(0);
   });
 
   /* A card's fill is what makes it a card, so a new rule that paints one is held to the family. The
