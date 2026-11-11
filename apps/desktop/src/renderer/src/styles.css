@@ -5556,7 +5556,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font: inherit; font-size: 13px; line-height: 18px; color: var(--rl-text-bright);
   background: var(--surface); border: 0; border-radius: calc(var(--r-chip) - 4px); /* concentric with the row's 4px inset */
   box-shadow: 0 0 0 var(--hairline-w) var(--rl-line); outline: none; }
-.composer-queue-item .queue-edit:focus-visible { box-shadow: 0 0 0 var(--hairline-w) var(--rl-accent); }
+/* Focused, it is a field like the others: their 2px accent ring, not a hairline in the accent. */
+.composer-queue-item .queue-edit:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a

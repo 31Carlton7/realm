@@ -323,6 +323,14 @@ describe("§6 motion table", () => {
     for (const control of ["button", '[role="button"]', '[role^="menuitem"]', ".item-row"]) expect(sel).toContain(control);
   });
 
+  it("rings the queued message's edit field as every other field is rung (MN-05)", () => {
+    // THE MUTANT: the hairline in the accent it had, a ring no other field wears.
+    const ring = (sel: string) => RULES.filter((r) => r.selectors.includes(sel)).map((r) => r.body.match(/box-shadow:[^;]*/)?.[0]).filter(Boolean);
+    const field = ring(".field textarea:focus");
+    expect(field).toEqual(["box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent)"]);
+    expect(ring(".composer-queue-item .queue-edit:focus-visible")).toEqual(field);
+  });
+
   it("lights one menu row: the focused one, and none while a press-opened menu rests (MN-04)", () => {
     // THE MUTANTS: a hover fill of its own, a second lit row beside the focus; the focus fill
     // ungated, the first row lit under a pointer that has not moved.
