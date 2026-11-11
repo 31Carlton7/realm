@@ -642,6 +642,9 @@ acronym that is uppercase anyway (a file extension on a tile).
   and its footer legend are the same kind of thing as a menu's shortcut, and the permission card's
   bare 11px glyphs at 2.5–3.4:1 read as decoration beside a menu that drew them as keys. One glyph
   per key across a surface, too — that card drew Return as ⏎, ↵ and ↩.
+- The prompter's pickers — "+", the model list, `@` and `/` — are one surface opened from one row of
+  controls, so they share one width and one row height (`--picker-w`, `--picker-row-h`). They had
+  grown four widths, and the narrowest cut five of the `/` list's nine hints.
 - Menus are the system's. `Menu` hands its rows to an OS menu — material, type-to-select, and the
   only surface that can open over a browser pane's native view — and draws its own only where there
   is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the

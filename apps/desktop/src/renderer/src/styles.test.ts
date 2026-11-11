@@ -872,6 +872,26 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(RULES.filter((r) => r.selectors.some((s) => s.includes(".slash-picker")) && /(^|[;\s])width:/.test(r.body))).toEqual([]);
   });
 
+  it("the prompter's four pickers take one width and one row height, from one pair of tokens", () => {
+    // "+" was 364px with 30px rows, the model list 372, `@` 420 and `/` 320 — four widths and two row
+    // heights for one kind of list opened from one row of controls.
+    expect(tokensCss).toMatch(/--picker-w: min\(420px,/);
+    expect(tokensCss).toMatch(/--picker-row-h: 32px;/);
+    const surfaces = [".mention-picker", ".model-picker", ".plus-menu"];
+    for (const sel of surfaces) {
+      const widths = RULES.filter((r) => r.selectors.includes(sel)).flatMap((r) => r.body.match(/(?:^|[;\s])(?:min-|max-)?width: [^;]+/g) ?? []);
+      expect(widths.map((w) => w.trim()), sel).toEqual(["width: var(--picker-w)"]);
+    }
+    // The slash list has no width of its own (it is a `.mention-picker`), checked above.
+    const rowHeight = (sel: string) => bodiesFor(sel).join(" ").match(/(?:^|[;\s])(min-height|height): ([^;]+)/)?.[2]?.trim();
+    expect(rowHeight(".mention-row")).toBe("var(--picker-row-h)");
+    expect(rowHeight(".mp-row")).toBe("var(--picker-row-h)");
+    expect(rowHeight('.plus-menu [role^="menuitem"]')).toBe("var(--picker-row-h)");
+    // A row with vertical padding on top of the token would be taller than it, so none has any.
+    expect(bodiesFor(".mention-row").join(" ")).toMatch(/padding: 0 8px/);
+    expect(bodiesFor('.plus-menu [role^="menuitem"]').join(" ")).toMatch(/padding-block: 0/);
+  });
+
   it("a key is drawn one way: a card's chords and footer keys wear the menus' key chip", () => {
     // The permission card's ⏎ / ⇧⏎ / ⌘⌫ were bare 11px glyphs at 2.5–3.4:1 while every menu drew a
     // filled chip in secondary ink.

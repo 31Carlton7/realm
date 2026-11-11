@@ -1126,13 +1126,13 @@ input.sb-space-name { flex: 1; }
 /* ── Mention picker (prompter, W4): @-completion over the space's enabled skills ── */
 /* Same raised-surface language as .menu; rows echo .mp-row but focus never enters — the highlight is
    driven from the textarea's own keyboard, so there is no :focus styling to define. */
-.mention-picker { z-index: 100; width: min(420px, 86vw); display: flex; flex-direction: column; overflow: hidden;
+.mention-picker { z-index: 100; width: var(--picker-w); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 /* The rows scroll INSIDE the surface, so the dissolve at their ends fades rows and never the card
    (`usePickerScroller`). The skill picker's depth, for the reason it has the model picker's. */
 .mention-list { flex: 1; min-height: 0; max-height: min(40vh, 280px); overflow-y: auto; padding: 6px;
   --fade-h: 28px; --fade-top-h: 28px; scroll-padding-block: 28px; }
-.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
+.mention-row { display: flex; align-items: center; gap: 8px; min-height: var(--picker-row-h); padding: 0 8px; line-height: 16px; border-radius: var(--r-ctl); corner-shape: squircle;
   transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
 /* The `@` list's rows (mention-sources.ts): a mark — an app's own icon, a file's type, a skill's
@@ -1498,10 +1498,9 @@ input.sb-space-name { flex: 1; }
 .skill-file-body { min-width: 0; }
 
 /* ── Model picker (prompter): search, one list, the highlighted model's line, and how it runs ── */
-/* One column, Codex-compact. Wide enough that a model's name, a second harness's mark beside it and
-   the five effort levels each fit on one line, and no wider: the old 620px two-column surface went
-   with the detail pane it held. */
-.model-picker { z-index: 100; width: min(372px, calc(100vw - 24px)); display: flex; flex-direction: column; overflow: hidden;
+/* One column, Codex-compact, at the prompter pickers' shared width (tokens.css): a model's name, a
+   second harness's mark beside it and the five effort levels each fit on one line. */
+.model-picker { z-index: 100; width: var(--picker-w); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 .mp-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--rl-text-bright); }
@@ -1522,7 +1521,7 @@ input.sb-space-name { flex: 1; }
 .mp-group-label { padding: 8px 8px 4px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
 /* One line per model. The name is the row's one unbounded item and takes the slack; everything at
    the end is fixed and drawn only when it has something to say. */
-.mp-row { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 6px 0 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+.mp-row { display: flex; align-items: center; gap: 9px; height: var(--picker-row-h); padding: 0 6px 0 8px; --btn-h: var(--picker-row-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-row[data-active] { background: var(--hover); }
 .mp-row-mark { flex: none; }
@@ -6170,9 +6169,10 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .session-usage-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .session-usage-label { color: var(--rl-text-faint); }
 .session-usage-value { color: var(--rl-text-bright); font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 11px; }
-/* The "+" menu: wide enough that each row's line reads whole beside its name, and never wider than
-   the window can hold. */
-.plus-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
+/* The "+" menu is one of the prompter's pickers, so it takes their width and their row (tokens.css)
+   rather than a menu's: the four open from one row of controls and read as one kind of list. */
+.plus-menu { width: var(--picker-w); }
+.plus-menu [role^="menuitem"] { min-height: var(--picker-row-h); padding-block: 0; }
 /* The two read-only modes keep the tones they wore as a chip: the card behind the prompter already
    tints for Plan and Ask, and a mark that stayed grey here would be the one place the mode was named
    without being coloured. Build is the neutral default and takes no tone. */
