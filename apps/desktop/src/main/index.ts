@@ -813,7 +813,7 @@ const agentHost = new BrowserAgentHost({
     enabled: () => codes()?.enabled() ?? false,
     latest: async (origin) => (await codes()?.latest(origin)) ?? null,
   },
-  coverShot: async (jpeg, fields) => coverJpeg(jpeg, fields),
+  coverShot: coverJpeg,
 });
 
 /** The browser a download came from, in whichever window holds its view. */

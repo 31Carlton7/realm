@@ -1360,7 +1360,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /** A backendNodeId as a Runtime object, or null. Every caller releases what it gets. */
-async function resolveObject(send: CdpSend, backendNodeId: number): Promise<string | null> {
+export async function resolveObject(send: CdpSend, backendNodeId: number): Promise<string | null> {
   try {
     const resolved = (await send("DOM.resolveNode", { backendNodeId })) as { object?: { objectId?: string } };
     return resolved.object?.objectId ?? null;

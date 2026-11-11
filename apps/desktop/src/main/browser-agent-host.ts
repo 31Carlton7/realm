@@ -185,7 +185,7 @@ export type BrowserAgentHostDeps = {
    * Paint `fields` over in a JPEG screenshot (base64), as the phone's picture is covered; null when it
    * cannot. Absent is the same answer: a screenshot with a secret field in it is then not taken.
    */
-  coverShot?(jpeg: string, fields: SecretFields): Promise<string | null>;
+  coverShot?(jpeg: string, fields: SecretFields): string | null;
 };
 
 /** Who a fill was for, as realm-server named it: the asking session's space. */
@@ -943,7 +943,7 @@ export class BrowserAgentHost {
     const fields = bothReads(before, await readSecretRects(send, filled));
     let data: string | null = shot.data;
     if (fields === null ? filled.length > 0 : fields.rects.length > 0) {
-      data = fields && this.d.coverShot ? await this.d.coverShot(shot.data, fields).catch(() => null) : null;
+      data = fields && this.d.coverShot ? this.d.coverShot(shot.data, fields) : null;
       if (!data) throw new Error("Realm could not cover the password or security code fields on this page, so it took no screenshot — use browser_snapshot to see the page");
     }
     const failed = this.d.pageState(browserId)?.error ?? null;

@@ -18,7 +18,7 @@
  * filled a password or code into whatever they now say (`readSecretRects`).
  */
 import { PLAIN_INPUT_TYPES, SECRET_FIELD_WORDS } from "@realm/contracts";
-import { CODE_FIELD_JS, type CdpSend } from "./browser-agent";
+import { CODE_FIELD_JS, resolveObject, type CdpSend } from "./browser-agent";
 
 /** A field's place in its frame's viewport, in CSS pixels: x, y, width, height. */
 export type FieldRect = [number, number, number, number];
@@ -77,11 +77,7 @@ export function isSecretFields(v: unknown): v is SecretFields {
  * something other than `SECRET_FIELDS`' shape.
  */
 export async function readSecretRects(send: CdpSend, filled: readonly number[]): Promise<SecretFields | null> {
-  const objectIds: string[] = [];
-  for (const backendNodeId of filled) {
-    const resolved = (await send("DOM.resolveNode", { backendNodeId }).catch(() => null)) as { object?: { objectId?: string } } | null;
-    if (resolved?.object?.objectId) objectIds.push(resolved.object.objectId);
-  }
+  const objectIds = (await Promise.all(filled.map((ref) => resolveObject(send, ref)))).filter((id): id is string => id !== null);
   try {
     const result = (objectIds.length === 0
       ? await send("Runtime.evaluate", { expression: SECRET_FIELDS, returnByValue: true, silent: true })

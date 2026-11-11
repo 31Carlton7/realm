@@ -540,14 +540,14 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
 
 /** A JPEG (base64) with `fields` painted over, as a phone's picture is (`coverFields`); null when the
  *  picture will not decode to a bitmap of its own size. */
-export function coverJpeg(jpeg: string, fields: SecretFields, quality = 70): string | null {
+export function coverJpeg(jpeg: string, fields: SecretFields): string | null {
   const image = nativeImage.createFromBuffer(Buffer.from(jpeg, "base64"));
   if (image.isEmpty()) return null;
   const { width, height } = image.getSize();
   const bitmap = image.toBitmap({ scaleFactor: 1 });
   if (bitmap.length !== width * height * 4) return null;
   coverFields(bitmap, width, height, fields);
-  return nativeImage.createFromBitmap(bitmap, { width, height }).toJPEG(quality).toString("base64");
+  return nativeImage.createFromBitmap(bitmap, { width, height }).toJPEG(70).toString("base64");
 }
 
 /**

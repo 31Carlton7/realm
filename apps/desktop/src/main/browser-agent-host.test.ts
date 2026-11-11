@@ -1298,7 +1298,7 @@ describe("BrowserAgentHost — annotate", () => {
 describe("BrowserAgentHost — fillCode", () => {
   const CODE = "482913";
   /** A page whose ref 7 is a code field of `boxes` inputs (0 = not a code field). */
-  function codePage(opts: { enabled?: boolean; code?: string | null; boxes?: number; page?: string; respond?: (method: string, params?: Record<string, unknown>) => unknown; coverShot?: (jpeg: string, fields: { vw: number; vh: number; rects: number[][] }) => Promise<string | null> } = {}) {
+  function codePage(opts: { enabled?: boolean; code?: string | null; boxes?: number; page?: string; respond?: (method: string, params?: Record<string, unknown>) => unknown; coverShot?: (jpeg: string, fields: { vw: number; vh: number; rects: number[][] }) => string | null } = {}) {
     const reads: string[] = [];
     const typed: string[] = [];
     let emit: ((method: string, params: unknown) => void) | null = null;
@@ -1455,7 +1455,7 @@ describe("BrowserAgentHost — fillCode", () => {
         if (method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("getBoundingClientRect")) return { result: { value: rects } };
         return undefined;
       },
-      coverShot: async (jpeg, fields) => { covered.push({ jpeg, rects: fields.rects }); return "Y292ZXJlZA=="; },
+      coverShot: (jpeg, fields) => { covered.push({ jpeg, rects: fields.rects }); return "Y292ZXJlZA=="; },
     });
     expect((await fill(p.host)).ok).toBe(true);
     expect(await p.host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "Y292ZXJlZA==", mimeType: "image/jpeg" });
@@ -1470,7 +1470,7 @@ describe("BrowserAgentHost — fillCode", () => {
         if (method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("getBoundingClientRect")) return { result: { value: "a page that answers for itself" } };
         return undefined;
       },
-      coverShot: async () => "Y292ZXJlZA==",
+      coverShot: () => "Y292ZXJlZA==",
     });
     expect((await fill(p.host)).ok).toBe(true);
     await expect(p.host.handleOp("screenshot", { browserId: "b1" })).rejects.toThrow(/could not cover/);
