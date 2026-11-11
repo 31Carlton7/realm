@@ -305,6 +305,17 @@ export class GitWriteService {
     return prOutcome("unavailable", { reason: `${remote} is not a GitHub remote, so Realm cannot address a pull request for it` });
   }
 
+  /** The URL of the pull request `gh` has for the current branch, or null — the lookup `doPr` makes
+   *  before it creates one, on its own. */
+  async pullRequestUrl(cwd: string): Promise<string | null> {
+    const root = await this.root(cwd);
+    const branch = await this.currentBranch(root);
+    if (!branch) return null;
+    const r = await this.run(this.gh, ["pr", "view", branch, "--json", "url"], root);
+    if (r.code !== 0) return null;
+    return /"url"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1] ?? null;
+  }
+
   /** The remote's own default branch, from the ref git already has. No network call: `remote show`
    *  would contact the server, and this runs on a button press. */
   private async defaultBase(root: string, remote: string): Promise<string> {

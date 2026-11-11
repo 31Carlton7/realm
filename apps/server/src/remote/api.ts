@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
-  AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, documentKindFor, hasAccounts, isSecretPath, keepLiveRefs, LIBRARY_QUERY_MAX, MAC_SKILL_ID, mentionIds, mimeForPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
+  AGENT_META, AGENT_SKILL_SUPPORT, parsePrRef, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, documentKindFor, hasAccounts, isSecretPath, keepLiveRefs, LIBRARY_QUERY_MAX, MAC_SKILL_ID, mentionIds, mimeForPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
   nextFireOf, resolveMidTurnMode, runnableCommands, SEARCH_GROUP_LIMIT_MAX, SELECTABLE_AGENT_KINDS, TEAMMATE_CLOCK_PROMPT, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodParams, type MethodResult, type ModelInfo,
   type Goal, type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
 } from "@realm/contracts";
@@ -371,6 +371,12 @@ export class MobileApi {
           return { checkpointId, files: files.map(({ path, oldPath, status, additions, deletions }) => ({ path, oldPath, status, additions, deletions })), totalFiles };
         }
         case "session.diff": return await this.diff(rpc, p.id as string, p.checkpointId as string, p.path as string, p.from as number);
+        case "session.checkout": return { checkout: await this.checkout(rpc, (await this.checkoutOf(rpc, p.id as string)).cwd) };
+        case "session.checkoutDiff": return await this.checkoutDiff(rpc, p as MobileParams<"session.checkoutDiff">);
+        case "session.stage":
+        case "session.unstage": return await this.stage(rpc, m === "session.stage", p.id as string, p.paths as string[]);
+        case "session.ship": return await this.ship(rpc, p as MobileParams<"session.ship">);
+        case "session.pr": return await this.pullRequest(rpc, p.id as string);
         case "session.file": return await this.file(rpc, p.id as string, p.path as string);
         case "session.fileData": return await this.fileData(rpc, p.id as string, p.path as string, p.from as number);
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
@@ -1152,6 +1158,107 @@ export class MobileApi {
     if (!file) throw new MobileError("FORBIDDEN", "That file is not one this turn changed.");
     const patch = await rpc.call("checkpoints.turnDiff", { id: checkpointId, afterTree: changes.afterTree, path: file.path, oldPath: file.oldPath });
     return diffPage(file, patch, from);
+  }
+
+  /** The checkout the session works in, by its environment, read now: a session moved to another
+   *  checkout ships from the one it is in. */
+  private async checkoutOf(rpc: RpcPort, id: string): Promise<{ cwd: string; environmentId: string }> {
+    const s = await rpc.call("sessions.get", { id });
+    const env = await rpc.call("environments.get", { id: s.environmentId });
+    return { cwd: env.path, environmentId: env.id };
+  }
+
+  /** The checkout's changed files as the diff pane lists them, with the branch and how far it is from
+   *  its remote; null where it is not a repository. */
+  private async checkout(rpc: RpcPort, cwd: string): Promise<MobileResult<"session.checkout">["checkout"]> {
+    const [summary, git] = await Promise.all([rpc.call("workspace.diff", { cwd }), rpc.call("workspace.gitInfo", { cwd })]);
+    if (!summary) return null;
+    return {
+      branch: summary.branch, ahead: git?.ahead ?? 0, behind: git?.behind ?? 0,
+      files: summary.files.map(({ path, oldPath, status, staged, unstaged, binary, additions, deletions }) => ({ path, oldPath, status, staged, unstaged, binary, additions, deletions })),
+      totalFiles: summary.totalFiles, truncated: summary.truncated,
+    };
+  }
+
+  /** The files of the checkout these paths name, refusing any path it does not list: a phone stages,
+   *  unstages and reads only what the diff pane would show it. */
+  private async listedFiles(rpc: RpcPort, cwd: string, paths: readonly string[]): Promise<NonNullable<MobileResult<"session.checkout">["checkout"]>["files"]> {
+    const checkout = await this.checkout(rpc, cwd);
+    if (!checkout) throw new MobileError("NOT_FOUND", "There is no git repository here, so there is nothing to diff.");
+    const byPath = new Map(checkout.files.map((f) => [f.path, f]));
+    return paths.map((path) => {
+      const file = byPath.get(path);
+      if (!file) throw new MobileError("FORBIDDEN", `${path} is not one of this checkout's changes.`);
+      return file;
+    });
+  }
+
+  /** One page of a checkout file's patch, on the side asked for, capped as the diff pane's is. */
+  private async checkoutDiff(rpc: RpcPort, p: MobileParams<"session.checkoutDiff">): Promise<MobileResult<"session.checkoutDiff">> {
+    const { cwd } = await this.checkoutOf(rpc, p.id);
+    const [file] = await this.listedFiles(rpc, cwd, [p.path]);
+    const patch = await rpc.call("workspace.fileDiff", { cwd, path: file!.path, staged: p.staged });
+    // A new file's patch is headed from /dev/null, as an added one's is.
+    const page = diffPage({ path: file!.path, oldPath: file!.oldPath, status: file!.status === "untracked" ? "added" : file!.status }, patch, p.from);
+    return { ...page, status: file!.status, staged: p.staged };
+  }
+
+  /** Stages or unstages files the checkout lists, per file as the diff pane does, and answers the
+   *  checkout as it is after. */
+  private async stage(rpc: RpcPort, stage: boolean, id: string, paths: string[]): Promise<MobileResult<"session.stage">> {
+    const { cwd } = await this.checkoutOf(rpc, id);
+    await this.listedFiles(rpc, cwd, paths);
+    try {
+      await rpc.call(stage ? "workspace.stage" : "workspace.unstage", { cwd, paths });
+    } catch (e) {
+      if (e instanceof RpcCallError && (e.code === "GIT_STAGE_FAILED" || e.code === "GIT_UNSTAGE_FAILED")) {
+        throw new MobileError("FORBIDDEN", `${stage ? "Not staged" : "Not unstaged"}: ${e.message}`);
+      }
+      throw e;
+    }
+    return { checkout: await this.checkout(rpc, cwd) };
+  }
+
+  /** The diff pane's Commit, push & PR, in the session's checkout and logged against its environment. A
+   *  commit with no message is refused before git is asked, in the desktop's words. */
+  private async ship(rpc: RpcPort, p: MobileParams<"session.ship">): Promise<MobileResult<"session.ship">> {
+    if (p.commit && p.message.trim() === "") throw new MobileError("INVALID_PARAMS", "A commit needs a message.");
+    const { cwd, environmentId } = await this.checkoutOf(rpc, p.id);
+    return await rpc.call("workspace.ship", { cwd, environmentId, commit: p.commit, message: p.message, push: p.push, setUpstream: p.setUpstream, openPr: p.openPr });
+  }
+
+  /** The pull request `gh` has for the checkout's branch, read as the Code Review page reads one; with
+   *  none, why — `gh` missing or signed out is said, never passed off as "no pull request". */
+  private async pullRequest(rpc: RpcPort, id: string): Promise<MobileResult<"session.pr">> {
+    const { cwd } = await this.checkoutOf(rpc, id);
+    const { url } = await rpc.call("workspace.pullRequest", { cwd });
+    const ref = url ? parsePrRef(url) : null;
+    if (!ref) {
+      const gh = await rpc.call("codeReview.status", { force: false });
+      const reason = gh.state === "missing" ? "gh is not installed on this Mac, so Realm cannot look for a pull request."
+        : gh.state === "signed-out" ? "gh is not signed in to GitHub on this Mac."
+        : gh.state === "unreachable" ? `GitHub did not answer${gh.reason ? `: ${gh.reason}` : "."}`
+        : null;
+      return { pr: null, reason };
+    }
+    try {
+      const detail = await rpc.call("codeReview.detail", { ref, force: false });
+      const files = await rpc.call("codeReview.files", { ref, headSha: detail.headSha });
+      const { ref: { owner, repo, number }, title, url: prUrl, state, draft, author, createdAt, body, base, head, headOwner, additions, deletions, changedFiles,
+        mergeable, mergeState, decision, reviewers, comments, checks } = detail;
+      return {
+        pr: {
+          owner, repo, number, title, url: prUrl, state, draft, author, createdAt, body, base, head, headOwner, additions, deletions, changedFiles,
+          mergeable, mergeState, decision, reviewers, comments, checks,
+          files: files.files.map(({ path, oldPath, status, additions, deletions }) => ({ path, oldPath, status, additions, deletions })),
+          filesTruncated: files.truncated,
+        },
+        reason: null,
+      };
+    } catch (e) {
+      if (e instanceof RpcCallError && (e.code.startsWith("GH_") || e.code === "PR_NOT_FOUND")) return { pr: null, reason: e.message };
+      throw e;
+    }
   }
 
   /** A preview of a file the session's turns made, one that was sent with a message to it, or one a

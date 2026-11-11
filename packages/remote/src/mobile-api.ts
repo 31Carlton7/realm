@@ -589,6 +589,66 @@ export const DiffPageSchema = z.object({
   truncated: z.boolean(), truncatedReason: z.string().nullable(),
 });
 
+/** How a path in the checkout differs from what git last recorded, as the desktop's diff pane words it:
+ *  `untracked` is new to git, `conflicted` is a merge to resolve. */
+const CheckoutStatusSchema = z.enum(["added", "modified", "deleted", "renamed", "copied", "type-changed", "untracked", "conflicted"]);
+
+/** One changed path in a session's checkout. `staged` and `unstaged` are both true for a file staged and
+ *  then edited again: it has a patch on each side of the index. */
+export const CheckoutFileSchema = z.object({
+  path: z.string(), oldPath: z.string().nullable(), status: CheckoutStatusSchema,
+  staged: z.boolean(), unstaged: z.boolean(), binary: z.boolean(),
+  /** Staged plus unstaged; zero for an untracked file, which git has not counted. */
+  additions: z.number().int(), deletions: z.number().int(),
+});
+
+/** The session's checkout as the desktop's diff pane shows it: the branch, how it stands against its
+ *  remote, and every changed file, at most `DIFF_MAX_FILES` of `totalFiles`. */
+export const WorkingTreeSchema = z.object({
+  branch: z.string().nullable(), ahead: z.number().int(), behind: z.number().int(),
+  files: z.array(CheckoutFileSchema), totalFiles: z.number().int(), truncated: z.boolean(),
+});
+
+/** A page of one checkout file's diff, on one side of the index. */
+export const CheckoutDiffPageSchema = DiffPageSchema.extend({ status: CheckoutStatusSchema, staged: z.boolean() });
+
+/** The three steps of a ship, each with its own outcome, as the desktop's `workspace.ship` reports them. */
+export const ShipResultSchema = z.object({
+  commit: z.object({
+    state: z.enum(["committed", "nothing-to-commit", "skipped", "no-identity", "failed"]),
+    sha: z.string().nullable(), subject: z.string().nullable(), reason: z.string().nullable(),
+  }),
+  push: z.object({
+    state: z.enum(["pushed", "up-to-date", "no-remote", "no-upstream", "rejected", "detached", "skipped", "failed"]),
+    remote: z.string().nullable(), branch: z.string().nullable(), reason: z.string().nullable(),
+  }),
+  pr: z.object({ state: z.enum(["created", "existing", "compare", "unavailable", "skipped"]), url: z.string().nullable(), reason: z.string().nullable() }),
+});
+
+/** A session's pull request as the desktop's Code Review page shows it: its head, the facts beside it,
+ *  and the files it changes. */
+export const PullRequestSchema = z.object({
+  owner: z.string(), repo: z.string(), number: z.number().int(),
+  title: z.string(), url: z.string(), state: z.enum(["open", "closed", "merged"]), draft: z.boolean(),
+  author: z.string().nullable(), createdAt: z.number(), body: z.string(),
+  base: z.string(), head: z.string(), headOwner: z.string().nullable(),
+  additions: z.number().int(), deletions: z.number().int(), changedFiles: z.number().int(),
+  mergeable: z.enum(["mergeable", "conflicting", "unknown"]), mergeState: z.string(),
+  decision: z.enum(["approved", "changes_requested", "review_required"]).nullable(),
+  reviewers: z.array(z.object({ name: z.string(), team: z.boolean(), state: z.enum(["approved", "changes_requested", "commented", "dismissed", "pending"]) })),
+  comments: z.object({
+    total: z.number().int(),
+    recent: z.array(z.object({ author: z.string().nullable(), body: z.string(), createdAt: z.number(), url: z.string().nullable() })),
+  }),
+  checks: z.array(z.object({ name: z.string(), state: z.enum(["success", "failure", "pending", "skipped", "neutral"]), url: z.string().nullable() })),
+  files: z.array(z.object({
+    path: z.string(), oldPath: z.string().nullable(), status: z.enum(["added", "modified", "deleted", "renamed", "copied", "changed"]),
+    additions: z.number().int(), deletions: z.number().int(),
+  })),
+  /** More files than GitHub lists (3,000). */
+  filesTruncated: z.boolean(),
+});
+
 /** A file a turn made, as the phone may see it: a picture made smaller, the head of a text, or neither. */
 export const FilePreviewSchema = z.object({
   path: z.string(), name: z.string(), size: z.number(), mime: z.string(),
@@ -1074,6 +1134,29 @@ export const MobileCalls = {
     params: z.object({ id: Id, checkpointId: Id, path: z.string().min(1).max(4096), from: z.number().int().min(0).default(0) }),
     result: DiffPageSchema,
   },
+  /** The session's checkout as it is now, as the desktop's diff pane lists it; null where it is not a
+   *  git repository. */
+  "session.checkout": { params: z.object({ id: Id }), result: z.object({ checkout: WorkingTreeSchema.nullable() }) },
+  /** One page of a checkout file's diff, staged or not: only a file the checkout lists. */
+  "session.checkoutDiff": {
+    params: z.object({ id: Id, path: z.string().min(1).max(4096), staged: z.boolean().default(false), from: z.number().int().min(0).default(0) }),
+    result: CheckoutDiffPageSchema,
+  },
+  /** `git add` on files the checkout lists, per file as the desktop stages; answers the checkout after. */
+  "session.stage": { params: z.object({ id: Id, paths: z.array(z.string().min(1).max(4096)).min(1).max(1_000) }), result: z.object({ checkout: WorkingTreeSchema.nullable() }) },
+  /** Takes files the checkout lists back out of the index, leaving them on disk. */
+  "session.unstage": { params: z.object({ id: Id, paths: z.array(z.string().min(1).max(4096)).min(1).max(1_000) }), result: z.object({ checkout: WorkingTreeSchema.nullable() }) },
+  /** Commit what is staged, then push, then open a pull request, as the desktop's Commit, push & PR does:
+   *  each step its own outcome. `commit: false` is the retry after "no upstream", with `setUpstream`. */
+  "session.ship": {
+    params: z.object({
+      id: Id, commit: z.boolean().default(true), message: z.string().max(100_000).default(""),
+      push: z.boolean().default(true), setUpstream: z.boolean().default(false), openPr: z.boolean().default(false),
+    }),
+    result: ShipResultSchema,
+  },
+  /** The pull request for the branch the session's checkout is on, or null and why. */
+  "session.pr": { params: z.object({ id: Id }), result: z.object({ pr: PullRequestSchema.nullable(), reason: z.string().nullable() }) },
   /** A bounded preview of a file the session's turns made, or of one sent with a message: only a file a
    *  `files_made` or a `user_message` of this session listed. */
   "session.file": { params: z.object({ id: Id, path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
