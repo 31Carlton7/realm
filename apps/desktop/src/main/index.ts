@@ -76,6 +76,7 @@ import { registerFileActions } from "./file-actions";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
 import { titleBarOverlay, windowChrome } from "./window-chrome";
+import { windowArguments } from "./window-args";
 import { registerWhatsNew, WhatsNewState } from "./whats-new";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
@@ -581,10 +582,7 @@ async function createWindow(info: { port: number; home: string; token: string },
     ...windowChrome(platform, nativeTheme.shouldUseDarkColors),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
-      additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`,
-        ...(profileId !== null ? [`--realm-profile=${profileId}`] : []),
-        ...(spaceId !== null ? [`--realm-space=${spaceId}`] : []),
-        ...(land !== null ? [`--realm-land=${land}`] : [])] },
+      additionalArguments: windowArguments({ ...info, profileId, spaceId, land }) },
   });
   windows.add(win, profileId, spaceId);
   presence.check();
