@@ -4,6 +4,7 @@ import {
   AGENT_EXECUTABLE_CONFIG,
   AGENT_STATE_DIRS,
   CREDENTIAL_DIRS,
+  DAEMON_STATE_FILE,
   TOOLCHAIN_CACHE_DIRS,
   type ExecutionSandboxPolicy,
   type ExecutionSandboxPrefs,
@@ -183,8 +184,9 @@ function executableConfigPaths(o: ResolveInput, resolve: RootResolver): string[]
 }
 
 /**
- * The paths no posture may read or write: the user's credential directories, and Realm's own
- * database.
+ * The paths no posture may read or write: the user's credential directories, Realm's own database,
+ * and `daemon.json`, whose token answers every RPC method — permission cards and `sandbox.set`
+ * included.
  *
  * The database is named file by file (`realm.db`, `-wal`, `-shm`) rather than by protecting the whole
  * of `realmHome`, because Claude sessions load Realm's skills plugin from a stage directory in that
@@ -211,6 +213,6 @@ function protectedPaths(o: ResolveInput, resolve: RootResolver): string[] {
   const homes = [o.home, resolve(o.home)].filter((h): h is string => h !== null);
   const realmHomes = [o.realmHome, resolve(o.realmHome)].filter((h): h is string => h !== null);
   for (const home of homes) for (const rel of CREDENTIAL_DIRS) add(join(home, rel));
-  for (const rh of realmHomes) for (const name of ["realm.db", "realm.db-wal", "realm.db-shm"]) add(join(rh, name));
+  for (const rh of realmHomes) for (const name of ["realm.db", "realm.db-wal", "realm.db-shm", DAEMON_STATE_FILE]) add(join(rh, name));
   return [...out].sort();
 }

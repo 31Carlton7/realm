@@ -107,7 +107,7 @@ between an agent and its model.
 |---|---|---|---|
 | Electron main | realm-server | `spawn(process.execPath, [entry])` with `ELECTRON_RUN_AS_NODE=1`, detached, so it outlives the app | `apps/desktop/src/main/server-process.ts:spawnDaemon` |
 | realm-server | Electron main | port and token written to `~/Realm/daemon.json` (mode 0600), read back by main | `apps/server/src/daemon/state.ts:writeState`, `apps/desktop/src/main/daemon-state.ts:readDaemonState` |
-| Electron main | renderer | `--realm-port`, `--realm-token` arguments, exposed as `window.realm` | `apps/desktop/src/preload/index.ts` |
+| Electron main | renderer | `--realm-port` argument and the token over sync IPC (`daemon:token`), exposed as `window.realm` | `apps/desktop/src/preload/index.ts` |
 | renderer | realm-server | WebSocket on `127.0.0.1`, subprotocol `realm.<token>`; calls one way, `RpcServer.broadcast` events back | `apps/desktop/src/renderer/src/rpc/client.ts:RpcClient`, `apps/server/src/rpc/server.ts:RpcServer` |
 | renderer | Electron main | `ipcRenderer.invoke` through the preload, for windows, browser panes, files, passwords and updates | `apps/desktop/src/preload/index.ts` |
 | Electron main | realm-server | a long-lived RPC client of its own, which registers as the host | `apps/desktop/src/main/browser-agent-bridge.ts:startBrowserAgentBridge` |

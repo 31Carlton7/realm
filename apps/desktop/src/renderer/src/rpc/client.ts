@@ -183,7 +183,7 @@ export function rpc(): RpcClient {
     const port = window.realm?.port;
     if (!Number.isFinite(port)) throw new Error("Realm: server port not provided to renderer (preload missing --realm-port)");
     const token = window.realm?.token;
-    if (!token) throw new Error("Realm: server token not provided to renderer (preload missing --realm-token)");
+    if (!token) throw new Error("Realm: server token not provided to renderer (main had no daemon endpoint)");
     singleton = new RpcClient(`ws://127.0.0.1:${port}`, WebSocket, [`realm.${token}`], async () => {
       const now = await window.realm?.serverEndpoint?.();
       return now ? { url: `ws://127.0.0.1:${now.port}`, protocols: [`realm.${now.token}`] } : null;
