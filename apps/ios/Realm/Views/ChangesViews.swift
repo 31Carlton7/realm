@@ -27,6 +27,14 @@ struct ChangesSheet: View {
                                 Text("\(changes.totalFiles - changes.files.count) more on your Mac.")
                             }
                         }
+                        Section {
+                            NavigationLink(value: CheckoutRoute(sessionId: sessionId)) {
+                                Label("Show all changes", systemImage: "plusminus")
+                            }
+                            .listRowBackground(Fill.card)
+                        } footer: {
+                            Text("The checkout as it is now, to stage, commit and push.")
+                        }
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
@@ -46,6 +54,10 @@ struct ChangesSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: ChangedFile.self) { file in
                 DiffView(file: file, checkpointId: checkpointId, sessionId: sessionId)
+                    .backOnGround()
+            }
+            .navigationDestination(for: CheckoutRoute.self) { route in
+                WorkingChangesView(sessionId: route.sessionId)
                     .backOnGround()
             }
             .toolbar {
@@ -101,12 +113,12 @@ struct ChangedFileRow: View {
                         .lineLimit(ax ? 2 : 1)
                         .truncationMode(.head)
                 }
-                if ax {
+                if ax, Self.counts(file) {
                     LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
                 }
             }
             Spacer(minLength: 8)
-            if !ax {
+            if !ax, Self.counts(file) {
                 LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
             }
         }
@@ -115,10 +127,16 @@ struct ChangedFileRow: View {
         .accessibilityValue(Self.word(file.status))
     }
 
+    /// An untracked file has no counts, git not having read it yet: it says nothing rather than "Binary".
+    static func counts(_ file: ChangedFile) -> Bool {
+        file.additions != nil || file.status != "untracked"
+    }
+
     static func symbol(_ status: String) -> String {
         switch status {
-        case "added": "plus.square.fill"
+        case "added", "untracked": "plus.square.fill"
         case "deleted": "minus.square.fill"
+        case "conflicted": "exclamationmark.square.fill"
         case "renamed": "arrow.right.square.fill"
         default: "dot.square.fill"
         }
@@ -126,8 +144,9 @@ struct ChangedFileRow: View {
 
     static func tone(_ status: String) -> Tone {
         switch status {
-        case "added": .done
+        case "added", "untracked": .done
         case "deleted": .failed
+        case "conflicted": .waiting
         default: .quiet
         }
     }
@@ -138,6 +157,9 @@ struct ChangedFileRow: View {
         case "deleted": "Deleted"
         case "renamed": "Renamed"
         case "type-changed": "Type changed"
+        case "untracked": "New"
+        case "copied": "Copied"
+        case "conflicted": "Conflict to resolve"
         default: "Modified"
         }
     }
@@ -196,8 +218,14 @@ struct DiffNumbering: Equatable {
 /// One file's diff, paged in from the Mac as it is read: added and removed lines in their colours and
 /// with their signs, each with its line number, the hunks' heads between them.
 struct DiffView: View {
+    /// Where the patch comes from: one turn's two trees, or the checkout as it is, on one side of the index.
+    enum Source: Hashable {
+        case turn(checkpointId: String)
+        case checkout(staged: Bool)
+    }
+
     let file: ChangedFile
-    let checkpointId: String
+    let source: Source
     let sessionId: String
     @Environment(AppModel.self) private var model
     @State private var lines: [NumberedLine] = []
@@ -205,6 +233,18 @@ struct DiffView: View {
     @State private var page: DiffPage?
     @State private var problem: String?
     @State private var loading = false
+    /// The person asked for the start of a patch the Mac cut short.
+    @State private var showingStart = false
+
+    init(file: ChangedFile, checkpointId: String, sessionId: String) {
+        self.init(file: file, source: .turn(checkpointId: checkpointId), sessionId: sessionId)
+    }
+
+    init(file: ChangedFile, source: Source, sessionId: String) {
+        self.file = file
+        self.source = source
+        self.sessionId = sessionId
+    }
     @ScaledMetric(relativeTo: .caption) private var advance: CGFloat = DiffLines.baseAdvance
     @ScaledMetric(relativeTo: .caption) private var gutter: CGFloat = DiffLines.baseGutter
 
@@ -213,6 +253,15 @@ struct DiffView: View {
             if let page, page.binary {
                 ContentUnavailableView("A binary file", systemImage: "doc.badge.gearshape",
                                        description: Text("It can only be compared on your Mac."))
+            } else if let page, page.truncated, !showingStart {
+                // Past the desktop's ceiling the Mac sends only the start: said first, and shown on asking.
+                ContentUnavailableView {
+                    Label("Too big to show", systemImage: "doc.text.magnifyingglass")
+                } description: {
+                    Text(DiffWords.tooBig(page))
+                } actions: {
+                    Button("Show the start") { showingStart = true }
+                }
             } else if let problem, lines.isEmpty {
                 ContentUnavailableView("The diff did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
             } else if lines.isEmpty {
@@ -241,6 +290,8 @@ struct DiffView: View {
                         max(length, DiffLines.width(of: shown, advance: advance, gutter: gutter))
                     }
                 }
+                // A scroll view of both axes centres what is shorter than the screen; a diff starts at its top.
+                .defaultScrollAnchor(.topLeading, for: .alignment)
             }
         }
         .background(Ground.transcript)
@@ -264,12 +315,25 @@ struct DiffView: View {
         loading = true
         defer { loading = false }
         do {
-            let next = try await model.diff(file.path, at: checkpointId, in: sessionId, from: page?.next ?? 0)
+            let from = page?.next ?? 0
+            let next = switch source {
+            case .turn(let checkpointId): try await model.diff(file.path, at: checkpointId, in: sessionId, from: from)
+            case .checkout(let staged): try await model.checkoutDiff(file.path, staged: staged, in: sessionId, from: from)
+            }
             lines += numbering.number(next.lines, from: next.from)
             page = next
         } catch {
             problem = AppModel.describe(error)
         }
+    }
+}
+
+enum DiffWords {
+    /// Why a diff is not shown, in the Mac's words for its ceiling: "The diff is over 4000 lines, more
+    /// than Realm shows of one file."
+    static func tooBig(_ page: DiffPage) -> String {
+        let reason = (page.truncatedReason ?? "past the Mac's limit").replacingOccurrences(of: " of diff", with: "")
+        return "The diff is \(reason), more than Realm shows of one file. All of it is on your Mac."
     }
 }
 

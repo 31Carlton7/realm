@@ -44,6 +44,15 @@ struct RootView: View {
                 .sheet(item: subagentsLead) { lead in
                     SubagentsSheet(sessionId: lead.id)
                 }
+                // A session's checkout and its pull request, from its menu.
+                .sheet(item: shownBinding(\.checkoutShown)) { shown in
+                    CheckoutSheet(sessionId: shown.id)
+                }
+                .sheet(item: shownBinding(\.pullRequestShown)) { shown in
+                    NavigationStack {
+                        PullRequestView(sessionId: shown.id, close: { model.pullRequestShown = nil })
+                    }
+                }
                 // A teammate's Edit sheet, from its row or its chat's menu.
                 .sheet(item: teammateEditing) { shown in
                     TeammateSheet(teammateId: shown.id)
@@ -78,6 +87,10 @@ struct RootView: View {
 
     private var subagentsLead: Binding<ShownLead?> {
         Binding(get: { model.subagentsShown.map(ShownLead.init) }, set: { model.subagentsShown = $0?.id })
+    }
+
+    private func shownBinding(_ key: ReferenceWritableKeyPath<AppModel, String?>) -> Binding<ShownLead?> {
+        Binding(get: { model[keyPath: key].map(ShownLead.init) }, set: { model[keyPath: key] = $0?.id })
     }
 
     private var teammateEditing: Binding<ShownLead?> {

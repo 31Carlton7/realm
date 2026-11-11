@@ -360,6 +360,14 @@ struct SessionMenu: View {
                         .accessibilityIdentifier("find-in-session")
                 }
             }
+            // The desktop's diff pane and its Code Review page, for this session's checkout.
+            Section {
+                Button("Changes", systemImage: "plusminus") { model.checkoutShown = row.id }
+                    .accessibilityIdentifier("session-changes")
+                Button("Pull request", systemImage: "arrow.triangle.pull") { model.pullRequestShown = row.id }
+                    .accessibilityIdentifier("session-pull-request")
+            }
+            .disabled(!model.isConnected)
             RowMenuItems(row: row, actions: actions.menu.filter { $0 != .stop }, isOff: actions.isOff) { action in
                 if action == .archive { dismiss() }
             }

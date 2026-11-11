@@ -148,6 +148,10 @@ final class AppModel {
     var renaming: RenameDraft?
     /// The lead whose sub-agents' sheet a row's press-and-hold opened over Home, while it is up.
     var subagentsShown: String?
+    /// The session whose Changes sheet — its checkout, as the desktop's diff pane shows it — is up.
+    var checkoutShown: String?
+    /// The session whose pull request sheet is up.
+    var pullRequestShown: String?
     /// The session whose Move to space sheet is up.
     var movingToSpace: SessionRow?
     /// The session whose Switch agent sheet is up.
@@ -1319,6 +1323,39 @@ final class AppModel {
     func diff(_ path: String, at checkpointId: String, in sessionId: String, from: Int = 0) async throws -> DiffPage {
         guard let api, isConnected else { throw ChannelError.notConnected }
         return try await api.diff(id: sessionId, checkpointId: checkpointId, path: path, from: from)
+    }
+
+    // MARK: - The session's checkout
+
+    /// The session's checkout as the desktop's diff pane lists it; nil where it is no repository.
+    func checkout(in sessionId: String) async throws -> WorkingTree? {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.checkout(id: sessionId)
+    }
+
+    /// One page of a checkout file's patch, on one side of the index.
+    func checkoutDiff(_ path: String, staged: Bool, in sessionId: String, from: Int = 0) async throws -> DiffPage {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.checkoutDiff(id: sessionId, path: path, staged: staged, from: from)
+    }
+
+    /// Stages files, or unstages them, and answers the checkout after.
+    func stage(_ paths: [String], staged: Bool, in sessionId: String) async throws -> WorkingTree? {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.stage(id: sessionId, paths: paths, staged: staged)
+    }
+
+    /// Takes one step of the diff pane's ship.
+    func ship(_ step: ShipStep, message: String, in sessionId: String) async throws -> ShipResult {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        let call = step.call
+        return try await api.ship(id: sessionId, commit: call.commit, message: message, push: call.push, setUpstream: call.setUpstream, openPr: call.openPr)
+    }
+
+    /// The pull request for the branch the session's checkout is on.
+    func pullRequest(in sessionId: String) async throws -> PullRequestLookup {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.pullRequest(id: sessionId)
     }
 
     /// What the phone may see of a file a turn made, asked of the Mac once while it is kept.
