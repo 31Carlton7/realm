@@ -3,7 +3,8 @@ import { DEFAULT_BACKGROUND, MINE_PREFIX, type BackgroundEffect, type Background
 import { Icon, type Mode } from "@realm/ui";
 import { EmptyState } from "../EmptyState";
 import { useApp } from "../../state/store";
-import { GALLERY, prefCanMove } from "../../panes/session/backdrop-gallery";
+import { GALLERY, prefCanMove, type GalleryLook } from "../../panes/session/backdrop-gallery";
+import { LOOKS, lookThumbnail, readPalette } from "../../panes/session/hero-backdrop";
 import {
   addYourBackgrounds, pickYourBackgrounds, removeYourBackground, updateYourBackground, useYourBackgrounds, yourBackgroundUrl,
 } from "../../state/your-backgrounds";
@@ -24,6 +25,22 @@ function Tile({ value, chosen, name, title, onPick, children }: {
       <span className="backdrop-name">{name}</span>
     </label>
   );
+}
+
+/** A gallery look's tile: the look as it prints in this window's palette, or its picture as it is
+ *  for a colour-kept look (and wherever WebGL is not there to print it). */
+function LookThumb({ look, mode }: { look: GalleryLook; mode: Mode }) {
+  const src = mode === "dark" ? look.dark : look.light;
+  // Undefined while it prints, so the tile never flashes the source first.
+  const [url, setUrl] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (look.effect === "dither-color") return;
+    let live = true;
+    void lookThumbnail(LOOKS[look.effect], src, readPalette(document.documentElement)).then((u) => { if (live) setUrl(u); });
+    return () => { live = false; };
+  }, [look.effect, src, mode]);
+  if (look.effect !== "dither-color" && url === undefined) return null;
+  return <img src={url ?? src} alt="" draggable={false} />;
 }
 
 function MineThumb({ id }: { id: string }) {
@@ -77,12 +94,12 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
           <Tile value="off" chosen={pref === "off"} name="Off" onPick={pick}>{null}</Tile>
           <Tile value="shuffle" chosen={pref === "shuffle"} name="Shuffle" title="A different one for each new session, kept for that session." onPick={pick}>
             <span className="backdrop-mosaic">
-              {GALLERY.slice(0, 4).map((g) => <img key={g.id} src={mode === "dark" ? g.dark : g.light} alt="" draggable={false} />)}
+              {GALLERY.slice(0, 4).map((g) => <LookThumb key={g.id} look={g} mode={mode} />)}
             </span>
           </Tile>
           {GALLERY.map((g) => (
             <Tile key={g.id} value={g.id} chosen={pref === g.id} name={g.name} title={g.mood || undefined} onPick={pick}>
-              <img src={mode === "dark" ? g.dark : g.light} alt="" draggable={false} />
+              <LookThumb look={g} mode={mode} />
             </Tile>
           ))}
         </fieldset>

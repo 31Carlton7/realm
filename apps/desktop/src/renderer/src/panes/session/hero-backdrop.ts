@@ -252,3 +252,40 @@ export class BackdropRenderer {
 
   destroy() { this.gl.getExtension("WEBGL_lose_context")?.loseContext(); }
 }
+
+const THUMB = { w: 240, h: 150 };
+let thumbs: Promise<unknown> = Promise.resolve();
+let thumbRenderer: { canvas: HTMLCanvasElement; r: BackdropRenderer } | null = null;
+const thumbCache = new Map<string, Promise<string | null>>();
+
+/**
+ * A still of `look` printing `url` in the window's palette, as a PNG data: URL, for the picker's
+ * tile: the source pictures are greyscale fields the effect is printed from, so a tile showing the
+ * source would not show the look. One small WebGL canvas draws every tile in turn, rather than a
+ * context per tile, which Chromium caps at sixteen.
+ */
+export function lookThumbnail(look: Look, url: string, pal: Palette): Promise<string | null> {
+  const key = `${url}|${JSON.stringify(pal)}|${look.shape}`;
+  let hit = thumbCache.get(key);
+  if (hit) return hit;
+  hit = thumbs.then(async () => {
+    try {
+      if (!thumbRenderer) {
+        const canvas = document.createElement("canvas");
+        canvas.width = THUMB.w;
+        canvas.height = THUMB.h;
+        thumbRenderer = { canvas, r: new BackdropRenderer(canvas) };
+      }
+      const { canvas, r } = thumbRenderer;
+      await r.load(url);
+      // No calm zone in a tile: it is put far off the canvas.
+      r.draw(look, pal, { x: -1e5, y: -1e5, w: 1, h: 1 }, 1, 0);
+      return canvas.toDataURL("image/png");
+    } catch {
+      return null;
+    }
+  });
+  thumbs = hit;
+  thumbCache.set(key, hit);
+  return hit;
+}

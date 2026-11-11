@@ -25,6 +25,29 @@ function calmRect(pane: Element, box: DOMRect): Rect | null {
   return { x: x0 - box.left - 24, y: y0 - box.top - 16, w: x1 - x0 + 48, h: y1 - y0 + 32 };
 }
 
+/**
+ * Calls `onChange` whenever the greeting or the prompter may have moved: the pane or either box
+ * resizing, the dock's lift ending, or anything in the pane changing (the greeting's words arriving,
+ * a strip appearing under the card), which moves them without resizing either. Each caller skips
+ * the draw when the boxes are where they were, so a keystroke costs a rect read and no paint.
+ */
+function watchLayout(pane: Element, onChange: () => void): () => void {
+  const resize = new ResizeObserver(onChange);
+  resize.observe(pane);
+  const dock = pane.querySelector(".composer-dock");
+  if (dock) resize.observe(dock);
+  const greeting = pane.querySelector(".hero-greeting");
+  if (greeting) resize.observe(greeting);
+  dock?.addEventListener("transitionend", onChange);
+  const edits = new MutationObserver(onChange);
+  edits.observe(pane, { childList: true, subtree: true, characterData: true });
+  return () => {
+    resize.disconnect();
+    edits.disconnect();
+    dock?.removeEventListener("transitionend", onChange);
+  };
+}
+
 /** A frame every other vsync is plenty for a drift this slow. */
 const FRAME_MS = 1000 / 30;
 
@@ -101,10 +124,12 @@ function ShaderBackdrop({ backdrop, look: lookId }: { backdrop: Backdrop; look: 
       if (now - last >= FRAME_MS - 1) { last = now; paint(now); }
       raf = requestAnimationFrame(tick);
     };
+    let painted = "";
     const refresh = () => {
       if (disposed) return;
       measure();
-      paint(performance.now());
+      const key = JSON.stringify([canvas.width, canvas.height, pal, calm]);
+      if (key !== painted || moving()) { painted = key; paint(performance.now()); }
       if (!raf && moving()) raf = requestAnimationFrame(tick);
     };
     // The face's picture, loaded again only when the face changes to one with another picture.
@@ -113,14 +138,11 @@ function ShaderBackdrop({ backdrop, look: lookId }: { backdrop: Backdrop; look: 
       if (disposed || !pic || pic.key === loaded) return;
       loaded = pic.key;
       await r.load(pic.url);
+      painted = "";
       refresh();
     };
 
-    const resize = new ResizeObserver(refresh);
-    resize.observe(pane);
-    const dock = pane.querySelector(".composer-dock");
-    if (dock) resize.observe(dock);
-    dock?.addEventListener("transitionend", refresh);
+    const unwatch = watchLayout(pane, refresh);
     const watch = new MutationObserver(() => { pal = readPalette(root); refresh(); void load(); });
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "data-quiet", "style"] });
     reduce?.addEventListener?.("change", refresh);
@@ -130,9 +152,8 @@ function ShaderBackdrop({ backdrop, look: lookId }: { backdrop: Backdrop; look: 
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
-      resize.disconnect();
+      unwatch();
       watch.disconnect();
-      dock?.removeEventListener("transitionend", refresh);
       reduce?.removeEventListener?.("change", refresh);
       document.removeEventListener("visibilitychange", refresh);
       r.destroy();
@@ -221,21 +242,14 @@ function ColorBackdrop({ backdrop, look: lookId }: { backdrop: Backdrop; look: k
       if (done && profile) renders.push(done);
     };
     const refresh = () => void draw();
-    const resize = new ResizeObserver(refresh);
-    resize.observe(pane);
-    const dock = pane.querySelector(".composer-dock");
-    if (dock) resize.observe(dock);
-    const greeting = pane.querySelector(".hero-greeting");
-    if (greeting) resize.observe(greeting);
-    dock?.addEventListener("transitionend", refresh);
+    const unwatch = watchLayout(pane, refresh);
     const watch = new MutationObserver(refresh);
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "style"] });
     refresh();
     return () => {
       disposed = true;
-      resize.disconnect();
+      unwatch();
       watch.disconnect();
-      dock?.removeEventListener("transitionend", refresh);
     };
   // The key names the picture and its treatment; a new object for the same backdrop is not a new one.
   }, [backdrop.key, backdrop.moves, lookId]);
