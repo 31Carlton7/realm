@@ -42,12 +42,22 @@
  * looks like it went through: the top frame navigated, or the password field went away. The offer
  * names the pane's own origin, never the form's action. The value goes no further than main: the bar
  * says "Save password for ada on example.com?", and only main's press handler seals it.
+ *
+ * ## Security codes
+ *
+ * A click (or ↓) in an empty one-time-code field — `CODE_FIELD_JS` decides what one is — offers the
+ * code that arrived by Messages or Mail in the last few minutes, as the menu's one row, when
+ * Settings ▸ Sign-ins ▸ Security codes is on (`security-codes.ts`). The same checks as a password
+ * pick: Realm's world, the top frame, the committed origin, a trusted event, and the page still on
+ * that origin when the code is typed. The code is in main's memory from the read to the typing and
+ * nowhere else, and the fields it went into keep their value out of an agent's snapshot.
  */
 import {
   normalizeOrigin, SAVE_OFFER_TTL_MS,
   type PasswordSaveAnswer, type PasswordSaveOffer, type SiteCredential,
 } from "@realm/contracts";
-import { performAutofill, type CdpSend } from "./browser-agent";
+import { CODE_FIELD_JS, performAutofill, performCodeFill, type CdpSend } from "./browser-agent";
+import type { LatestCode } from "./security-codes";
 import type { CredentialAuditEntry } from "./secret-store";
 import type { NativeMenuItem } from "./native-menu";
 
@@ -57,6 +67,8 @@ export const AUTOFILL_BINDING = "__realmAutofill";
 export const AUTOFILL_TARGET = "__realmAutofillTarget";
 /** The menu row that opens Settings ▸ Passwords. */
 export const MANAGE_PASSWORDS_ID = "__manage";
+/** The menu row that fills a security code. */
+export const FILL_CODE_ID = "__code";
 
 /** How long after it was sent a form may still be offered for saving, waiting for the navigation or
  *  the field going away that says it went through. */
@@ -91,6 +103,10 @@ export type AutofillDeps = {
   audit(entry: CredentialAuditEntry): void;
   /** A password is about to be typed into this node, so the agent's snapshots must never show its value. */
   passwordFilled(paneId: string, backendNodeId: number): void;
+  /** The security code to offer on `origin`, or null — null too while Settings has codes off. */
+  codeFor?(paneId: string, origin: string): Promise<LatestCode | null>;
+  /** These nodes now hold a code: keep their value out of an agent's snapshot of the pane. */
+  codeFilled?(paneId: string, backendNodeIds: number[]): void;
   now(): number;
   newId(): string;
 };
@@ -125,6 +141,14 @@ export function autofillScriptSource(): string {
     if (!pass && !named && !(el.form && looksLikeLogin(el))) return null;
     return { user: el, pass, kind: "username" };
   };
+ ${CODE_FIELD_JS}
+  const askCode = (el, group, how) => {
+    const id = ++seq;
+    fields.set(id, { code: group });
+    if (fields.size > 16) fields.delete(fields.keys().next().value);
+    const r = el.getBoundingClientRect();
+    say({ t: "code", id, how, boxes: group.length, rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
+  };
   const ask = (el, how) => {
     const pair = pairFor(el);
     if (!pair) return;
@@ -135,7 +159,7 @@ export function autofillScriptSource(): string {
     say({ t: "field", id, how, hasUser: !!pair.user, hasPass: !!pair.pass, rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
   };
   Object.defineProperty(window, ${JSON.stringify(AUTOFILL_TARGET)}, {
-    value: (id, which) => { const p = fields.get(id); return p ? (which === "pass" ? p.pass : p.user) : null; },
+    value: (id, which) => { const p = fields.get(id); return !p ? null : typeof which === "number" ? (p.code ? p.code[which] || null : null) : which === "pass" ? p.pass : p.user; },
     writable: false, enumerable: false, configurable: false,
   });
   const sent = (scopeEl) => {
@@ -156,6 +180,8 @@ export function autofillScriptSource(): string {
     if (!e.isTrusted) return;
     lastInput = Date.now();
     const el = e.composedPath()[0];
+    const group = isInput(el) ? codeGroupOf(el) : null;
+    if (group) { if (group.every((x) => x.value === "")) askCode(el, group, "click"); return; }
     if (isInput(el) && (isText(el) || isPassword(el))) { if (el.value === "") ask(el, "click"); return; }
     const button = el && el.closest ? el.closest("button, input[type=submit], [role=button]") : null;
     if (button && !(button.form && button.type === "submit")) sent(button);
@@ -165,20 +191,23 @@ export function autofillScriptSource(): string {
     lastInput = Date.now();
     const el = e.composedPath()[0];
     if (!isInput(el)) return;
-    if (e.key === "ArrowDown" && !e.altKey && !e.metaKey && !e.ctrlKey) ask(el, "key");
+    const group = codeGroupOf(el);
+    if (e.key === "ArrowDown" && !e.altKey && !e.metaKey && !e.ctrlKey) { if (group) askCode(el, group, "key"); else ask(el, "key"); }
     else if (e.key === "Enter" && !el.form) sent(el);
   }, true);
   document.addEventListener("submit", (e) => { sent(e.target); }, true);
 })();`;
 }
 
-type FieldReport = { t: "field"; id: number; how: "click" | "key"; hasUser: boolean; hasPass: boolean; rect: { x: number; y: number; w: number; h: number } };
+type Rect = { x: number; y: number; w: number; h: number };
+type FieldReport = { t: "field"; id: number; how: "click" | "key"; hasUser: boolean; hasPass: boolean; rect: Rect };
+type CodeReport = { t: "code"; id: number; how: "click" | "key"; boxes: number; rect: Rect };
 type SentReport = { t: "sent"; username: string; password: string };
 type GoneReport = { t: "gone" };
 
 /** A report from the isolated world, checked field by field. The rect only places a menu; the two
  *  strings are the form's, clipped, and the password never leaves main from here. */
-export function parseAutofillMessage(payload: string): FieldReport | SentReport | GoneReport | null {
+export function parseAutofillMessage(payload: string): FieldReport | CodeReport | SentReport | GoneReport | null {
   let v: Record<string, unknown>;
   try { v = JSON.parse(payload) as Record<string, unknown>; } catch { return null; }
   if (v?.t === "gone") return { t: "gone" };
@@ -186,12 +215,18 @@ export function parseAutofillMessage(payload: string): FieldReport | SentReport 
     if (typeof v.password !== "string" || v.password === "" || v.password.length > VALUE_MAX) return null;
     return { t: "sent", username: typeof v.username === "string" ? v.username.slice(0, NAME_MAX) : "", password: v.password };
   }
-  if (v?.t !== "field" || typeof v.id !== "number" || !Number.isInteger(v.id)) return null;
+  if ((v?.t !== "field" && v?.t !== "code") || typeof v.id !== "number" || !Number.isInteger(v.id)) return null;
   const r = v.rect as Record<string, unknown> | undefined;
   const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
   const rect = r ? { x: num(r.x), y: num(r.y), w: num(r.w), h: num(r.h) } : null;
   if (!rect || rect.x === null || rect.y === null || rect.w === null || rect.h === null) return null;
-  return { t: "field", id: v.id, how: v.how === "key" ? "key" : "click", hasUser: v.hasUser === true, hasPass: v.hasPass === true, rect: rect as FieldReport["rect"] };
+  const how = v.how === "key" ? "key" : "click";
+  if (v.t === "code") {
+    // One field, or a row of 4–8 boxes: anything else is not a code field `CODE_FIELD_JS` reports.
+    if (typeof v.boxes !== "number" || !Number.isInteger(v.boxes) || v.boxes < 1 || v.boxes > 8) return null;
+    return { t: "code", id: v.id, how, boxes: v.boxes, rect: rect as Rect };
+  }
+  return { t: "field", id: v.id, how, hasUser: v.hasUser === true, hasPass: v.hasPass === true, rect: rect as Rect };
 }
 
 /** The menu's rows: each password by its username, with the site where it is not this exact origin
@@ -208,6 +243,24 @@ export function autofillMenuItems(rows: readonly SiteCredential[]): NativeMenuIt
     };
   });
   return [...items, { type: "separator" }, { id: MANAGE_PASSWORDS_ID, label: "Manage passwords…" }];
+}
+
+/** The code menu's row. The code is the person's own, on their own screen, in a menu no page can
+ *  read; it is written in groups of three, as the message itself usually prints it. */
+export function codeMenuItems(found: LatestCode): NativeMenuItem[] {
+  const shown = found.code.length === 6 ? `${found.code.slice(0, 3)} ${found.code.slice(3)}` : found.code;
+  return [{ id: FILL_CODE_ID, label: `${shown} — from ${found.source}`, toolTip: `Fill the code that arrived in ${found.source} in the last few minutes` }];
+}
+
+/** The nodes behind remote objects, for the snapshot to know them by. Best-effort: one that will not
+ *  answer is left out. */
+async function backendIdsOf(send: CdpSend, objectIds: readonly string[]): Promise<number[]> {
+  const ids: number[] = [];
+  for (const objectId of objectIds) {
+    const r = (await send("DOM.describeNode", { objectId }).catch(() => null)) as { node?: { backendNodeId?: number } } | null;
+    if (typeof r?.node?.backendNodeId === "number") ids.push(r.node.backendNodeId);
+  }
+  return ids;
 }
 
 type Context = { origin: string; name: string; frameId: string | null; isDefault: boolean };
@@ -322,7 +375,39 @@ export class PasswordAutofill {
       pane.sent = { origin, username: msg.username.trim(), value: msg.password, at: this.d.now() };
       return;
     }
+    if (msg.t === "code") { await this.openCodeMenu(paneId, pane, origin, contextId, msg); return; }
     await this.openMenu(paneId, pane, origin, contextId, msg);
+  }
+
+  /** The code menu: one row, the code and where it came from. Nothing at all when there is no code
+   *  or the switch is off — a menu that says "no code" over every code field is a menu in the way. */
+  private async openCodeMenu(paneId: string, pane: Pane, origin: string, contextId: number, field: CodeReport): Promise<void> {
+    if (pane.menuOpen || !this.d.codeFor) return;
+    const found = await this.d.codeFor(paneId, origin).catch(() => null);
+    if (!found) return;
+    pane.menuOpen = true;
+    let choice: string | null;
+    try { choice = await this.d.popupMenu(paneId, codeMenuItems(found), field.rect); } finally { pane.menuOpen = false; }
+    if (choice !== FILL_CODE_ID) return;
+    const targets: string[] = [];
+    for (let i = 0; i < field.boxes; i++) {
+      const objectId = await this.target(pane, contextId, field.id, i);
+      if (!objectId) return;
+      targets.push(objectId);
+    }
+    const send: CdpSend = (method, params) => pane.cdp.send(method, params);
+    const result = await performCodeFill(send, targets, { origin, code: found.code }).catch(() => ({ ok: false as const, error: "" }));
+    if (result.ok) this.d.codeFilled?.(paneId, await backendIdsOf(send, targets));
+  }
+
+  /** One of a report's fields, as a remote object in Realm's world: "user", "pass", or a code box. */
+  private async target(pane: Pane, contextId: number, id: number, which: "user" | "pass" | number): Promise<string | null> {
+    try {
+      const r = (await pane.cdp.send("Runtime.evaluate", {
+        expression: `${AUTOFILL_TARGET}(${id}, ${JSON.stringify(which)})`, contextId, silent: true,
+      })) as { result?: { objectId?: string; subtype?: string } };
+      return r?.result?.subtype === "null" ? null : r?.result?.objectId ?? null;
+    } catch { return null; }
   }
 
   private async openMenu(paneId: string, pane: Pane, origin: string, contextId: number, field: FieldReport): Promise<void> {
@@ -340,14 +425,7 @@ export class PasswordAutofill {
   }
 
   private async fill(paneId: string, pane: Pane, contextId: number, field: FieldReport, credential: SiteCredential): Promise<void> {
-    const target = async (which: "user" | "pass"): Promise<string | null> => {
-      try {
-        const r = (await pane.cdp.send("Runtime.evaluate", {
-          expression: `${AUTOFILL_TARGET}(${field.id}, ${JSON.stringify(which)})`, contextId, silent: true,
-        })) as { result?: { objectId?: string; subtype?: string } };
-        return r?.result?.subtype === "null" ? null : r?.result?.objectId ?? null;
-      } catch { return null; }
-    };
+    const target = (which: "user" | "pass") => this.target(pane, contextId, field.id, which);
     const user = field.hasUser && credential.username ? await target("user") : null;
     const pass = field.hasPass ? await target("pass") : null;
     if (pass) {

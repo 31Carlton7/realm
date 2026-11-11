@@ -58,6 +58,15 @@ describe("PermissionCard options", () => {
     expect(options.map((o) => o.querySelector(".permission-option-kbd")!.textContent)).toEqual(["⏎", "⇧⏎", "⌘⌫"]);
   });
 
+  it("offers no always on a security-code fill, by click, digit or chord", () => {
+    const { options, decided, root } = card({ toolName: "browser_fill_code", title: "Fill the security code" });
+    expect(labels(options)).toEqual(["Allow", "Deny"]);
+    fireEvent.keyDown(root, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(root, { key: "2" });
+    fireEvent.keyDown(root, { key: "3" });
+    expect(decided).toEqual(["allow", "deny"]);
+  });
+
   it("does not relabel a tool that merely looks like one", () => {
     expect(labels(card({ toolName: "computer_snapshot" }).options)).toEqual(["Allow", "Allow always", "Deny"]);
   });

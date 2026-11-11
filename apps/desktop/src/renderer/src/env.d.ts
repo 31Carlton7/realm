@@ -261,6 +261,8 @@ interface Window {
       keychainStatus?(): Promise<import("@realm/contracts").KeychainPasswordsStatus>;
       setKeychain?(enabled: boolean): Promise<import("@realm/contracts").KeychainPasswordsStatus>;
       keychainList?(): Promise<import("@realm/contracts").BrowserCredential[]>;
+      codesStatus?(): Promise<import("@realm/contracts").SecurityCodesStatus | null>;
+      setCodes?(enabled: boolean): Promise<import("@realm/contracts").SecurityCodesStatus | null>;
       neverList?(profileId: string): Promise<string[]>;
       setNever?(profileId: string, origin: string, never: boolean): Promise<string[]>;
       fillAllows?(profileId: string): Promise<import("@realm/contracts").PasswordFillAllow[]>;

@@ -7,7 +7,8 @@
  */
 import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type SiteCredential } from "@realm/contracts";
 import { isAbsolute } from "node:path";
-import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
+import type { LatestCode } from "./security-codes";
+import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { credentialSiteMatch } from "./password-match";
 import { axElementAt, readAxSnapshot } from "./device-ax";
@@ -174,6 +175,11 @@ export type BrowserAgentHostDeps = {
    * second place that decides which files are legal is a second place that can disagree.
    */
   readFile?(path: string): Promise<Uint8Array>;
+  /**
+   * Security codes (`security-codes.ts`), for the `codesEnabled` and `fillCode` ops alone. Absent is
+   * the same answer as the switch being off: nothing is read and nothing is filled.
+   */
+  codes?: { enabled(): boolean; latest(origin: string): Promise<LatestCode | null> };
 };
 
 /** Who a fill was for, as realm-server named it: the asking session's space. */
@@ -652,6 +658,39 @@ export class BrowserAgentHost {
        * with no interception armed, from before this pane was attached) is outside CDP's reach and
        * outside this op's, and the honest answer there is that the user has to dismiss it.
        */
+      /** Whether Settings has security codes on. Asked before the card, so an agent learns the switch
+       *  is off without a card being raised for a fill that could not happen. Reads no message. */
+      case "codesEnabled":
+        return { enabled: this.d.codes?.enabled() ?? false };
+      /**
+       * Type the security code that just arrived into the code field at `ref` — after the person
+       * approved this fill on its card, which is the only way realm-server sends this op. The code is
+       * read HERE, after the approval, and goes from the read to the page's keys; the answer is that
+       * it was filled, or why not, and never the code or its length.
+       *
+       * `ref` must be a code field by `CODE_FIELD_JS`, the same test the person's menu uses: filling
+       * a code into some other field — a search box, a comment — is how an agent would read it back.
+       * The fields it went into are then kept out of this pane's snapshots.
+       */
+      case "fillCode": {
+        const ref = Number(params.ref);
+        const origin = normalizeOrigin(String(params.origin ?? ""));
+        const codes = this.d.codes;
+        if (!codes?.enabled()) return { ok: false, error: "security codes are off in Realm's Settings ▸ Sign-ins, so nothing was read or filled" } satisfies BrowserActResult;
+        if (!origin) return { ok: false, refused: "origin_mismatch", error: "this pane is not on an http(s) page, so nothing was filled" } satisfies BrowserActResult;
+        const entry = this.ensure(browserId);
+        const send = entry.binding.send;
+        const targets = await codeTargets(send, ref);
+        if (!targets) return { ok: false, error: `ref=${ref} is not a one-time-code field, and Realm fills a code only into one — take a fresh browser_snapshot` } satisfies BrowserActResult;
+        const found = await codes.latest(origin).catch(() => null);
+        if (!found) return { ok: false, error: "no security code arrived by Messages or Mail in the last 5 minutes, so nothing was filled" } satisfies BrowserActResult;
+        const result = await performCodeFill(send, targets.objectIds, { origin, code: found.code });
+        if (result.ok) {
+          for (const id of targets.backendNodeIds) this.secretFilled(browserId, id);
+          this.d.typed?.(browserId);
+        }
+        return result;
+      }
       case "dismissDialog": {
         const entry = this.ensure(browserId);
         const pending = this.takePendingChooser(entry);
@@ -1112,6 +1151,33 @@ export class BrowserAgentHost {
 function pushRing(list: string[], line: string, max: number): void {
   list.push(line);
   while (list.length > max) list.shift();
+}
+
+/** The inputs a code goes into for the field at `ref` — it alone, or its row of boxes — as remote
+ *  objects and as nodes; null when `ref` is not a code field or will not resolve. */
+async function codeTargets(send: CdpSend, ref: number): Promise<{ objectIds: string[]; backendNodeIds: number[] } | null> {
+  try {
+    const resolved = (await send("DOM.resolveNode", { backendNodeId: ref })) as { object?: { objectId?: string } };
+    const objectId = resolved.object?.objectId;
+    if (!objectId) return null;
+    const pick = `function (i) { ${CODE_FIELD_JS}; const g = codeGroupOf(this); return !g ? null : i < 0 ? g.length : g[i]; }`;
+    const count = (await send("Runtime.callFunctionOn", { objectId, functionDeclaration: pick, arguments: [{ value: -1 }], returnByValue: true, silent: true })) as { result?: { value?: unknown } };
+    const n = count.result?.value;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 8) return null;
+    const objectIds: string[] = [];
+    const backendNodeIds: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const box = (await send("Runtime.callFunctionOn", { objectId, functionDeclaration: pick, arguments: [{ value: i }], silent: true })) as { result?: { objectId?: string } };
+      const id = box.result?.objectId;
+      if (!id) return null;
+      objectIds.push(id);
+      const node = (await send("DOM.describeNode", { objectId: id }).catch(() => null)) as { node?: { backendNodeId?: number } } | null;
+      if (typeof node?.node?.backendNodeId === "number") backendNodeIds.push(node.node.backendNodeId);
+    }
+    return { objectIds, backendNodeIds };
+  } catch {
+    return null;
+  }
 }
 
 /** The `generate` half of a `fillCredential` op's params, or null when the op names a credentialId

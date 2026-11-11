@@ -437,9 +437,10 @@ export const CREDENTIAL_STORAGE_NOTE =
 
 /** The part of a credentialed sign-in Realm cannot do for you, said once, in one place, so no
  *  surface has to invent its own wording for it. Deliberately NOT hedged: Duo/Okta push approvals
- *  and TOTP prompts are not automated here and no amount of retrying makes them so. */
+ *  and authenticator-app prompts are not automated here and no amount of retrying makes them so. The
+ *  one exception is a code sent by text or email (`security-codes.ts`). */
 export const CREDENTIAL_2FA_NOTE =
-  "Two-factor steps are not automated. If the site sends a push (Duo, Okta Verify) or asks for a code, you complete that part yourself in the pane — Realm fills the saved username and password and stops there.";
+  "Two-factor steps are not automated, except a code the site sends by text or email: with Settings ▸ Sign-ins ▸ Security codes on, Realm fills it, and when an agent asks, only after you approve that fill. A push (Duo, Okta Verify) or an authenticator app's code you complete yourself in the pane.";
 
 /**
  * Normalize a URL to the origin string credentials are compared on, or null when the input is not a

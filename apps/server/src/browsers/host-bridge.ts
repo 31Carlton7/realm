@@ -17,6 +17,11 @@ export const BROWSER_HOST_OPS = [
    *  on that one exact origin. It removes the card for later fills there and nothing else — the
    *  profile's unlock policy still applies — and it carries no value either way. */
   "credentialAllow",
+  /** Security codes (`security-codes.ts` in main): whether the person's switch is on, and the fill of
+   *  the code that just arrived into a ref. Like `fillCredential`, the CODE never crosses this bridge:
+   *  the request carries a ref and the card's origin, the answer `{ ok, detail }`. */
+  "codesEnabled",
+  "fillCode",
   /**
    * Hand realm-server the `oauth` domain key from main's safeStorage-anchored keyring, so
    * `readOauthState` can stay synchronous while tokens stop being plaintext in `realm.db`.

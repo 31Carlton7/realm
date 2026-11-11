@@ -111,6 +111,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-browser__browser_batch": reversible,
   "realm-browser__browser_dismiss_dialog": reversible,
   "realm-browser__browser_fill_credential": reversible,
+  "realm-browser__browser_fill_code": reversible,
   "realm-browser__browser_download": internal,
   "realm-browser__browser_upload": irreversible,
 

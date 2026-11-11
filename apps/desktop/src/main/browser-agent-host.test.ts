@@ -1293,3 +1293,103 @@ describe("BrowserAgentHost — annotate", () => {
     expect(await host.annotate("nope")).toEqual({ outcome: "closed" });
   });
 });
+
+describe("BrowserAgentHost — fillCode", () => {
+  const CODE = "482913";
+  /** A page whose ref 7 is a code field of `boxes` inputs (0 = not a code field). */
+  function codePage(opts: { enabled?: boolean; code?: string | null; boxes?: number; page?: string } = {}) {
+    const reads: string[] = [];
+    const typed: string[] = [];
+    const respond = (method: string, params?: Record<string, unknown>) => {
+      if (method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("codeGroupOf")) {
+        const i = (params?.arguments as { value: number }[])[0]!.value;
+        const boxes = opts.boxes ?? 1;
+        if (boxes === 0) return { result: params?.returnByValue ? { value: null } : { subtype: "null" } };
+        return i < 0 ? { result: { value: boxes } } : { result: { objectId: `box-${i}` } };
+      }
+      if (method === "DOM.resolveNode") return { object: { objectId: "ref-7" } };
+      if (method === "DOM.describeNode") return { node: { backendNodeId: 100 + Number(String(params?.objectId).slice(4)) } };
+      if (method === "Page.getNavigationHistory") return { currentIndex: 0, entries: [{ url: opts.page ?? "https://example.com/verify" }] };
+      return undefined;
+    };
+    const calls: { method: string; params?: Record<string, unknown> }[] = [];
+    const host = new BrowserAgentHost({
+      attach: () => ({ send: async (method, params) => { calls.push({ method, params }); return respond(method, params) ?? {}; }, onEvent: () => {} }),
+      hasView: () => true, touch: () => {}, navigate: () => null,
+      pageState: () => ({ url: opts.page ?? "https://example.com/verify", title: "Verify" }),
+      typed: (id) => typed.push(id),
+      codes: {
+        enabled: () => opts.enabled ?? true,
+        latest: async (origin) => { reads.push(origin); return opts.code === null ? null : { code: opts.code ?? CODE, source: "Messages" }; },
+      },
+    });
+    const keys = () => calls.filter((c) => c.method === "Input.dispatchKeyEvent" && c.params?.type === "keyDown").map((c) => c.params?.text).join("");
+    return { host, calls, reads, typed, keys };
+  }
+  const fill = (host: BrowserAgentHost) => host.handleOp("fillCode", { browserId: "b1", ref: 7, origin: "https://example.com" }) as Promise<{ ok: boolean; detail?: string; error?: string; refused?: string }>;
+
+  it("types the code into the field and answers without it", async () => {
+    const p = codePage();
+    const r = await fill(p.host);
+    expect(r).toEqual({ ok: true, detail: "filled the security code" });
+    expect(p.keys()).toBe(CODE);
+    expect(p.reads).toEqual(["https://example.com"]);
+    expect(p.typed).toEqual(["b1"]);
+    expect(JSON.stringify(r)).not.toContain(CODE);
+  });
+
+  it("types one digit per box into a split field", async () => {
+    const p = codePage({ boxes: 6 });
+    expect((await fill(p.host)).ok).toBe(true);
+    const focused = p.calls.filter((c) => c.method === "Runtime.callFunctionOn" && String(c.params?.functionDeclaration).includes("this.focus")).map((c) => c.params?.objectId);
+    expect(focused).toEqual(["box-0", "box-1", "box-2", "box-3", "box-4", "box-5"]);
+    expect(p.keys()).toBe(CODE);
+  });
+
+  it("reads nothing and types nothing while the switch is off", async () => {
+    const p = codePage({ enabled: false });
+    expect(await p.host.handleOp("codesEnabled", {})).toEqual({ enabled: false });
+    const r = await fill(p.host);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/off/);
+    expect(p.reads).toEqual([]);
+    expect(p.keys()).toBe("");
+  });
+
+  it("refuses a ref that is not a code field before reading any message", async () => {
+    // THE MUTANT: a code typed into whatever field the agent names — a search box it can read back.
+    const p = codePage({ boxes: 0 });
+    const r = await fill(p.host);
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining("not a one-time-code field") });
+    expect(p.reads).toEqual([]);
+    expect(p.keys()).toBe("");
+  });
+
+  it("says so when no code arrived, and types nothing", async () => {
+    const p = codePage({ code: null });
+    expect(await fill(p.host)).toMatchObject({ ok: false, error: expect.stringContaining("last 5 minutes") });
+    expect(p.keys()).toBe("");
+  });
+
+  it("types nothing when the page is no longer on the site the card named", async () => {
+    const p = codePage({ page: "https://evil.example.net/verify" });
+    const r = await fill(p.host);
+    expect(r).toMatchObject({ ok: false, refused: "origin_mismatch" });
+    expect(p.keys()).toBe("");
+    expect(JSON.stringify(r)).not.toContain(CODE);
+  });
+
+  it("refuses a code that does not fit the boxes", async () => {
+    const p = codePage({ boxes: 4 });
+    expect((await fill(p.host)).ok).toBe(false);
+    expect(p.keys()).toBe("");
+  });
+
+  it("keeps the filled fields' value out of the next snapshot", async () => {
+    const p = codePage({ boxes: 6 });
+    await fill(p.host);
+    await p.host.handleOp("snapshot", { browserId: "b1" }).catch(() => null);
+    const hidden = (p.host as unknown as { filledSecrets: Map<string, Set<number>> }).filledSecrets.get("b1");
+    expect([...(hidden ?? [])]).toEqual([100, 101, 102, 103, 104, 105]);
+  });
+});

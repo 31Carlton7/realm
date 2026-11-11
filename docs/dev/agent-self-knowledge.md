@@ -17,7 +17,7 @@ The audit was taken on `integration/v2.3` (Realm 2.2.0) by listing every tool th
 | Asking the user | ui_ask | covered | covered |
 | Browser | browser_open/snapshot/act/do | covered | covered |
 | | browser_list, browser_navigate, browser_read, browser_screenshot, browser_batch | **not named** | named |
-| Sign-ins | browser_credentials, browser_fill_credential (saved or **generated** password) | **not named**. Agents asked the user to type passwords that Realm could fill. | named, and in "Finishing" |
+| Sign-ins | browser_credentials, browser_fill_credential (saved or **generated** password), browser_fill_code (a texted or emailed code) | **not named**. Agents asked the user to type passwords that Realm could fill. | named, and in "Finishing" |
 | Files | browser_download, browser_upload, browser_dismiss_dialog | **not named** | named |
 | Documents | docs_search/list/read/open/state | covered | covered |
 | | docs_progress | **not named** | named |

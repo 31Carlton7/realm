@@ -35,7 +35,12 @@ const alwaysLabel = (toolName: string, input: unknown): string | undefined =>
     ? "Always allow on this site"
     : ALWAYS_LABEL[toolName];
 
+/** A code fill is approved one fill at a time and the server records no "always" for it, so the card
+ *  does not offer one. */
+const NO_ALWAYS = new Set(["browser_fill_code"]);
+
 const optionsFor = (toolName: string, input?: unknown): typeof OPTIONS => {
+  if (NO_ALWAYS.has(toolName)) return OPTIONS.filter((o) => o.decision !== "allow_always");
   const label = alwaysLabel(toolName, input);
   return label ? OPTIONS.map((o) => (o.decision === "allow_always" ? { ...o, label } : o)) : OPTIONS;
 };
@@ -59,6 +64,8 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
      The raw payload stays under the details below it: the drawing is what the reader decides on,
      the JSON is what they check when the drawing surprises them. */
   const preview = toolInputView(permission.toolName, permission.input);
+  const options = optionsFor(permission.toolName, permission.input);
+  const offersAlways = options.some((o) => o.decision === "allow_always");
   const raw = useRef<HTMLPreElement>(null);
   useDissolve(raw);
   const [selected, setSelected] = useState(0);
@@ -68,7 +75,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
   /** Move the selection and take focus with it, so the focused control and the highlighted row are
    *  never two different answers to the same question. */
   const select = (i: number) => {
-    const next = (i + OPTIONS.length) % OPTIONS.length;
+    const next = (i + options.length) % options.length;
     setSelected(next);
     rows.current[next]?.focus();
   };
@@ -82,18 +89,18 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       const control = e.target instanceof HTMLElement ? e.target.closest("button, summary") : null;
       // ⇧⏎ is Allow always's chord from anywhere on the card, as ⌘⌫ is Deny's. Allow has focus from
       // the moment the card appears, so a chord that deferred to the focused control never fired.
-      if (e.shiftKey && !(control instanceof HTMLElement && control.tagName === "SUMMARY")) { e.preventDefault(); onDecide("allow_always"); return; }
+      if (e.shiftKey && offersAlways && !(control instanceof HTMLElement && control.tagName === "SUMMARY")) { e.preventDefault(); onDecide("allow_always"); return; }
       if (control instanceof HTMLButtonElement) { e.preventDefault(); control.click(); return; }
       if (control) return;
-      e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : OPTIONS[selected]!.decision);
+      e.preventDefault(); onDecide(options[selected]!.decision);
     } else if (e.key === "Backspace" && e.metaKey) { e.preventDefault(); onDecide("deny"); }
     else if (e.key === "Escape" && ownsEscape) { e.preventDefault(); e.stopPropagation(); onDecide("deny"); }
     else if (e.key === "ArrowDown") { e.preventDefault(); select(selected + 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); select(selected - 1); }
     // Bare digits only: ⌘1–9 is the app's switch-space binding, and a permission decision is the
     // last thing that may fire off a modifier chord it does not own.
-    else if (e.key >= "1" && e.key <= String(OPTIONS.length) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault(); onDecide(OPTIONS[Number(e.key) - 1]!.decision);
+    else if (e.key >= "1" && e.key <= String(options.length) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault(); onDecide(options[Number(e.key) - 1]!.decision);
     }
   };
 
@@ -114,7 +121,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       {preview && <div className="permission-preview"><ToolInputBody view={preview} /></div>}
       <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre ref={raw}>{prettyJson(permission.input)}</pre></details>
       <div className="permission-options">
-        {optionsFor(permission.toolName, permission.input).map((o, i) => (
+        {options.map((o, i) => (
           <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"
             aria-label={o.label} data-selected={i === selected || undefined} data-decision={o.decision}
             onFocus={() => setSelected(i)} onClick={() => onDecide(o.decision)}>
@@ -128,7 +135,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
         <div className="permission-hints">
           <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span>{ownsEscape && <span><kbd>esc</kbd> Deny</span>}
         </div>
-        <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(OPTIONS[selected]!.decision)}>
+        <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(options[selected]!.decision)}>
           Submit <kbd>↩</kbd>
         </button>
       </div>

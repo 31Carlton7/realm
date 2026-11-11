@@ -36,8 +36,8 @@ export type AskOutcome =
  * Per-call gate behaviour.
  *
  * `alwaysPrompt` makes ONE call prompt every single time: `bypassPermissions` does not skip it and
- * `allow_always` neither satisfies it nor gets recorded by it. Exactly one tool sets it —
- * `browser_fill_credential`, the only tool that puts a real secret onto a page — for the password
+ * `allow_always` neither satisfies it nor gets recorded by it. Two tools set it: `browser_fill_code`,
+ * for every code it reads out of the person's messages, and `browser_fill_credential` — for the password
  * Realm generates, and for a fill on a page of another site. A saved password filled on a page of its own site
  * instead takes `promptUnderBypass`, keyed to that password and that exact page: "Always allow on
  * this site" is then the person's to give, kept in Electron main, and it removes the card there and

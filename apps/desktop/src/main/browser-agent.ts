@@ -749,6 +749,80 @@ export async function performAutofill(
   return { ok: true, detail: `filled the password for ${fill.origin}` };
 }
 
+/**
+ * The page script that says whether an input takes a one-time code, defining `codeGroupOf(el)`: the
+ * inputs a code goes into — the field alone, or the row of single-character boxes it is one of — or
+ * null. Run in Realm's isolated world for the person's menu (`password-autofill.ts`) and on the ref's
+ * node for an agent's fill, so both agree on what a code field is. A field that names a promo, a gift
+ * card, a postcode or a phone number's area is not one, whatever else it says.
+ */
+export const CODE_FIELD_JS = `
+const codeGroupOf = (() => {
+  const WORDS = /one.?time|otp|2fa|mfa|two.?factor|verif|passcode|security.?code|auth.?code|sms.?code|\\bcode\\b|\\bpin\\b|token/i;
+  const NOT = /promo|coupon|discount|gift|voucher|zip|postal|post.?code|country|area.?code|referral|invite|captcha|search/i;
+  const TEXTISH = ["text", "tel", "number", ""];
+  const isInput = (el) => el instanceof HTMLInputElement && !el.disabled && !el.readOnly;
+  const auto = (el) => (el.getAttribute("autocomplete") || "").toLowerCase();
+  const words = (el) => [el.name, el.id, el.placeholder, el.getAttribute("aria-label"), el.labels && el.labels[0] ? el.labels[0].textContent : ""].join(" ");
+  const single = (el) => {
+    if (!isInput(el)) return false;
+    if (auto(el).includes("one-time-code")) return true;
+    if (!TEXTISH.includes(el.type)) return false;
+    const w = words(el);
+    if (NOT.test(w)) return false;
+    if (WORDS.test(w)) return true;
+    const numeric = el.inputMode === "numeric" || el.type === "tel" || el.type === "number" || /\\[0-9\\]|\\\\d/.test(el.pattern || "");
+    return numeric && el.maxLength >= 4 && el.maxLength <= 8;
+  };
+  const boxes = (el) => {
+    if (!isInput(el) || el.maxLength !== 1 || !TEXTISH.includes(el.type)) return null;
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 3; depth++, node = node.parentElement) {
+      const all = Array.from(node.querySelectorAll("input")).filter((x) => x.type !== "hidden");
+      const ones = all.filter((x) => isInput(x) && x.maxLength === 1 && TEXTISH.includes(x.type));
+      if (ones.length >= 4 && ones.length <= 8 && ones.length === all.length) return ones;
+    }
+    return null;
+  };
+  return (el) => boxes(el) || (single(el) ? [el] : null);
+})();
+`;
+
+/**
+ * Type a one-time code into the inputs `CODE_FIELD_JS` found — the field, or one character into each
+ * box — as remote objects, never anything the page named. The page must still be on `origin`, the one
+ * the menu opened on or the card named; a page that moved since gets nothing.
+ *
+ * The same typist as every other fill, and the same bare catch: an error from typing can carry the
+ * characters. The result names neither the code nor its length.
+ */
+export async function performCodeFill(send: CdpSend, targets: readonly string[], fill: { origin: string; code: string }): Promise<BrowserActResult> {
+  let pageOrigin: string | null;
+  try { pageOrigin = await currentOrigin(send); } catch { pageOrigin = null; }
+  if (pageOrigin === null || pageOrigin !== fill.origin) {
+    return { ok: false, refused: "origin_mismatch", error: "the page is no longer on the site the code was offered for, so nothing was filled" };
+  }
+  if (targets.length === 0 || (targets.length > 1 && targets.length !== fill.code.length)) {
+    return { ok: false, error: "the code does not fit that field's boxes, so nothing was filled" };
+  }
+  const select = (objectId: string) =>
+    send("Runtime.callFunctionOn", { objectId, functionDeclaration: "function () { this.focus(); if (this.select) this.select(); }", silent: true });
+  try {
+    if (targets.length === 1) {
+      await select(targets[0]!);
+      await typeCharacters(send, fill.code);
+    } else {
+      for (const [i, target] of targets.entries()) {
+        await select(target);
+        await typeCharacters(send, fill.code[i]!);
+      }
+    }
+  } catch {
+    return { ok: false, error: "the code could not be typed into that field" };
+  }
+  return { ok: true, detail: "filled the security code" };
+}
+
 /** Refusal wording for the reasons the STORE decides (this module never learns more than the code). */
 const REVEAL_REFUSALS: Partial<Record<BrowserRefusal, string>> = {
   no_credential: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins",
