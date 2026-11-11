@@ -15,8 +15,10 @@ export type FakeStep =
   | { kind: "echo" }
   /** `apply` makes a `Write` or an `Edit` really happen, in the session's working directory: what lets
    *  a scripted turn leave a checkout that checkpoints, diffs and the turn's edit summary can measure.
-   *  A failed edit (the text to replace is not there) settles the call as an error, as a real one would. */
-  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string; apply?: boolean }
+   *  A failed edit (the text to replace is not there) settles the call as an error, as a real one would.
+   *  `asksInFullAccess` makes a `needsPermission` call ask in every mode, as Claude Code does about a
+   *  Bash command its parser cannot vouch for. */
+  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; asksInFullAccess?: boolean; result: string; apply?: boolean }
   /** A plan, in either shape the `plan` event carries. Re-using a `planId` revises that plan in
    *  place, which is what the real agents do and the one plan behaviour a script must be able to
    *  reproduce. */
@@ -186,7 +188,7 @@ export class FakeAdapter implements AgentAdapter {
         } else {
           const toolUseId = newId();
           q.push(sessionEvent("tool_call", { toolUseId, name: st.name, input: st.input, parentToolUseId: null }));
-          if (st.needsPermission && !(mode === "bypassPermissions" && st.name !== "AskUserQuestion")) {
+          if (st.needsPermission && (st.asksInFullAccess || !(mode === "bypassPermissions" && st.name !== "AskUserQuestion"))) {
             const requestId = newId();
             const ask = st.name === "AskUserQuestion" ? askCardFromAskUserQuestion(st.input, FAKE_ASKER) : null;
             if (ask) asks.set(requestId, ask);

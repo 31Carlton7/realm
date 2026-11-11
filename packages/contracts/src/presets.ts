@@ -351,6 +351,44 @@ export const PLAN_PERMISSION_MODE = "plan";
  */
 export const ASK_PERMISSION_MODE = "ask";
 
+/** What an agent's harness sends down the permission channel that is the person's to answer in every
+ *  mode, Full access included: a question, and a plan to approve. */
+export const ASKS_IN_FULL_ACCESS: ReadonlySet<string> = new Set(["AskUserQuestion", "ExitPlanMode"]);
+
+/**
+ * Whether Full access answers a tool permission request from the agent's own harness by itself, with
+ * no card. One rule, read by every adapter and by the session service.
+ *
+ * In `bypassPermissions` Claude Code still brings one thing to `canUseTool`: a Bash command its parser
+ * cannot vouch for ("Dangerous rm operation not ruled out — the shell may read this command
+ * differently than it was parsed"). A JavaScript snippet passed inline is enough, because `$$(` reads
+ * as shell syntax, and the card stops a session whose person chose not to be asked. The check is
+ * there to catch a delete, so a command that names `rm` anywhere still goes to the person. Bash only:
+ * what a harness asks about any other tool in this mode is not Realm's to wave through, and a
+ * question or a plan (`ASKS_IN_FULL_ACCESS`) never is.
+ *
+ * Only a call made of the fields a Bash call ordinarily carries. One that asks to leave the CLI's own
+ * sandbox, or brings a field this list does not know, is a different question and stays the person's.
+ *
+ * A guard against an accident, not a boundary: Full access already runs any command the CLI can
+ * parse, and any script, and `rm` can be spelled so this does not see it.
+ */
+export function fullAccessAllows(mode: string | null | undefined, request: { toolName: string; input: Record<string, unknown>; ask?: unknown }): boolean {
+  if (mode !== "bypassPermissions" || request.ask) return false;
+  const { toolName, input } = request;
+  if (toolName !== "Bash" || typeof input.command !== "string" || /\brm\b/.test(input.command)) return false;
+  return Object.entries(input).every(([field, value]) => FULL_ACCESS_BASH_FIELDS.has(field) || (field === "dangerouslyDisableSandbox" && value === false));
+}
+const FULL_ACCESS_BASH_FIELDS: ReadonlySet<string> = new Set(["command", "description", "timeout", "run_in_background"]);
+
+/** How much of a command the log keeps: enough to know it, short of a secret further along it. */
+const LOGGED_COMMAND_CHARS = 200;
+
+/** The daemon log's line for a command `fullAccessAllows` let run. `why` is the harness's own reason for asking. */
+export function fullAccessLogLine(input: Record<string, unknown>, why: string): string {
+  return `Full access ran a command without asking (${why}): ${String(input.command).slice(0, LOGGED_COMMAND_CHARS)}`;
+}
+
 /** Build/Plan/Ask, the mode axis. Build is the absence of the other two, not a value Realm transmits. */
 export const SESSION_MODES = [{ id: "build", label: "Build" }, { id: "plan", label: "Plan" }, { id: "ask", label: "Ask" }] as const;
 export type SessionMode = (typeof SESSION_MODES)[number]["id"];

@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn as nodeSpawn } from "node:child_process";
 import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { type AgentModel, ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { type AgentModel, ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, fullAccessAllows, fullAccessLogLine, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaudeBinary } from "./probe";
@@ -253,29 +253,11 @@ function sessionOnly(suggestions: readonly PermissionUpdate[]): PermissionUpdate
   });
 }
 
-/**
- * A Bash command Full access runs though the CLI asked about it.
- *
- * In `bypassPermissions` the CLI still brings one thing to `canUseTool`: a Bash command its parser
- * cannot vouch for ("Dangerous rm operation not ruled out — the shell may read this command
- * differently than it was parsed"). A JavaScript snippet passed inline is enough, because `$$(` reads
- * as shell syntax, and the card stops a session whose person chose not to be asked. The check is
- * there to catch a delete, so a command that names `rm` anywhere still goes to the person. Bash only:
- * what the CLI asks about any other tool in this mode is not Realm's to wave through.
- *
- * Only a call made of the fields a Bash call ordinarily carries. One that asks to leave the CLI's own
- * sandbox, or brings a field this list does not know, is a different question and stays the person's.
- *
- * A guard against an accident, not a boundary: Full access already runs any command the CLI can
- * parse, and any script, and `rm` can be spelled so this does not see it.
- */
+/** `fullAccessAllows` for a card raised before its session was in Full access: whether Claude would
+ *  still have asked it there. */
 export function runsInFullAccess(toolName: string, input: Record<string, unknown>): boolean {
-  if (toolName !== "Bash" || typeof input.command !== "string" || /\brm\b/.test(input.command)) return false;
-  return Object.entries(input).every(([field, value]) => BASH_FIELDS.has(field) || (field === "dangerouslyDisableSandbox" && value === false));
+  return fullAccessAllows("bypassPermissions", { toolName, input });
 }
-const BASH_FIELDS: ReadonlySet<string> = new Set(["command", "description", "timeout", "run_in_background"]);
-/** How much of a command the log keeps: enough to know it, short of a secret further along it. */
-const LOGGED_COMMAND_CHARS = 200;
 
 /** Who asks when Claude's own `AskUserQuestion` reaches the card. */
 const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const;
@@ -444,8 +426,9 @@ export class ClaudeAdapter implements AgentAdapter {
       // Already cancelled: the abort has fired, and the listener below would never hear it, so a card
       // drawn now could never be cleared.
       if (o.signal.aborted) return { behavior: "deny", message: "aborted" };
-      if (permissionMode === "bypassPermissions" && runsInFullAccess(toolName, toolInput)) {
-        opts.onLog?.(`Full access ran a command without asking (${o.decisionReason ?? "the CLI asked"}): ${String(toolInput.command).slice(0, LOGGED_COMMAND_CHARS)}`);
+      if (fullAccessAllows(permissionMode, { toolName, input: toolInput })) {
+        opts.onLog?.(fullAccessLogLine(toolInput, o.decisionReason ?? "the CLI asked"));
+        events.push(sessionEvent("permission_response", { requestId: newId(), decision: "allow", fullAccess: { toolName, title: o.title ?? `Allow ${toolName}?` } }));
         return { behavior: "allow" };
       }
       const requestId = newId();
