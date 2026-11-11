@@ -1440,8 +1440,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        while folded. */
     // One place casts it, and it is not the panes'.
     expect(RULES.filter((r) => r.body.includes("var(--seam-shade)")).flatMap(partsOf)).toEqual([".sidebar-shade"]);
-    // The panes' rim (`.main::after`) is a line, never a second shade.
-    expect(bodiesFor(".main::after").join(" ")).not.toContain("box-shadow");
+    expect(RULES.flatMap(partsOf).filter((sel) => sel.includes(".main::after") && !sel.includes("[data-sidebar-folded]") && !sel.includes("[data-first-run]"))).toEqual([]);
     const shade = bodiesFor(".sidebar-shade").join(" ");
     // Out of the column's clip (it lies outside the column) and against the window, the column's box.
     expect(shade).toContain("position: fixed");
@@ -1517,7 +1516,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // Every strip at the top of the window is still 40px: main places the lights once at y:14 and
     // never moves them, which centres them in a 40px band — the rail's, beside the sidebar's header
     // and the first pane's bar.
-    expect(bodiesFor(".panel-bar").join(" ")).toContain("height: var(--frame-top)");
+    expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
   });
 
   it("the Scheduled and Code review columns are the sidebar's in its slot — its ground, edge, width and dissolve", () => {
@@ -1633,17 +1632,14 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        its padding box. This test is the cheap half; the pixels are the real one. */
     const edge = RULES.filter((r) => r.selectors.some((sel) => /(^|\s)\.main$/.test(sel.trim())) && r.body.includes("border-left"))
       .flatMap((r) => r.selectors);
-    // Beside the sidebar it is the seam; folded, the rail is beside the panes (Plan 27) and the line
-    // there is the rim's (`.main::after`), so the border keeps its width and gives up its colour.
+    // Unconditional: collapsed, the rail is still beside the panes (Plan 27), so the line is still
+    // between two surfaces rather than a stray rule down the window's own edge — and folded it is the
+    // only line there, since the panes no longer carry a rim or a corner of their own.
     // First run has neither the rail nor the sidebar beside it (`.app[data-first-run]`), so there is
     // nothing for the line to stand between and it goes with them.
-    expect(edge).toEqual([".app > .main", ".app[data-sidebar-folded] > .main", ".app[data-first-run] > .main"]);
+    expect(edge).toEqual([".app > .main", ".app[data-first-run] > .main"]);
     expect(bodiesFor(".app[data-first-run] > .main").join(" ")).toContain("border-left: 0");
-    const seam = bodiesFor(".app > .main").join(" ");
-    expect(seam).toContain("border-left: var(--hairline-w) solid var(--rl-line)");
-    // From the rim down: the head row above it is one strip of chrome across the window.
-    expect(seam).toContain("border-image: linear-gradient(transparent var(--frame-top), var(--rl-line) 0) 0 0 0 1");
-    expect(bodiesFor(".app[data-sidebar-folded] > .main").join(" ")).toContain("border-image: none; border-left-color: transparent");
+    expect(bodiesFor(".app > .main").join(" ")).toContain("var(--rl-line)");
     // And no inset shadow creeps back onto .main to say the same thing twice, invisibly.
     expect(bodiesFor(".main").join(" ")).not.toContain("box-shadow: inset");
   });
@@ -1661,92 +1657,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // THE second-ground mutant: give .main or a pane a color-mix over --page too. The window looks
     // better on a nice wallpaper and every pane's body text starts depending on it.
     const translucent = RULES.filter((r) => /background:[^;]*var\(--sidebar-ground\)/.test(r.body)).flatMap((r) => r.selectors);
-    // The frame's chrome only: the rail, the sidebar, and the strip `.main` lays over the panes' top
-    // row (the owner, 11-11). Never the panes themselves: under the strip they are --pane-ground,
-    // painted once by `.main` through its sheet, and every layer of the sidebar's ground on `.main`
-    // is the strip or a corner's outside.
-    expect(translucent.sort()).toEqual([".app-rail", ".main", ".sidebar"].sort());
-    const main = bodiesFor(".main").join(" ");
-    expect(main).toContain("--sheet-fill: var(--pane-ground)");
-    const grounds = splitSelectors(/(?:^|; )background: ([^;]+)/.exec(main)?.[1] ?? "").filter((l) => l.includes("var(--sidebar-ground)"));
-    expect(grounds.length).toBe(3);
-    for (const layer of grounds) expect(layer).toMatch(/\/ (100% var\(--frame-top\)|var\(--sheet-l\) var\(--sheet-l\)|var\(--frame-r\) var\(--frame-r\)) no-repeat/);
-  });
-
-  it("the frame runs across the top of the panes and the side panel, and they sit in it as sheets like the sidebar's list", () => {
-    /* The owner, 11-11: the sidebar's outer colour "should also go around the top of the right panels".
-       One strip of chrome across the window's top row, the same two layers the sidebar's head band is;
-       under it the panes' ground with its top corners rounded off, a rim along the top that is the
-       sidebar's rim, and every pane's content starting under it. Measured on the built app by
-       `.proof/shoot.mjs` in the PR. THE MUTANTS: the strip a different ground from the sidebar's band,
-       the rim or a corner on a radius of its own, a sheet that starts above or below the rim, the side
-       panel's strip painted by the panel (a band that stays behind when it closes), a line through
-       the strip, or the drag region taken off the strip or put on its controls. */
-    const main = bodiesFor(".main").join(" ");
-    const layers = splitSelectors(/(?:^|; )background: ([^;]+)/.exec(main)?.[1] ?? "").map((l) => l.trim());
-    // The strip is the sidebar's own band, layer for layer.
-    const band = splitSelectors(/background: ([^;]+)/.exec(bodiesFor(".sidebar").join(" "))?.[1] ?? "").map((l) => l.trim());
-    expect(band[0]).toBe("linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat");
-    expect(layers).toContain(band[0]);
-    expect(layers).toContain("linear-gradient(var(--sidebar-ground), var(--sidebar-ground)) top / 100% var(--frame-top) no-repeat");
-    // The corners' outside is the chrome the sidebar's corner is, on the sidebar's radius: the right
-    // one at the window's edge, on `.main` rather than on the side panel, so it is there whichever
-    // pane reaches the edge and nothing stays behind when the panel closes.
-    const corner = /radial-gradient\(circle at 100% 100%, transparent calc\(var\(--frame-r\) - 0\.5px\), var\(--chrome-tint\) var\(--frame-r\)\)/;
-    expect(bodiesFor(".sidebar::after").join(" ")).toMatch(corner);
-    expect(layers.filter((l) => corner.test(l))).toEqual(["radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)) left 0 top var(--frame-top) / var(--sheet-l) var(--sheet-l) no-repeat"]);
-    expect(layers).toContain("radial-gradient(circle at 0 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)) right 0 top var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat");
-    expect(main).toContain("--sheet-l: 0px");
-    expect(bodiesFor(".app[data-sidebar-folded] > .main").join(" ")).toContain("--sheet-l: var(--frame-r)");
-    // The sheet starts at the rim, and is the same sheet under a page in the page's ground.
-    expect(layers.at(-1)).toBe("var(--sheet)");
-    const sheet = RULES.filter((r) => r.body.includes("--sheet:"));
-    expect(sheet.map((r) => r.selectors)).toEqual([[".main", ".page-overlay"]]);
-    const sheetLayers = splitSelectors(sheet[0]!.body.replace(/^--sheet:\s*/, "").replace(/;$/, ""));
-    expect(sheetLayers.length).toBe(4);
-    for (const l of sheetLayers) expect(l).toMatch(/top var\(--frame-top\)|calc\(100% - var\(--frame-top\) - var\(--frame-r\)\)/);
-    expect(bodiesFor(".page-overlay").join(" ")).toContain("--sheet-fill: var(--rl-panel); background: var(--sheet)");
-    // The rim: the sidebar's line and radius, along the top from the strip's foot, turning at the
-    // right edge; folded, down the left edge beside the rail and round that corner too.
-    const rim = bodiesFor(".main::after").join(" ");
-    const sbRim = bodiesFor(".sidebar::before").join(" ");
-    expect(sbRim).toContain("top: var(--frame-top)");
-    expect(sbRim).toContain("border-top: var(--hairline-w) solid var(--rl-line-strong)");
-    expect(rim).toContain("inset: var(--frame-top) 0 0 0");
-    expect(rim).toContain("border-top: var(--hairline-w) solid var(--rl-line-strong); border-top-right-radius: var(--frame-r)");
-    expect(rim).toContain("pointer-events: none");
-    expect(bodiesFor(".app[data-sidebar-folded] > .main::after").join(" "))
-      .toContain("border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r)");
-    // Over a page (the bottom of the overlay stack), under everything that floats.
-    const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
-    expect(rung(".main::after")).toBeGreaterThanOrEqual(rung(".page-overlay"));
-    expect(rung(".main::after")).toBeLessThan(rung(".tooltip"));
-    // Every pane's bar fills the strip, so its content starts under the rim: the strip's depth is the
-    // sheets' gap, the sidebar's list's, and the page's bar stands in it the same way.
-    expect(bodiesFor(".panel-bar").join(" ")).toContain("height: var(--frame-top)");
-    expect(bodiesFor(".page-overlay-bar").join(" ")).toContain("min-height: var(--frame-top)");
-    // The pane in each rounded corner rounds its content to it, without becoming a scroll container.
-    expect(bodiesFor(".panel[data-top-right] > .panel-body").join(" ")).toBe("border-top-right-radius: var(--frame-r); overflow: clip;");
-    expect(bodiesFor(".app[data-sidebar-folded] .panel[data-first-leaf] > .panel-body").join(" ")).toBe("border-top-left-radius: var(--frame-r); overflow: clip;");
-    // No line through the strip: the dividers along the top row and the side panel's edge start at
-    // the rim, as the sidebar's seam does.
-    expect(bodiesFor(".resize-handle[data-top]").join(" ")).toContain("clip-path: inset(var(--frame-top) -4px 0 -4px)");
-    expect(bodiesFor(".panel-edge").join(" ")).toContain("clip-path: inset(var(--frame-top) -4px 0 -4px)");
-    // Nothing in the pane host paints a ground of its own, so a panel that closes leaves no band: the
-    // strip, the corner and the sheet are all `.main`'s.
-    for (const sel of [".panehost", ".view-main", ".view-panel", ".panel", ".panel-bar"]) {
-      const own = RULES.filter((r) => partsOf(r).includes(sel)).map((r) => r.body).join(" ");
-      expect(own, sel).not.toMatch(/background(-color|-image)?:\s*(?!\s|transparent|none)/);
-    }
-    expect(bodiesFor(".view-panel[hidden]").join(" ")).toContain("display: none");
-    // The strip moves the window; what is pressed in it does not.
-    expect(bodiesFor(".panel-bar").join(" ")).toContain("-webkit-app-region: drag");
-    expect(bodiesFor(".panel-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
-    expect(bodiesFor(".panel-bar input").join(" ")).toContain("-webkit-app-region: no-drag");
-    expect(bodiesFor(".page-overlay-bar").join(" ")).toContain("-webkit-app-region: drag");
-    expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
-    expect(bodiesFor(".window-trail button").join(" ")).toContain("-webkit-app-region: no-drag");
-    expect(bodiesFor(".window-lead button").join(" ")).toContain("-webkit-app-region: no-drag");
+    // The sidebar's column only: the rail and the sidebar. Never the panes, bar row included — the
+    // head row over them was the sidebar's ground once, and read as a glass band across the reading
+    // (the owner, 11-04). The panes are --pane-ground, painted once by `.main`, top to bottom.
+    expect(translucent.sort()).toEqual([".app-rail", ".sidebar"].sort());
+    expect(bodiesFor(".main").join(" ")).toContain("background: var(--pane-ground)");
+    expect(bodiesFor(".main").join(" ")).not.toContain("--chrome-tint");
   });
 
   it("the ground's alpha is driven, defaulted opaque in CSS, and overridden by reduced transparency", () => {

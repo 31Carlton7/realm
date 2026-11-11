@@ -507,27 +507,21 @@ kbd { font: 11px var(--font-mono); }
    somewhere between subtle and absent depending on the wallpaper.
 
    In both states: collapsed, the rail is still beside the panes (Plan 27), so the line is still
-   between two surfaces rather than down the window's own edge.
-
-   From the rim down: the head row above it is the frame's one strip across the window (below), and
-   a line through the strip is chrome ruled off from more chrome. Folded, the line beside the rail is
-   the rim's instead (`.main::after`). */
-.app > .main { border-left: var(--hairline-w) solid var(--rl-line);
-  border-image: linear-gradient(transparent var(--frame-top), var(--rl-line) 0) 0 0 0 1; }
-.app[data-sidebar-folded] > .main { border-image: none; border-left-color: transparent; }
+   between two surfaces rather than down the window's own edge. */
+.app > .main { border-left: var(--hairline-w) solid var(--rl-line); }
 
 /* ── The window's frame ───────────────────────────────────────────────────────────────────────────
-   The rail and the 40px head row across the whole window are chrome: the sidebar's ground, a step off
-   it (`--chrome-tint`). Below that row the sidebar's list, the panes and the side panel sit as sheets
-   under one rim that runs along their tops, down the left edge beside the rail, and rounds the
-   corner at each end of the window (the owner, 11-11: the outer colour "should also go around the
-   top of the right panels"). The pane bars and the panel's tabs stand in the strip, on the frame, and
-   a pane's content starts under the rim, so nothing scrolls under the chrome: the band over the panes
-   that read as frosted glass (11-04) was the same ground with the reading dissolving up into it.
+   The rail and the sidebar's 40px head row are chrome: the sidebar's ground, a step off it
+   (`--chrome-tint`). Below that row the sidebar's list sits in a sheet under a rim that runs along its
+   top and down its left edge and rounds the corner. The panes take none of it: their bar row is the
+   panes' own ground, so a pane is one plain surface from its bar down and its content dissolves into
+   the bar through the edge blur rather than meeting a strip. The row used to be the chrome across the
+   whole window, and over the panes that read as a frosted glass band — the sidebar's translucency
+   laid over the reading (the owner, 11-04: "I don't want this liquid glass like nav background").
    The rim is `--rl-line-strong`, the rung lighter than both sides of it, which is what Codex's is:
-   measured off its window, the chrome at 60 and its sheet at 47, the rim at 65. A corner's outside
-   is tinted by a quarter-disc (`radial-gradient`) rather than by rounding a sheet itself, because
-   the sheets are several elements and the one whose box reaches the corner changes with the layout. */
+   measured off its window, the chrome at 60 and its sheet at 47, the rim at 65. The corner's outside
+   is tinted by a quarter-disc (`radial-gradient`) rather than by rounding the sheet itself, because
+   the sheet is two elements (the sidebar's list, the panes) and only one of them owns the corner. */
 :root { --chrome-tint: var(--overlay-lighten-200); --frame-r: var(--r-panel); --frame-top: 40px; }
 :root[data-mode="light"] { --chrome-tint: var(--overlay-darken-200); }
 .app-rail { background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground); }
@@ -539,44 +533,13 @@ kbd { font: 11px var(--font-mono); }
 .sidebar::after { content: ""; position: absolute; z-index: 1; pointer-events: none; top: var(--frame-top); left: 0;
   width: var(--frame-r); height: var(--frame-r);
   background: radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)); }
-/* The panes' ground, under the frame's strip. Laid from the BORDER box: from the padding box, the
+/* The panes' one ground, the head row included. Laid from the BORDER box: from the padding box, the
    half-pixel under the border was left unpainted, and the desktop showed through it as a dark seam
-   down the panes' left edge. `.main` paints both: over the top row the frame's chrome and ground,
-   and under it the panes' ground with its top corners rounded off — the right one always, at the
-   window's edge, the left one once the column has folded away and the panes stand beside the rail
-   (`--sheet-l`). The page over the panes is the same sheet in its own ground (`--sheet-fill`), so the
-   strip and its corners stay the frame's while a page is up. */
-.main, .page-overlay { --sheet:
-  radial-gradient(circle at 100% 100%, var(--sheet-fill) calc(var(--frame-r) - 0.5px), transparent var(--frame-r)) left 0 top var(--frame-top) / var(--sheet-l) var(--sheet-l) no-repeat,
-  radial-gradient(circle at 0 100%, var(--sheet-fill) calc(var(--frame-r) - 0.5px), transparent var(--frame-r)) right 0 top var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat,
-  linear-gradient(var(--sheet-fill), var(--sheet-fill)) left var(--sheet-l) top var(--frame-top) / calc(100% - var(--sheet-l) - var(--frame-r)) var(--frame-r) no-repeat,
-  linear-gradient(var(--sheet-fill), var(--sheet-fill)) left 0 bottom 0 / 100% calc(100% - var(--frame-top) - var(--frame-r)) no-repeat; }
-.main { position: relative; --sheet-l: 0px; --sheet-fill: var(--pane-ground); background:
-  radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)) left 0 top var(--frame-top) / var(--sheet-l) var(--sheet-l) no-repeat,
-  radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--sidebar-ground) var(--frame-r)) left 0 top var(--frame-top) / var(--sheet-l) var(--sheet-l) no-repeat,
-  radial-gradient(circle at 0 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)) right 0 top var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat,
-  radial-gradient(circle at 0 100%, transparent calc(var(--frame-r) - 0.5px), var(--sidebar-ground) var(--frame-r)) right 0 top var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat,
-  linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
-  linear-gradient(var(--sidebar-ground), var(--sidebar-ground)) top / 100% var(--frame-top) no-repeat,
-  var(--sheet);
-  background-origin: border-box; }
-.app[data-sidebar-folded] > .main { --sheet-l: var(--frame-r); }
-/* The rim, over whatever the sheets hold and over a page, under everything that floats. Its top runs
-   on from the sidebar's own and turns down at the window's right edge; folded, it comes down the left
-   edge beside the rail and rounds that corner too, where the sidebar's rim was. */
-.main::after { content: ""; position: absolute; z-index: 35; pointer-events: none; inset: var(--frame-top) 0 0 0;
-  border-top: var(--hairline-w) solid var(--rl-line-strong); border-top-right-radius: var(--frame-r); }
-.app[data-sidebar-folded] > .main::after { border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
-/* The pane in each rounded corner rounds its content to it, so a picture or a page reaching the
-   corner does not square it off. `clip` rather than `hidden`: no scroll container for a
-   scrollIntoView to move. A native view still draws square there, over everything. */
-.panel[data-top-right] > .panel-body { border-top-right-radius: var(--frame-r); overflow: clip; }
-.app[data-sidebar-folded] .panel[data-first-leaf] > .panel-body { border-top-left-radius: var(--frame-r); overflow: clip; }
-/* The lines between sheets start at the rim, as the sidebar's does: the dividers between panes side
-   by side at the top (`data-top`, PaneHost) and the side panel's edge. Their overhang stays. */
-.resize-handle[data-top], .panel-edge { clip-path: inset(var(--frame-top) -4px 0 -4px); }
+   down the panes' left edge. Folded, the rail beside them is chrome and the line between is this
+   same border. */
+.main { position: relative; background-origin: border-box; background: var(--pane-ground); }
 /* A page over the panes covers their bars too; their titles would show through the page's own bar,
-   which is clear over the frame's strip (below). */
+   which is clear over the page's ground (below). */
 :root:has(.page-overlay) .main .panel-bar { visibility: hidden; }
 /* …and so would the dividers between them: below the head row the page's ground covers them, but in
    the row the bar is clear, and a split's divider ran on up through it as a stray rule beside the
@@ -2226,7 +2189,7 @@ input.sb-space-name { flex: 1; }
    What still separates a pane from what is around it is unchanged and load-bearing: `.resize-handle`
    between panes, and the line between the sidebar and .main. Those are boundaries between surfaces. This
    was a boundary inside one. */
-.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: var(--frame-top); padding: 0 12px 0 16px; font-size: 14px; -webkit-app-region: drag; }
+.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 16px; font-size: 14px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
 /* An empty pane's bar: the same strip, with nothing in it but the trash pushed to the trailing edge.
    `.panel-actions` carries no `margin-left: auto` of its own — it never needed one, because on a
@@ -2475,8 +2438,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    10-04). `.main` makes no stacking context, so the rung above still ranks it against the window. */
 .page-overlay { position: absolute; z-index: 35; inset: 0;
   display: flex; flex-direction: column; min-width: 0;
-  /* The panes' sheet in the page's ground: clear over the frame's strip, where its bar stands. */
-  --sheet-fill: var(--rl-panel); background: var(--sheet); background-origin: border-box; outline: none;
+  /* One plain ground, its bar included, as a pane's is. */
+  background: var(--rl-panel); background-origin: border-box; outline: none;
   animation: rl-page-in var(--dur-base) var(--ease-out-strong); }
 /* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
    direction, and a horizontal move would imply it came from the sidebar it is not part of. */
@@ -2491,7 +2454,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    the bar is even at both ends rather than tight round a button that is not there. */
 .page-overlay-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: var(--frame-top);
   padding: 0 14px;
-  /* Clear: the frame's strip runs under it. */
+  /* Clear: the page's own ground runs under it. */
   background: none;
   /* The window moves by its top row, and while a page is up this bar IS that row. The pane bars it
      covers are hidden with the panes, so their drag regions go with them, and without its own the

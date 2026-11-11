@@ -588,37 +588,6 @@ describe("PaneHost's side panel", () => {
   });
 });
 
-describe("PaneHost dividers under the frame's strip", () => {
-  /* The window's top row is one strip of chrome, and a divider between panes side by side there
-     starts at its rim (`.resize-handle[data-top]`, styles.css). Only those: a divider lower down, or
-     one ruled across a column, is not under the strip, and clipping it would cut 40px out of a line
-     between sheets. THE MUTANTS: every handle marked, none marked, or a column's second child taken
-     for the top. */
-  const tops = () => [...document.querySelectorAll(".resize-handle")].map((h) => h.hasAttribute("data-top"));
-
-  it("marks the dividers of rows that start at the window's top, through a column's first child", () => {
-    const layout: Layout = { type: "split", id: "outer", dir: "row", sizes: [50, 50], children: [
-      { type: "split", id: "v", dir: "col", sizes: [50, 50], children: [
-        { type: "split", id: "r", dir: "row", sizes: [50, 50], children: [{ type: "leaf", id: "L1", itemId: "A" }, { type: "leaf", id: "L2", itemId: "B" }] },
-        { type: "leaf", id: "L3", itemId: null },
-      ] },
-      { type: "leaf", id: "L4", itemId: null },
-    ] };
-    renderHost({ layout });
-    // Document order: the inner row's, the column's, the outer row's.
-    expect(tops()).toEqual([true, false, true]);
-  });
-
-  it("leaves a row lower in a column unmarked", () => {
-    const layout: Layout = { type: "split", id: "v", dir: "col", sizes: [50, 50], children: [
-      { type: "leaf", id: "L1", itemId: "A" },
-      { type: "split", id: "r", dir: "row", sizes: [50, 50], children: [{ type: "leaf", id: "L2", itemId: "B" }, { type: "leaf", id: "L3", itemId: null }] },
-    ] };
-    renderHost({ layout });
-    expect(tops()).toEqual([false, false]);
-  });
-});
-
 describe("PaneHost divider double-click", () => {
   const threeCol: Layout = { type: "split", id: "root", dir: "row", sizes: [60, 25, 15], children: [
     { type: "leaf", id: "L1", itemId: "A" },
