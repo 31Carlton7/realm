@@ -36,6 +36,27 @@ export const TEAMMATE_PERMISSION_MODES = ["default", "acceptEdits", "bypassPermi
 export const TeammatePermissionModeSchema = z.enum(TEAMMATE_PERMISSION_MODES);
 export type TeammatePermissionMode = z.infer<typeof TeammatePermissionModeSchema>;
 
+/**
+ * A space's Team access: one mode every teammate in the space is put on, now and when made later.
+ * The three a person sets by hand on a teammate; the read-only modes are not a team-wide setting.
+ */
+export const TEAM_ACCESS_MODES = ["default", "acceptEdits", "bypassPermissions"] as const;
+export const TeamAccessModeSchema = z.enum(TEAM_ACCESS_MODES);
+export type TeamAccessMode = z.infer<typeof TeamAccessModeSchema>;
+
+/**
+ * What `teams.access.get` answers. `mode` is the space's setting, null when its teammates are set one
+ * by one. `mixed` is true when the teammates are not all on one mode, or not on the space's: a
+ * teammate edited on its own after the space was set keeps the setting and makes the space mixed.
+ * Archived teammates are left out.
+ */
+export const TeamAccessSchema = z.object({
+  mode: TeamAccessModeSchema.nullable(),
+  mixed: z.boolean(),
+  teammates: z.array(z.object({ handle: z.string(), mode: TeammatePermissionModeSchema })),
+});
+export type TeamAccess = z.infer<typeof TeamAccessSchema>;
+
 /** `needs-you`: its home session or a task session is waiting on a permission or a question. */
 export const TEAMMATE_STATES = ["idle", "working", "needs-you"] as const;
 export const TeammateStateSchema = z.enum(TEAMMATE_STATES);

@@ -2292,3 +2292,77 @@ describe("the accounts migrations — a 2.6.3 home through Teams v2 and on to ac
     again.close();
   });
 });
+
+/**
+ * A 2.9 home one short of Team access, hand-written: the spaces table with a space in it, a teammate on
+ * its own mode, and the settings rows. Stamped at the session-accounts migration, the last one before.
+ */
+const BEFORE_TEAM_ACCESS = `
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, name TEXT NOT NULL, icon TEXT NOT NULL, sort_order INTEGER NOT NULL,
+  folder_path TEXT NOT NULL, layout_json TEXT, active_item_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  color TEXT NOT NULL DEFAULT '#7c6cff', groups_json TEXT);
+CREATE TABLE team_roles (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, name TEXT NOT NULL,
+  permission_mode TEXT NOT NULL DEFAULT 'default', handle TEXT);
+`;
+const TEAM_ACCESS_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS space_team_access"));
+
+describe("the space_team_access migration — one Team access mode per space", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_TEAM_ACCESS);
+    for (let v = 1; v <= TEAM_ACCESS_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.exec(`INSERT INTO spaces (id, profile_id, name, icon, sort_order, folder_path, created_at, updated_at) VALUES ('sp1', 'p1', 'API', 'f', 0, '/tmp/api', 1, 1), ('sp2', 'p1', 'Web', 'f', 1, '/tmp/web', 1, 1);
+      INSERT INTO team_roles (id, space_id, name, permission_mode, handle) VALUES ('r1', 'sp1', 'CTO', 'acceptEdits', 'cto');
+      INSERT INTO settings (key, value_json) VALUES ('defaultPermissionMode', '"default"');`);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  const put = (db: DatabaseSync, spaceId: string, mode: string) =>
+    db.prepare("INSERT INTO space_team_access (space_id, mode, set_at) VALUES (?, ?, 5)").run(spaceId, mode);
+
+  it("is appended after the session accounts, and a home one short of it reaches the end of the chain", () => {
+    expect(TEAM_ACCESS_AT).toBe(SESSION_ACCOUNT_AT + 1);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(space_team_access)").all() as { name: string; notnull: number; pk: number }[])
+      .map((c) => `${c.name}${c.pk ? " pk" : ""}${c.notnull ? " not null" : ""}`);
+    expect(cols).toEqual(["space_id pk", "mode not null", "set_at not null"]);
+    db.close();
+  });
+
+  it("sets no space on the way in, and leaves the teammates' modes and the settings as they were", () => {
+    // The mutant: a backfill that writes every space a mode, which would move each teammate onto it.
+    const { db } = migrated();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM space_team_access").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT id, permission_mode FROM team_roles").all()).toEqual([{ id: "r1", permission_mode: "acceptEdits" }]);
+    expect(db.prepare("SELECT value_json FROM settings WHERE key = 'defaultPermissionMode'").get()).toEqual({ value_json: "\"default\"" });
+    db.close();
+  });
+
+  it("holds one mode per space, and a space's mode goes with it", () => {
+    const { db } = migrated();
+    put(db, "sp1", "bypassPermissions");
+    expect(() => put(db, "sp1", "default")).toThrow(/UNIQUE|PRIMARY KEY/);
+    expect(() => put(db, "no-such-space", "default")).toThrow(/FOREIGN KEY/);
+    put(db, "sp2", "acceptEdits");
+    db.prepare("DELETE FROM spaces WHERE id = 'sp1'").run();
+    expect(db.prepare("SELECT space_id, mode FROM space_team_access").all()).toEqual([{ space_id: "sp2", mode: "acceptEdits" }]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing, and the statement can meet a home that already has it", () => {
+    const { p, db } = migrated();
+    put(db, "sp1", "bypassPermissions");
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(() => again.exec(migrations[TEAM_ACCESS_AT]!)).not.toThrow();
+    expect(again.prepare("SELECT space_id, mode FROM space_team_access").all()).toEqual([{ space_id: "sp1", mode: "bypassPermissions" }]);
+    again.close();
+  });
+});

@@ -1123,6 +1123,12 @@ export function registerMethods(d: Deps): void {
   reg("remote.phones.remove", (p, ctx) => { fromTheOwner(ctx); d.remote.removePhone(p.phoneId); return { ok: true as const }; });
   reg("remote.away", (p, ctx) => { fromTheMac(ctx); d.presence.set(p.away); return { ok: true as const }; });
 
+  /* A space's Team access. The person's alone, like Settings ▸ Sign-ins' Security codes switch: no
+     agent tool calls it, the control that sends it carries `data-no-agent`, and the mobile API has no
+     path to it, refused here too. */
+  reg("teams.access.get", (p) => d.team.access(p.spaceId));
+  reg("teams.access.set", (p, ctx) => { fromTheOwner(ctx); return d.team.setAccess(p.spaceId, p.mode); });
+
   // The reviewer recipe (Plan 13 W3). `request` returns the moment the reviewer session exists; the
   // verdict arrives later as `review.changed` + a `review_done` notification. Reads and dismissal go
   // through the service so the persisted KV blob has exactly one owner.

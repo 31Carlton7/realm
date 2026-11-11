@@ -1,4 +1,4 @@
-import type { CreateTeammateInput, ReorderTeammatesInput, Teammate, TeammateTaskSession, UpdateTeammateInput } from "@realm/contracts";
+import type { CreateTeammateInput, ReorderTeammatesInput, TeamAccess, TeamAccessMode, Teammate, TeammateTaskSession, UpdateTeammateInput } from "@realm/contracts";
 
 /** The teammate calls the renderer makes (`teammates.*`, contracts/rpc.ts). */
 export type TeammatesApi = {
@@ -10,6 +10,8 @@ export type TeammatesApi = {
   teammatesReorder(input: ReorderTeammatesInput): Promise<Teammate[]>;
   teammateHome(id: string): Promise<{ sessionId: string }>;
   teammateSessions(id: string): Promise<TeammateTaskSession[]>;
+  teamAccess(spaceId: string): Promise<TeamAccess>;
+  setTeamAccess(spaceId: string, mode: TeamAccessMode | null): Promise<TeamAccess>;
 };
 
 /**
@@ -25,6 +27,8 @@ export type TeammatesSlice = {
   teammateSessions: Record<string, TeammateTaskSession[]>;
   /** The sidebar's teammate groups folded shut, as `<spaceId>/<group>` (`ui.sidebarTeamGroupsFolded`). */
   teamGroupsFolded: string[];
+  /** By space: its Team access, held once a control has read it, and read again with its teammates. */
+  teamAccess: Record<string, TeamAccess>;
 
   /** One space's teammates again, or every space's, and the sessions held for them. */
   refreshTeammates(spaceId?: string): Promise<void>;
@@ -37,6 +41,9 @@ export type TeammatesSlice = {
   loadTeammateSessions(id: string): Promise<void>;
   hydrateTeamGroupFolds(): Promise<void>;
   setTeamGroupFolded(spaceId: string, group: string, folded: boolean): Promise<void>;
+  loadTeamAccess(spaceId: string): Promise<void>;
+  /** The person's Team access control (`teams.access.set`), which carries `data-no-agent`. */
+  setTeamAccess(spaceId: string, mode: TeamAccessMode | null): Promise<void>;
 };
 
 type Host = TeammatesSlice & { spaces: readonly { id: string }[] };
@@ -55,7 +62,7 @@ export function teammatesSlice<S extends Host>(
   const putSpace = (spaceId: string, list: Teammate[]) =>
     set({ teammates: { ...get().teammates, [spaceId]: ordered(list.filter((t) => !t.archived)) } });
   return {
-    teammates: {}, teammateSessions: {}, teamGroupsFolded: [],
+    teammates: {}, teammateSessions: {}, teamGroupsFolded: [], teamAccess: {},
 
     async refreshTeammates(spaceId) {
       const ids = spaceId ? [spaceId] : get().spaces.map((s) => s.id);
@@ -63,6 +70,7 @@ export function teammatesSlice<S extends Host>(
       const held = Object.keys(get().teammateSessions)
         .filter((tid) => ids.some((id) => get().teammates[id]?.some((t) => t.id === tid)));
       await Promise.all(held.map((tid) => get().loadTeammateSessions(tid).catch(() => undefined)));
+      await Promise.all(ids.filter((id) => get().teamAccess[id]).map((id) => get().loadTeamAccess(id).catch(() => undefined)));
     },
     async createTeammate(input) {
       const made = await api.teammateCreate(input);
@@ -82,6 +90,12 @@ export function teammatesSlice<S extends Host>(
     async reorderTeammates(input) { putSpace(input.spaceId, await api.teammatesReorder(input)); },
     async loadTeammateSessions(id) {
       set({ teammateSessions: { ...get().teammateSessions, [id]: await api.teammateSessions(id) } });
+    },
+    async loadTeamAccess(spaceId) {
+      set({ teamAccess: { ...get().teamAccess, [spaceId]: await api.teamAccess(spaceId) } });
+    },
+    async setTeamAccess(spaceId, mode) {
+      set({ teamAccess: { ...get().teamAccess, [spaceId]: await api.setTeamAccess(spaceId, mode) } });
     },
     async hydrateTeamGroupFolds() {
       const v = await api.getSetting("ui.sidebarTeamGroupsFolded");
