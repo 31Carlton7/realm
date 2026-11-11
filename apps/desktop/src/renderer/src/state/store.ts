@@ -1,6 +1,6 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel, type AddTeammate } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape, type UnlockPolicy, type UnlockPolicyStatus } from "@realm/contracts";
-import { destinationTarget, pageHidesSidebar } from "./page-item";
+import { destinationTarget } from "./page-item";
 import { MAC_SKILL_ID, MAX_TAB_REFS, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type TabCard, type TabEntry, type TabRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
 import { memoryLearningKey, memoryLearningOn } from "@realm/contracts";
@@ -987,6 +987,8 @@ export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sc
 export type ProfilePageTab = "general" | "skills" | "connections" | "memory";
 /** The Library page's sections. */
 export type LibraryTab = "files" | "saved" | "skills" | "memory";
+/** The Connections page's sections: the apps a click connects, and the servers they become. */
+export type ConnectionsTab = "apps" | "servers";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
  *  on one (the browser pane's "Browser settings" opens Sign-ins). `settings-index.ts` owns their order
  *  and headings. */
@@ -1130,13 +1132,9 @@ export type AppState = TeammatesSlice & {
    *  which is what decides whether a split is offered and where the panel stands (`view-room.ts`).
    *  Null until measured — and in jsdom, where everything fits. */
   viewRoom: Room | null;
-  /** The page that takes the sidebar away (`PAGE_SHELL`) on which the person asked for it back
-   *  anyway — that overlay itself, so the ask ends with the page and never touches their own
-   *  `sidebarCollapsed`. Read through `sidebarHidden` (selectors.ts), never on its own. */
-  sidebarOnPage: AppState["pageOverlay"];
   /** How many times the person has toggled the sidebar — its button, ⌘B — this window. The toggle is
    *  the one change to the column that is drawn moving; the shell reads this across a change in
-   *  `sidebarHidden` to tell it from navigation, which takes effect at once (App.tsx, `useSidebarCut`). */
+   *  `sidebarCollapsed` to tell it from navigation, which takes effect at once (App.tsx, `useSidebarCut`). */
   sidebarToggles: number;
   /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
    *  it and the handle inside the sidebar writes it. */
@@ -1810,6 +1808,8 @@ export type AppState = TeammatesSlice & {
   /** The Library page's section, per space — in the store for `profilePageTab`'s reason: Profile
    *  settings ▸ Memory lands on the Library's Memory section whether or not the page is already up. */
   libraryTab: Record<string, LibraryTab>;
+  /** The Connections page's section — in the store so a server's health notice lands on the servers. */
+  connectionsTab: ConnectionsTab;
   /** Moves whenever memory changes anywhere — an agent's save, an edit in another window, a file the
    *  library wrote outside Realm — so the Library's Memory page reads its list again. */
   memoryLibraryRev: number;
@@ -2811,6 +2811,7 @@ export type AppState = TeammatesSlice & {
   setLibrarySkill(spaceId: string, id: string | null): void;
   /** The Library page's section, for `spaceId` — see `libraryTab`. */
   setLibraryTab(spaceId: string, tab: LibraryTab): void;
+  setConnectionsTab(tab: ConnectionsTab): void;
   /** Open the Library on its Memory section, from a page that is not the Library — `openSkillPage`'s
    *  two steps. */
   openMemoryLibrary(): Promise<void>;
@@ -4602,7 +4603,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -4612,7 +4613,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       failover: null,
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
-      spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", libraryTab: {}, memoryLibraryRev: 0, librarySkill: {}, mcpPanelSpaceId: null,
+      spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", libraryTab: {}, connectionsTab: "apps", memoryLibraryRev: 0, librarySkill: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, draftTabs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
@@ -5220,12 +5221,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSetting(SETTING_KONAMI_UNLOCKED, true);
       },
       async toggleSidebar() {
-        // A page with no sidebar of its own (PAGE_SHELL) gives it back for this visit only: ⌘B there
-        // is a person asking to see their spaces beside the page, not changing what every other
-        // screen does — and leaving the page leaves their own setting exactly as it was.
-        const page = get().pageOverlay;
         const sidebarToggles = get().sidebarToggles + 1;
-        if (page && pageHidesSidebar(page.kind)) { set({ sidebarOnPage: get().sidebarOnPage === page ? null : page, sidebarToggles }); return; }
         const next = !get().sidebarCollapsed;
         set({ sidebarCollapsed: next, sidebarToggles });
         await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
@@ -5418,7 +5414,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (opts.commit) get().run(persist); else schedulePersist();
       },
       splitRefusal(dir, leafId) {
-        // The sidebar's own fold, not `sidebarHidden`: a page that takes the column also covers the panes.
         return splitRefusal(get(), leafId === undefined ? get().focusedLeafId : leafId, dir, !get().sidebarCollapsed);
       },
       async moveTab(leafId, itemId, index, owner) {
@@ -7965,6 +7960,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
       setLibrarySkill(spaceId, id) { set({ librarySkill: { ...get().librarySkill, [spaceId]: id } }); },
       setLibraryTab(spaceId, tab) { set({ libraryTab: { ...get().libraryTab, [spaceId]: tab } }); },
+      setConnectionsTab(tab) { set({ connectionsTab: tab }); },
       async openMemoryLibrary() {
         const spaceId = get().activeSpaceId;
         if (!spaceId) return;
@@ -8266,7 +8262,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
            that owns what it is about — the server that fell over, the CLI that stopped answering,
            the month's spend, the run. A worktree refusal, or a session whose item is gone, has no
            such page; the window coming forward is the whole of the landing, and the toast said it. */
-        if (n.category === "mcp_health") get().openDestinationPage("connections-page");
+        if (n.category === "mcp_health") { get().setConnectionsTab("servers"); get().openDestinationPage("connections-page"); }
         else if (n.category === "agent_probe") get().openSettingsPage("engines");
         else if (n.category === "budget") get().openSettingsPage("usage");
         else if (n.category === "run_blocked" || n.category === "run_done") get().openDestinationPage("schedules-page");

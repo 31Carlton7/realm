@@ -244,7 +244,7 @@ async function main() {
   /* ── 1. The empty page ─────────────────────────────────────────────────────────────────────── */
   const empty = await evalIn(c, `(() => ({
     title: __live.q('.sched-col-title')?.textContent,
-    heading: __live.q('.sched-empty-title')?.textContent,
+    heading: __live.q('.empty-state-title')?.textContent,
     button: !!__live.button('New task', __live.q('.sched-main')),
     suggestions: [...document.querySelectorAll('.sched-suggestion-name')].map((n) => n.textContent),
     column: __live.rect(__live.q('.sched-col')),
@@ -275,7 +275,7 @@ async function main() {
   await sleep(400);
   await shot(c, "03-modal-advanced-dark", await sheetClip(c, "Schedule a task"));
   await evalIn(c, `__live.click(__live.button('Create', __live.dialog("Schedule a task")))`);
-  await until(() => evalIn(c, `!__live.dialog("Schedule a task") && __live.q('.sched-empty-title')?.textContent === 'No runs yet'`), 15_000, "task created");
+  await until(() => evalIn(c, `!__live.dialog("Schedule a task") && __live.q('.empty-state-title')?.textContent === 'No runs yet'`), 15_000, "task created");
   const made = (await api.call("schedules.list", { spaceId: space.id })).find((s) => s.title === "Release notes");
   // The scripted agent takes no level, so its picker offers none and the task names none.
   check("the modal wrote the task it showed: instructions verbatim, weekly at four, the scripted agent",

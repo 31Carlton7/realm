@@ -179,7 +179,7 @@ const READ_STATE = `(() => {
       qlImg: (() => { const i = pane.querySelector('.documents-editor img.ql-page'); return i ? i.naturalWidth + 'x' + i.naturalHeight : null; })(),
       head: pane.querySelector('.documents-head')?.textContent ?? null,
       note: pane.querySelector('.documents-outside')?.textContent ?? null,
-      unshown: pane.querySelector('.documents-unshown')?.textContent ?? null,
+      unshown: pane.querySelector('.empty-state[role=status]')?.textContent ?? null,
       error: pane.querySelector('.documents-error')?.textContent ?? null,
       home: !!pane.querySelector('.docs-home'),
     } : null,

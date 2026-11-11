@@ -86,16 +86,16 @@ describe("the plan card", () => {
   });
 
   /* Twelve stacked "does not report" rows would be the tiny grey copy the guidelines reject, and the
-   * fact is identical for all of them — so it is one sentence naming them. */
-  it("collapses every non-reporting provider into one line naming them", async () => {
+   * fact is identical for all of them — so it is one line counting them, the names one hover away. */
+  it("collapses every non-reporting provider into one line, naming them in its tooltip", async () => {
     await mount([
       row({ agentKind: "claude", subscriptionType: "max", windows: [win("five_hour", "5-hour", 10)] }),
       row({ agentKind: "acp:cursor", unavailable: "unsupported" }),
       row({ agentKind: "acp:gemini", unavailable: "unsupported" }),
     ]);
-    const note = await screen.findByText(/protocols do not report one/);
-    expect(note.textContent).toContain("Cursor");
-    expect(note.textContent).toContain("Gemini");
+    const note = await screen.findByText(/report no plan limits/);
+    expect(note.textContent).toContain("2 other agents");
+    expect(note.getAttribute("title")).toBe("Cursor, Gemini");
     // And they get no bars of their own.
     await waitFor(() => expect(meters()).toHaveLength(1));
   });

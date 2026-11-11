@@ -1071,40 +1071,13 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       ".summary-step-mark",
       // A display numeral: the one figure on the usage page that is the page's subject.
       ".stat-value-hero",
-      // Plan 26's readable-type redesign of Settings, the Library, Memory, Usage and first run set
-      // these by name (Settings in Codex's grammar: notes at 12.5, rail tabs at 13.5, a first-run step
-      // head at 17). They are the owner's sizes, kept as stated — named here one by one, so a NEW
-      // half step anywhere else still fails.
-      ".agent-card-by",
-      ".agent-card-note",
-      ".agent-card-tail",
-      ".budget-input",
-      ".budget-line",
+      // design.md's ONE named exception: a settings page's notes at 12.5, asked for by name when
+      // Settings moved to Codex's grammar. Notes only — a chip, a link, a row's own line or a table
+      // head beside them is on a rung, so a NEW half step anywhere else still fails.
       ".budget-note",
-      ".budget-threshold",
-      ".budget-thresholds legend",
       ".failover-note",
-      ".filter-chip",
-      ".library-more",
-      ".library-row-name",
-      ".library-row-time",
-      ".memory-doc-status",
-      ".onboarding-note",
-      ".onboarding-step-head",
-      ".onboarding-step-sub",
-      ".page-empty p",
-      ".page-rail .settings-tab",
-      ".sb-page-nav .page-rail-head",
-      ".scope-move",
       ".settings-hint",
-      ".settings-result-place",
-      ".settings-row-problem",
-      ".stat-delta",
-      ".stat-label",
-      ".tcc-state",
-      ".usage-card-head .usage-card-sub",
-      ".usage-caveats p",
-      ".usage-table thead th"]);
+      ".usage-caveats p"]);
     const off = RULES
       .flatMap((r) => [...r.body.matchAll(/(?:font-size:|\bfont:)\s*(?:var\([^)]*\)\s+)?([\d.]+)px/g)]
         .filter((m) => !LADDER.has(Number(m[1])))
@@ -1595,7 +1568,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".window-lead > .icon-btn").join(" ")).toContain("animation: rl-lead-in");
     expect(bodiesFor(".app[data-sidebar-cut] > .window-lead > .icon-btn").join(" ")).toContain("animation: none");
     expect(bodiesFor(".page-overlay").join(" ")).toContain("animation: rl-page-in");
-    expect(bodiesFor(".page-overlay[data-cut]").join(" ")).toContain("animation: none");
   });
 
   it("the left chrome's edge is a BORDER on .main, in both states", () => {
@@ -5260,4 +5232,37 @@ describe("the transcript with the column collapsed", () => {
       for (const s of partsOf(r)) expect(s, `${s} { ${r.body} }`).not.toMatch(/\.transcript|\.composer|\.panel-body/);
     }
   });
+});
+
+describe("one segmented control", () => {
+  const prop = (sel: string, name: string) => {
+    const hit = bodiesFor(sel).map((b) => new RegExp(`(?:^|;)\\s*${name}:\\s*([^;]+)`).exec(b)?.[1]?.trim()).filter(Boolean);
+    return hit[hit.length - 1];
+  };
+
+  it("draws Usage's segments and Settings' on one track with one lit segment", () => {
+    /* ST-01: Settings' track was a fill with no edge, Usage's a hairline ring on the frame's fill
+       with a raised, shadowed segment — two skins for one control on one page. THE MUTANT: either
+       track or either lit segment given its own fill again. */
+    expect(prop(".seg", "background")).toBe(prop(".settings-tabs", "background"));
+    expect(prop(".seg", "border")).toBe("none");
+    expect(prop(".seg-opt[data-selected]", "background")).toBe(prop(".settings-tab[data-selected]", "background"));
+    expect(prop(".seg-opt[data-selected]", "box-shadow")).toBeUndefined();
+  });
+
+  it("stands a segmented control at its own width, beside its label or under it", () => {
+    // A max-width on the page's tracks drew the stacked ones at 340px with equal segments.
+    const capped = RULES.filter((r) => r.selectors.some((s) => /\.settings-tabs$/.test(s)) && /max-width/.test(r.body)).flatMap((r) => r.selectors);
+    expect(capped).toEqual([]);
+    expect(prop(".settings-row[data-stack] > .settings-tabs", "align-self")).toBe("flex-start");
+  });
+});
+
+it("draws a disclosure with the icon set's chevron, never a typed triangle", () => {
+  /* ST-03: Engines' Details, the skills notes, the sign-in sheet's app, the RAM categories and the
+     theme rows each drew "▸ / ▾" in the font, beside SVG chevrons everywhere else. THE MUTANT: any
+     one of them given its `content` triangle back. */
+  const typed = RULES.filter((r) => /content:\s*"[▸▾▶]/.test(r.body)).flatMap((r) => r.selectors);
+  expect(typed).toEqual([]);
+  expect(bodiesFor("details[open] > summary > .disclosure-mark").join(" ")).toContain("rotate: 90deg");
 });

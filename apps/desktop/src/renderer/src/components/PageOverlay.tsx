@@ -1,8 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { PaneFor } from "../panes/registry";
 import { PAGE_LABEL, pageItemOf } from "../state/page-item";
-import { sidebarHidden } from "../state/selectors";
 import { InPageOverlay } from "./page-nav";
 import { useApp } from "../state/store";
 
@@ -30,11 +29,9 @@ import { useApp } from "../state/store";
 export function PageOverlay() {
   const page = useApp((s) => s.pageOverlay);
   const close = useApp((s) => s.closePageOverlay);
-  const sidebarGone = useApp(sidebarHidden);
   // A space's page — its Overview, or its team, a role, a record — is named for the space in the bar,
   // as a session's crumb is: "Overview" over a team's role page named the tab, not the place.
   const spaceName = useApp((s) => (page?.kind === "space-page" ? s.spaces.find((sp) => sp.id === page.spaceId)?.name : undefined));
-  const cut = useArrivesWithSidebar(page !== null, sidebarGone);
   const ref = useRef<HTMLDivElement>(null);
 
   /* Escape goes back to where you were, and nothing else does from the keyboard. Registered while the
@@ -58,8 +55,7 @@ export function PageOverlay() {
   return (
     // Not `aria-modal`: the rail and the sidebar stay live beside it, and a page's own sections may be
     // drawn in the sidebar's column (page-nav.tsx) — a modal claim would hide them from a screen reader.
-    <div className="page-overlay" role="dialog" aria-label={label} ref={ref} tabIndex={-1}
-      data-cut={cut || undefined}>
+    <div className="page-overlay" role="dialog" aria-label={label} ref={ref} tabIndex={-1}>
       {/* The page's name and nothing else. A page is a destination, left the way it was reached — the
           sidebar or the rail beside it — or with Escape. A × here was one more way out, at the far
           end of the bar from the ones the page was reached by. */}
@@ -72,21 +68,4 @@ export function PageOverlay() {
       </div>
     </div>
   );
-}
-
-/**
- * Whether the page opened in the same update that opened or closed the sidebar — Connections from a
- * session, say, which takes the spaces away as it arrives. Such a page arrives at once rather than
- * rising in (`data-cut`): the sidebar goes in that frame (App.tsx, `useSidebarCut`) and the panes
- * under the page take its width, and through a page still fading in they were seen doing it.
- *
- * Decided as the page opens and held while it is up. An entrance plays once, as the page is drawn,
- * and taking its `animation: none` away later would play it then, over a page already there.
- */
-function useArrivesWithSidebar(open: boolean, hidden: boolean): boolean {
-  const [last, setLast] = useState({ open, hidden, cut: false });
-  if (last.open === open && last.hidden === hidden) return last.cut;
-  const cut = open && !last.open ? hidden !== last.hidden : last.cut;
-  setLast({ open, hidden, cut });
-  return cut;
 }

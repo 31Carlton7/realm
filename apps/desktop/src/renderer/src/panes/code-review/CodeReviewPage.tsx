@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GH_LOGIN_COMMAND, prKey, type GhStatus, type PrDetail, type PrPlace, type PrRef, type PrSummary } from "@realm/contracts";
 import { PageRail } from "../../components/page-nav";
+import { EmptyState } from "../../components/EmptyState";
 import { useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { codeReview, terminalWith } from "./code-review-api";
@@ -107,13 +108,9 @@ function Ready({ login, profileId, vantage, onLost }: { login: string | null; pr
 /** Beside the column while no request is chosen. */
 function NothingChosen() {
   return (
-    <div className="cr-empty">
-      {/* off-ladder: the empty column's one picture, Codex's mark over the line that says what to
-          do — the subject of an empty composition, as the Scheduled page's clock is. */}
-      <Icon name="pullRequest" size={24} className="cr-empty-mark" />
-      <h2 className="cr-empty-title">Select a pull request</h2>
-      <p className="cr-empty-line">Choose one from the column to read it, review it, and ask about it.</p>
-    </div>
+    <EmptyState icon="pullRequest" title="Select a pull request">
+      Choose one from the column to read it, review it, and ask about it.
+    </EmptyState>
   );
 }
 
@@ -138,31 +135,20 @@ function Setup({ status, vantage, checking, onCheck }: { status: GhStatus; vanta
   const missing = status.state === "missing";
   const command = missing ? INSTALL_COMMAND : GH_LOGIN_COMMAND;
   return (
-    <div className="pane-empty cr-setup">
-      {/* off-ladder: the page's subject at the size of the empty state's picture, as the diff pane's folder is. */}
-      <div className="pane-empty-tile" aria-hidden="true"><Icon name="pullRequest" size={28} /></div>
-      <h1 className="pane-empty-title">Code review</h1>
-      {status.state === "unreachable" ? (
-        <p className="pane-empty-line">GitHub did not answer{status.reason ? `: ${status.reason}` : "."}</p>
-      ) : (
-        <p className="pane-empty-line">
-          {missing
-            ? "Read pull requests from GitHub, review them with any agent, and post your review — through GitHub's own command-line tool, gh, which is not on this Mac yet."
-            : "Read pull requests from GitHub, review them with any agent, and post your review — through gh, signed in as you."}
-        </p>
-      )}
-      {status.state === "unreachable" ? (
-        <button type="button" className="btn primary" disabled={checking} aria-busy={checking || undefined} onClick={onCheck}>{checking ? "Checking…" : "Check again"}</button>
-      ) : (
-        <>
-          <button type="button" className="btn primary cr-setup-go" onClick={() => signIn(command)}><Icon name="github" size={14} />Set up GitHub</button>
-          <p className="cr-setup-how">
-            Opens a terminal with <code>{command}</code> typed in. Press Return to run it, sign in when it asks, then come back here.
-            {missing && <> No Homebrew? gh is also at cli.github.com.</>}
-          </p>
-          <button type="button" className="btn-quiet" disabled={checking} onClick={onCheck}>{checking ? "Checking…" : "Check again"}</button>
-        </>
-      )}
-    </div>
+    <EmptyState icon="pullRequest" title="Code review" heading="h1"
+      actions={<>
+        {status.state !== "unreachable" && <button type="button" className="btn primary" onClick={() => signIn(command)}><Icon name="github" size={14} />Set up GitHub</button>}
+        <button type="button" className="btn" disabled={checking} aria-busy={checking || undefined} onClick={onCheck}>{checking ? "Checking…" : "Check again"}</button>
+      </>}
+      note={status.state !== "unreachable" && <>
+        Opens a terminal with <code>{command}</code> typed in. Press Return to run it, sign in when it asks, then come back here.
+        {missing && <> No Homebrew? gh is also at cli.github.com.</>}
+      </>}>
+      {status.state === "unreachable"
+        ? <>GitHub did not answer{status.reason ? `: ${status.reason}` : "."}</>
+        : missing
+          ? "Read pull requests from GitHub, review them with any agent, and post your review — through GitHub's own command-line tool, gh, which is not on this Mac yet."
+          : "Read pull requests from GitHub, review them with any agent, and post your review — through gh, signed in as you."}
+    </EmptyState>
   );
 }

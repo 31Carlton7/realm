@@ -1,6 +1,7 @@
 import { SPACE_COLORS } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type Ref } from "react";
+import { tildePath } from "../panes/documents/home-model";
 import { useApp } from "../state/store";
 import { IconPicker } from "./IconPicker";
 import { useSpaceTint } from "./sidebar/use-sidebar-model";
@@ -121,7 +122,14 @@ export function SpaceFolderField({ folder, onFolder, profileId, name, className 
         )}
       </div>
       {!folder && made && (
-        <p className="space-folder-default">Without one, sessions run in <span className="space-folder-made" title={made}>{made}</span></p>
+        // The path is the data and gets the line; the sentence around it is the same on every first
+        // run, so it is the tooltip and the accessible name. Beside "Without one, sessions run in" the
+        // path got 115px and read "…e/personal/home".
+        <p className="space-folder-default" title={`Without one, sessions run in ${made}`}>
+          <Icon name="folder" size={12} />
+          <span className="visually-hidden">Without one, sessions run in </span>
+          <span className="space-folder-made">{tildePath(made)}</span>
+        </p>
       )}
     </div>
   );

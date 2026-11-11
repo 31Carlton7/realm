@@ -606,14 +606,18 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
 
   it("per-agent honesty: the control names who obeys it and who ignores it (AGENT_SUPPORTS_PERMISSION_MODES)", async () => {
     await openPage("General");
-    expect(await screen.findByText(/Applies to new Claude, Codex sessions/)).toBeInTheDocument();
+    // The row says there is an exception in a line, and its tooltip names who: a page's explanations
+    // are a line each, with the list one hover away rather than three lines under the control.
+    expect(await screen.findByText("Not every agent takes it")).toBeInTheDocument();
+    const row = document.querySelector('[data-setting="default-permission"]')!;
+    expect(row.getAttribute("title")).toMatch(/^Applies to new Claude, Codex sessions/);
     // Every ACP kind ignores the permission axis (agent-defined mode ids, nothing honest to map onto),
     // so the sentence names all of them rather than trailing off after the first.
-    const ignored = screen.getByText(/sessions ignore it/);
+    expect(row.getAttribute("title")).toMatch(/sessions ignore it/);
     for (const label of ["Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx"]) {
-      expect(ignored.textContent).toContain(label);
+      expect(row.getAttribute("title")).toContain(label);
     }
-    expect(ignored.textContent).not.toContain("Claude,  Codex");
+    expect(row.getAttribute("title")).not.toContain("Claude,  Codex");
   });
 
   const SWITCH = "Let Realm mess around";
@@ -742,9 +746,11 @@ describe("General → mid-turn prompts", () => {
    * hint is the only place the interrupt's cost is named before someone turns it on. */
   it("names what steering costs, per agent, beside the choice", async () => {
     await openApp();
-    const hint = await screen.findByText(/Codex takes a steered message/);
-    expect(hint.textContent).toContain("aborts the tool call in flight");
-    expect(hint.textContent).toContain("denies any permission prompt waiting");
+    expect(await screen.findByText("Sending now stops the turn, except in Codex")).toBeInTheDocument();
+    const said = document.querySelector('[data-setting="mid-turn"]')!.getAttribute("title")!;
+    expect(said).toMatch(/^Codex takes a steered message/);
+    expect(said).toContain("aborts the tool call in flight");
+    expect(said).toContain("denies any permission prompt waiting");
   });
 
   it("a stored value the app does not recognise reads as waiting its turn", async () => {

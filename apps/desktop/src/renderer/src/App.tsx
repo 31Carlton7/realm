@@ -37,7 +37,6 @@ import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, whenBooted, type AppState } from "./state/store";
-import { sidebarHidden } from "./state/selectors";
 import { drawnShare, panelPlace } from "./state/view-room";
 import { useStore, type StoreApi } from "zustand";
 import { liveApi } from "./state/live-api";
@@ -55,8 +54,8 @@ import "./panes";
 /**
  * The rail, the sidebar column and the content beside it (Plan 27).
  *
- * The rail is the window's left edge in every state, holding the app's destinations. Collapsing — or
- * a page that has no use for the spaces (`PAGE_SHELL`) — closes the sidebar column and nothing else.
+ * The rail is the window's left edge in every state, holding the app's destinations. Collapsing
+ * closes the sidebar column and nothing else.
  * The top row is the window's: the traffic lights, back and forward stay where they are in both
  * states (WindowLead), and the sidebar's toggle joins them once the column is gone.
  *
@@ -66,7 +65,7 @@ import "./panes";
  * Lives under the store provider so it can read the sidebar's state. Exported for the shell tests.
  */
 export function AppShell() {
-  const collapsed = useApp(sidebarHidden);
+  const collapsed = useApp((s) => s.sidebarCollapsed);
   const cut = useSidebarCut(collapsed);
   const folded = useSidebarFolded(collapsed);
   // The column's width is painted here rather than on the sidebar itself because the column's box,
@@ -104,8 +103,8 @@ export function AppShell() {
  * Whether the sidebar's latest change was navigation rather than the person's own toggle.
  *
  * Only the toggle — its button, ⌘B (`sidebarToggles`) — is drawn moving. Everything else that opens
- * or closes the column is a page arriving or leaving: one with no use for the spaces (`PAGE_SHELL`),
- * one whose sections take the column (page-nav.tsx), one put away. Those change the column in the
+ * or closes the column is a page arriving or leaving: one whose sections take the column
+ * (page-nav.tsx), one put away. Those change the column in the
  * frame the page changes, because the column is part of what the page is: animated, the spaces stood
  * folding shut beside a page already drawn, left a stub of themselves, and the page then jumped left
  * — or a page's sections unfolded from nothing beside it (the owner, 10-05, with a video).

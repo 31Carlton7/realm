@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { FileMark } from "../../components/file-icon";
+import { EmptyState } from "../../components/EmptyState";
 import { useDissolve } from "../../components/ScrollFades";
 import { forgetThumbnails, useThumbnail } from "../../components/use-thumbnail";
 import { Markdown } from "../session/Markdown";
@@ -516,20 +517,13 @@ function TurnDiff({ environmentId, scope }: { environmentId: string; scope: Turn
 function NoRepository({ cwd }: { cwd: string }) {
   const name = cwd.replace(/\/+$/, "").split("/").pop() || cwd;
   return (
-    <div className="pane-empty">
-      {/* off-ladder: the empty state's folder is a 64px illustration rather than a UI glyph — the
-          rungs stop at 20, which on this tile would read as a lost icon rather than a picture. */}
-      <div className="pane-empty-tile" aria-hidden="true"><Icon name="folder" size={28} /></div>
-      <h2 className="pane-empty-title">{name}</h2>
-      {/* The full path in mono, under the name rather than inside the sentence — it is machine text,
-          and it is what someone checks when the folder name alone is ambiguous. */}
-      <p className="pane-empty-path">{cwd}</p>
-      <p className="pane-empty-line">There is no git repository here, so there is nothing to diff.</p>
-      {/* `files.reveal`, not `media.reveal`: this is a DIRECTORY, and the media gate admits only what
-          a media element can decode — so this button used to do nothing at all. */}
-      <button type="button" className="btn" onClick={() => { void window.realm?.files?.reveal?.(cwd); }}>
-        Reveal in {capabilities().fileManager}
-      </button>
-    </div>
+    // The full path in mono, under the name rather than inside the sentence: it is machine text, and
+    // it is what someone checks when the folder name alone is ambiguous. `files.reveal`, not
+    // `media.reveal`: this is a DIRECTORY, and the media gate admits only what a media element can
+    // decode, so the button used to do nothing at all.
+    <EmptyState icon="folder" title={name} path={cwd}
+      actions={<button type="button" className="btn" onClick={() => { void window.realm?.files?.reveal?.(cwd); }}>Reveal in {capabilities().fileManager}</button>}>
+      There is no git repository here, so there is nothing to diff.
+    </EmptyState>
   );
 }

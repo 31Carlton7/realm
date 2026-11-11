@@ -196,7 +196,7 @@ async function key(c, k, shift = false) {
   await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: k, code: k, modifiers: mods, windowsVirtualKeyCode: KEYS[k], nativeVirtualKeyCode: KEYS[k] });
 }
 /** Somewhere a pointer rests on nothing: the request's title. */
-const rest = async (c) => { const t = await evalIn(c, `__live.rect(__live.q('.cr-title') ?? __live.q('.cr-empty'))`); await moveTo(c, t.x + 4, t.y + t.height / 2); await sleep(450); };
+const rest = async (c) => { const t = await evalIn(c, `__live.rect(__live.q('.cr-title') ?? __live.q('.empty-state'))`); await moveTo(c, t.x + 4, t.y + t.height / 2); await sleep(450); };
 const centre = (r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
 
 /** Everything about the control a screenshot is evidence for. */
@@ -472,7 +472,7 @@ async function disabled(c, face) {
   const tip = await evalIn(c, `(() => { const t = __live.q('.tooltip[data-open]'); return t ? t.textContent : null; })()`);
   check(`${face}: …and its tooltip says so under the pointer`, tip === "This pull request changes no files, so there is nothing to review", tip);
   await shot(c, `${face}-16-disabled-tooltip`, await around(c, [".cr-review-with", ".tooltip[data-open]"], 14));
-  await openLink(c, "acme/widgets#999", `!!__live.q('.cr-empty-title') && __live.q('.cr-empty-title').textContent.includes('could not be read')`);
+  await openLink(c, "acme/widgets#999", `!!__live.q('.empty-state-title') && __live.q('.empty-state-title').textContent.includes('could not be read')`);
   await rest(c);
   const gone = await control(c);
   check(`${face}: a request that could not be read cannot be reviewed either`, gone.disabled && gone.title === "Nothing to review until the pull request has been read", gone);

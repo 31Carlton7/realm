@@ -226,11 +226,11 @@ async function main() {
   // ── 1. Documents, from the session's side pane: a tab of it, on a home that is not a void ──────
   const opened = await openSideTool(c, TITLE, "Documents").then(() => true, () => false);
   check("the session's side pane offers Documents", opened);
-  await until(() => evalIn(c, `!!document.querySelector('.docs-home .pane-empty')`), 10_000, "empty home");
+  await until(() => evalIn(c, `!!document.querySelector('.docs-home .empty-state')`), 10_000, "empty home");
   await sleep(500);
   const empty = await evalIn(c, `(() => { const h = document.querySelector('.docs-home');
-    return { title: h.querySelector('.pane-empty-title')?.textContent, line: h.querySelector('.pane-empty-line')?.textContent,
-      actions: [...h.querySelectorAll('.docs-home-empty-actions button')].map((b) => b.textContent),
+    return { title: h.querySelector('.empty-state-title')?.textContent, line: h.querySelector('.empty-state-line')?.textContent,
+      actions: [...h.querySelectorAll('.empty-state-actions button')].map((b) => b.textContent),
       strip: !!document.querySelector('.documents-tabs'), inSidePane: !!h.closest('.panel')?.querySelector('[role=tab]') }; })()`);
   note("empty home", empty);
   check("a pane with no files anywhere says where they will come from, centred, with two ways to start", empty.title === "No files yet"

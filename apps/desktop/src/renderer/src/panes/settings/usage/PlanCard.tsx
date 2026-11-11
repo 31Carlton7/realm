@@ -155,9 +155,9 @@ export function PlanCard() {
       {/* One line for every agent that cannot answer, rather than a row each: the fact is the same for
           all of them — their protocols have no notion of a plan. */}
       {silent.length > 0 && (
-        <p className="plan-note plan-note-silent">
-          No plan limits from {silent.map((r) => AGENT_META[r.agentKind as AgentKind].label).join(", ")} — their
-          protocols do not report one.
+        <p className="plan-note plan-note-silent" title={silent.map((r) => AGENT_META[r.agentKind as AgentKind].label).join(", ")}>
+          {silent.length === 1 ? AGENT_META[silent[0]!.agentKind as AgentKind].label : `${silent.length} other agents`} report
+          no plan limits. Their protocols have none.
         </p>
       )}
     </section>

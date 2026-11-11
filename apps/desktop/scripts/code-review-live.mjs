@@ -257,7 +257,7 @@ async function main() {
 
   /* ── 2. Setup ──────────────────────────────────────────────────────────────────────────────── */
   await until(() => evalIn(c, `!!__live.button('Set up GitHub')`), 15_000, "setup");
-  const setup = await evalIn(c, `(() => ({ title: __live.q('.cr-setup .pane-empty-title')?.textContent, how: __live.q('.cr-setup-how')?.textContent }))()`);
+  const setup = await evalIn(c, `(() => ({ title: __live.q('.empty-state h1.empty-state-title')?.textContent, how: __live.q('.empty-state-note')?.textContent }))()`);
   check("signed out, the page says what is missing and offers Set up GitHub with the command it will type", setup.title === "Code review" && /gh auth login/.test(setup.how ?? ""), setup);
   await shot(c, "01-setup-dark");
   writeFixture("ready");
@@ -270,7 +270,7 @@ async function main() {
     sections: __live.qa('.cr-section-label').map((h) => h.textContent),
     rows: __live.qa('.cr-row').length, more: !!__live.button('Show more'),
     team: __live.q('.cr-section-toggle')?.getAttribute('aria-expanded'),
-    inSidebar: !!__live.q('.sb-page-nav > .cr-col'), empty: __live.q('.cr-empty-title')?.textContent,
+    inSidebar: !!__live.q('.sb-page-nav > .cr-col'), empty: __live.q('.empty-state-title')?.textContent,
   }))()`);
   check("the column lists Authored by me and Needs my review, a page of each, the team's folded — in the sidebar's own place",
     col.sections.join() === "Authored by me,Needs my review" && col.more && col.team === "false" && col.inSidebar, col);

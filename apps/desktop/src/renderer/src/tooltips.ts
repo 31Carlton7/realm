@@ -37,8 +37,10 @@ import { placeTooltip, type Rect, type TooltipSide } from "./state/no-overlay";
 export const TIP_DELAY_MS = 200;
 export const TIP_WARM_MS = 500;
 /** An element taller than this is a region, and its tooltip goes under the pointer. One only wider is
- *  a row: its tooltip goes where the pointer is along it, and under the whole row. */
-const LARGE = { width: 320, height: 64 };
+ *  a row: its tooltip goes where the pointer is along it, and under the whole row. A settings row with
+ *  a line under its label stands about 70 tall, and read as a region its tooltip dropped onto the chip
+ *  the pointer was on, so the cut sits above two-line rows. */
+const LARGE = { width: 320, height: 96 };
 /** What a person presses: a title inside one of these describes it. */
 const CONTROL = "button, a[href], [role='button'], [role='menuitem'], [role='option'], [role='tab']";
 /** The arrow's height under its hotspot: a tooltip at the pointer clears the cursor, as the system's does. */

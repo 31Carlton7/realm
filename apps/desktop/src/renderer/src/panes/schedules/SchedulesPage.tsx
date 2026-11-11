@@ -4,6 +4,7 @@ import { isOnce, type Item, type Run, type Schedule } from "@realm/contracts";
 import { FALLBACK_AGENT, useApp, useProfileSpaces } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { mcpServerMark } from "../../components/mcp-mark";
+import { EmptyState } from "../../components/EmptyState";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { PageRail } from "../../components/page-nav";
 import { useDissolve } from "../../components/ScrollFades";
@@ -236,14 +237,10 @@ function TaskRow({ schedule, runs, more, limit, expanded, selectedRun, unread, o
 /** Nothing selected: the shortest honest path to a task. */
 function ScheduleEmpty({ onNew }: { onNew: () => void }) {
   return (
-    <div className="sched-empty">
-      {/* off-ladder: the page's one illustration, Codex's clock over the line that says what a task
-          is — the subject of an empty composition, as the diff pane's folder is, not a UI glyph. */}
-      <Icon name="clock" size={32} className="sched-empty-mark" />
-      <h2 className="sched-empty-title">Schedule a task</h2>
-      <p className="sched-empty-line">Realm starts an agent in one of your spaces on the clock you set, and keeps each run here to read and carry on.</p>
-      <button type="button" className="btn primary" onClick={onNew}>New task</button>
-    </div>
+    <EmptyState icon="clock" title="Schedule a task"
+      actions={<button type="button" className="btn primary" onClick={onNew}>New task</button>}>
+      Realm starts an agent in one of your spaces on the clock you set, and keeps each run here to read and carry on.
+    </EmptyState>
   );
 }
 
@@ -281,10 +278,9 @@ function RunView({ schedule, run, visible, focused, onEdit, onRunNow, onGone }: 
 /** A run with no session to show: one still queued, or one that failed before its session existed. */
 function RunNotStarted({ run }: { run: Run }) {
   return (
-    <div className="sched-empty">
-      <h2 className="sched-empty-title">{run.state === "queued" ? "Starting…" : "This run never started"}</h2>
-      {run.error && <p className="sched-empty-line">{run.error}</p>}
-    </div>
+    <EmptyState icon={run.state === "queued" ? "clock" : "alert"} title={run.state === "queued" ? "Starting…" : "This run never started"}>
+      {run.error}
+    </EmptyState>
   );
 }
 
@@ -294,11 +290,9 @@ function TaskView({ schedule, onEdit, onRunNow, onGone }: { schedule: Schedule; 
   return (
     <div className="sched-view" data-task="">
       <div className="sched-view-session">
-        <div className="sched-empty">
-          <h2 className="sched-empty-title">No runs yet</h2>
-          <p className="sched-empty-line">{!schedule.enabled ? "This task is paused." : next !== null ? `The first one is ${whenPhrase(next)}.` : "It has nothing left to run."}</p>
-          <button type="button" className="btn" onClick={onRunNow}>Run now</button>
-        </div>
+        <EmptyState icon="clock" title="No runs yet" actions={<button type="button" className="btn" onClick={onRunNow}>Run now</button>}>
+          {!schedule.enabled ? "This task is paused." : next !== null ? `The first one is ${whenPhrase(next)}.` : "It has nothing left to run."}
+        </EmptyState>
       </div>
       <TaskCard schedule={schedule} run={null} onEdit={onEdit} onRunNow={onRunNow} onGone={onGone} />
     </div>

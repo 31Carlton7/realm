@@ -1,3 +1,4 @@
+import { Icon } from "@realm/ui";
 import {
   RESOURCE_CATEGORY_LABEL,
   type FreeAction, type MemoryPressure, type ResourceCategory, type ResourcePart, type ResourcePolicies, type ResourcePolicyKey, type ResourceReport,
@@ -256,6 +257,7 @@ function Category({ category, size, parts }: { category: ResourceCategory; size:
     <li className="settings-row ram-category">
       <details>
         <summary aria-label={`${label}, ${bytesLabel(size)}`}>
+          <Icon name="chevronRight" size={12} className="disclosure-mark" />
           <span className="settings-row-name">{label}</span>
           <span className="ram-size">{bytesLabel(size)}</span>
         </summary>

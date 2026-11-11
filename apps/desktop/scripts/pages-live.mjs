@@ -296,13 +296,13 @@ async function main() {
     return { count: cards.length,
              ready: cards.filter((el) => el.getAttribute('data-state') === 'ready').length,
              openDetails: cards.filter((el) => el.querySelector('details[open]')).length,
-             pills: cards.filter((el) => el.querySelector('.engine-pill')).length,
+             states: cards.filter((el) => el.querySelector('.engine-state')).length,
              box: __live.box(first), list: __live.box(document.querySelector('.engines-list')),
              nameSize: getComputedStyle(first.querySelector('.engine-name')).fontSize,
              // A ready card is one line of card plus its chips; a blocked one opens its prose.
              readyHeights: cards.filter((el) => el.getAttribute('data-state') === 'ready').map((el) => Math.round(el.getBoundingClientRect().height)) };
   })()`);
-  check("every engine is a card with a status pill", eng.pills === eng.count, eng);
+  check("every engine is a card with its state as a dot and a word", eng.states === eng.count, eng);
   check("a ready engine stays short — its prose is folded", eng.readyHeights.every((h) => h < 130), eng);
   check("only the engines that need something open themselves", eng.openDetails < eng.count, eng);
   check("cards do not overflow the list", eng.box.r <= eng.list.r + 1, eng);

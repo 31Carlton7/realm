@@ -6,6 +6,7 @@ import { FileMark } from "../../components/file-icon";
 import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
 import { fileMenuItems, isMenuKey, removeOnDelete } from "../../components/file-menu";
 import { Menu } from "../../components/Menu";
+import { EmptyState } from "../../components/EmptyState";
 import { useDissolve } from "../../components/ScrollFades";
 import { SEARCH_DEBOUNCE_MS, relTime } from "../../components/CommandPalette";
 import { CodeFilePrompt, NEW_KINDS, NewMenu } from "./NewMenu";
@@ -232,25 +233,18 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
 
       <div className="docs-home-scroll" ref={scroller}>
         {nothing ? (
-          <div className="pane-empty docs-home-empty">
-            {/* off-ladder: the empty state's mark is a 64px tile's illustration, not a UI glyph — the
-                same 28 the Changes pane's empty state draws its folder at. */}
-            <div className="pane-empty-tile" aria-hidden="true"><Icon name="documents" size={28} /></div>
-            <h2 className="pane-empty-title">No files yet</h2>
-            <p className="pane-empty-line">
-              {sessionId
-                ? "Files the agent writes or edits in this session, and files you attach to a message, appear here — with everything in your Library."
-                : "Every file a session writes, and every file you attach to a message, appears here."}
-            </p>
-            <div className="docs-home-empty-actions">
-              <button type="button" className="btn primary" onClick={() => { const d = NEW_KINDS[0]!; onNewKind(d.kind, d.ext, d.stem); }}>
-                <Icon name="documents" size={14} />New document
-              </button>
-              <button ref={codeButton} type="button" className="btn" onClick={() => { void taken().catch(() => new Set<string>()).then(setCodePrompt); }}>
-                <Icon name="code" size={14} />Code file…
-              </button>
-            </div>
-          </div>
+          <EmptyState icon="documents" title="No files yet" actions={<>
+            <button type="button" className="btn primary" onClick={() => { const d = NEW_KINDS[0]!; onNewKind(d.kind, d.ext, d.stem); }}>
+              <Icon name="documents" size={14} />New document
+            </button>
+            <button ref={codeButton} type="button" className="btn" onClick={() => { void taken().catch(() => new Set<string>()).then(setCodePrompt); }}>
+              <Icon name="code" size={14} />Code file…
+            </button>
+          </>}>
+            {sessionId
+              ? "Files the agent writes or edits in this session, and files you attach to a message, appear here — with everything in your Library."
+              : "Every file a session writes, and every file you attach to a message, appears here."}
+          </EmptyState>
         ) : sections && (
           <>
             {sections.session && (!searching || sections.session.length > 0) && (
