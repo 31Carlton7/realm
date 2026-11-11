@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useRef } from "react";
 import { CommandCopy } from "../../components/CommandCopy";
 import { useDissolve } from "../../components/ScrollFades";
+import { withCode } from "../../components/with-code";
 import type { AgentAvailability } from "../../state/agent-availability";
 import type { CliJob } from "../../state/store";
 
@@ -66,7 +67,7 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
           <Icon name="alert" size={16} className="install-glyph" />
           <h3>{title}</h3>
         </div>
-        <p className="install-reason">{reason}</p>
+        <p className="install-reason">{withCode(reason)}</p>
         {command && <CommandCopy command={command} />}
         {job && (
           <div className="cli-job" data-state={job.state}>

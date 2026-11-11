@@ -1,4 +1,5 @@
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
+import { withCode } from "../../components/with-code";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
@@ -465,7 +466,7 @@ function EngineCard({ kind }: { kind: AgentKind }) {
                 also withheld. Gemini broke that when it was offered again: `login` is null for it
                 (it needs an API key, Vertex credentials, or a gateway), so the card would have gone
                 from a full explanation to nothing but "Not installed". */}
-            {blocked && <p className="settings-hint">{AGENT_LOGIN_HINTS[kind]}</p>}
+            {blocked && <p className="settings-hint">{withCode(AGENT_LOGIN_HINTS[kind])}</p>}
             {p && !p.available && p.reason && <p className="settings-hint">{probeReasonSentence(p.reason)}</p>}
           </div>
         </details>

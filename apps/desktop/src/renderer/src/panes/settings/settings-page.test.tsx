@@ -135,7 +135,11 @@ describe("Engines tab", () => {
     // Codex: installed and explicitly signed out — with the LOGIN command, not the install one.
     const codex = screen.getByRole("listitem", { name: /Codex: Signed out/ });
     expect(within(codex).getByText("v0.48.0")).toBeInTheDocument();
-    expect(within(codex).getByText(AGENT_CLI_COMMANDS.codex.login!)).toBeInTheDocument();
+    expect(within(codex).getByText(AGENT_CLI_COMMANDS.codex.login!, { selector: ".install-cmd code" })).toBeInTheDocument();
+    // The help text's command is set as code, never printed between literal backticks.
+    const hint = [...codex.querySelectorAll(".settings-hint")].find((p) => p.textContent?.includes("codex login"))!;
+    expect([...hint.querySelectorAll("code")].map((c) => c.textContent)).toContain("codex login");
+    expect(hint.textContent).not.toContain("`");
     expect(within(codex).queryByText(AGENT_CLI_COMMANDS.codex.install!)).toBeNull();
     // Cursor: missing — with the exact install command.
     const cursor = screen.getByRole("listitem", { name: /Cursor: Not installed/ });

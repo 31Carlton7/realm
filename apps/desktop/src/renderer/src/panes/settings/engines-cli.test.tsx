@@ -125,7 +125,7 @@ describe("an engine row with nothing to offer", () => {
     });
     const row = await waitFor(() => codexRow());
     // Signing in is a browser flow or an API key, so the command is shown to copy and never run.
-    expect(within(row).getByText("codex login")).toBeInTheDocument();
+    expect(within(row).getByText("codex login", { selector: ".install-cmd code" })).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Install" })).toBeNull();
     expect(within(row).queryByRole("button", { name: "Update to v0.153.4" })).toBeNull();
   });

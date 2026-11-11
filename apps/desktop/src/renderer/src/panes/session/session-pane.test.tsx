@@ -2029,7 +2029,8 @@ describe("the CLI-missing install card (W4)", () => {
     await mountAgent([signedOut]);
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     expect(screen.getByRole("group", { name: /isn’t signed in/ })).toBeInTheDocument();
-    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login)).toBeInTheDocument();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login, { selector: ".install-cmd code" })).toBeInTheDocument();
+    expect(document.querySelector(".install-reason")!.textContent).not.toContain("`");
     expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.install)).toBeNull();
   });
 
@@ -2132,7 +2133,7 @@ describe("the CLI-missing install card (W4)", () => {
     await mountAgent([signedOut], "idle", offersInstall);
     await waitFor(() => expect(screen.getByRole("group", { name: /isn’t signed in/ })).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
-    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login)).toBeInTheDocument();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login, { selector: ".install-cmd code" })).toBeInTheDocument();
   });
 
   it("'Check again' re-probes past the cache and the prompter comes back — no restart", async () => {
