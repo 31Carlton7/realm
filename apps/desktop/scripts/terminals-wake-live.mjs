@@ -23,7 +23,7 @@ const root = process.env.LIVE_SCRATCH_ROOT ?? path.join(repoRoot, "..", ".verify
 fs.mkdirSync(root, { recursive: true });
 const scratch = fs.mkdtempSync(path.join(root, "realm-terminals-wake-live-"));
 const home = path.join(scratch, "home");
-const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const check = (name, cond, detail) => { if (!cond) process.exitCode = 1; console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`); };
 const seen = [];

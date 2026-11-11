@@ -180,7 +180,7 @@ async function boot() {
   // Run as an app folder whose package.json carries the desktop app's version, so `app.getVersion()` —
   // which both the menu and the updater's status read — is this build's, not Electron's own.
   fs.writeFileSync(path.join(scratch, "package.json"), JSON.stringify({ name: "realm-about-links-live", version, type: "module", main: "wrapper.mjs" }));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   electron = spawn(electronBin, [scratch, ...UNTHROTTLED], {
     env: {
       ...process.env,
