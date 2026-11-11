@@ -8,6 +8,11 @@
 #
 # Windows caches the store alone. pnpm links node_modules there with junctions, which come back from the
 # cache's tar as entries pnpm cannot follow (EPERM on realpath), so it installs from the store each time.
+#
+# Electron's binary is not in node_modules: the electron package downloads it from GitHub the first time
+# something loads it, which in a test job is a test file partway through the suite, and a failed download
+# there fails that file at import. So it is put in place here, from @electron/get's own cache of the zip
+# (keyed on the lockfile's Electron version), and the job stops if it is not there after three tries.
 name: Set up
 description: Node, pnpm and the workspace's dependencies, restored from main's cache.
 
@@ -18,6 +23,9 @@ inputs:
   save-cache:
     description: Whether to write node_modules and the store back to the cache when they were not restored.
     default: "false"
+  electron:
+    description: Whether to put Electron's binary in place. Lint and Typecheck never run it.
+    default: "true"
 
 runs:
   using: composite
@@ -48,6 +56,15 @@ runs:
         echo "prefix=${{ runner.os }}-${{ runner.arch }}-node$(node -p 'process.versions.node.split(".")[0]')-${{ github.event.pull_request.head.repo.fork && 'free' || 'pro' }}" >> "$GITHUB_OUTPUT"
         echo "lockfile=${{ hashFiles('pnpm-lock.yaml') }}" >> "$GITHUB_OUTPUT"
         echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+        electron=$(sed -n 's/^  electron@\([0-9][^:(]*\):$/\1/p' pnpm-lock.yaml | head -1)
+        test -n "$electron" || { echo "::error::Found no electron@<version> in pnpm-lock.yaml"; exit 1; }
+        echo "electron=$electron" >> "$GITHUB_OUTPUT"
+        # Where @electron/get keeps the zips it downloads (env-paths' cache directory for "electron").
+        case "${{ runner.os }}" in
+          macOS) echo "electron-cache=$HOME/Library/Caches/electron" >> "$GITHUB_OUTPUT" ;;
+          Linux) echo "electron-cache=${XDG_CACHE_HOME:-$HOME/.cache}/electron" >> "$GITHUB_OUTPUT" ;;
+          Windows) echo "electron-cache=$LOCALAPPDATA\\electron\\Cache" >> "$GITHUB_OUTPUT" ;;
+        esac
 
     - name: Restore node_modules
       id: modules
@@ -98,3 +115,39 @@ runs:
       with:
         path: ${{ steps.keys.outputs.store }}
         key: store-${{ steps.keys.outputs.prefix }}-${{ steps.keys.outputs.lockfile }}
+
+    - name: Restore the Electron download
+      id: electron
+      if: inputs.electron == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.keys.outputs.electron-cache }}
+        key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.keys.outputs.electron }}
+
+    # Only the install is tried again, never a test. install.js returns at once when the binary is
+    # already there, and takes the zip from the cache above when it was restored.
+    - name: Install Electron's binary
+      if: inputs.electron == 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.keys.outputs.electron }}
+      run: |
+        electron=apps/desktop/node_modules/electron
+        installed() { test -f "$electron/path.txt" && test -f "$electron/dist/$(cat "$electron/path.txt")"; }
+        for attempt in 1 2 3; do
+          node "$electron/install.js" && installed && exit 0
+          echo "::warning::Electron $VERSION's binary did not install (attempt $attempt of 3)"
+          sleep $((attempt * 15))
+        done
+        echo "::error::Electron $VERSION's binary is not in $electron/dist after three tries. Downloading it from GitHub failed; every test file that loads Electron would fail at import."
+        exit 1
+
+    # Written from any run that missed, pull requests included: the key changes only with Electron's
+    # version, so main's copy serves every pull request after its first run, and one that bumps Electron
+    # saves the new zip, which its reruns then read.
+    - name: Save the Electron download
+      if: inputs.electron == 'true' && steps.electron.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.keys.outputs.electron-cache }}
+        key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.keys.outputs.electron }}
