@@ -1,10 +1,10 @@
 import { Icon } from "@realm/ui";
 import { Fragment, useContext, useLayoutEffect, useRef, useState, type DragEvent } from "react";
-import { chordsForCommand, displayKeyChord, type Item, type KeyContext } from "@realm/contracts";
+import { chordsForCommand, displayKeyChord, type Item } from "@realm/contracts";
 import { useApp, useAppStore } from "../state/store";
 import { REALM_ITEM_TYPE } from "./drag-types";
 import { Menu } from "./Menu";
-import { SIDE_TOOLS, openSideTool, sideToolReady } from "./side-tools";
+import { SIDE_TOOLS, openSideTool, sideToolChord, sideToolReady } from "./side-tools";
 import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
 import { ItemIcon } from "./PageIcon";
 import { terminalTitle, useTerminalPrograms } from "./ProgramMark";
@@ -114,13 +114,10 @@ export function PaneTabs({ leafId, tabs, activeId, owners, onRename }: {
   const carriesItem = (e: DragEvent) => Array.from(e.dataTransfer.types).includes(REALM_ITEM_TYPE);
   /* From the keymap the handler reads, as the palette's hints are: a user who rebinds the chord sees
      their own, and an unbound command shows none rather than one Realm has no basis for. */
-  const chord = (command: string, context?: KeyContext) => {
-    const c = chordsForCommand(keybindings, command, context)[0];
+  const chord = (command: string) => {
+    const c = chordsForCommand(keybindings, command)[0];
     return c ? displayKeyChord(c) : undefined;
   };
-  /* A tool's chord is printed only where the row and the key run the same thing: ⌘J is this session's
-     terminal, ⌘P its documents, asked of a session in focus — the context the key's own rule names. */
-  const toolChord = (tool: string) => (tool === "terminal" ? chord("terminal.toggle", { sessionFocus: true }) : tool === "documents" ? chord("palette.files") : undefined);
   return (
     <div className="pane-strip">
       <ScrollFadesX scroller={strip} />
@@ -212,7 +209,7 @@ export function PaneTabs({ leafId, tabs, activeId, owners, onRename }: {
           ...(served ? [
             { kind: "separator" as const },
             ...SIDE_TOOLS.filter((t) => ready.split(" ").includes(t.tool)).map((t) => ({
-              label: t.label, icon: <Icon name={t.icon} size={14} />, kbd: toolChord(t.tool), title: t.hint,
+              label: t.label, icon: <Icon name={t.icon} size={14} />, kbd: sideToolChord(keybindings, t.tool), title: t.hint,
               onSelect: () => run(() => openSideTool(store.getState(), served, t.tool)),
             })),
           ] : []),

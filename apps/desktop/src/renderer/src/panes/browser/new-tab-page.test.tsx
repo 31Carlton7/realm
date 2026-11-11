@@ -42,17 +42,19 @@ async function mount() {
 const page = async () => within(await screen.findByRole("region", { name: "New tab" }));
 
 describe("a blank tab's new-tab page", () => {
-  it("lists the session's tools, Documents first with the chord the keymap gives finding a file", async () => {
+  it("lists the session's tools, Documents first, with the chords the side panel's \"+\" prints", async () => {
     // THE MUTANT: print ⌘P from a literal. A user who moved "Open a file" elsewhere is shown a key
     // that no longer opens it. And no Files row: finding a file is the documents pane's own search,
-    // and a second row for it opened the same search somewhere else.
+    // and a second row for it opened the same search somewhere else. The terminal's chord is the
+    // session's own, as the "+" menu prints it; the page used to drop it.
     const { store } = await mount();
-    store.setState({ keybindings: [...store.getState().keybindings, { key: "mod+p", command: "" }, { key: "mod+o", command: "palette.files" }] });
+    store.setState({ keybindings: [...store.getState().keybindings,
+      { key: "mod+p", command: "" }, { key: "mod+o", command: "palette.files" },
+      { key: "mod+j", command: "" }, { key: "mod+alt+t", command: "terminal.toggle", when: "!overlayOpen && sessionFocus" }] });
     const tools = within((await page()).getByRole("region", { name: "Tools" }));
     const rows = tools.getAllByRole("button");
-    expect(rows.map((r) => r.querySelector(".new-tab-row-label")!.textContent)).toEqual(["Documents", "Terminal", "Agents", "Simulator", "Machine"]);
-    expect(rows[0]!.querySelector("kbd")?.textContent).toBe("⌘O");
-    expect(rows.slice(1).every((r) => r.querySelector("kbd") === null)).toBe(true);
+    const named = rows.map((r) => [r.querySelector(".new-tab-row-label")!.textContent, r.querySelector("kbd")?.textContent ?? null]);
+    expect(named).toEqual([["Documents", "⌘O"], ["Terminal", "⌘⌥T"], ["Agents", null], ["Simulator", null], ["Machine", null]]);
   });
 
   it("opens the session's Agents in the tab's place — the page is how a session with no side pane reaches them", async () => {
@@ -72,7 +74,7 @@ describe("a blank tab's new-tab page", () => {
   it("opens Terminal in the tab's place", async () => {
     const { store } = await mount();
     const blank = findSidePane(store.getState().layout!, "i-lead")!.itemId!;
-    fireEvent.click((await page()).getByRole("button", { name: "Terminal" }));
+    fireEvent.click((await page()).getByRole("button", { name: /^Terminal/ }));
     await waitFor(() => {
       const side = findSidePane(store.getState().layout!, "i-lead")!;
       expect(side.tabs).toHaveLength(1);
