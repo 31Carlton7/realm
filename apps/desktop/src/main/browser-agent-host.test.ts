@@ -473,6 +473,19 @@ describe("BrowserAgentHost — fillCredential", () => {
     expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent").length).toBe(SECRET.length * 2);
   });
 
+  it("keeps a filled field's value out of every later snapshot, after the page shows the password as text", async () => {
+    const strings = ["INPUT", "", "https://example.com/", "T", "type", "text", SECRET];
+    const snapshot = {
+      documents: [{ documentURL: 2, title: 3, nodes: { parentIndex: [-1], nodeType: [1], nodeName: [0], nodeValue: [1], backendNodeId: [7], attributes: [[4, 5]], inputValue: { index: [0], value: [6] } }, layout: { nodeIndex: [0], bounds: [[0, 0, 200, 30]], styles: [[1, 1, 1, 1, 1]], paintOrders: [1] } }],
+      strings,
+    };
+    const { host } = setup({ credentials: [cred], responses: { "DOMSnapshot.captureSnapshot": snapshot, "Accessibility.getFullAXTree": { nodes: [] } } });
+    expect(await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" })).toMatchObject({ ok: true });
+    const snap = await host.handleOp("snapshot", { browserId: "b1" }) as BrowserSnapshotResult;
+    expect(snap.elements.map((e) => e.ref)).toEqual([7]);
+    expect(JSON.stringify(snap)).not.toContain(SECRET);
+  });
+
   it("draws NO mark at all, unlike act — no ring, no cursor, no frame, in the one op that does the least in the page", async () => {
     const { host, calls } = setup({ credentials: [cred] });
     await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" });

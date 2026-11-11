@@ -49,6 +49,23 @@ describe("a page's filled-in fields", () => {
     expect(read()).toEqual([{ label: "", value: null, hidden: true }, { label: "user", value: "cai", hidden: false }]);
   });
 
+  it("hides a field Realm filled with a sign-in, whatever it now says about itself", async () => {
+    document.body.innerHTML = `<input id="login" type="text" value="hunter2-shown"><input name="user" value="cai">`;
+    // CDP against jsdom: a node resolves to the element itself, and a function runs on it with its arguments.
+    const nodes: Record<string, Element> = { "obj-7": document.getElementById("login")! };
+    const send = (async (method: string, params: Record<string, unknown> = {}) => {
+      if (method === "DOM.resolveNode") return { object: { objectId: `obj-${params.backendNodeId}` } };
+      if (method === "Runtime.callFunctionOn") {
+        const fn = (0, eval)(`(${String(params.functionDeclaration)})`) as (...a: unknown[]) => unknown;
+        const args = (params.arguments as { objectId: string }[]).map((a) => nodes[a.objectId]);
+        return { result: { value: fn.apply(nodes[String(params.objectId)], args) } };
+      }
+      return { result: { value: read() } };
+    }) as unknown as CdpSend;
+    const fields = await readPageFields(send, [7]);
+    expect(fields).toEqual([{ label: "login", value: null, hidden: true }, { label: "user", value: "cai", hidden: false }]);
+  });
+
   it("takes only an answer of its own shape: a page that claims a hidden field's value gets no fields", async () => {
     const answer = (value: unknown): CdpSend => (async () => ({ result: { value } })) as unknown as CdpSend;
     expect(await readPageFields(answer([{ label: "Email", value: "a@b.co", hidden: false }]))).toEqual([{ label: "Email", value: "a@b.co", hidden: false }]);
