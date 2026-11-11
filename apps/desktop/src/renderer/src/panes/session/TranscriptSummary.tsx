@@ -1,5 +1,5 @@
 import type { SessionStatus } from "@realm/contracts";
-import { summarize, writtenPath } from "./session-summary";
+import { distinctNames, summarize, writtenPath } from "./session-summary";
 import type { Block } from "./transcript-model";
 
 /**
@@ -38,7 +38,6 @@ const firstLine = (text: string, max: number): string => {
   const line = text.trim().split(/\r?\n/)[0]?.trim() ?? "";
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 };
-const basename = (path: string) => path.replace(/\/+$/, "").split("/").pop() || path;
 
 /** What a session DID, folded from its blocks. Exported for the test; the component reads `text`. */
 export type SessionRecap = {
@@ -96,7 +95,7 @@ export function summaryText(blocks: readonly Block[], brief: string | null = nul
   const produced = summaryLine(blocks);
   const did: string[] = [];
   if (r.edited.length > 0) {
-    const names = r.edited.slice(0, 3).map(basename).join(", ");
+    const names = distinctNames(r.edited).slice(0, 3).join(", ");
     const rest = r.edited.length - 3;
     did.push(`edited ${plural(r.edited.length, "file")} (${names}${rest > 0 ? `, +${rest}` : ""})`);
   }
@@ -104,14 +103,15 @@ export function summaryText(blocks: readonly Block[], brief: string | null = nul
   if (r.reads > 0) did.push(`read ${plural(r.reads, "file")}`);
   if (did.length === 0 && !produced) return null;
   const sentences: string[] = [];
-  if (r.asked) sentences.push(`You asked: “${r.asked}”`);
+  // An ask that ends its own sentence keeps its stop inside the quote, and nothing follows it.
+  if (r.asked) sentences.push(`You asked: “${r.asked}”${/[.!?…]$/.test(r.asked) ? "" : "."}`);
   if (did.length > 0) {
     const list = did.length === 1 ? did[0]! : `${did.slice(0, -1).join(", ")} and ${did.at(-1)}`;
     const over = r.turns > 1 ? `Over ${plural(r.turns, "turn")} the agent ${list}` : `The agent ${list}`;
-    sentences.push(r.errors > 0 ? `${over}, with ${plural(r.errors, "error")} along the way` : over);
+    sentences.push(r.errors > 0 ? `${over}, with ${plural(r.errors, "error")} along the way.` : `${over}.`);
   }
-  if (produced) sentences.push(`It produced ${produced}`);
-  return sentences.join(". ") + ".";
+  if (produced) sentences.push(`It produced ${produced}.`);
+  return sentences.join(" ");
 }
 
 /**

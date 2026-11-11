@@ -107,6 +107,12 @@ describe("attachmentSummary", () => {
     expect(rows[0]!.files).toEqual(["one.png", "report.pdf", "two.png", "notes.txt"]);
   });
 
+  it("lists the name the person picked, not the stored copy's hashed one", () => {
+    // The row read "b49e4c102b12-release-shot.png" under a tile reading "release-shot.png".
+    const [row] = attachmentSummary("fake", [{ path: "/home/attachments/b49e4c102b12-release-shot.png", mime: "image/png", name: "release-shot.png" }]);
+    expect(row!.files).toEqual(["release-shot.png"]);
+  });
+
   it("hands the note to the row as a lead-in, so the filenames finish the sentence", () => {
     // The reported bug read as one run-on string — "…will never see them.example.pdf" — because the
     // sentence stopped dead in front of the list it was introducing. The chip tooltip still gets the

@@ -149,12 +149,31 @@ export function summarize(blocks: readonly Block[]): SessionSummary {
     }
   }
 
+  const files = [...outputs.values()].filter((o) => o.kind === "file");
+  const names = distinctNames(files.map((o) => o.path));
+  files.forEach((o, i) => { o.name = names[i]!; });
+
   const newestFirst = <T extends { ts: number }>(xs: T[]): T[] => [...xs].reverse();
   return {
     outputs: newestFirst([...outputs.values()]),
     uploads: newestFirst([...uploads.values()]),
     plans: newestFirst(plans),
   };
+}
+
+/** Each path's name, with as many parent folders as it takes to tell it from the others:
+ *  `/repo/package.json` and `/repo/apps/desktop/package.json` read "repo/package.json" and
+ *  "desktop/package.json", and a name nothing else shares stays bare. A list of basenames showed two
+ *  different files as one file listed twice. */
+export function distinctNames(paths: readonly string[]): string[] {
+  const parts = paths.map((p) => p.replace(/\/+$/, "").split("/").filter(Boolean));
+  return parts.map((segs, i) => {
+    for (let n = 1; n < segs.length; n++) {
+      const tail = segs.slice(-n).join("/");
+      if (!parts.some((other, j) => j !== i && other.slice(-n).join("/") === tail)) return tail;
+    }
+    return segs.join("/") || paths[i]!;
+  });
 }
 
 /** Nothing to show at all — what the button reads to stay out of the way of a session that has yet

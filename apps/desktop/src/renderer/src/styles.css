@@ -1321,9 +1321,8 @@ input.sb-space-name { flex: 1; }
 /* The `/` command picker shares the mention picker's surface and rows outright — to the person
    typing, `@` and `/` are one gesture with two sigils, and giving them two looks would say they are
    two mechanisms. It differs by exactly one thing: a leading glyph, because a command is an ACTION
-   and its verb is worth a mark where a skill's name is not. Narrower, too: a command's hint is a
-   short phrase where a skill's description is a sentence. */
-.slash-picker { width: min(320px, 80vw); }
+   and its verb is worth a mark where a skill's name is not. The same width as well: at 320px five of
+   the nine built-in hints ended in an ellipsis. */
 .slash-row { align-items: center; }
 .slash-row-glyph { flex: none; color: var(--rl-text-faint); }
 .slash-row[data-active] .slash-row-glyph { color: var(--rl-text-dim); }
@@ -5654,11 +5653,16 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .attach-tile[data-flag="truncated"] .tab-card-word, .attach-tile[data-flag="closed"] .tab-card-word { color: var(--rl-warning); }
 .composer-tabs .attach-tip { bottom: auto; top: calc(100% + 6px); }
 /* The honesty row: what THIS agent does with these files, named before the message goes. */
-/* No flex `gap`: the sentence carries its own trailing space (Composer.tsx), so a gap here would
-   double it. The glyph keeps its separation as a margin of its own. */
+/* No flex `gap`. The sentence carries a real trailing space for what is read and copied
+   (Composer.tsx), but a flex item drops the space at its end from what is drawn, so the names take a
+   space's width of margin instead. The glyph keeps its separation as a margin of its own. */
 .composer-attach-note { display: flex; align-items: baseline; margin: 6px 0 0; padding: 0 12px; font-size: 11px; line-height: 1.45; color: var(--rl-text-faint); }
 .composer-attach-note[data-disposition="ignored"] { color: var(--rl-warning); }
 .composer-attach-note .attach-note-glyph { flex: none; align-self: center; margin-right: 5px; }
+/* The sentence keeps its line and the file names take what is left: the names are the part of
+   unbounded length, so they are the part that gives way. */
+.composer-attach-note > span:not(.attach-note-files) { flex: none; max-width: 100%; }
+.composer-attach-note .attach-note-files { flex: 1 1 0; margin-left: .3em; }
 /* The one click that fixes what the note reports — Allow (or Repair) for Accessibility. It keeps the
    note's line: a quiet button whose label is the next step, after the sentence that says why. */
 .composer-attach-note .composer-mention-allow { flex: none; align-self: center; margin-left: 8px; white-space: nowrap; }
