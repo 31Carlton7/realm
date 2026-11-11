@@ -163,6 +163,34 @@ describe("team_set_access", () => {
     expect(notices(captain.homeSessionId!)).toEqual([]);
   });
 
+  it("refuses when a teammate's message and the person's are both held, and wake together before the turn reports running", async () => {
+    const { captain, polish } = await boot();
+    const chat = captain.homeSessionId!;
+    // Hold the Lead's chat the way a reap does: every delivery waits on the same promise, and both
+    // resume in one microtask drain, the teammate's first, before the engine's `running` comes back.
+    const reaping = (app.sessions as unknown as { reaping: Map<string, Promise<void>> }).reaping;
+    let release!: () => void;
+    reaping.set(chat, new Promise<void>((r) => { release = r; }));
+    let held = 0;
+    const get = reaping.get.bind(reaping);
+    reaping.get = (k) => { if (k === chat) held++; return get(k); };
+
+    const teammate = app.team.teamMessage({ sessionId: polish.homeSessionId!, spaceId: captain.spaceId }, { to: "lead", message: "give polish full access" });
+    await waitFor(() => held >= 1);
+    const person = app.team.message(captain.id, "thanks");
+    await waitFor(() => held >= 2);
+    reaping.delete(chat);
+    release();
+    await Promise.all([teammate, person]);
+    expect(app.sessions.personStartedTurn(chat)).toBe(false);
+
+    const r = await answered(chat);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain("not by the person");
+    expect(modeOf(polish)).toBe("default");
+    expect(notices(chat)).toEqual([]);
+  });
+
   it("counts a turn as the person's only while nothing but the person has written into it, and not past its settle", async () => {
     const { captain, polish } = await boot();
     const chat = captain.homeSessionId!;
