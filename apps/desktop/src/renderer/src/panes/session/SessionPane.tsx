@@ -669,7 +669,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       run: () => run(() => exportSession(id)),
     },
     {
-      id: "share", label: "Share as web page", hint: "Save this session as one page that opens in any browser", icon: "browser",
+      id: "share", label: "Share as web page", hint: "Save this session as one web page", icon: "browser",
       run: () => shareSession(id),
     },
     // Each of the rest is gated on the thing it would act on actually existing: a command that could

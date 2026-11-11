@@ -759,6 +759,17 @@ describe("the prompter's / commands", () => {
     expect(document.querySelector(".slash-picker")).toBeNull();
   });
 
+  it("keeps every built-in's name and hint within the longest that fits the picker's width", async () => {
+    // At --picker-w, "/plan Work out an approach without changing anything" is the longest row that
+    // still ends in its last word; /share's "…that opens in any browser" ended in an ellipsis.
+    await mountFresh();
+    type("/");
+    const widths = [...document.querySelectorAll(".slash-row")].map((r) =>
+      [r.querySelector(".mention-row-id")!.textContent!, (r.querySelector(".mention-row-id")!.textContent! + r.querySelector(".mention-row-desc")!.textContent!).length] as const);
+    const plan = widths.find(([id]) => id === "/plan")![1];
+    expect(widths.filter(([, n]) => n > plan)).toEqual([]);
+  });
+
   it("draws a command's mark at 14px in the @ row's mark box", async () => {
     // The glyphs were 12px beside 14px text, in a class of their own, so `/` rows sat off the `@` rows' grid.
     await mountFresh();
