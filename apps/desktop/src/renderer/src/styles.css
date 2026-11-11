@@ -1404,12 +1404,10 @@ input.sb-space-name { flex: 1; }
 .skill-row:hover .skill-more, .skill-more:focus-visible, .skill-row:focus-within .skill-more { opacity: 1; }
 .skills-details > summary {
   list-style: none; width: fit-content; padding: 2px 0;
-  font-size: 13px; color: var(--rl-text-faint);
+  font-size: 13px; color: var(--rl-text-dim);
 }
 .skills-details > summary::-webkit-details-marker { display: none; }
-.skills-details > summary::before { content: "▸ "; }
-.skills-details[open] > summary::before { content: "▾ "; }
-.skills-details > summary:hover { color: var(--rl-text-dim); }
+.skills-details > summary:hover { color: var(--rl-text-bright); }
 .skills-details-body { display: flex; flex-direction: column; gap: 14px; padding-top: 10px; }
 /* The per-agent notes are a reference list, not cards: thirteen surfaces stacked would out-weigh the
    skills the page is actually about. */
@@ -5832,10 +5830,14 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .signin-code-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .signin-code { font-family: var(--font-mono); font-size: 24px; line-height: 30px; font-weight: var(--fw-title); letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums; color: var(--rl-text-bright); user-select: all; }
+/* A disclosure is the icon set's chevron at the text's stroke, turning a quarter as it opens — the
+   shape the sidebar and the tool rows use. Text triangles ("▸ / ▾") were the font's drawing of the
+   same control, in five places, each at its own weight. */
+summary:has(> .disclosure-mark) { display: flex; align-items: center; gap: 4px; }
+.disclosure-mark { flex: none; color: var(--rl-text-faint); transition: rotate var(--dur-hover) ease; }
+details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .signin-app > summary { list-style: none; width: fit-content; padding: 2px 0; font-size: 13px; color: var(--rl-text-dim); }
 .signin-app > summary::-webkit-details-marker { display: none; }
-.signin-app > summary::before { content: "▸ "; }
-.signin-app[open] > summary::before { content: "▾ "; }
 .signin-app > .form { padding-top: 10px; }
 .ch-marker { color: var(--rl-accent); }
 .ch-punct { color: var(--rl-text-faint); }
@@ -7765,8 +7767,6 @@ select { appearance: none; padding-right: 22px;
 .ram-category > details > summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; list-style: none; }
 .ram-category > details:not([open]) > summary { border-radius: inherit; }
 .ram-category > details > summary::-webkit-details-marker { display: none; }
-.ram-category > details > summary::before { content: "▸"; flex: none; font-size: 12px; color: var(--rl-text-faint); transition: rotate var(--dur-hover) ease; }
-.ram-category > details[open] > summary::before { rotate: 90deg; }
 .ram-category > details > summary > .settings-row-name { flex: 1; min-width: 0; }
 .ram-category > details > summary:hover { background: var(--rl-hover); }
 .ram-category > details > summary:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
@@ -9193,8 +9193,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 }
 .engine-details > summary::-webkit-details-marker { display: none; }
 .engine-details > summary:hover { color: var(--rl-text-dim); }
-.engine-details > summary::before { content: "▸ "; }
-.engine-details[open] > summary::before { content: "▾ "; }
 .engine-details-body { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
 /* An engine's accounts, one line each under its chips: the name, who it is, whether it is signed in,
    and the row's own actions at its end. Lines rather than cards — they are rows of one card. */
@@ -10260,8 +10258,6 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 }
 .theme-detail > summary::-webkit-details-marker, .theme-other > summary::-webkit-details-marker { display: none; }
 .theme-detail > summary:hover, .theme-other > summary:hover { color: var(--rl-text-dim); }
-.theme-detail > summary::before, .theme-other > summary::before { content: "▸ "; }
-.theme-detail[open] > summary::before, .theme-other[open] > summary::before { content: "▾ "; }
 .theme-detail { display: flex; flex-direction: column; gap: 8px; }
 /* A closed disclosure is one line. The flex gap sits between the summary and the (hidden) content
    box either way, and 8px of dead space at the bottom of a row shows now that these rows mesh into

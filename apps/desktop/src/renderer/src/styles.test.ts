@@ -5257,3 +5257,12 @@ describe("one segmented control", () => {
     expect(prop(".settings-row[data-stack] > .settings-tabs", "align-self")).toBe("flex-start");
   });
 });
+
+it("draws a disclosure with the icon set's chevron, never a typed triangle", () => {
+  /* ST-03: Engines' Details, the skills notes, the sign-in sheet's app, the RAM categories and the
+     theme rows each drew "▸ / ▾" in the font, beside SVG chevrons everywhere else. THE MUTANT: any
+     one of them given its `content` triangle back. */
+  const typed = RULES.filter((r) => /content:\s*"[▸▾▶]/.test(r.body)).flatMap((r) => r.selectors);
+  expect(typed).toEqual([]);
+  expect(bodiesFor("details[open] > summary > .disclosure-mark").join(" ")).toContain("rotate: 90deg");
+});

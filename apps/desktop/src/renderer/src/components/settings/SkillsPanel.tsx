@@ -119,7 +119,7 @@ export function SkillsPanel({ spaceId, onOpen }: {
           question, and a folder that was read and found nothing is the answer. Folding it away then
           would answer "I added that folder and nothing appeared" with silence. */}
       <details className="skills-details" open={skills !== undefined && all.length === 0 ? true : undefined}>
-        <summary>Where these come from</summary>
+        <summary><Icon name="chevronRight" size={12} className="disclosure-mark" />Where these come from</summary>
         <div className="skills-details-body">
           {all.length > 0 && (
             <p className="settings-hint">
@@ -132,7 +132,7 @@ export function SkillsPanel({ spaceId, onOpen }: {
       </details>
 
       <details className="skills-details">
-        <summary>How each agent uses them</summary>
+        <summary><Icon name="chevronRight" size={12} className="disclosure-mark" />How each agent uses them</summary>
         <div className="skills-details-body">
           <ul className="settings-list skills-agent-list">
             {SELECTABLE_AGENT_KINDS.map((kind) => (

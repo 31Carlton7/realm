@@ -450,7 +450,7 @@ function EngineCard({ kind }: { kind: AgentKind }) {
       {details.length > 0 && (
         <details className="engine-details" open={wantsYou || openDetails || undefined}
           onToggle={(e) => setOpenDetails((e.currentTarget as HTMLDetailsElement).open)}>
-          <summary>{blocked ? "What to do" : "Details"}</summary>
+          <summary><Icon name="chevronRight" size={12} className="disclosure-mark" />{blocked ? "What to do" : "Details"}</summary>
           <div className="engine-details-body">
             {offer && <CommandCopy command={offer.command} />}
             {!offer && a.state === "missing" && install && <CommandCopy command={install} />}
@@ -905,7 +905,7 @@ function PaletteChoices({ face, selected, onSelect, live }:
           are one row each. Behind one disclosure they are still a click away and no longer the
           shape of the page. */}
       <details className="theme-detail" data-setting={live ? "theme-colours" : undefined}>
-        <summary>{palette.label}: preview and colours</summary>
+        <summary><Icon name="chevronRight" size={12} className="disclosure-mark" />{palette.label}: preview and colours</summary>
         <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
         <CodePreview vars={facePalette(palette.name, face, override, contrast)} />
         <ThemeOverrideEditor name={palette.name} face={face} />
@@ -1084,7 +1084,7 @@ function AppearanceTab() {
             is, so a search for "Light theme" lands on a row that says so. */}
         <div className="settings-row" data-stack data-setting={`palette-${other}`}>
           <details className="theme-other">
-            <summary>{other === "light" ? "Light theme" : "Dark theme"}</summary>
+            <summary><Icon name="chevronRight" size={12} className="disclosure-mark" />{other === "light" ? "Light theme" : "Dark theme"}</summary>
             <PaletteChoices face={other} selected={themeNames[other]}
               onSelect={(name) => run(() => setThemeName(other, name))} />
           </details>

@@ -1,3 +1,4 @@
+import { Icon } from "@realm/ui";
 import { SYSTEM_BROWSER_FRAME, type McpServer, type McpSignInOptions } from "@realm/contracts";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Sheet } from "../Sheet";
@@ -144,7 +145,7 @@ function SignInRoutes({ server, options, reason, recheck, onDone }: { server: Mc
       </form>
 
       <details className="signin-route signin-app">
-        <summary>Use an OAuth app of your own</summary>
+        <summary><Icon name="chevronRight" size={12} className="disclosure-mark" />Use an OAuth app of your own</summary>
         <form className="form" onSubmit={connectOwnApp}>
           <p className="signin-hint">Register an app with {provider ?? server.name} whose callback URL is <code>http://127.0.0.1/oauth/callback</code>, and paste what it gives you.</p>
           <label className="field"><span>Client ID</span>
