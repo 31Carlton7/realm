@@ -2385,6 +2385,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { sessionId: t.homeSessionId };
     },
     teammateSessions: async (id) => { calls.push(`teammateSessions:${id}`); return data.teammates.find((x) => x.id === id)?.taskSessions ?? []; },
+    teamAccess: async (spaceId) => {
+      calls.push(`teamAccess:${spaceId}`);
+      const list = data.teammates.filter((t) => t.spaceId === spaceId && !t.archived).map((t) => ({ handle: t.handle, mode: t.permissionMode }));
+      return { mode: null, mixed: new Set(list.map((t) => t.mode)).size > 1, teammates: list };
+    },
+    setTeamAccess: async (spaceId, mode) => {
+      calls.push(`setTeamAccess:${spaceId}:${mode}`);
+      if (mode) for (const t of data.teammates) if (t.spaceId === spaceId) t.permissionMode = mode;
+      const list = data.teammates.filter((t) => t.spaceId === spaceId && !t.archived).map((t) => ({ handle: t.handle, mode: t.permissionMode }));
+      return { mode, mixed: new Set(list.map((t) => t.mode)).size > 1, teammates: list };
+    },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

@@ -6,6 +6,7 @@ import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
 import { fakeBrowserBridges } from "../panes/browser/browser-bridges.test-fakes";
+import { drawnGlyph, glyphOf } from "./icon-glyph.test-fakes";
 
 /**
  * A side pane's tab strip, as the user meets it: the tabs in the bar where a title goes, a click to
@@ -79,6 +80,14 @@ describe("a side pane's tab strip", () => {
     expect(api.calls.some((c) => c.startsWith("deleteItem"))).toBe(false);
     fireEvent.click(strip().getByRole("button", { name: "Really delete Delta careers?" }));
     await waitFor(() => expect(api.calls).toContain("deleteItem:i-br"));
+  });
+
+  it("draws the trash on a tab whose close deletes, and the × on one that only closes", async () => {
+    await mount();
+    // THE MUTANT: one glyph for both, which is what made "Delete" and "Close tab (keep in space)" twins.
+    expect(glyphOf("trash")).not.toEqual(glyphOf("close"));
+    expect(drawnGlyph(strip().getByRole("button", { name: "Delete Delta careers" }))).toEqual(glyphOf("trash"));
+    expect(drawnGlyph(strip().getByRole("button", { name: "Close Agent: apply" }))).toEqual(glyphOf("close"));
   });
 
   it("reorders a tab dropped on another", async () => {

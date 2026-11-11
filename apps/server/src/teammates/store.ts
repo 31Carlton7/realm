@@ -1,4 +1,4 @@
-import { TeammateIconSchema, TeammatePermissionModeSchema, failureReason, newId, sessionOutcome, teammateHandle, teammateIconFromSeed, type AgentKind, type OutcomeEvent, type SessionOutcome, type SessionStatus, type TeammateIcon, type TeammatePermissionMode } from "@realm/contracts";
+import { TeamAccessModeSchema, TeammateIconSchema, TeammatePermissionModeSchema, failureReason, newId, sessionOutcome, teammateHandle, teammateIconFromSeed, type AgentKind, type OutcomeEvent, type SessionOutcome, type SessionStatus, type TeamAccessMode, type TeammateIcon, type TeammatePermissionMode } from "@realm/contracts";
 import type { Db } from "../db/database";
 import { payloadSql } from "../store/event-payload";
 import { now } from "../store/rows";
@@ -107,6 +107,18 @@ export class TeammatesStore {
       const next = `${handle.slice(0, 40 - String(n).length - 1)}-${n}`;
       if (!taken.has(next)) return next;
     }
+  }
+
+  /** The space's Team access mode, or null when its teammates are set one by one. */
+  access(spaceId: string): TeamAccessMode | null {
+    const r = this.db.prepare("SELECT mode FROM space_team_access WHERE space_id = ?").get(spaceId) as { mode: string } | undefined;
+    return r ? TeamAccessModeSchema.safeParse(r.mode).data ?? null : null;
+  }
+
+  setAccess(spaceId: string, mode: TeamAccessMode | null): void {
+    if (mode === null) this.db.prepare("DELETE FROM space_team_access WHERE space_id = ?").run(spaceId);
+    else this.db.prepare("INSERT INTO space_team_access (space_id, mode, set_at) VALUES (?, ?, ?) ON CONFLICT(space_id) DO UPDATE SET mode = excluded.mode, set_at = excluded.set_at")
+      .run(spaceId, mode, this.clock());
   }
 
   create(input: TeammateInsert): TeammateRow {

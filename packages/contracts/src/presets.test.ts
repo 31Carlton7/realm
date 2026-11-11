@@ -82,13 +82,13 @@ describe("PERMISSION_MODES", () => {
 });
 
 describe("DEFAULT_MODEL_LABEL", () => {
-  it("names the head of the kind's own model list", () => {
-    // The prompter leans on this: a session with `model: null` runs the adapter's default, and the
-    // model picker marks AGENT_MODELS[kind][0] as the selected row on that basis. If the two ever
-    // drift, the picker would tick a model the session is not on.
+  it("names a model on the kind's own list", () => {
+    // Mobile's options read an un-pinned session's efforts against the row this names, so a label
+    // that names nothing on the list would leave that session with no catalog entry to read.
     for (const [kind, models] of Object.entries(AGENT_MODELS)) {
       if (models.length === 0) continue;
-      expect(models[0]!.label, kind).toContain(DEFAULT_MODEL_LABEL[kind as keyof typeof DEFAULT_MODEL_LABEL]);
+      const label = DEFAULT_MODEL_LABEL[kind as keyof typeof DEFAULT_MODEL_LABEL];
+      expect(models.some((m) => m.label.endsWith(label)), kind).toBe(true);
     }
   });
 });

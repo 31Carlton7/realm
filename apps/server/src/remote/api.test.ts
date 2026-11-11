@@ -4,7 +4,7 @@ import { basename, dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
-  AGENT_MODELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, sessionEvent, steerNote, type DelegatedChild, type FileDiff, type Goal, type Item, type MethodName, type PlanLimits,
+  AGENT_MODELS, MODEL_CATALOG_KEY, PERMISSION_MODES, canonicalModelKey, SELECTABLE_AGENT_KINDS, sessionEvent, steerNote, type DelegatedChild, type FileDiff, type Goal, type Item, type MethodName, type PlanLimits,
   type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent, type Teammate, type TeammateTaskSession,
   type TurnChanges, type UsageSessionRow,
 } from "@realm/contracts";
@@ -573,6 +573,13 @@ describe("session.options", () => {
     // No probe has said which model Claude Code runs by default, so neither names the curated list's first.
     expect(o.agent.models[0]).toMatchObject({ id: null, label: "Default", defaultEffort: "high" });
     expect(o).toMatchObject({ modelLabel: "Default", midTurn: "queue" });
+  });
+
+  it("reads an unprobed default's levels off the model DEFAULT_MODEL_LABEL names, not the newest at the list's head", async () => {
+    const info = (label: string, efforts: string[]) => ({ key: canonicalModelKey(label), label, vendor: "Anthropic", priceIn: null, priceOut: null, context: null, efforts, blurb: null });
+    const rows = [info("Claude Fable 5.2", ["low", "medium"]), info("Claude Fable 5.1", ["low", "high", "max"])];
+    const o = await options(session("fresh", "s1", { agentKind: "claude", model: null }), {}, { [MODEL_CATALOG_KEY]: { rows } });
+    expect(o.agent.models[0]!.efforts?.map((e) => e.id)).toEqual(["low", "high", "max"]);
   });
 
   it("names a session that pinned no model by the default its CLI marks, and by the model its handshake reported once it has run", async () => {

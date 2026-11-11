@@ -1432,7 +1432,7 @@ describe("prompter model picker", () => {
   it("lists the current agent's models first, then each agent with a list, then every other agent by name", async () => {
     await mountKindFresh("codex");
     openPicker();
-    expect(rowNames()).toEqual(["GPT-5.6", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 5.5", "Haiku 4.5",
+    expect(rowNames()).toEqual(["GPT-5.6", "Fable 5.2", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 5.5", "Haiku 4.5",
       // DeepSeek's ACP server is booted with one model and enumerates nothing, so its two are curated
       // and keep their group. Every agent with nothing but its own default is one row, by name.
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
@@ -1440,7 +1440,7 @@ describe("prompter model picker", () => {
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
     // Hermes' row is the one with no `data-brand`: Nous Research publishes no vector mark, so it
     // wears Realm's own caduceus from the Hugeicons set instead of a vendored brand path.
-    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "claude", "claude", "claude", "deepseek", "deepseek",
+    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "claude", "claude", "claude", "claude", "deepseek", "deepseek",
       "cursor", "gemini", "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "openhands", undefined]);
     expect(document.querySelector("[data-brand='qwen']")).toHaveAttribute("viewBox", "0 0 141.38 140");
     expect(document.querySelector("[data-brand='githubCopilot']")?.querySelectorAll("path")).toHaveLength(3);
@@ -1463,7 +1463,7 @@ describe("prompter model picker", () => {
     // see itself would have no row to pick its own model from.
     await mountFresh({ agentKind: "fake" });
     openPicker();
-    expect(rowNames()).toEqual(["Fake", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 5.5", "Haiku 4.5",
+    expect(rowNames()).toEqual(["Fake", "Fable 5.2", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 5.5", "Haiku 4.5",
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
       "Codex", "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
     // Pinned to nothing: what runs is the agent's own default, and its row says so.
@@ -1561,14 +1561,14 @@ describe("prompter model picker", () => {
     });
 
     it("Enter picks the highlighted row after arrowing down", async () => {
-      // Nothing is ticked, so nothing is highlighted: the first step lights Fable 5.1, the second Fable 5.
+      // Nothing is ticked, so nothing is highlighted: the first step lights Fable 5.2, the second Fable 5.1.
       const { store } = await mountFresh();
       openPicker();
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.keyDown(search, { key: "ArrowDown" });
       fireEvent.keyDown(search, { key: "ArrowDown" });
       fireEvent.keyDown(search, { key: "Enter" });
-      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-fable-5"));
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-fable-5-1"));
     });
   });
 
@@ -1707,7 +1707,8 @@ describe("prompter model picker", () => {
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
-      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, the fourth row
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, the fifth row
       fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([canonicalModelKey("Claude Opus 5")]));
       expect(store.getState().sessions.se1?.model).toBeNull(); // ⌥↩ stars; it does not pick
@@ -1715,10 +1716,11 @@ describe("prompter model picker", () => {
 
     it("keeps the highlight on the row ⌥↩ just starred, after it sorts to the top", async () => {
       // Starring re-sorts the list under the highlight. Anchored to an index, the highlight would
-      // stay in slot 3 while the starred row moved to slot 0 — so the very next Enter would pick
+      // stay in slot 4 while the starred row moved to slot 0 — so the very next Enter would pick
       // whichever model slid into that slot, not the one the user was looking at.
       const { store } = await mountFresh();
       openPicker();
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });

@@ -1285,4 +1285,14 @@ export const migrations: string[] = [
   // The account a session runs on. NULL — every session before this — is the CLI's own default
   // account, and an account's removal puts its sessions back there.
   `ALTER TABLE sessions ADD COLUMN account_id TEXT REFERENCES agent_accounts(id) ON DELETE SET NULL;`,
+  // A space's Team access (contracts/teammates.ts): the one mode every teammate in it is put on. No row
+  // is a space whose teammates are set one by one, which is every space before this, so nothing is
+  // backfilled. Its own table rather than a `settings` key, so it goes with its space, and so it is
+  // nowhere `settings.set` or an agent's `settings_set` reaches. `IF NOT EXISTS`: safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS space_team_access (
+    space_id TEXT PRIMARY KEY REFERENCES spaces(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL,
+    set_at INTEGER NOT NULL);
+  `,
 ];
