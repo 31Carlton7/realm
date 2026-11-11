@@ -1104,7 +1104,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   only facts the app holds — a "Branch —" for a folder nobody has asked git about is a claim.
 - A note under the composer is for an outcome the user could not otherwise learn, such as a file
   the agent will silently drop. Do not narrate a handoff the agent completes itself; that belongs
-  on the chip's tooltip.
+  on the chip's tooltip. The note is one line: a short lead that counts the files ("Fake agent won't
+  see these 3 attachments:") and then their names as the person picked them — never the stored
+  copies' hashed names — with the names giving way first. The full sentence goes on the tooltip.
 - An `@` names a thing, and naming it is consent to USE it — never a way round how it is used. A
   mentioned app gets computer use for that session and that app alone: its first action still asks,
   the session's mode still holds, and nothing outlives the session or becomes a space setting. A

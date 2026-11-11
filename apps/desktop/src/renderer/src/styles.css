@@ -30,7 +30,7 @@
    The UI face is untouched: the bundled Inter has no `liga` at all (its GSUB carries calt/dlig only),
    so there is no standard ligature to win there, and buying calt would cost the app its tracking. */
 .activity-call, .activity-duration, .activity-time, .agent-hint-text code, .cli-job-output,
-.cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
+.cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-meta-branch, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
@@ -5666,7 +5666,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* The one click that fixes what the note reports — Allow (or Repair) for Accessibility. It keeps the
    note's line: a quiet button whose label is the next step, after the sentence that says why. */
 .composer-attach-note .composer-mention-allow { flex: none; align-self: center; margin-left: 8px; white-space: nowrap; }
-.composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 11px;
+/* The names a person picked, in the interface face: a file's name here is what they called it, not a
+   path to type, and mono beside the sentence read as two kinds of text on one line. */
+.composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding

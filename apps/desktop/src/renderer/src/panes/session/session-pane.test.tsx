@@ -2237,12 +2237,10 @@ describe("prompter attachments", () => {
     await mountFor("fake", [picked("/x/report.pdf", "application/pdf"), picked("/x/shot.png", "image/png")]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(2));
-    const warn = notes().find((t) => /ignores/.test(t))!;
-    expect(warn).toContain("Fake agent");
+    const warn = notes().find((t) => /won't see/.test(t))!;
     // The reported bug: the sentence stopped dead in front of the list it was introducing, so the row
     // read "…will never see them.report.pdf". A colon is what makes the names finish the sentence.
-    expect(warn).toContain("will never see them: report.pdf");
-    expect(warn).not.toMatch(/them\.report/);
+    expect(warn).toBe("Fake agent won't see these 2 attachments: report.pdf, shot.png");
   });
 
   it("says NOTHING under the chips for Codex — the same PDF is a path it will open, which is not a warning", async () => {
