@@ -5,8 +5,9 @@
  *
  * Unlike the WebGL looks this never runs a loop. The screened picture is worked out once per
  * (image, face, size) and kept; a move of the prompter only re-lays the mask over the kept bitmap.
- * Around the greeting and the prompter the picture feathers out, it fades down the pane to the
- * plain ground, and a contrast guard lowers its opacity until every word over it still reads.
+ * The picture runs behind the greeting and beside the prompter, feathers out round the prompter's
+ * card, and fades to the plain ground below it. Under each run of text a contrast guard lowers the
+ * picture there, and only there, until the words still read.
  */
 import skyDay from "../../assets/hero-backdrops/sky-day.jpg";
 import skyDusk from "../../assets/hero-backdrops/sky-dusk.jpg";
@@ -23,14 +24,18 @@ export type ColorLook = {
   cell: number;
   /** How much darker a screened cell is than its colour. */
   depth: number;
-  /** How far the picture feathers out from the greeting and the prompter, in CSS px. */
+  /** The share of the pane's height the picture is fitted to, from the top: the part below it is
+   *  faded out anyway, so fitting the whole height would only crop the sides. */
+  cover: number;
+  /** How far the picture feathers out from the prompter's card, in CSS px. */
   feather: number;
-  /** The picture is whole above `fade[0]` and gone below `fade[1]`, as shares of the pane's height. */
+  /** The picture starts to fade `fade[0]` CSS px below the card and is gone `fade[1]` of the pane's
+   *  height below that. */
   fade: [number, number];
 };
 
 export const COLOR_LOOKS: Record<ColorLookId, ColorLook> = {
-  sky: { id: "sky", name: "Sky", image: { light: skyDay, dark: skyDusk }, cell: 2, depth: 0.3, feather: 64, fade: [0.18, 0.62] },
+  sky: { id: "sky", name: "Sky", image: { light: skyDay, dark: skyDusk }, cell: 2, depth: 0.22, cover: 0.8, feather: 32, fade: [0, 0.2] },
 };
 
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -73,6 +78,11 @@ export type GuardSample = { pixels: Uint8ClampedArray; color: [number, number, n
  * already (the chip strip's quiet ink) is held to that level instead: the picture must not make it
  * worse, and cannot make it better.
  */
+/** What the guard keeps in hand over a run's ratio, for the 8-bit mask and the canvas's
+ *  premultiplied rounding, which tell most on the dark face's deep blues: there a run the model
+ *  held at 3.1 measured 2.96 on a capture. */
+const GUARD_SPARE = 0.3;
+
 export function safeOpacity(samples: GuardSample[], ground: Rgb): number {
   const over = (c: GuardSample["color"], bg: Rgb): Rgb => [0, 1, 2].map((k) => c[k]! * c[3] + bg[k]! * (1 - c[3])) as Rgb;
   const worst = (s: GuardSample, opacity: number) => {
@@ -85,7 +95,7 @@ export function safeOpacity(samples: GuardSample[], ground: Rgb): number {
     }
     return min;
   };
-  const floors = samples.map((s) => Math.min(s.need, contrast(over(s.color, ground), ground)) - 0.005);
+  const floors = samples.map((s) => Math.min(s.need + GUARD_SPARE, contrast(over(s.color, ground), ground)) - 0.005);
   const reads = (opacity: number) => samples.every((s, i) => worst(s, opacity) >= floors[i]!);
   if (reads(1)) return 1;
   // Halve the gap to the opacity that reads, to within a percent.
@@ -103,7 +113,7 @@ const cache = new Map<string, Screened>();
 /** The image screened at `w`×`h` device px, cover-fit: worked out the first time and kept after. */
 async function screened(url: string, look: ColorLook, w: number, h: number): Promise<Screened & { cached: boolean }> {
   const cols = Math.ceil(w / look.cell), rows = Math.ceil(h / look.cell);
-  const key = `${url}|${look.cell}|${look.depth}|${cols}x${rows}`;
+  const key = `${url}|${look.cell}|${look.depth}|${look.cover}|${cols}x${rows}`;
   const hit = cache.get(key);
   if (hit) return { ...hit, cached: true };
   const img = new Image();
@@ -114,7 +124,7 @@ async function screened(url: string, look: ColorLook, w: number, h: number): Pro
   bitmap.width = cols;
   bitmap.height = rows;
   const g = bitmap.getContext("2d", { willReadFrequently: true })!;
-  const scale = Math.max(cols / img.naturalWidth, rows / img.naturalHeight);
+  const scale = Math.max(cols / img.naturalWidth, (rows * look.cover) / img.naturalHeight);
   const dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
   g.imageSmoothingQuality = "high";
   // Cover-fit from the top, so the sky's upper edge stays in the window as it narrows.
@@ -134,53 +144,108 @@ const smoothstep = (e0: number, e1: number, v: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/**
- * How much of the picture shows at (x, y), in the pane's CSS px of a pane `h` tall: whole at the
- * top, fading down the pane, none inside the calm box, and back to whole a feather's width outside
- * it. The box is a rounded rect, measured by its signed distance.
- */
-export function pictureAlpha(x: number, y: number, h: number, calm: Rect, look: Pick<ColorLook, "feather" | "fade">) {
-  const fade = 1 - smoothstep(look.fade[0] * h, look.fade[1] * h, y);
-  if (calm.w <= 0 || calm.h <= 0) return fade;
-  const r = 24;
-  const qx = Math.abs(x - (calm.x + calm.w / 2)) - calm.w / 2 + r;
-  const qy = Math.abs(y - (calm.y + calm.h / 2)) - calm.h / 2 + r;
-  const dist = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
-  return fade * smoothstep(0, look.feather, dist);
+/** How far (x, y) is outside a rounded rect of corner radius `r`, negative inside. */
+function outside(x: number, y: number, box: Rect, r: number) {
+  const qx = Math.abs(x - (box.x + box.w / 2)) - box.w / 2 + r;
+  const qy = Math.abs(y - (box.y + box.h / 2)) - box.h / 2 + r;
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
 }
 
-/** `pictureAlpha` over the pane, drawn at an eighth of its CSS size: the mask is that soft
- *  everywhere, so scaling it up loses nothing, and it costs a few thousand pixels. */
-function mask(look: ColorLook, calm: Rect, w: number, h: number) {
-  const k = 1 / 8;
+/** Where the guard lowers the picture: under `rect` it shows at `level`, rising back to whole
+ *  `reach` CSS px outside it. */
+export type Hush = { rect: Rect; level: number; reach: number };
+
+/**
+ * How much of the picture shows at (x, y), in the pane's CSS px of a pane `h` tall: whole down to
+ * just below the prompter's `card`, then fading to the ground; none inside the card, and back to
+ * whole a feather's width outside it; and lowered under each `hush`.
+ */
+export function pictureAlpha(x: number, y: number, h: number, card: Rect, look: Pick<ColorLook, "feather" | "fade">, hushes: Hush[] = []) {
+  const has = card.w > 0 && card.h > 0;
+  const from = has ? card.y + card.h + look.fade[0] : 0.4 * h;
+  let a = 1 - smoothstep(from, from + look.fade[1] * h, y);
+  if (has) a *= smoothstep(0, look.feather, outside(x, y, card, 16));
+  for (const s of hushes) {
+    if (s.level < 1) a *= s.level + (1 - s.level) * smoothstep(0, s.reach, outside(x, y, s.rect, Math.min(s.rect.h / 2, 24)));
+  }
+  return a;
+}
+
+/** `pictureAlpha` over the pane at a quarter of its CSS size: the mask has no edge sharper than
+ *  that, so scaling it up loses nothing. */
+const MASK_SCALE = 1 / 4;
+function mask(look: ColorLook, card: Rect, hushes: Hush[], w: number, h: number) {
   const m = document.createElement("canvas");
-  m.width = Math.ceil(w * k);
-  m.height = Math.ceil(h * k);
+  m.width = Math.ceil(w * MASK_SCALE);
+  m.height = Math.ceil(h * MASK_SCALE);
   const g = m.getContext("2d")!;
   const data = g.createImageData(m.width, m.height);
   for (let j = 0; j < m.height; j++) {
     for (let i = 0; i < m.width; i++) {
-      data.data[(j * m.width + i) * 4 + 3] = 255 * pictureAlpha((i + 0.5) / k, (j + 0.5) / k, h, calm, look);
+      data.data[(j * m.width + i) * 4 + 3] = 255 * pictureAlpha((i + 0.5) / MASK_SCALE, (j + 0.5) / MASK_SCALE, h, card, look, hushes);
     }
   }
   g.putImageData(data, 0, 0);
   return m;
 }
 
-export type ColorRender = { screenMs: number; composeMs: number; cached: boolean; opacity: number };
+/** A run of text the picture could sit behind. Runs that share a `group` (the greeting's words) are
+ *  lowered together, under one box, so the picture thins evenly behind the whole line. */
+export type TextRun = { rect: Rect; color: GuardSample["color"]; need: number; group: string };
+
+export type ColorRender = { screenMs: number; composeMs: number; cached: boolean; opacity: number; hushes: Hush[] };
+
+const union = (rects: Rect[]): Rect => {
+  const x0 = Math.min(...rects.map((r) => r.x)), y0 = Math.min(...rects.map((r) => r.y));
+  const x1 = Math.max(...rects.map((r) => r.x + r.w)), y1 = Math.max(...rects.map((r) => r.y + r.h));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+};
+
+/** How far a hush reaches past its text before the picture is whole again, in CSS px. */
+const HUSH_REACH = 64;
 
 /**
- * Lays the screened picture onto `canvas`, feathers it out round `calm` and down the pane, then
- * sets the canvas's opacity from the guard. `texts` reads the runs the picture could reach, in the
- * canvas's CSS px; it is asked after the mask is down, so it sees what will be behind them.
+ * Lays the screened picture onto `canvas`, feathered out round the prompter's `card` and down the
+ * pane, and hushed under the text. The guard works the hushes out first, from the screened cells
+ * and `pictureAlpha` rather than by reading the canvas back: per group of runs `texts` returns, how
+ * far the picture must come down there for every run to keep its ratio against its worst pixel.
+ * The canvas's own opacity is the backstop if a run still misses with the hushes in.
  */
-export async function paintColorBackdrop(canvas: HTMLCanvasElement, look: ColorLook, dark: boolean, calm: Rect, dpr: number,
-  ground: Rgb, texts: () => { rect: Rect; color: GuardSample["color"]; need: number }[]): Promise<ColorRender | null> {
+export async function paintColorBackdrop(canvas: HTMLCanvasElement, look: ColorLook, dark: boolean, card: Rect, dpr: number,
+  ground: Rgb, texts: () => TextRun[]): Promise<ColorRender | null> {
   const { width: w, height: h } = canvas;
   if (!w || !h) return null;
   const art = await screened(dark ? look.image.dark : look.image.light, look, w, h);
   if (canvas.width !== w || canvas.height !== h) return null;
   const start = performance.now();
+  const cells = art.bitmap.getContext("2d", { willReadFrequently: true })!;
+  const paneH = h / dpr, css = look.cell / dpr;
+  // The picture as it will land under `rect`, one entry per cell.
+  const under = (rect: Rect, hushes: Hush[]) => {
+    const c0 = Math.max(0, Math.floor(rect.x / css)), r0 = Math.max(0, Math.floor(rect.y / css));
+    const c1 = Math.min(art.bitmap.width, Math.ceil((rect.x + rect.w) / css)), r1 = Math.min(art.bitmap.height, Math.ceil((rect.y + rect.h) / css));
+    if (c1 <= c0 || r1 <= r0) return null;
+    const px = cells.getImageData(c0, r0, c1 - c0, r1 - r0).data;
+    for (let j = r0; j < r1; j++) {
+      for (let i = c0; i < c1; i++) {
+        px[((j - r0) * (c1 - c0) + i - c0) * 4 + 3] = 255 * pictureAlpha((i + 0.5) * css, (j + 0.5) * css, paneH, card, look, hushes);
+      }
+    }
+    return px;
+  };
+  const sample = (runs: TextRun[], hushes: Hush[]) => runs.flatMap((r) => {
+    const pixels = under(r.rect, hushes);
+    return pixels ? [{ pixels, color: r.color, need: r.need }] : [];
+  });
+  const runs = texts();
+  const groups = new Map<string, TextRun[]>();
+  for (const r of runs) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
+  const hushes: Hush[] = [];
+  for (const members of groups.values()) {
+    const level = safeOpacity(sample(members, []), ground);
+    if (level < 1) hushes.push({ rect: union(members.map((m) => m.rect)), level, reach: HUSH_REACH });
+  }
+  const opacity = hushes.length ? safeOpacity(sample(runs, hushes), ground) : 1;
   const g = canvas.getContext("2d")!;
   g.save();
   g.clearRect(0, 0, w, h);
@@ -188,14 +253,8 @@ export async function paintColorBackdrop(canvas: HTMLCanvasElement, look: ColorL
   g.drawImage(art.bitmap, 0, 0, art.bitmap.width * look.cell, art.bitmap.height * look.cell);
   g.imageSmoothingEnabled = true;
   g.globalCompositeOperation = "destination-in";
-  g.drawImage(mask(look, calm, w / dpr, h / dpr), 0, 0, w, h);
+  g.drawImage(mask(look, card, hushes, w / dpr, h / dpr), 0, 0, w, h);
   g.restore();
-  const samples = texts().flatMap(({ rect, color, need }) => {
-    const x = Math.max(0, Math.floor(rect.x * dpr)), y = Math.max(0, Math.floor(rect.y * dpr));
-    const rw = Math.min(w - x, Math.ceil(rect.w * dpr)), rh = Math.min(h - y, Math.ceil(rect.h * dpr));
-    return rw > 0 && rh > 0 ? [{ pixels: g.getImageData(x, y, rw, rh).data, color, need }] : [];
-  });
-  const opacity = safeOpacity(samples, ground);
   canvas.style.opacity = String(opacity);
-  return { screenMs: art.ms, composeMs: performance.now() - start, cached: art.cached, opacity };
+  return { screenMs: art.ms, composeMs: performance.now() - start, cached: art.cached, opacity, hushes };
 }

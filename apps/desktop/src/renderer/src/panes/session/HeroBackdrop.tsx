@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { BackdropRenderer, LOOKS, readPalette, resolveColor, type BackdropId, type Palette, type Rect } from "./hero-backdrop";
-import { COLOR_LOOKS, paintColorBackdrop, type ColorLookId, type ColorRender, type GuardSample } from "./hero-backdrop-color";
+import { COLOR_LOOKS, paintColorBackdrop, type ColorLookId, type ColorRender, type TextRun } from "./hero-backdrop-color";
 
 /** Phase 1 picks the look from localStorage; Settings ▸ App takes this over. Unset is off. */
 export function chosenBackdrop(): BackdropId | ColorLookId | null {
@@ -112,16 +112,24 @@ function ShaderBackdrop({ look: id }: { look: BackdropId }) {
   return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={id} />;
 }
 
-/** Every run of text outside the prompter's card that the picture could sit behind, with the ratio
- *  it needs: 3 for large text, 4.5 otherwise. Rects are in the pane's CSS px. */
-function textRuns(pane: Element) {
-  const card = pane.querySelector(".composer");
+/** The prompter, in the pane's CSS px: its card with the tabs above and the strip below, which
+ *  stand on one surface. It is the one thing the picture clears round; the greeting, laid out of
+ *  the dock's flow, is not in this box. */
+function cardRect(pane: Element, box: DOMRect): Rect | null {
+  const card = pane.querySelector(".composer-dock")?.getBoundingClientRect();
+  return card ? { x: card.left - box.left, y: card.top - box.top, w: card.width, h: card.height } : null;
+}
+
+/** Every run of text the picture could sit behind, with the ratio it needs: 3 for large text, 4.5
+ *  otherwise. The prompter's own text stands on its surface, so only the greeting's is in the dock;
+ *  its words are one group. Rects are in the pane's CSS px. */
+function textRuns(pane: Element): TextRun[] {
   const box = pane.getBoundingClientRect();
-  const runs: { rect: Rect; color: GuardSample["color"]; need: number }[] = [];
+  const runs: TextRun[] = [];
   const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const el = n.parentElement;
-    if (!n.textContent?.trim() || !el || card?.contains(el)) continue;
+    if (!n.textContent?.trim() || !el || (el.closest(".composer-dock") && !el.closest(".hero-greeting"))) continue;
     const cs = getComputedStyle(el);
     if (cs.visibility === "hidden" || cs.display === "none") continue;
     const size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight) || 400;
@@ -130,9 +138,10 @@ function textRuns(pane: Element) {
     range.selectNodeContents(n);
     const alpha = Number(/rgba?\([^)]*,\s*([\d.]+)\)/.exec(cs.color)?.[1] ?? 1) * Number(cs.opacity);
     const [r, g, b] = resolveColor(cs.color);
+    const group = el.closest(".hero-greeting") ? "greeting" : String(runs.length);
     for (const rect of range.getClientRects()) {
       if (rect.width < 1 || rect.height < 1) continue;
-      runs.push({ rect: { x: rect.left - box.left, y: rect.top - box.top, w: rect.width, h: rect.height }, color: [r, g, b, alpha], need });
+      runs.push({ rect: { x: rect.left - box.left, y: rect.top - box.top, w: rect.width, h: rect.height }, color: [r, g, b, alpha], need, group });
     }
   }
   return runs;
@@ -154,7 +163,7 @@ function ColorBackdrop({ look: id }: { look: ColorLookId }) {
     const root = document.documentElement;
     const profile = window.localStorage?.getItem("realm.heroBackdropProfile") === "1";
     const renders: ColorRender[] = [];
-    if (profile) Object.assign(window, { __heroBackdrop: { renders } });
+    if (profile) Object.assign(window, { __heroBackdrop: { renders, runs: () => textRuns(pane) } });
     let disposed = false;
     let pending = false;
     let drawn = "";
@@ -169,13 +178,14 @@ function ColorBackdrop({ look: id }: { look: ColorLookId }) {
       const w = Math.round(box.width * dpr), h = Math.round(box.height * dpr);
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       const pal: Palette = readPalette(root);
-      const calm = calmRect(pane, box) ?? { x: 0, y: 0, w: 0, h: 0 };
-      // The dock's box changes as its tabs' text does; only a real move of it, a new size or a new
-      // face draws again.
-      const key = JSON.stringify([w, h, pal, Math.round(calm.x), Math.round(calm.y), Math.round(calm.w), Math.round(calm.h)]);
+      const card = cardRect(pane, box) ?? { x: 0, y: 0, w: 0, h: 0 };
+      // The dock's box changes as its tabs' text does; only a real move of the card or the greeting
+      // (which reflows on its own as its words change or wrap), a new size or a new face draws again.
+      const words = pane.querySelector(".hero-greeting")?.getBoundingClientRect();
+      const key = JSON.stringify([w, h, pal, [card.x, card.y, card.w, card.h, words?.left, words?.top, words?.width, words?.height].map((v) => Math.round(v ?? 0))]);
       if (key === drawn) return;
       drawn = key;
-      const done = await paintColorBackdrop(canvas, look, pal.dark, calm, dpr, pal.ground, () => textRuns(pane));
+      const done = await paintColorBackdrop(canvas, look, pal.dark, card, dpr, pal.ground, () => textRuns(pane));
       if (done && profile) renders.push(done);
     };
     const refresh = () => void draw();
@@ -183,6 +193,8 @@ function ColorBackdrop({ look: id }: { look: ColorLookId }) {
     resize.observe(pane);
     const dock = pane.querySelector(".composer-dock");
     if (dock) resize.observe(dock);
+    const greeting = pane.querySelector(".hero-greeting");
+    if (greeting) resize.observe(greeting);
     dock?.addEventListener("transitionend", refresh);
     const watch = new MutationObserver(refresh);
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "style"] });

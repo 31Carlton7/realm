@@ -101,112 +101,184 @@ def smoothstep(e0, e1, v):
     return t * t * (3 - 2 * t)
 
 
-def puffs(rng):
-    """Where the cumulus sits: a bank heaped in each top corner and spilling down its side, a few
-    smaller heaps between, and the middle of the sky left open. Each puff is (x, y, radius, lean,
-    lift): `lean` is which way its light comes from (+1 from the right), `lift` how far into the light
-    it stands, from 0 deep in a bank to 1 on its sunlit rim. Back to front."""
-    out = []
-    for side in (0, 1):
-        # The bank's core: a few big puffs. Its rim: many small ones round the core's edge, toward the
-        # open sky, which is the edge the light lands on.
-        core = []
-        for _ in range(9):
-            t = rng.random()
-            x, y = W * (0.02 + 0.16 * rng.random() * (1.2 - t)), H * (0.02 + 0.8 * t**1.3)
-            r = W * (0.07 + 0.05 * rng.random()) * (1.1 - 0.5 * t)
-            core.append((x, y, r))
-            out.append((x, y, r, 0.15))
-        for _ in range(160):
-            cx, cy, cr = core[rng.integers(len(core))]
-            ang = rng.uniform(-np.pi * 0.95, np.pi * 0.35)
-            d = cr * rng.uniform(0.75, 1.15)
-            x, y = cx + np.cos(ang) * d, cy + np.sin(ang) * d
-            r = cr * rng.uniform(0.18, 0.45)
-            lift = 0.5 + 0.5 * np.cos(ang + np.pi * 0.3)
-            out.append((x, y, r, lift))
-        if side:
-            out[-169:] = [(W - x, y, r, lift) for x, y, r, lift in out[-169:]]
-        out[-169:] = [(x, y, r, lift, -1 if side else 1) for x, y, r, lift in out[-169:]]
-    for cx, cy, n, size in [(0.40, 0.20, 12, 0.016), (0.63, 0.13, 10, 0.014), (0.52, 0.50, 16, 0.02)]:
-        for _ in range(n):
-            x = W * (cx + (rng.random() - 0.5) * 0.12)
-            out.append((x, H * (cy + (rng.random() - 0.5) * 0.05), W * size * (0.6 + rng.random()), 0.6, 1 if x < W / 2 else -1))
-    out.sort(key=lambda p: p[1] - p[2] * 0.3)
-    return out
+def sample(tex, u, v):
+    """`tex` read bilinearly at (u, v) in texels, wrapping round in both directions."""
+    th, tw = tex.shape
+    u0, v0 = np.floor(u).astype(int), np.floor(v).astype(int)
+    fu, fv = u - u0, v - v0
+    a, b = tex[v0 % th, u0 % tw], tex[v0 % th, (u0 + 1) % tw]
+    c, d = tex[(v0 + 1) % th, u0 % tw], tex[(v0 + 1) % th, (u0 + 1) % tw]
+    return (a * (1 - fu) + b * fu) * (1 - fv) + (c * (1 - fu) + d * fu) * fv
 
 
-def clouds(rng, rgb, lit, warm, shade):
-    """Paints the puffs onto `rgb` one by one, back to front. A puff is a soft disc with a ragged
-    edge, lit across its face: `lit` where it turns to the light, `warm` across the middle and `shade`
-    on the side away from it, so heaped puffs read as one billowing cloud."""
-    edge = fbm(rng, W, H, base=24, octaves=4, gain=0.6)
-    grain = fbm(rng, W, H, base=60, octaves=3, gain=0.6)
-    for px, py, r, lift, lean in puffs(rng):
-        x0, x1 = max(0, int(px - r * 1.3)), min(W, int(px + r * 1.3))
-        y0, y1 = max(0, int(py - r * 1.3)), min(H, int(py + r * 1.3))
+def cumulus(rng, x, y, r, depth, out, base=None, z=0.0):
+    """A heap of puffs, each with smaller ones on the half of its rim above the cloud's flat base:
+    three or four scales of billow, like a cauliflower. Appends (x, y, r, depth toward the viewer) to
+    `out`, a child standing a little in front of its parent."""
+    base = y + r * 0.55 if base is None else base
+    out.append((x, y, r, z))
+    if depth == 0:
+        return
+    for _ in range(int(rng.integers(5, 10)) if depth > 1 else int(rng.integers(3, 6))):
+        ang = rng.uniform(-np.pi * 1.1, np.pi * 0.1)
+        d = r * rng.uniform(0.75, 1.0)
+        cx, cy = x + np.cos(ang) * d, y + np.sin(ang) * d
+        if cy > base:
+            continue
+        cumulus(rng, cx, cy, r * rng.uniform(0.3, 0.6), depth - 1, out, base, z + r * rng.uniform(0.0, 0.5))
+
+
+def billows(rgb, puffs, light, lit, warm, shade, deep, haze=0.0, horizon=None, erode=None):
+    """Paints `puffs` (x, y, r, depth) as one cloud: each puff a sphere, the nearest one winning each
+    pixel, so the outline is a run of crisp scallops. A puff is shaded by how far its surface turns
+    to `light` (a 3D direction, x right, y down, z toward the viewer): `lit` where it faces it, through
+    `warm` and `shade`, to `deep` where it turns away."""
+    z = np.full((H, W), -1e9, np.float32)
+    nx, ny, nz = (np.zeros((H, W), np.float32) for _ in range(3))
+    cover = np.zeros((H, W), np.float32)
+    for px, py, r, pz in puffs:
+        x0, x1 = max(0, int(px - r * 1.2)), min(W, int(px + r * 1.2) + 1)
+        y0, y1 = max(0, int(py - r * 1.2)), min(H, int(py + r * 1.2) + 1)
         if x0 >= x1 or y0 >= y1:
             continue
-        y, x = np.mgrid[y0:y1, x0:x1].astype(np.float32)
-        dx, dy = (x - px) / r, (y - py) / r
-        dist = np.sqrt(dx * dx + dy * dy) + (edge[y0:y1, x0:x1] - 0.5) * 0.8
-        a = smoothstep(1.0, 0.72, dist) * (0.85 + 0.15 * lift)
-        # Light across the face from above and the open side, brighter for a puff out on the rim; the
-        # underside of each stays in shade.
-        face_t = 0.55 * (dx * 0.6 * lean - dy * 0.8) - 0.3 * np.clip(dy, 0, 1)
-        t = np.clip(0.2 + 0.55 * lift + face_t + (grain[y0:y1, x0:x1] - 0.5) * 0.3 - 0.25 * (py / H), 0, 1)[..., None]
-        face = np.where(t < 0.5, np.array(shade) * (1 - t * 2) + np.array(warm) * t * 2,
-                        np.array(warm) * (2 - t * 2) + np.array(lit) * (t * 2 - 1))
-        rgb[y0:y1, x0:x1] = rgb[y0:y1, x0:x1] * (1 - a[..., None]) + face * a[..., None]
-    return rgb
+        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        dx, dy = (xx - px) / r, (yy - py) / r
+        d = np.sqrt(dx * dx + dy * dy)
+        if erode is not None:
+            d = d + (erode[y0:y1, x0:x1] - 0.5) * 0.35
+        dome = np.sqrt(np.clip(1 - d * d, 0, 1))
+        zz = pz + r * dome
+        win = (d < 1) & (zz > z[y0:y1, x0:x1])
+        z[y0:y1, x0:x1] = np.where(win, zz, z[y0:y1, x0:x1])
+        nx[y0:y1, x0:x1] = np.where(win, dx, nx[y0:y1, x0:x1])
+        ny[y0:y1, x0:x1] = np.where(win, dy, ny[y0:y1, x0:x1])
+        nz[y0:y1, x0:x1] = np.where(win, dome, nz[y0:y1, x0:x1])
+        cover[y0:y1, x0:x1] = np.maximum(cover[y0:y1, x0:x1], smoothstep(1.0, 0.9, d))
+    lx, ly, lz = np.array(light, np.float32) / np.linalg.norm(light)
+    t = 0.5 + 0.8 * (nx * lx + ny * ly + nz * lz)
+    # Cloud between a puff and the light keeps the light off it: lit from above, the lower part of a
+    # heap sits in its own shadow, and lit from below, the upper part.
+    near = blur(cover, 40)
+    if ly < 0:
+        near = np.concatenate([near[:1].repeat(70, 0), near[:-70]])
+    else:
+        near = np.concatenate([near[70:], near[-1:].repeat(70, 0)])
+    t = t - 0.3 * near
+    # Banded like a painting rather than smooth like a render: the tone steps between four values,
+    # with a short ramp at each step.
+    q = t * 4
+    t = np.clip((np.floor(q) + smoothstep(0.35, 0.65, q - np.floor(q))) / 4 * 0.75 + t * 0.25, 0, 1)[..., None]
+    lit, warm, shade, deep = (np.array(c, np.float32) for c in (lit, warm, shade, deep))
+    face = np.where(t < 0.35, deep + (shade - deep) * (t / 0.35),
+           np.where(t < 0.68, shade + (warm - shade) * ((t - 0.35) / 0.33), warm + (lit - warm) * ((t - 0.68) / 0.32)))
+    if horizon is not None and haze:
+        face = face * (1 - haze) + np.array(horizon, np.float32) * haze
+    a = cover[..., None]
+    return rgb * (1 - a) + face * a
 
 
-def wisps(rng):
-    """Thin streaks across the open middle, drawn long and flat like a brush dragged sideways."""
-    n = fbm(rng, W // 10, H, base=4, octaves=5)
-    n = np.asarray(Image.fromarray((n * 255).astype(np.uint8)).resize((W, H), Image.BICUBIC), np.float32) / 255
-    v = np.mgrid[0:H, 0:W][0].astype(np.float32) / H
-    u = np.mgrid[0:H, 0:W][1].astype(np.float32) / W
-    return smoothstep(0.5, 0.78, n) * np.exp(-(((v - 0.30 - 0.12 * np.abs(u - 0.5)) / 0.14) ** 2))
+def cirrus(rng, vanish, reach):
+    """Streaks drawn out from a point low in the sky, as high cloud looks in perspective: a noise
+    texture laid in (angle, log distance) round `vanish`, long along the distance and tight across."""
+    tex = fbm(rng, 1024, 128, base=140, octaves=3, gain=0.5)
+    patch = fbm(rng, 512, 256, base=5, octaves=3)
+    y, x = np.mgrid[0:H, 0:W].astype(np.float32)
+    dx, dy = x - vanish[0], y - vanish[1]
+    ang = np.arctan2(dy, dx)
+    rr = np.sqrt(dx * dx + dy * dy) + 1
+    warp = sample(fbm(rng, 256, 256, base=4, octaves=3), x / 6, y / 6) - 0.5
+    u = (ang / (2 * np.pi)) * 1024 * 2 + warp * 40
+    v = np.log(rr) * 12 + warp * 4
+    n = sample(tex, u, v)
+    # Broken along their length, like paint dragged dry.
+    gaps = sample(patch, u * 0.25, np.log(rr) * 90)
+    streak = smoothstep(0.58, 0.63, n) * smoothstep(0.42, 0.55, gaps)
+    up = smoothstep(vanish[1] - 20, vanish[1] - reach, y)
+    near = smoothstep(80, 320, rr)
+    return streak * up * near
 
 
-def paint(rgb, radius=3):
+def rays(rng, sun, length):
+    """Soft shafts of light fanning out from the sun."""
+    y, x = np.mgrid[0:H, 0:W].astype(np.float32)
+    dx, dy = x - sun[0], y - sun[1]
+    ang = np.arctan2(dy, dx)
+    rr = np.sqrt(dx * dx + dy * dy)
+    tex = fbm(rng, 720, 4, base=60, octaves=3)[1]
+    s = sample(tex[None, :].repeat(2, 0), (ang / (2 * np.pi) + 0.5) * 720, np.zeros_like(ang))
+    return smoothstep(0.52, 0.75, s) * np.exp(-rr / length) * smoothstep(0, 120, rr)
+
+
+def paint(rgb, radius=2):
     """A painted finish: a mode filter flattens small areas into strokes of one colour, and a short
     blur softens where the strokes meet."""
     img = Image.fromarray(np.clip(rgb * 255, 0, 255).astype(np.uint8))
-    img = img.filter(ImageFilter.ModeFilter(radius * 2 + 1)).filter(ImageFilter.GaussianBlur(1.2))
+    img = img.filter(ImageFilter.ModeFilter(radius * 2 + 1)).filter(ImageFilter.GaussianBlur(0.7))
     return np.asarray(img, np.float32) / 255
 
 
-def sky(name, seed, top, horizon, lit, warm, shade, stars=0.0):
-    """A sky with banks of cumulus, lit from the upper right. `top` and `horizon` are the sky's
-    gradient; a cloud's face runs from `shade` in its hollows through `warm` to `lit` where the light
-    lands on it."""
+def sky(seed, top, mid, horizon, glow, lit, warm, shade, deep, streak, light, wisp=0.7, stars=0.0):
+    """A painted sky in four layers, back to front: a gradient from `top` through `mid` to `horizon`
+    with a glow round a sun low in the middle and shafts from it; cirrus fanned out above the sun; a
+    low bank of small cloud along the horizon; and towers of cumulus up both sides with a few loose
+    heaps between. Every cloud is lit from the sun: `lit` on the rims facing it, through `warm` and
+    `shade`, to `deep` on the far side of `light`."""
     rng = np.random.default_rng(seed)
-    v = np.mgrid[0:H, 0:W][0].astype(np.float32)[..., None] / H
-    base = np.array(top) * (1 - v**0.8) + np.array(horizon) * v**0.8
+    y, x = np.mgrid[0:H, 0:W].astype(np.float32)
+    v = (y / H)[..., None]
+    sun = (W * 0.5, H * 0.66)
+    top, mid, horizon = (np.array(c, np.float32) for c in (top, mid, horizon))
+    rgb = np.where(v < 0.45, top + (mid - top) * smoothstep(0, 0.45, v), mid + (horizon - mid) * smoothstep(0.45, 0.8, v))
+    d = np.sqrt(((x - sun[0]) / W) ** 2 + ((y - sun[1]) / H * 0.8) ** 2)[..., None]
+    rgb = rgb + np.array(glow, np.float32) * np.exp(-((d / 0.32) ** 2))
     if stars:
-        s = (rng.random((H, W)) > 0.9993).astype(np.float32) * rng.random((H, W))
-        base = base + blur(s, 0.8)[..., None] * stars * 6 * (1 - v)
-    out = np.ascontiguousarray(np.broadcast_to(base, (H, W, 3))).astype(np.float32)
-    w = wisps(rng)[..., None]
-    out = out * (1 - w * 0.75) + np.array(warm) * w * 0.75
-    out = clouds(rng, out, lit, warm, shade)
-    return paint(np.clip(out, 0, 1))
+        # Their own stream, so the dusk sky's clouds fall where the day sky's do.
+        star = np.random.default_rng(seed + 1)
+        s = (star.random((H, W)) > 0.9993).astype(np.float32) * (0.5 + 0.5 * star.random((H, W)))
+        rgb = rgb + blur(s, 0.9)[..., None] * stars * 14 * (1 - v) ** 2
+    rgb = rgb + np.array(glow, np.float32) * 0.25 * rays(rng, sun, W * 0.45)[..., None]
 
+    c = cirrus(rng, (W * 0.5, H * 0.62), H * 0.5)[..., None]
+    rgb = rgb * (1 - c * wisp) + np.array(streak, np.float32) * c * wisp
+
+    erode = fbm(rng, W, H, base=60, octaves=3, gain=0.6)
+    # The far bank: small heaps along the horizon, hazed toward it.
+    far = []
+    for i in range(26):
+        fx = W * (i / 25 + rng.uniform(-0.02, 0.02))
+        cumulus(rng, fx, H * rng.uniform(0.56, 0.64), W * rng.uniform(0.018, 0.03), 2, far)
+    rgb = billows(rgb, far, light, lit, warm, shade, deep, haze=0.45, horizon=horizon, erode=erode)
+
+    # The towers, a little in from each edge, and loose heaps in the upper sky.
+    near = []
+    for side in (-1, 1):
+        for j in range(9):
+            t = j / 8
+            bulge = 4 * t * (1 - t)
+            cx = W * 0.5 + side * W * (0.52 - 0.06 * bulge - rng.uniform(0, 0.05))
+            cumulus(rng, cx, H * (0.02 + 0.62 * t), W * (0.085 - 0.04 * t) * rng.uniform(0.8, 1.2), 3, near)
+    for hx, hy, hr in [(0.30, 0.17, 0.035), (0.40, 0.10, 0.028), (0.66, 0.15, 0.03), (0.75, 0.30, 0.022), (0.24, 0.36, 0.02)]:
+        cumulus(rng, W * hx, H * hy, W * hr, 3, near)
+    rgb = billows(rgb, near, light, lit, warm, shade, deep, erode=erode)
+    return paint(np.clip(rgb, 0, 1))
 
 
 def sky_day():
-    """A pastel afternoon: cornflower blue overhead, paling toward the horizon, pink and peach cloud."""
-    save("sky-day.jpg", sky("day", 31, top=(0.42, 0.56, 0.94), horizon=(0.80, 0.84, 0.98),
-                            lit=(1.0, 0.93, 0.84), warm=(0.98, 0.70, 0.80), shade=(0.56, 0.54, 0.86)))
+    """A pastel afternoon: deep cornflower overhead, paling to near white at the horizon, the clouds
+    peach-white where the sun lands, pink across the middle and lavender underneath."""
+    save("sky-day.jpg", sky(31, top=(0.30, 0.42, 0.88), mid=(0.55, 0.66, 0.96), horizon=(0.93, 0.92, 0.97),
+                            glow=(0.10, 0.06, 0.02), lit=(1.0, 0.95, 0.86), warm=(0.98, 0.68, 0.78),
+                            shade=(0.66, 0.56, 0.86), deep=(0.44, 0.44, 0.80), streak=(0.98, 0.80, 0.88),
+                            light=(0.0, -0.75, 0.55)))
 
 
 def sky_dusk():
-    """The same sky after sunset: deep blue overhead into violet, the clouds violet with a lilac rim
-    where the last light catches them, and a few stars."""
-    save("sky-dusk.jpg", sky("dusk", 31, top=(0.04, 0.07, 0.22), horizon=(0.17, 0.15, 0.38),
-                             lit=(0.80, 0.58, 0.80), warm=(0.36, 0.30, 0.62), shade=(0.11, 0.12, 0.32), stars=0.6))
+    """The same sky after sunset: deep blue overhead into violet, the clouds caught pink and lilac from
+    below by the last light, and a few stars."""
+    save("sky-dusk.jpg", sky(31, top=(0.04, 0.06, 0.20), mid=(0.12, 0.12, 0.34), horizon=(0.32, 0.22, 0.46),
+                             glow=(0.16, 0.06, 0.10), lit=(0.80, 0.54, 0.74), warm=(0.46, 0.34, 0.62),
+                             shade=(0.24, 0.20, 0.46), deep=(0.10, 0.10, 0.28), streak=(0.66, 0.46, 0.72),
+                             light=(0.35, 0.6, 0.3), wisp=0.4, stars=0.6))
 
 
 DRAW = {"haze": [haze], "dunes": [dunes], "silk": [silk], "sky": [sky_day, sky_dusk]}
