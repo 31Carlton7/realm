@@ -124,6 +124,12 @@ describe("surfaces no agent may act in", () => {
     expect(row).toContain('noAgent: "element picker"');
   });
 
+  it("keeps the prompter's permission rungs from agents — on a teammate's chat a rung sets the teammate and its tasks", () => {
+    const row = readFileSync(repoFile("apps/desktop/src/renderer/src/panes/session/Composer.tsx"), "utf8")
+      .split("\n").find((line) => line.includes("checked: current === m.id"));
+    expect(row).toContain('noAgent: "permission mode"');
+  });
+
   it("names the attribute main actually looks for", () => {
     // THE MUTANT: change the constant. Every component would keep its now-meaningless attribute and
     // every one of these surfaces would silently become clickable.

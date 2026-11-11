@@ -1156,10 +1156,11 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
      writes the park — the value returning to Build will restore — because that is the only real,
      settable thing behind the label there. The bypass confirm is on both paths deliberately: a
      "Full access" chosen in Plan is still a full-access session the moment the plan is approved, and
-     a gate you can walk around by being in the right mode is not a gate. */
+     a gate you can walk around by being in the right mode is not a gate. No agent may pick a rung
+     either: on a teammate's chat the mode is the teammate's, and its tasks follow it. */
   const buildPermissionItems = (current: string, apply: (id: string) => void) =>
     PERMISSION_MODES.map((m) => ({
-      label: m.label, checked: current === m.id, icon: <Icon name={permissionIcon(m.id)} size={14} />,
+      label: m.label, checked: current === m.id, icon: <Icon name={permissionIcon(m.id)} size={14} />, noAgent: "permission mode",
       onSelect: () => {
         if (m.id === "bypassPermissions" && current !== "bypassPermissions") { setConfirmBypass(true); return; }
         setConfirmBypass(false);

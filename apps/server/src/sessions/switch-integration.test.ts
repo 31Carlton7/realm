@@ -150,8 +150,8 @@ describe("sessions.switchAgent", () => {
   });
 });
 
-describe("a model or level picked on a teammate's chat", () => {
-  it("is saved to the teammate, and nothing else the chat's chips set is", async () => {
+describe("a model, level or mode picked on a teammate's chat", () => {
+  it("is saved to the teammate", async () => {
     const { c, sp } = await setup();
     const mate = (await c.call("teammates.create", { spaceId: sp.id, name: "Reviewer", brief: "Reviews.", agentKind: "fake", model: "fake-1", permissionMode: "default" })).result;
     const { sessionId } = (await c.call("teammates.home", { id: mate.id })).result;
@@ -161,7 +161,7 @@ describe("a model or level picked on a teammate's chat", () => {
     await c.call("sessions.setOptions", { id: sessionId, model: "fake-2" });
     await c.call("sessions.setOptions", { id: sessionId, effort: "high" });
     await c.call("sessions.setOptions", { id: sessionId, permissionMode: "acceptEdits" });
-    expect((await c.call("teammates.get", { id: mate.id })).result).toMatchObject({ model: "fake-2", effort: "high", permissionMode: "default", homeSessionId: sessionId });
+    expect((await c.call("teammates.get", { id: mate.id })).result).toMatchObject({ model: "fake-2", effort: "high", permissionMode: "acceptEdits", homeSessionId: sessionId });
     expect((await c.call("sessions.get", { id: sessionId })).result).toMatchObject({ model: "fake-2", effort: "high", permissionMode: "acceptEdits" });
     c.close();
   });

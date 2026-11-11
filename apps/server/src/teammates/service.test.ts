@@ -6,6 +6,7 @@ import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { waitFor } from "../test-utils";
+import { TeammatesStore } from "./store";
 
 /**
  * Teammates over the real app with the scripted agent: each owns a chat that is an ordinary session,
@@ -300,7 +301,8 @@ describe("what a teammate starts", () => {
   it("is never hidden: it carries the teammate, leads with its handle, and runs in the teammate's mode", async () => {
     const { spaceId, make } = await boot();
     const cto = make("CTO", { permissionMode: "acceptEdits" });
-    // The person set its chat's chip lower; the task still runs as the teammate does.
+    // Its chat set lower on its own, not through the chip (which sets the teammate); the task still
+    // runs as the teammate does.
     await app.sessions.setOptions(cto.homeSessionId!, { permissionMode: "default" });
     await app.team.message(cto.id, "start a task");
     await waitFor(() => app.sessions.listAll().some((s) => s.dispatchedBy?.sessionId === cto.homeSessionId));
@@ -366,7 +368,7 @@ describe("a teammate's access, changed", () => {
   it("holds the calls its tasks make after it is lowered, and leaves what they already did", async () => {
     const { make } = await boot();
     const cto = make("CTO", { permissionMode: "bypassPermissions" });
-    // The person lowered the chat's chip, which leaves the teammate's own mode where it was.
+    // Its chat lowered on its own, not through the chip, so the teammate's own mode stays where it was.
     await app.sessions.setOptions(cto.homeSessionId!, { permissionMode: "default" });
     await app.team.message(cto.id, "start the release");
     await waitFor(() => !!taskOf(cto.homeSessionId!, "release"));
@@ -421,6 +423,63 @@ describe("a teammate's access, changed", () => {
   }, 20_000);
 });
 
+describe("the permission chip on a teammate's chat", () => {
+  const chip = (id: string, permissionMode: string) => app.rpc.call("sessions.setOptions", { id, permissionMode });
+
+  it("sets the teammate: raised to Full access, its tasks follow and the cards they wait on are answered", async () => {
+    const { make } = await boot();
+    const cto = make("CTO");
+    await app.team.message(cto.id, "start the checks");
+    await waitFor(() => { const t = taskOf(cto.homeSessionId!, "migration"); return !!t && openCards(t.id).length === 1; }, { timeout: 10_000 });
+    const migration = taskOf(cto.homeSessionId!, "migration")!;
+
+    await chip(cto.homeSessionId!, "bypassPermissions");
+    expect(app.team.get(cto.id).permissionMode).toBe("bypassPermissions");
+    expect(app.sessions.get(migration.id).permissionMode).toBe("bypassPermissions");
+    expect(answers(migration.id)).toEqual(["allow"]);
+    await waitFor(() => events(migration.id).some((e) => e.type === "tool_result" && e.payload.content === "reversible"));
+  }, 20_000);
+
+  it("on a task session changes that task alone", async () => {
+    const { make } = await boot();
+    const cto = make("CTO");
+    await app.team.message(cto.id, "start a survey");
+    await waitFor(() => !!taskOf(cto.homeSessionId!, "survey"));
+    const task = taskOf(cto.homeSessionId!, "survey")!;
+
+    await chip(task.id, "acceptEdits");
+    expect(app.sessions.get(task.id).permissionMode).toBe("acceptEdits");
+    expect(app.team.get(cto.id).permissionMode).toBe("default");
+    expect(app.sessions.get(cto.homeSessionId!).permissionMode).toBe("default");
+  }, 20_000);
+
+  it("writes the teammate once, and the mode carried back to its chat writes nothing more", async () => {
+    const { make } = await boot();
+    const cto = make("CTO");
+    await app.team.message(cto.id, "start a survey");
+    await waitFor(() => !!taskOf(cto.homeSessionId!, "survey"));
+    const writes = vi.spyOn(TeammatesStore.prototype, "update");
+
+    await chip(cto.homeSessionId!, "acceptEdits");
+    await waitFor(() => app.sessions.get(taskOf(cto.homeSessionId!, "survey")!.id).permissionMode === "acceptEdits");
+    expect(writes.mock.calls.filter(([id]) => id === cto.id)).toEqual([[cto.id, { permissionMode: "acceptEdits" }]]);
+    writes.mockRestore();
+  }, 20_000);
+
+  it("never raises a task above the session that started it, or above what it asked for", async () => {
+    const { make } = await boot({ maxDepth: 2 });
+    const cto = make("CTO");
+    await app.team.message(cto.id, "start the pair");
+    await waitFor(() => !!taskOf(cto.homeSessionId!, "free") && !!taskOf(cto.homeSessionId!, "held") && !!taskOf(cto.homeSessionId!, "nested"), { timeout: 10_000 });
+    const [free, held, nested] = ["free", "held", "nested"].map((t) => taskOf(cto.homeSessionId!, t)!);
+
+    await chip(cto.homeSessionId!, "bypassPermissions");
+    expect(app.sessions.get(free!.id).permissionMode).toBe("bypassPermissions");
+    expect(app.sessions.get(held!.id).permissionMode).toBe("default");
+    expect(app.sessions.get(nested!.id).permissionMode).toBe("default");
+  }, 20_000);
+});
+
 describe("a teammate's clock", () => {
   /** The clock's next occurrence is now, and the scheduler's minute has come. */
   const due = (scheduleId: string) => {
@@ -434,7 +493,7 @@ describe("a teammate's clock", () => {
     const ops = make("Ops", { permissionMode: "acceptEdits", schedule: { cron: "0 8 * * 1" } });
     expect(ops.schedule).toMatchObject({ cron: "0 8 * * 1", prompt: "Do your scheduled work.", enabled: true, lastRunAt: null });
     expect(ops.schedule!.nextRunAt).toBeGreaterThan(Date.now());
-    // The person set the chat's chip lower; the clock's turn runs as the teammate does.
+    // Its chat set lower on its own, not through the chip; the clock's turn runs as the teammate does.
     await app.sessions.setOptions(ops.homeSessionId!, { permissionMode: "default" });
     const broadcast = app.rpc.broadcast.bind(app.rpc);
     const said: string[] = [];
