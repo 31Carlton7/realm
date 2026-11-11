@@ -7,7 +7,7 @@ import {
 import { attachTextContextMenu } from "./text-context-menu";
 import { PAGE_BUSY, TypedSince } from "./page-busy";
 import { bothReads, coverFields, fitWithin, pageFields, SECRET_FIELDS, WITHHELD } from "./phone-frame";
-import { refuseCapture } from "./capture-guard";
+import { guardPanePermissions } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
@@ -560,7 +560,7 @@ export function applyBrowserUserAgent(partition: string): void {
   app.userAgentFallback = browserUserAgent(app.userAgentFallback);
   const ses = session.fromPartition(partition);
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()));
-  refuseCapture(ses);
+  guardPanePermissions(ses);
 }
 
 
