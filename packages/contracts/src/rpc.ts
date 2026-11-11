@@ -37,7 +37,7 @@ import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchem
 import { PlanLimitsSchema } from "./plan-limits";
 import { AccountSchema } from "./accounts";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
-import { CreateTeammateSchema, ReorderTeammatesSchema, TeamAccessModeSchema, TeamAccessSchema, TeammateSchema, TeammateTaskSessionSchema, UpdateTeammateSchema } from "./teammates";
+import { CreateTeammateSchema, ReorderTeammatesSchema, TeamAccessModeSchema, TeamAccessSchema, TeammatePermissionModeSchema, TeammateSchema, TeammateTaskSessionSchema, UpdateTeammateSchema } from "./teammates";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -1750,6 +1750,9 @@ export const Methods = {
   /** The person's message to a teammate: a turn in its home session (made now when it has none),
    *  queued behind a live turn. */
   "teammates.message": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: z.object({ sessionId: IdSchema }) },
+  /** The Undo on a `team_set_access` line: puts the teammate back on `from`, when it is still on `to`.
+   *  The person's alone, like `teams.access.set`. */
+  "teammates.undoAccess": { params: z.object({ id: IdSchema, from: TeammatePermissionModeSchema, to: TeammatePermissionModeSchema }), result: TeammateSchema },
   /** Every session it started, and the ones handed on from them, newest first — its page's list. */
   "teammates.sessions": { params: z.object({ id: IdSchema }), result: z.array(TeammateTaskSessionSchema) },
   /** A space's Team access (`TeamAccessSchema`): its setting, and each teammate's mode. */

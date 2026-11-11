@@ -1,8 +1,8 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import {
-  TEAMMATE_CLOCK_TURN_MS, TEAMMATE_PERMISSION_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
-  type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type TeamAccess, type TeamAccessMode, type Teammate,
+  TEAMMATE_CLOCK_TURN_MS, TEAMMATE_PERMISSION_MODES, TEAM_ACCESS_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, TeamSetAccessArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
+  sessionEvent, type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type TeamAccess, type TeamAccessMode, type Teammate,
   type TeammatePermissionMode, type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
 } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -12,7 +12,7 @@ import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import { modelNameOf } from "../sessions/handover";
 import type { SessionService } from "../sessions/service";
-import { childPermissionMode, rank } from "../delegation/dispatch";
+import { childPermissionMode, modeLabel, rank } from "../delegation/dispatch";
 import type { DelegationEngine, ActiveRun } from "../delegation/engine";
 import type { ScheduleService } from "../schedules/service";
 import type { EnvironmentsStore } from "../store/environments";
@@ -90,7 +90,8 @@ export class TeammatesService {
     store: TeammatesStore;
     spaces: Pick<SpacesStore, "get">;
     environments: Pick<EnvironmentsStore, "ensurePrimary" | "ensureAt">;
-    sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf" | "queuedFor" | "interrupt" | "probeCached" | "listAll" | "allowOpenPermissions">;
+    sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf" | "queuedFor" | "interrupt" | "probeCached" | "listAll" | "allowOpenPermissions"
+      | "publishServerEvent" | "personStartedTurn">;
     engine: Pick<DelegationEngine, "begin" | "end" | "awaitAnswer" | "parentInterrupted">;
     schedules: Pick<ScheduleService, "forTeammate" | "setForTeammate">;
     rpc: Pick<RpcServer, "broadcast">;
@@ -336,7 +337,7 @@ export class TeammatesService {
   /** The person's message: a turn in its home session, made now when it has none. */
   async message(id: string, text: string): Promise<{ sessionId: string }> {
     const sessionId = this.ensureHome(id);
-    await this.d.sessions.send(sessionId, { text, attachments: [] });
+    await this.d.sessions.send(sessionId, { text, attachments: [], byPerson: true });
     return { sessionId };
   }
 
@@ -678,7 +679,7 @@ export class TeammatesService {
       if (row.homeSessionId === source.id) { out.push(clean); continue; }
       try {
         const home = this.ensureHome(row.id);
-        await this.d.sessions.send(home, { text: said, attachments: [],
+        await this.d.sessions.send(home, { text: said, attachments: [], byPerson: true,
           note: `\n\n[Realm] The person wrote this in another session, "${clip(source.title, 80)}" (${sessionLink(source.id)}), and named you in it. Answer here, in your own chat.` }, "queue");
         out.push({ ...clean, sessionId: home, delivered: true });
       } catch (e) {
@@ -768,6 +769,86 @@ export class TeammatesService {
       this.waits.delete(edge);
       this.d.engine.end(sender.id, run);
     }
+  }
+
+  /**
+   * `team_set_access`: the Lead puts a teammate, or itself, on another mode, through
+   * `setPermissionMode`, when the person asked for it. Refused, with nothing changed, unless all hold:
+   * the caller is the space's Lead in its own chat; the turn it is on is the person's
+   * (`SessionService.personStartedTurn`), not one a teammate, a schedule, another session or the engine
+   * started; the mode is one a person sets by hand, not a read-only one; and it is no more than the
+   * Lead's own mode now. Each change writes a line in the Lead's chat and in the teammate's, saying
+   * who changed what, with an Undo only the person can press (`undoAccess`).
+   */
+  async teamSetAccess(ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
+    const a = parseArgs(TeamSetAccessArgsSchema, raw); if ("error" in a) return a.error;
+    const { to, mode } = a.value;
+    let caller: Session;
+    try { caller = this.d.sessions.get(ctx.sessionId); } catch { return err("the calling session no longer exists."); }
+    const me = this.sessionTeammate(caller.id);
+    if (!me || me.archived || !me.lead || me.homeSessionId !== caller.id || me.spaceId !== caller.spaceId) {
+      const who = me ? `you are @${me.handle}${me.lead ? ", in a task session rather than your own chat" : ", not the Lead"}` : "this session is not a teammate's";
+      return err(`refused: only the space's Lead, in its own chat, can set a teammate's access, and ${who}. Nothing changed.`);
+    }
+    if (!this.d.sessions.personStartedTurn(caller.id)) {
+      return err(`refused: this turn was started by ${this.turnOrigin(caller.id)}, not by the person. Access changes only in a turn the person started; ask them to say it in your chat. Nothing changed.`);
+    }
+    if (!(TEAM_ACCESS_MODES as readonly string[]).includes(mode)) {
+      const why = mode === "plan" || mode === "ask" ? `"${mode}" is a read-only mode, which this tool does not set` : `"${mode}" is not a mode`;
+      return err(`refused: ${why}. Use one of ${TEAM_ACCESS_MODES.map((m) => `"${m}" (${modeLabel(m)})`).join(", ")}. Nothing changed.`);
+    }
+    const target = this.resolve(caller.spaceId, to);
+    if ("error" in target) return err(`${target.error} Nothing changed.`);
+    if (target.archived) return err(`refused: @${target.handle} is archived. Nothing changed.`);
+    const held = rank(caller.permissionMode) < rank(me.permissionMode) ? caller.permissionMode : me.permissionMode;
+    if (rank(mode) > rank(held)) {
+      return err(`refused: you are on ${modeLabel(held)}, and nobody can give more access than they have. The person can set @${target.handle} to ${modeLabel(mode)} with the chip in its chat. Nothing changed.`);
+    }
+    const from = target.permissionMode;
+    const self = target.id === me.id;
+    const who = self ? "You are" : `@${target.handle} is`;
+    if (from === mode) return ok(`${who} already on ${modeLabel(mode)}. Nothing changed.`);
+    await this.setPermissionMode(target.id, mode as TeamAccessMode);
+    this.noteAccess(target, me, me.handle, from, mode, `@${me.handle} set ${self ? "itself" : `@${target.handle}`} to ${modeLabel(mode)}, at your request.`);
+    return ok(`Done: ${who} on ${modeLabel(mode)} now (was ${modeLabel(from)}), chat and task sessions alike. A line in your chat${self ? "" : " and in its"} says so, with an Undo for the person.`);
+  }
+
+  /**
+   * The Undo on a `team_set_access` line: `id` back on `from`, through `setPermissionMode`, when it
+   * is still on `to` — a mode set since is not undone. Only the person reaches it (rpc/methods.ts).
+   */
+  async undoAccess(id: string, from: TeammatePermissionMode, to: TeammatePermissionMode): Promise<Teammate> {
+    const row = this.row(id);
+    if (row.permissionMode !== to) throw new RpcError("ACCESS_MOVED", `@${row.handle} is on ${modeLabel(row.permissionMode)} now, so there is nothing to undo`);
+    await this.setPermissionMode(row.id, from);
+    this.noteAccess(row, this.d.store.lead(row.spaceId), null, to, from, `You set @${row.handle} back to ${modeLabel(from)}.`);
+    return this.get(row.id);
+  }
+
+  /** The line in the Lead's chat and in the teammate's that says its access changed. `by` null: the person did it. */
+  private noteAccess(target: TeammateRow, lead: TeammateRow | null, by: string | null, from: string, to: string, note: string): void {
+    const chats = new Set<string>();
+    if (lead?.homeSessionId) chats.add(lead.homeSessionId);
+    try { chats.add(this.ensureHome(target.id)); } catch { /* archived: the Lead's line is enough */ }
+    for (const id of chats) {
+      this.d.sessions.publishServerEvent(id, sessionEvent("access_changed", { teammateId: target.id, handle: target.handle, by, from, to, note }));
+    }
+  }
+
+  /** Who wrote the last message into the session, in words: why `personStartedTurn` said no. */
+  private turnOrigin(sessionId: string): string {
+    let last: SessionEvent | undefined;
+    try {
+      const s = this.d.sessions.get(sessionId);
+      last = this.d.sessions.events(sessionId, Math.max(0, s.lastEventSeq - 500), 500).map((e) => e.event).filter((e) => e.type === "user_message").at(-1);
+    } catch { return "something other than the person"; }
+    if (last?.type !== "user_message") return "Realm or the agent itself";
+    const p = last.payload;
+    if (p.from?.teammateId) return `a message from @${this.d.store.get(p.from.teammateId)?.handle ?? "a teammate"}`;
+    if (p.from) return `another session, "${clip(p.from.title, 80)}"`;
+    if (p.scheduled) return `a schedule ("${clip(p.scheduled.task, 80)}")`;
+    if (p.goal) return "this session's goal";
+    return "Realm or the agent itself";
   }
 
   /** The teammate whose session this is — its home, or one it started. */

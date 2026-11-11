@@ -18,6 +18,7 @@ import { SessionOutcomeSchema } from "./session-outcome";
 export const TEAMMATES_PROVIDER_NAME = "realm-team";
 export const TEAM_LIST_TOOL = "team_list";
 export const TEAM_MESSAGE_TOOL = "team_message";
+export const TEAM_SET_ACCESS_TOOL = "team_set_access";
 
 /** The eight shapes and twelve colours an icon is made of: one flat shape, two eye strokes. */
 export const TEAMMATE_SHAPES = ["circle", "flower", "squircle", "pill", "triangle", "hexagon", "cloud", "drop"] as const;
@@ -229,6 +230,14 @@ export const TeamMessageArgsSchema = z.object({
   wait: z.boolean().optional(),
 });
 export type TeamMessageArgs = z.infer<typeof TeamMessageArgsSchema>;
+
+/** `team_set_access`'s arguments. `mode` is any string, so a read-only one is refused by name rather
+ *  than by a schema error. */
+export const TeamSetAccessArgsSchema = z.object({
+  to: z.string().trim().min(1).max(60),
+  mode: z.string().trim().min(1).max(40),
+});
+export type TeamSetAccessArgs = z.infer<typeof TeamSetAccessArgsSchema>;
 
 /** A link to a session, as a teammate writes it in its report: `[cto - sqlite search](realm://session/<id>)`.
  *  The transcript opens the session it names. */

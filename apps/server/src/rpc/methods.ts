@@ -1091,6 +1091,8 @@ export function registerMethods(d: Deps): void {
   reg("teammates.reorder", (p) => d.team.reorder(p));
   reg("teammates.home", (p) => d.team.home(p.id));
   reg("teammates.message", (p) => { refuseWhileDraining("message a teammate"); return d.team.message(p.id, p.text); });
+  // The Undo on a `team_set_access` line: the person's, like Team access below.
+  reg("teammates.undoAccess", (p, ctx) => { fromTheOwner(ctx); return d.team.undoAccess(p.id, p.from, p.to); });
   reg("teammates.sessions", (p) => d.team.sessions(p.id));
 
   reg("runs.list", (p) => d.runs.list(p));
@@ -1238,7 +1240,7 @@ export function registerMethods(d: Deps): void {
     const woken = p.mentionRefs?.some((r) => r.kind === "role") ? await d.team.passMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
     // And a sub-agent named in it is passed the message too, its chip told whether it was.
     const mentionRefs = woken?.some((r) => r.kind === "agent") && d.teammates ? await d.teammates.passMentioned(p.id, p.text, woken) : woken;
-    await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs, ...(p.tabs?.length ? { tabRefs: p.tabs } : {}) }, p.delivery);
+    await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs, byPerson: true, ...(p.tabs?.length ? { tabRefs: p.tabs } : {}) }, p.delivery);
     return { ok: true as const };
   });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });

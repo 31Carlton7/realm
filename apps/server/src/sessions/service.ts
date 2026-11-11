@@ -68,7 +68,10 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
    *  `tabs` — so a message that waits in the queue sends what the user saw as they pressed send. */
   tabRefs?: TabRef[];
   /** The cards as read: kept on the transcript, their blocks and screenshots on the wire. */
-  tabs?: GatheredTabs };
+  tabs?: GatheredTabs;
+  /** The person sent it: set by the RPC methods the person's windows and phone call, and by nothing an
+   *  agent can reach. A turn is the person's (`personStartedTurn`) only when every message in it is. */
+  byPerson?: boolean };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -173,6 +176,9 @@ export class SessionService {
   /** Sessions whose turn in flight Realm sent — the person's, a peer's, a retry — rather than one the
    *  engine started on its own, which is what a wakeup firing is. */
   private realmTurn = new Set<string>();
+  /** Sessions whose turn in flight the person started, and that nothing but the person has written
+   *  into since. Cleared when the turn settles, so a turn the engine starts on its own is nobody's. */
+  private personTurns = new Set<string>();
   private reapTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Messages waiting for the current turn to end, oldest first, per session.
@@ -827,6 +833,7 @@ export class SessionService {
     // Named things ride beside the text, as the chips they were; their files are not `attachments`,
     // which stay the files the user attached — the chip already shows a mentioned file.
     const refs = this.mentionedRefs(msg);
+    this.notePersonTurn(id, msg.byPerson === true);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}),
       ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(msg.from ? { from: msg.from } : {}), ...(refs.length ? { refs } : {}),
       ...(msg.tabs?.cards.length ? { tabs: msg.tabs.cards } : {}) }));
@@ -874,6 +881,7 @@ export class SessionService {
     await this.reaping.get(id);
     const handle = this.ensureLive(id);
     this.noteRealmTurn(id);
+    if (msg.byPerson === true) this.personTurns.add(id); else this.personTurns.delete(id);
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -999,6 +1007,7 @@ export class SessionService {
     await this.measuring.get(id);
     // This turn is the peer's, so failover has nothing of the user's to replay if it fails.
     this.d.failover?.cancel(id);
+    this.notePersonTurn(id, false);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };
@@ -1757,6 +1766,19 @@ export class SessionService {
     }
   }
 
+  /** `team_set_access` refuses every other turn: one a teammate's message, a schedule, another
+   *  session, a goal or the engine itself started. */
+  personStartedTurn(id: string): boolean { return this.personTurns.has(id); }
+
+  /** A message is going into the session: it starts a turn when none is in flight, and joins the one
+   *  that is when one is, which then stays the person's only if this message is the person's too. */
+  private notePersonTurn(id: string, byPerson: boolean): void {
+    const status = this.d.sessions.get(id)?.status;
+    const midTurn = status === "running" || status === "waiting_permission";
+    if (byPerson && (!midTurn || this.personTurns.has(id))) this.personTurns.add(id);
+    else this.personTurns.delete(id);
+  }
+
   /** Realm sent this turn without a `user_message` of its own: a retry or a handoff's re-send. */
   private noteRealmTurn(id: string): void { this.realmTurn.add(id); }
 
@@ -1767,6 +1789,7 @@ export class SessionService {
     this.wakeups.delete(id);
     this.wakingTurn.delete(id);
     this.realmTurn.delete(id);
+    this.personTurns.delete(id);
   }
 
   private noteBackground(id: string, toolUseId: string, status: "running" | "stopped"): void {
@@ -2485,6 +2508,8 @@ export class SessionService {
     else if (ev.type === "permission_response") this.asked.delete(ev.payload.requestId);
     else if (ev.type === "background_task") this.noteBackground(id, ev.payload.toolUseId, ev.payload.status);
     this.noteScheduling(id, ev);
+    if (ev.type === "status" && (before.status === "running" || before.status === "waiting_permission")
+      && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission") this.personTurns.delete(id);
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);

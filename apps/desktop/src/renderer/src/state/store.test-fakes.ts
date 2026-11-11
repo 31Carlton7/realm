@@ -2390,6 +2390,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const list = data.teammates.filter((t) => t.spaceId === spaceId && !t.archived).map((t) => ({ handle: t.handle, mode: t.permissionMode }));
       return { mode: null, mixed: new Set(list.map((t) => t.mode)).size > 1, teammates: list };
     },
+    teammateUndoAccess: async (id, from, to) => {
+      calls.push(`teammateUndoAccess:${id}:${from}:${to}`);
+      const t = data.teammates.find((x) => x.id === id)!;
+      t.permissionMode = from;
+      return t;
+    },
     setTeamAccess: async (spaceId, mode) => {
       calls.push(`setTeamAccess:${spaceId}:${mode}`);
       if (mode) for (const t of data.teammates) if (t.spaceId === spaceId) t.permissionMode = mode;

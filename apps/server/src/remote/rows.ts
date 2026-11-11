@@ -222,6 +222,8 @@ export class SessionProjector {
       case "handoff": return put({ key: `e:${seq}`, seq, kind: "notice", text: `Handed over from ${ev.payload.from} to ${ev.payload.to}` });
       case "compacted": return put({ key: `e:${seq}`, seq, kind: "notice", text: "Context compacted" });
       case "context_reset": return put({ key: `e:${seq}`, seq, kind: "notice", text: ev.payload.note || "The agent started a fresh context" });
+      // The phone tells the line; its Undo is the desktop's, where the person can see what it undoes.
+      case "access_changed": return put({ key: `e:${seq}`, seq, kind: "notice", text: ev.payload.note });
       // A move's progress and how it ended are one row, so the line that said where it had got to
       // becomes the line that says how it went.
       case "moving": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: `Moving · ${MOVE_STEP_LABEL[ev.payload.step]}`, move: "moving" });
