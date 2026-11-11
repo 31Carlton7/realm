@@ -903,10 +903,10 @@ def rain():
 
 
 DRAW = {
-    "haze": [haze], "dunes": [dunes], "silk": [silk], "sky": [sky_day, sky_dusk], "nebula": [nebula],
-    "aurora": [aurora], "ocean": [ocean_day, ocean_night], "ridges": [ridges_day, ridges_night],
+    "haze": [haze], "dunes": [dunes], "silk": [silk], "sky": [sky_day, sky_dusk],
+    "aurora": [aurora], "ridges": [ridges_day, ridges_night],
     "arcade": [arcade],
-    "pixel": [pixel_day, pixel_night], "ink": [ink],
+    "ink": [ink],
 }
 
 if __name__ == "__main__":
