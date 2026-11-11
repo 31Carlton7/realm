@@ -120,13 +120,17 @@ const idle = (c: Awaited<ReturnType<typeof client>>, id: string) =>
   waitFor(async () => (await c.call("sessions.get", { id })).result.status === "idle");
 const eventsOf = async (c: Awaited<ReturnType<typeof client>>, id: string) =>
   (await c.call("sessions.events", { id, afterSeq: 0, limit: 2000 })).result.map((e: Any) => e.event);
-/** Send, and wait for the answer: `idle` alone is already true before the turn has begun. */
+/** A settled turn's `turn_changes`, which git measures after the settle and lands on the log later. */
+const measured = (id: string) => (app!.sessions as unknown as { measuring: Map<string, Promise<void>> }).measuring.get(id);
+/** Send, and wait for the answer and its measurement: `idle` alone is already true before the turn
+ *  has begun. */
 async function turn(c: Awaited<ReturnType<typeof client>>, id: string, text: string): Promise<string> {
   const answers = async () => (await eventsOf(c, id)).filter((e: Any) => e.type === "assistant_text");
   const before = (await answers()).length;
   await c.call("sessions.send", { id, text });
   await waitFor(async () => (await answers()).length > before);
   await idle(c, id);
+  await measured(id);
   return (await answers()).at(-1).payload.text;
 }
 const status = (cwd: string) => git(cwd, "status", "--porcelain").split("\n").filter(Boolean).sort();
@@ -458,9 +462,14 @@ describe("sessions.move", () => {
 
   it("refuses to stop the agent's background work unless asked to stop, and names what a stop ended", async () => {
     const { c, session, sp } = await setup("claude");
+    // git slow to measure the turn, as on a loaded runner: `before` must still hold its turn_changes.
+    const checkpoints = (app!.sessions as unknown as { d: { checkpoints: { turnChanges: (id: string) => Promise<unknown> } } }).d.checkpoints;
+    const turnChanges = checkpoints.turnChanges.bind(checkpoints);
+    checkpoints.turnChanges = async (id) => { await new Promise((r) => setTimeout(r, 300)); return turnChanges(id); };
     await turn(c, session.id, "schedule-a-job");
     expect((await c.call("sessions.moveOptions", { id: session.id })).result.stops).toEqual(["a scheduled job"]);
     const before = await eventsOf(c, session.id);
+    expect(before.at(-1).type).toBe("turn_changes");
     for (const when of ["now", "after-turn"]) {
       const refused = await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when });
       expect(refused.error).toMatchObject({ code: "MOVE_STOPS_WORK", message: "its agent is still running a scheduled job, which moving would stop" });
