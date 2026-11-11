@@ -235,6 +235,24 @@ function fullAccessRefusal(reason: string, switchable: boolean): string {
   return `Claude Code didn't switch this session to Full access, so it keeps its current mode. It said: ${reason}`;
 }
 
+/**
+ * What "Allow always" hands back to the CLI. The CLI writes a `userSettings` update to
+ * ~/.claude/settings.json and the project ones to <cwd>/.claude, which outlive Realm, so every update
+ * is held to `session`. An allow rule with no content allows the whole tool (all of Bash) and
+ * bypassPermissions silences every card; one click remembers neither.
+ */
+function sessionOnly(suggestions: readonly PermissionUpdate[]): PermissionUpdate[] {
+  const wholeTool = (r: { ruleContent?: string }) => !r.ruleContent?.trim() || r.ruleContent.trim() === "*";
+  return suggestions.flatMap((u): PermissionUpdate[] => {
+    if (u.type === "setMode") return u.mode === "bypassPermissions" ? [] : [{ ...u, destination: "session" }];
+    if ((u.type === "addRules" || u.type === "replaceRules") && u.behavior === "allow") {
+      const rules = u.rules.filter((r) => !wholeTool(r));
+      return rules.length ? [{ ...u, rules, destination: "session" }] : [];
+    }
+    return [{ ...u, destination: "session" }];
+  });
+}
+
 /** Who asks when Claude's own `AskUserQuestion` reaches the card. */
 const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const;
 
@@ -403,7 +421,7 @@ export class ClaudeAdapter implements AgentAdapter {
       // drawn now could never be cleared.
       if (o.signal.aborted) return { behavior: "deny", message: "aborted" };
       const requestId = newId();
-      const suggestions = o.suggestions ?? [];
+      const suggestions = sessionOnly(o.suggestions ?? []);
       // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
       // name, never from anything in its arguments — so the card that draws it is the question card.
       const ask = toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(toolInput, CLAUDE_ASKER) : null;
