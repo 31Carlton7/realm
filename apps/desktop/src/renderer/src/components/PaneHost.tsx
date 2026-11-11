@@ -268,7 +268,8 @@ export function PaneHost(p: PaneHostProps) {
     </OwnerCueContext.Provider>
   );
 
-  function renderNode(n: Layout): JSX.Element {
+  /** `top`: the node's box starts at the window's top, under the frame's strip. */
+  function renderNode(n: Layout, top = true): JSX.Element {
     if (n.type === "leaf") {
       const item = n.itemId ? byId.get(n.itemId) ?? null : null;
       const tabs = n.tabs ? n.tabs.map((id) => byId.get(id)).filter((t): t is Item => !!t) : undefined;
@@ -345,8 +346,8 @@ export function PaneHost(p: PaneHostProps) {
       );
     }
     return (
-      <SplitGroup node={n} onResize={p.onResize} onEqualize={p.onEqualize}>
-        {n.children.map((c) => <Fragment key={c.id}>{renderNode(c)}</Fragment>)}
+      <SplitGroup node={n} top={top} onResize={p.onResize} onEqualize={p.onEqualize}>
+        {n.children.map((c, i) => <Fragment key={c.id}>{renderNode(c, top && (n.dir === "row" || i === 0))}</Fragment>)}
       </SplitGroup>
     );
   }
@@ -359,8 +360,8 @@ export function PaneHost(p: PaneHostProps) {
  * imperatively (setLayout — instant, resize is on the do-NOT-animate list). The onLayout echo
  * round-trips through resizeSplit, whose sameSizes guard stops the loop.
  */
-function SplitGroup({ node, onResize, onEqualize, children }: {
-  node: LayoutSplit; onResize?: (splitId: string, sizes: number[]) => void;
+function SplitGroup({ node, top, onResize, onEqualize, children }: {
+  node: LayoutSplit; top: boolean; onResize?: (splitId: string, sizes: number[]) => void;
   onEqualize?: (splitId: string) => void;
   children: JSX.Element[];
 }) {
@@ -381,7 +382,10 @@ function SplitGroup({ node, onResize, onEqualize, children }: {
               divider is enough to undo any amount of dragging. It goes through the STORE, not
               setLayout: the sizes effect above is what pushes the result into the group, and the
               store no-ops on an already-equal split, so an undragged divider ignores the gesture. */}
-          {i > 0 && <PanelResizeHandle className="resize-handle" onDoubleClick={() => onEqualize?.(node.id)} />}
+          {/* A divider between panes side by side at the window's top runs up to the frame's rim and
+              stops: the strip above is one ground across the window (`data-top`, styles.css). */}
+          {i > 0 && <PanelResizeHandle className="resize-handle" data-top={(top && node.dir === "row") || undefined}
+            onDoubleClick={() => onEqualize?.(node.id)} />}
           <Panel id={c.id} order={i} defaultSize={node.sizes[i] ?? 100 / node.children.length} minSize={10}>{children[i]}</Panel>
         </Fragment>
       ))}
