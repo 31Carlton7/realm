@@ -168,7 +168,8 @@ export function PaneTabs({ leafId, tabs, activeId, owners, onRename }: {
               }}>
               <button type="button" role="tab" className="pane-tab-label" aria-selected={active}
                 aria-label={peek ? `Peek: ${t.title}` : undefined}
-                title={peek ? `${t.title} — a peek, not kept in the view` : whose ? `${title} — ${whose}` : title}
+                title={peek ? `${t.title} — a peek, not kept in the view` : whose ? `${title} — ${whose}` : undefined}
+                data-tip={peek || whose ? undefined : "clipped"}
                 draggable={!peek} onDragStart={peek ? undefined : (e) => { e.dataTransfer.setData(REALM_ITEM_TYPE, t.id); e.dataTransfer.effectAllowed = "move"; }}
                 onPointerDown={() => { caret.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; }}
                 onClick={() => {
@@ -180,7 +181,7 @@ export function PaneTabs({ leafId, tabs, activeId, owners, onRename }: {
                 }}
                 onDoubleClick={active && !peek ? onRename : undefined}>
                 {peek ? <Icon name="peek" size={14} /> : <ItemIcon item={t} size={14} />}
-                <span className="pane-tab-title">{title}</span>
+                <span className="pane-tab-title" data-tip-text>{title}</span>
               </button>
               {arming === t.id ? (
                 <button type="button" className="icon-btn danger pane-tab-confirm" aria-label={`Really delete ${t.title}?`}

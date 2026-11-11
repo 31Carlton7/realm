@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
@@ -143,5 +145,26 @@ describe("closing a sheet gives the keyboard back", () => {
     unmount();
     expect(document.activeElement).toBe(composer);
     opener.remove(); composer.remove();
+  });
+});
+
+describe("a close is the close icon, never a typed glyph", () => {
+  it("draws the Sheet's close as the Icon, with its tooltip", () => {
+    render(<Sheet title="New space" onClose={() => {}}>x</Sheet>);
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(close.querySelector("svg")).not.toBeNull();
+    expect(close.textContent).toBe("");
+    expect(close.getAttribute("title")).toBe("Close (Esc)");
+  });
+
+  it("no button in the renderer is a typed ✕ or ×", () => {
+    // Vite rewrites `import.meta.url` under jsdom, so the renderer is found from the cwd.
+    const rel = "apps/desktop/src/renderer/src";
+    let dir = process.cwd();
+    while (!existsSync(join(dir, rel))) dir = dirname(dir);
+    const root = join(dir, rel);
+    const files = (readdirSync(root, { recursive: true }) as string[]).filter((f) => f.endsWith(".tsx") && !f.includes(".test."));
+    const typed = files.filter((f) => />\s*[✕×]\s*<\/button>/u.test(readFileSync(join(root, f), "utf8")));
+    expect(typed).toEqual([]);
   });
 });

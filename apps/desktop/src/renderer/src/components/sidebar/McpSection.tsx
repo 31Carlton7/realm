@@ -510,7 +510,7 @@ function SecretsFields({ label, existingKeys, rows, setRows }: { label: string; 
         <div className="mcp-secret-row" key={i}>
           <input aria-label={`${label} key`} value={row.key} onChange={(e) => updateRow(i, { key: e.target.value })} placeholder="KEY" />
           <input aria-label={`${label} value`} type="password" value={row.value} onChange={(e) => updateRow(i, { value: e.target.value })} placeholder="value" />
-          <button type="button" className="btn-quiet" aria-label={`Remove ${label} row ${i + 1}`} onClick={() => removeRow(i)}>×</button>
+          <button type="button" className="btn-quiet" aria-label={`Remove ${label} row ${i + 1}`} onClick={() => removeRow(i)}><Icon name="close" size={12} /></button>
         </div>
       ))}
       <div className="form-actions" style={{ justifyContent: "flex-start" }}>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { Icon } from "@realm/ui";
 import { useDissolve } from "./ScrollFades";
 import { createPortal } from "react-dom";
 import { centerOverComplement } from "../state/no-overlay";
@@ -74,7 +75,7 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
   return createPortal(
     <div className="sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={panel} role="dialog" aria-modal="true" aria-label={title} className="sheet" style={style} tabIndex={-1}>
-        <div className="sheet-head"><h3>{title}</h3><button className="icon-btn" aria-label="Close" onClick={onClose}>✕</button></div>
+        <div className="sheet-head"><h3>{title}</h3><button type="button" className="icon-btn" aria-label="Close" title="Close (Esc)" onClick={onClose}><Icon name="close" size={14} /></button></div>
         <div className="sheet-body" ref={body}>{children}</div>
         {footer && <div className="sheet-foot">{footer}</div>}
       </div>
