@@ -2847,6 +2847,12 @@ describe("the side panel's surfaces", () => {
     expect(accentOnTab.map((r) => r.selectors.join(", "))).toEqual([]);
     expect(bodiesFor(".panel[data-focused] .pane-tab[data-active] .pane-tab-label").join(" ")).toContain("color: var(--rl-text-bright)");
   });
+
+  it("sets a summary fact in mono only where its value is an identifier", () => {
+    // SessionSummary marks the folder, the branch and the model `data-code`; a mode or a word is not.
+    expect(RULES.some((r) => r.selectors.includes(".summary-fact .summary-row-name"))).toBe(false);
+    expect(bodiesFor(".summary-fact .summary-row-name[data-code]").join(" ")).toContain("font-family: var(--font-mono)");
+  });
 });
 
 describe("dividers", () => {

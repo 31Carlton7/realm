@@ -38,7 +38,7 @@
 .msg-error pre, .space-folder-made, .empty-state-path, .empty-state-note code, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
-.summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
+.summary-diff, .summary-fact .summary-row-name[data-code], .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .terminal-dock-title,
@@ -1273,7 +1273,7 @@ input.sb-space-name { flex: 1; }
 /* A context fact is a row that is read, not pressed: same grid as the rows around it, no hover. */
 .summary-fact { cursor: default; }
 .summary-fact:hover { background: none; }
-.summary-fact .summary-row-name { font-family: var(--font-mono); font-size: 12px; }
+.summary-fact .summary-row-name[data-code] { font-family: var(--font-mono); font-size: 12px; }
 .summary-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 8px 5px;
   font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
 .summary-count { margin-left: auto; font-variant-numeric: tabular-nums; }
