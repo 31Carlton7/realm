@@ -9169,29 +9169,22 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .engine-card[data-state="missing"], .engine-card[data-state="logged_out"] {
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--orange) 55%, transparent);
 }
-.engine-head { display: flex; align-items: center; gap: 10px; }
+.engine-head { display: flex; align-items: center; gap: 12px; }
 .engine-mark { flex: none; display: inline-flex; }
+.engine-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 /* 15px, up from 13. It is the card's title and the only thing on the page you scan for. */
-.engine-name { flex: 1; min-width: 0; font-size: 15px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-/* The status as a pill rather than the head of a run-on sentence. Four states, each with a word. */
-.engine-pill {
-  flex: none; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: var(--fw-label);
-  background: var(--rl-hover); color: var(--rl-text-dim);
-}
-.engine-pill[data-state="ready"] { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
-.engine-pill[data-state="missing"], .engine-pill[data-state="logged_out"] {
-  background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange);
-}
+.engine-name { font-size: 15px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+/* The facts, as words on one line under the name. They were a pill and two chips, which is the
+   "pills for ordinary metadata" design.md rejects: the state is a dot and its word, and the version
+   and the sign-in are secondary text after it. */
+.engine-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; font-size: 13px; line-height: 18px;
+  color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.engine-fact::before { content: "·"; margin-right: 6px; }
+.engine-state { display: inline-flex; align-items: center; gap: 6px; }
+.engine-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--mark); }
+.engine-state[data-state="ready"]::before { background: var(--green); }
+.engine-state:is([data-state="missing"], [data-state="logged_out"])::before { background: var(--orange); }
 .engine-run { flex: none; }
-/* The facts, split apart. "Installed · 0.146.0 · signed in · v0.153.4 available" was four answers
-   welded into one sentence you had to parse to find any of them. */
-.engine-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.engine-chip {
-  padding: 2px 8px; border-radius: var(--r-chip); corner-shape: squircle;
-  background: var(--rl-hover); color: var(--rl-text-dim); font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.engine-chip[data-tone="warn"] { color: var(--orange); }
 /* The prose, folded. Open by default only when the engine wants something from you — which is the
    whole of how this page stopped being a wall: a ready engine is a title and some chips. */
 .engine-details > summary {

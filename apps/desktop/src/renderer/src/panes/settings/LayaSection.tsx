@@ -127,7 +127,8 @@ function StateRow({ laya }: { laya: LayaStatus }) {
         )}
       </div>
       {r.state === "not-installed" && (
-        <button type="button" className="btn primary" onClick={() => run(() => installLaya())}>Install</button>
+        // Plain, like an engine card's Install: the Engines page's one accent is Update all.
+        <button type="button" className="btn" onClick={() => run(() => installLaya())}>Install</button>
       )}
       {r.state === "installing" && <Spinner size={14} />}
       {r.state === "failed" && r.during === "install" && (

@@ -47,7 +47,7 @@ describe("an engine row with an update available", () => {
     // The available version moved out of the chip row and onto the ACTION: a chip saying a newer
     // version exists, with nothing beside it to do about it, is a dead end. The button NAMES that
     // version, because the same button also appears when nothing newer is known — a CLI with its own
-    // updater always offers to go and look — and there it reads "Check for updates" instead.
+    // updater always offers to go and look — and there it reads "Run its updater" instead.
     expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument();
   });
 
@@ -152,5 +152,31 @@ describe("checking for new models", () => {
     await waitFor(() => expect(api.calls).toContain("probeAgents:false"));
     fireEvent.click(screen.getByRole("button", { name: "Check for new models" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/No new models/));
+  });
+});
+
+describe("the page's one primary", () => {
+  const geminiBehind = status({
+    kind: "acp:gemini", version: "0.20.0", provenance: "npm", latest: "0.21.0",
+    updateAvailable: true, action: "update", command: "npm install -g @google/gemini-cli@0.21.0",
+  });
+
+  it("is Update all, and no card's own update wears the accent", async () => {
+    /* ST-04: three cards behind were three filled accent buttons in one viewport. THE MUTANTS: a card's
+       update back to primary, or the page-level button gone. */
+    const { api } = await mount({ cliStatus: [behind, geminiBehind] });
+    const all = await screen.findByRole("button", { name: "Update all (2)" });
+    expect(document.querySelectorAll(".btn.primary")).toHaveLength(1);
+    expect(all).toHaveClass("primary");
+    expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).not.toHaveClass("primary");
+    fireEvent.click(all);
+    await waitFor(() => expect(api.calls.filter((c) => c.startsWith("runCli:"))).toEqual(["runCli:codex:update", "runCli:acp:gemini:update"]));
+  });
+
+  it("is not drawn when nothing is behind", async () => {
+    await mount({ cliStatus: [status({ kind: "codex", version: "codex-cli 0.146.0" })] });
+    await waitFor(() => expect(within(codexRow()).getByText("v0.146.0")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /^Update all|^Update Codex/ })).toBeNull();
+    expect(document.querySelectorAll(".btn.primary")).toHaveLength(0);
   });
 });

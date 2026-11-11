@@ -275,6 +275,12 @@ function EnginesTab() {
   // force past them, and only the buttons reach the network.
   useEffect(() => { void run(() => probeAgents(false)); void run(() => refreshCliStatus(false)); }, [run, probeAgents, refreshCliStatus]);
   const kinds: AgentKind[] = [...ENGINE_ORDER, ...agentProbe.map((p) => p.kind).filter((k) => !ENGINE_ORDER.includes(k))];
+  /* The page's one primary: every update Realm found and can apply, in one press. Each card keeps its
+     own plain button, so three cards behind were three accent buttons in one viewport. */
+  const cliStatus = useApp((s) => s.cliStatus);
+  const cliJobs = useApp((s) => s.cliJobs);
+  const runCliAction = useApp((s) => s.runCliAction);
+  const behind = cliStatus.filter((c) => c.action === "update" && c.updateAvailable && c.command && cliJobs[c.kind]?.state !== "running").map((c) => c.kind);
   return (
     <div className="form">
       {/* No lede. "The agent CLIs Realm can run" is what the tab is called and what the cards below
@@ -307,6 +313,12 @@ function EnginesTab() {
           {checking === "models" && <Spinner size={12} />}
           {checking === "models" ? "Checking…" : "Check for new models"}
         </button>
+        {behind.length > 0 && (
+          <button type="button" className="btn primary engines-update-all"
+            onClick={() => run(async () => { for (const k of behind) await runCliAction(k, "update"); })}>
+            {behind.length === 1 ? `Update ${AGENT_META[behind[0]!].label}` : `Update all (${behind.length})`}
+          </button>
+        )}
       </div>
       {modelCheck && (
         <p className="settings-hint" role="status">
@@ -340,11 +352,11 @@ function EnginesTab() {
  * block and up to three explanatory paragraphs underneath it. With twelve engines and most of them
  * not installed, that is the wall of text this page was.
  *
- * Two changes carry the redesign. The facts split into a status pill and small labelled chips, so
- * "is it there", "which version", "am I signed in" and "is there a newer one" are four things you
- * can find rather than one sentence you have to parse. And the prose — install commands, login
- * hints, probe reasons — folds behind a disclosure, opened by default only when the engine needs
- * something from you. A ready engine is one line; a broken one still explains itself in full.
+ * Two changes carry the redesign. The facts are separate words on a line under the name — the state
+ * as a dot and its word, the version, the sign-in — so "is it there", "which version" and "am I
+ * signed in" are things you can find rather than one sentence you have to parse, without a pill for
+ * each. And the prose — install commands, login hints, probe reasons — folds behind a disclosure,
+ * opened by default only when the engine needs something from you.
  */
 function EngineCard({ kind }: { kind: AgentKind }) {
   const agentProbe = useApp((s) => s.agentProbe);
@@ -359,19 +371,19 @@ function EngineCard({ kind }: { kind: AgentKind }) {
   const { install, login } = AGENT_CLI_COMMANDS[kind];
   // The one command a click would run, and the label for the click. The server decided both; the
   // card only renders them, so a button can never offer something the server would refuse.
-  /* Three offers, not two. An update with a known newer version NAMES it and takes the primary
-     button. An update where nothing newer is known is the CLI's own updater — five of them ship one,
-     and it resolves latest against the vendor's channel rather than the npm registry Realm watches,
-     which is the only channel cursor-agent has at all. That one is a quiet button and says what it
-     really does: it goes and looks. Calling it "Update" would promise an update nobody has found. */
+  /* Three offers, not two. An update with a known newer version NAMES it. An update where nothing
+     newer is known is the CLI's own updater — five of them ship one, and it resolves latest against
+     the vendor's channel rather than the npm registry Realm watches, which is the only channel
+     cursor-agent has at all. That one says what it really does: it runs the updater, which goes and
+     looks. Calling it "Update" would promise an update nobody has found, and "Check for updates" is
+     the page's own button, which only asks. */
   const offer = cli && cli.action !== "none" && cli.command
     ? {
         command: cli.command,
         action: cli.action,
         label: cli.action === "install" ? "Install"
           : cli.updateAvailable && cli.latest ? `Update to ${engineVersionLabel(cli.latest)}`
-          : "Check for updates",
-        primary: cli.action === "install" || cli.updateAvailable,
+          : "Run its updater",
       }
     : null;
   const offered = (SELECTABLE_AGENT_KINDS as readonly AgentKind[]).includes(kind);
@@ -381,14 +393,14 @@ function EngineCard({ kind }: { kind: AgentKind }) {
   const state = !p ? "unknown" : p.crashed ? "unchecked" : !p.available ? "missing" : p.loggedIn === false ? "logged_out" : "ready";
   const STATE_LABEL = { unknown: "Checking…", unchecked: "Couldn't check", missing: "Not installed", logged_out: "Signed out", ready: "Ready" };
 
-  /* The facts, as chips. Each is a separate answer, and only the ones there is an answer FOR are
-     drawn — an engine that is not installed has no version, and a probe that could not tell whether
-     you are signed in (Claude's keychain, every ACP agent) says nothing rather than guessing. */
-  const chips: { label: string; tone?: "warn" }[] = [];
-  if (p?.available && p.version) chips.push({ label: engineVersionLabel(p.version) });
-  if (p?.loggedIn === true) chips.push({ label: "Signed in" });
-  if (!offered && kind !== "fake") chips.push({ label: "Not offered for new sessions" });
-  /* An update Realm can APPLY gets the primary button in the head. One it cannot — a Homebrew or a
+  /* The facts after the state. Each is a separate answer, and only the ones there is an answer FOR
+     are drawn — an engine that is not installed has no version, and a probe that could not tell
+     whether you are signed in (Claude's keychain, every ACP agent) says nothing rather than guessing. */
+  const facts: string[] = [];
+  if (p?.available && p.version) facts.push(engineVersionLabel(p.version));
+  if (p?.loggedIn === true) facts.push("Signed in");
+  if (!offered && kind !== "fake") facts.push("Not offered for new sessions");
+  /* An update Realm can APPLY gets the button in the head. One it cannot — a Homebrew or a
      hand-built install, where running npm would leave a second copy on the PATH — gets a button too,
      because "there is a newer version" with no affordance beside it reads as a dead end. That one
      opens the card's own details, which hold the command and the reason. */
@@ -414,10 +426,15 @@ function EngineCard({ kind }: { kind: AgentKind }) {
       data-setting={offered ? `engine:${kind}` : undefined}>
       <div className="engine-head">
         <span className="engine-mark"><Icon name={meta.icon} size={20} colored /></span>
-        <span className="engine-name">{meta.label}</span>
-        <span className="engine-pill" data-state={state}>{STATE_LABEL[state]}</span>
+        <span className="engine-title">
+          <span className="engine-name">{meta.label}</span>
+          <span className="engine-facts">
+            <span className="engine-state" data-state={state}>{STATE_LABEL[state]}</span>
+            {facts.map((f) => <span key={f} className="engine-fact">{f}</span>)}
+          </span>
+        </span>
         {offer ? (
-          <button type="button" className={`btn engine-run${offer.primary ? " primary" : ""}`} disabled={job?.state === "running"}
+          <button type="button" className="btn engine-run" disabled={job?.state === "running"}
             onClick={() => run(() => runCliAction(kind, offer.action as "install" | "update"))}>
             {job?.state === "running" && <Spinner size={12} />}
             {job?.state === "running" ? "Working…" : offer.label}
@@ -428,11 +445,6 @@ function EngineCard({ kind }: { kind: AgentKind }) {
           </button>
         ) : null}
       </div>
-      {chips.length > 0 && (
-        <div className="engine-chips">
-          {chips.map((c) => <span key={c.label} className="engine-chip" data-tone={c.tone}>{c.label}</span>)}
-        </div>
-      )}
       {/* The logins it can run on, where its CLI keeps one per folder and is here to sign one in. */}
       {hasAccounts(kind) && p?.available && <EngineAccounts kind={kind} />}
       {details.length > 0 && (
