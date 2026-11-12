@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from "react"
 
+import { CLEAR_FEATHER, MAX_CLEAR, STAR_GROWTH, STAR_SIZE, clearBoxes, toShader } from "./star-mask"
+
 /**
  * The hero's space and its one opening, drawn by a WebGL2 fragment shader over the world it opens
  * onto (a `World` laid in the ring's box underneath).
@@ -15,15 +17,13 @@ import { useEffect, useRef } from "react"
  * motion it is drawn open, once.
  *
  * No star sits under text. Every element in the hero marked `data-clear` (the nav, the copy, the
- * caption) is read as the rect round its contents, grown by CLEAR_MARGIN, and the shader drops any star whose centre falls
- * inside one, fading over CLEAR_FEATHER beyond it. The rects are read again whenever the canvas or
- * any of those elements changes size, and once the fonts have loaded.
+ * caption) is read as the rect round its contents, grown by CLEAR_MARGIN, and the shader drops any
+ * star whose centre falls inside one, fading over CLEAR_FEATHER beyond it (star-mask.ts, whose tests
+ * hold it to that). The rects are read again whenever the canvas or any of those elements changes
+ * size, and once the fonts have loaded.
  */
 
-const MAX_CLEAR = 12
-/** Clear space round a text block, in CSS px: a few px of air plus the widest star's own radius. */
-const CLEAR_MARGIN = 10
-const CLEAR_FEATHER = 8
+const glsl = (n: number) => n.toFixed(3)
 
 const VERT = `#version 300 es
 in vec2 p;
@@ -77,7 +77,7 @@ float stars(vec2 px, float cell, float keep, float seed) {
     vec2 pos = o + 0.1 + 0.8 * h22(cid + seed * 1.7);
     float d = length((f - pos) * cell);
     float mag = pow(h21(cid + seed * 3.1), 2.6);
-    float size = (0.5 + 0.8 * mag) * uDpr;
+    float size = (${glsl(STAR_SIZE)} + ${glsl(STAR_GROWTH)} * mag) * uDpr;
     // Masked by where the star's centre falls, so a star near text goes whole rather than cut in half.
     s += (0.15 + mag) * exp(-d * d / (size * size)) * clearOf((id + pos) * cell);
   }
@@ -167,22 +167,14 @@ export function Aperture({ ring, className }: { ring: React.RefObject<HTMLElemen
         const cy = (box.bottom - (slot.top + slot.height / 2)) * dpr
         gl.uniform3f(u("uRing"), cx, cy, (slot.width / 2) * dpr)
       }
-      const rects = new Float32Array(MAX_CLEAR * 4)
-      clear.slice(0, MAX_CLEAR).forEach((node, i) => {
-        // The contents' box, not the element's: a block stretched across the column would clear a
-        // band of sky far wider than its words.
+      // The contents' box, not the element's: a block stretched across the column would clear a band
+      // of sky far wider than its words.
+      const text = clear.map((node) => {
         range.selectNodeContents(node)
-        const r = range.getBoundingClientRect()
-        rects.set(
-          [
-            (r.left - box.left - CLEAR_MARGIN) * dpr,
-            (box.bottom - r.bottom - CLEAR_MARGIN) * dpr,
-            (r.right - box.left + CLEAR_MARGIN) * dpr,
-            (box.bottom - r.top + CLEAR_MARGIN) * dpr,
-          ],
-          i * 4,
-        )
+        return range.getBoundingClientRect()
       })
+      const rects = new Float32Array(MAX_CLEAR * 4)
+      clearBoxes(text).forEach((b, i) => rects.set(toShader(b, box, dpr), i * 4))
       gl.uniform4fv(u("uClear"), rects)
       gl.uniform1i(u("uClearN"), Math.min(clear.length, MAX_CLEAR))
       gl.uniform1f(u("uFeather"), CLEAR_FEATHER * dpr)
