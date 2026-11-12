@@ -136,7 +136,7 @@
   font-size: 18px;
   line-height: 1.6;
   color: var(--ink-2);
-  text-wrap: pretty;
+  text-wrap: balance;
 }
 
 .actions {
@@ -379,6 +379,7 @@
   .lede {
     margin-top: 16px;
     font-size: 16px;
+    text-wrap: pretty;
     line-height: 1.55;
   }
 
