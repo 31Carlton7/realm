@@ -1295,36 +1295,14 @@ export const migrations: string[] = [
     mode TEXT NOT NULL,
     set_at INTEGER NOT NULL);
   `,
-  // The mode a scheduled task's runs start in (SEC-08). Every run a schedule fired used to be Full access,
-  // so a task an agent made with one `schedule_create` call later ran unattended in Full access whatever
-  // mode its conversation was in. Now the row holds the mode: the person's pick for a task they made,
-  // the making session's mode for one an agent made. Nothing records who made a row written before
-  // this, so each is read from the event log:
-  //   - an agent's `schedule_create` call with the row's title, in a session of the row's space, within
-  //     ten minutes of the row: that session's mode as it stands now (an unknown one is `default`), the
-  //     lowest if several match;
-  //   - otherwise, a row older than the first `schedule_create` call on this Mac (or with none at all)
-  //     was made on the Scheduled page, since no agent had scheduled anything yet: Full access, as before;
-  //   - anything else is `default`. An agent's task whose conversation is gone is never silently left
-  //     in Full access; the person can pick it again in the task's Permissions menu.
-  // A teammate's clock (`role_id`) is left NULL: it makes no run, and fires in the teammate's mode.
-  // The ALTER makes a second run fail before the UPDATE, inside the migration's transaction.
+  // The mode a scheduled task's runs start in (SEC-08). Every run a schedule fired used to be Full access;
+  // now the row holds the mode: the person's pick for a task they made, the making session's mode for
+  // one an agent made. A task that exists already keeps the Full access it has always run in, and the
+  // person lowers it in the task's Permissions menu. A teammate's clock (`role_id`) is left NULL: it
+  // makes no run, and fires in the teammate's mode. The ALTER makes a second run fail before the UPDATE,
+  // inside the migration's transaction.
   `
   ALTER TABLE schedules ADD COLUMN permission_mode TEXT;
-  WITH calls AS MATERIALIZED (
-    SELECT s.space_id, e.ts, json_extract(e.p, '$.input.title') AS title,
-           CASE WHEN s.permission_mode IN ('plan', 'ask', 'default', 'acceptEdits', 'bypassPermissions') THEN s.permission_mode ELSE 'default' END AS mode
-      FROM (SELECT session_id, ts, CASE WHEN typeof(payload_json) = 'blob' THEN realm_event_payload(payload_json) ELSE payload_json END AS p
-              FROM session_events WHERE type = 'tool_call') e
-      JOIN sessions s ON s.id = e.session_id
-     WHERE json_extract(e.p, '$.name') LIKE '%schedule_create')
-  UPDATE schedules SET permission_mode = COALESCE(
-    (SELECT mode FROM calls
-      WHERE calls.space_id = schedules.space_id AND calls.title = schedules.title
-        AND calls.ts BETWEEN schedules.created_at - 600000 AND schedules.created_at + 600000
-      ORDER BY CASE mode WHEN 'plan' THEN 0 WHEN 'ask' THEN 0 WHEN 'acceptEdits' THEN 2 WHEN 'bypassPermissions' THEN 3 ELSE 1 END
-      LIMIT 1),
-    CASE WHEN schedules.created_at < COALESCE((SELECT MIN(ts) FROM calls), 9e18) THEN 'bypassPermissions' ELSE 'default' END)
-  WHERE role_id IS NULL;
+  UPDATE schedules SET permission_mode = 'bypassPermissions' WHERE role_id IS NULL;
   `,
 ];
