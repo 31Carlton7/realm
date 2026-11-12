@@ -68,7 +68,7 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
       <Realm
         id="computer"
         world={world("hubble")}
-        flip
+        wide
         quiet="Team access and the Computer tab."
         claim="Set the whole team's access once, then see what each teammate is doing."
         body={
@@ -92,10 +92,9 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
         <div className={s.footColumn}>
           <p className={s.credits}>
             The pictures are the ones Realm shows behind a new session.{" "}
-            {worlds.map((w, i) => (
-              <span key={w.id}>
+            {worlds.map((w) => (
+              <span key={w.id} className={s.credit}>
                 {w.name}: {w.credit}
-                {i < worlds.length - 1 ? " " : ""}
               </span>
             ))}
           </p>
@@ -120,12 +119,14 @@ type RealmProps = {
   aside?: Shot
   caption: string
   flip?: boolean
+  /** The figure takes the column's full width under the claim, so two components sit side by side at their own size. */
+  wide?: boolean
 }
 
 /** One section: its claim, and one component from the app set in one of the app's worlds. */
-function Realm({ id, world, quiet, claim, body, main, aside, caption, flip = false }: RealmProps) {
+function Realm({ id, world, quiet, claim, body, main, aside, caption, flip = false, wide = false }: RealmProps) {
   return (
-    <section className={s.realm} aria-labelledby={`${id}-title`} data-flip={flip || undefined}>
+    <section className={s.realm} aria-labelledby={`${id}-title`} data-flip={flip || undefined} data-wide={wide || undefined}>
       <div className={s.column}>
         <div className={s.claim}>
           <h2 className={s.h2} id={`${id}-title`}>
