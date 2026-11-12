@@ -6231,7 +6231,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         /* A harness just said whether a model can run fast mode, or which model it runs un-pinned,
            and the server has already filed it (it writes before it broadcasts). Re-read here, before
-           the returns below, because the answer is wanted by sessions that have not STARTED — the next
+           the returns below, because the answer is wanted by sessions that have not STARTED: the next
            one on this model offers the switch, and ticks its CLI's default, only if this copy has heard. */
         if (ev.event.type === "init" && (ev.event.payload.supportsFastMode !== undefined || ev.event.payload.fastModeModels || ev.event.payload.effortModels
           || get().sessions[ev.sessionId]?.model === null)) {
