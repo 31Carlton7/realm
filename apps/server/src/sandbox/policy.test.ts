@@ -135,6 +135,10 @@ describe("protected roots", () => {
     expect(resolve().protectedRoots).toContain(join(realm, "daemon.json"));
   });
 
+  it("protects the sealed copy of the app's token beside it", () => {
+    expect(resolve().protectedRoots).toContain(join(realm, "daemon.sealed"));
+  });
+
   it("protects the same paths under read-only as under workspace-write", () => {
     const p = resolve({ prefs: { posture: "read-only", network: false } });
     expect(p.protectedRoots).toContain(join(realRoot(home)!, ".ssh"));
