@@ -2,13 +2,15 @@
 
 The marketing site for Realm — Next.js 16 and Tailwind 4, over real captures of the app.
 
-Three routes and nothing else:
+Three routes for readers:
 
 | Route | What it is |
 | --- | --- |
-| `/` | The hero in a portal, the mark assembling face by face, one claim per section with its own capture, the delegation interlude, the questions, the download, and the footer. |
+| `/` | The landing page, laid out in [The landing page](#the-landing-page) below. |
 | `/changelog`, `/changelog/[slug]` | Every notable change under one date marker per day, eight at a time behind a **Load more**; each one opens as an article. |
-| `/features` | One non-scrolling screen: a carousel of real captures of the app, arrow keys included. |
+| `/docs`, `/docs/[slug]` | The documentation, described in [The docs](#the-docs) below. |
+
+`/features` redirects to `/`, which shows every feature it listed with its capture. `/oauth/callback` bounces a sign-in back to Realm on the reader's computer, and `/share` holds the pages the share images are captured from.
 
 The entries live in `content/changelog.ts` as typed blocks rather than Markdown — the site sits
 outside the workspace's vitest projects, so a union the compiler checks beats a parser nothing can
@@ -20,6 +22,65 @@ cd site
 pnpm install
 pnpm dev        # http://localhost:3100
 ```
+
+## The landing page
+
+`app/page.tsx` renders `components/realms/RealmsHome`: one flight across a field of Realm's mark,
+scrubbed by the reader's scroll and drawn by one WebGPU canvas behind the whole page (`Flight`, the
+stage in `components/realms/stage.ts` on the runtime in `components/field/`). The layout is the DOM's
+and the field reads it every frame from `data-field-anchor`: `copy` and `portal` for the opening's
+words and window, `k:<id>` for the words a stop is composed around (or `p:<id>` for its picture, where
+the words stand above it), `s:<id>` for the slot a chapter's picture lands in, `c:<name>` for any other
+words the field keeps its light off.
+
+| Section | Component | What it does |
+| --- | --- | --- |
+| Opening | `realms/HeroParts`, `home/mini/MiniRealm` | The newest release's link, the headline, and a working sample of Realm's window you can click through, labelled as one; its copy is `content/mini-realm.ts`. |
+| What a realm holds | `realms/Chapter` (`stacked`) | The six things a space holds, then the whole window across the page. |
+| The claims | `realms/Chapter`, `realms/Screen` | One chapter per claim in `content/home.ts`, sides alternating: the words, and the part of the window the claim is about, photographed on its own. |
+| Teams | `realms/Team`, `lib/teammate-icon` | A space's teammates, clickable, with a teammate's icon at each of the team's doors in the field. |
+| Facts, questions | `realms/RealmsHome` | Where the work lives, and the questions. |
+| Close | `realms/RealmsHome` | The download once more as the camera climbs off the field. |
+
+Words over the field stand on a pane of it (`realms/FieldPanel`): the field blurred and dimmed behind
+them, a hairline edge, and the blur carried a little past it. The composite pass dims the field inside
+exactly the pane's rounded rect and nowhere else.
+
+A picture is `realms/Screen`: a capture at its own size and shape, never cropped by the page, with the
+surface's own corner and the one-device-pixel inset outline, set on a plate of the field's dark lit
+from above — a rim of the doorways' light, the lattice in its margin, the pointer's lamp on the rim in
+the flight. Its caption hangs from the middle of the plate's foot on a tab cut from it, and the hero's
+working sample wears the same plate with its label on the top edge. A claim can name a narrower
+capture for phones (`phone` in `content/home.ts`), taken in a window a phone's width.
+
+The rules it keeps: every effect argues something the copy also says, motion follows the reader
+rather than looping, `prefers-reduced-motion` drops the transitions, and a picture is either a real
+capture or plainly drawn. Focus rings draw inside a clipped surface (the hero window, a card, a
+scrolling tab row) so the clip cannot cut them off.
+
+## The docs
+
+`/docs` is how Realm works, page by page, written for the shipped app: every label is the one the app
+shows, read from its source (last checked against Realm 2.8.3). When the app changes, the page
+changes with it, and a feature the source does not have is not documented.
+
+Each page is a module in `content/docs/`, written with the small constructors in
+`lib/docs-blocks.ts` (`p`, `h2`, `steps`, `table`, `note`, `figure`…) so a page reads close to its
+prose. The groups and their order are `content/docs/index.ts`, and the nav, the docs home and each
+page's previous and next all read them from there. Inline, any text may carry `` `code` ``,
+`**bold**` for a label the app shows, `[a link](/docs/sessions#goals)`, and keys as `[[⌘⇧P]]`, each
+modifier its own keycap.
+
+`lib/docs.ts` refuses a broken page at build: a slug used twice, a link to a docs page or heading
+that is not there, or a figure whose capture was never taken. A figure is a whole scene, a part
+(`public/product/parts.json`), one of the changelog's crops, or one of the docs' own crops
+(`public/docs/`), which `node scripts/docs-crops.mjs` cuts from the 4320px scenes so each page shows
+the one surface it is about at the size it has in the app. Re-run it after a capture run retakes a
+scene, and re-read every caption beside what it rewrote.
+
+The layout (`app/docs/layout.tsx`) is the site's header and footer round a map of every page and the
+page itself; beside a wide page, the changelog's rail (`components/changelog/Rail`) marks the section
+being read. Below 1024px the map folds into one control at the head of the page.
 
 ## Why it is not in the pnpm workspace
 
@@ -33,15 +94,15 @@ alone: 63 packages, no native builds, no private registry.
 
 ## Deploying to Vercel
 
-Import the repository and set exactly one thing:
+The Vercel project has no Git repository connected, so pushing or merging ships nothing. A deploy is
+`vercel deploy --prod` from inside `site/`, and it ships whatever that folder holds, so check first
+that it holds what is live. Framework preset, install command and build command all come from
+`vercel.json`.
 
-| Setting | Value |
-| --- | --- |
-| **Root Directory** | `site` |
-
-Framework preset, install command and build command all come from `vercel.json`. Leave *Include
-source files outside of the Root Directory* **off** — the site needs nothing from the rest of the
-repository.
+`pnpm build` ends with `scripts/check-release-drift.mjs`, which fails the deploy if the rendered landing
+page names any release but the newest in `content/changelog.ts`. The page reads its version, its short
+line (`short` on the entry) and its link from that entry, so adding a release to the changelog is all it
+takes to change them.
 
 Every changelog entry is prerendered at build time. `/` and `/changelog` revalidate hourly, for the
 release lookup described below.
@@ -54,11 +115,13 @@ release lookup described below.
 
 ## The download button
 
-`lib/release.ts` asks GitHub for the latest release and links its `.dmg` directly, cached for an
-hour. The disk image is named for its version (`Realm-0.6.0-arm64.dmg`), so there is no fixed URL
+`lib/release.ts` asks GitHub for the latest release and links its files directly, cached for an
+hour. Each file is named for its version (`Realm-2.8.3-arm64.dmg`), so there is no fixed URL
 that always points at the newest one — resolving it at render is what keeps the button from going
-stale a release after someone last edited the file. Rate limit, network failure or a release with no
-disk image all fall back to the releases page, which is always true.
+stale a release after someone last edited the file. Rate limit, network failure or a release missing a
+build all fall back to the releases page, which is always true. The version the page prints comes from
+the changelog, not from here, so for up to an hour after a release the buttons can still point at the
+one before it.
 
 Because of that fetch, `/` and `/changelog` revalidate hourly rather than being pure static output;
 the entry pages are fully prerendered.
@@ -71,8 +134,10 @@ uses — five spaces across two profiles, sessions waiting, working and finished
 scheduled tasks and a run, a Library — and screenshots a list of scenes at 1440×900 and 3× density
 into `.captures/` (not in git). `scripts/encode-product.mjs` then writes what the site serves, all of
 it lossless WebP: every scene at 1× and as shot (`public/product/<scene>-1440.webp`, `-4320.webp`),
-each landing claim's own cut of its scene (`public/product/claims/`), and the crops the changelog's
-figures import (`public/product/details/`). `pnpm capture:encode` re-runs that step alone.
+each part of the window the landing page shows on its own, and its phone cut where it has one
+(`public/product/parts/`, with each one's size and corner in `parts.json`), and the crops the
+changelog's figures import
+(`public/product/details/`). `pnpm capture:encode` re-runs that step alone.
 
 ```sh
 pnpm build                      # from the repo root — a stale build reads as a live bug
@@ -81,23 +146,28 @@ pnpm --filter realm-site capture:product
 
 Nothing it runs is billed and nothing reaches GitHub: Claude and Codex are the scripted agent
 (`REALM_FAKE_STANDS_IN`), so the chips still name the models a real session runs, and Code review
-reads the fixture pull requests through a fake `gh`. `REALM_CAPTURE_SERVER_PORT`,
-`REALM_CAPTURE_CDP_PORT` and `REALM_CAPTURE_SCRATCH` move its ports and its scratch home;
-`REALM_CAPTURE_ONLY` runs a subset, for diagnosis.
+reads the fixture pull requests through a fake `gh`. Nothing of the developer's is reached either:
+the app gets an allowlisted environment and the system's PATH, so no agent CLI of theirs is probed,
+and the server reads skills, Claude and Codex files from empty folders of the run's own
+(`REALM_USER_HOME`). The window is the harness's capture window (`REALM_LIVE_SCRATCH=capture`,
+`apps/desktop/src/main/live-scratch.ts`): invisible, unfocusable and click-through, so a run never
+comes in front of whoever is at the Mac. `REALM_CAPTURE_SERVER_PORT`, `REALM_CAPTURE_CDP_PORT` and
+`REALM_CAPTURE_SCRATCH` move its ports and its scratch home; `REALM_CAPTURE_ONLY` runs a subset, for
+diagnosis; `REALM_CAPTURE_HOLD=<minutes>` keeps the staged app up afterwards, for trying a new scene's
+selectors over DevTools.
 
 Scenes are independent and each is wrapped: a selector that has moved loses one image and prints
 why, rather than ending the run. The names that survived are written to
-`public/product/manifest.json`, and `/features` renders the intersection of that and the copy in
-`content/features.ts` — so a broken scene drops out of the carousel instead of shipping a hole, and
-a captured scene with no copy authored for it simply is not shown.
+`public/product/manifest.json`, and the landing page shows a claim's whole scene only where that scene
+is in it — so a broken scene drops out instead of shipping a hole.
 
 Four things the script and the pages are careful about, all of which have bitten:
 
-- **Sharpness.** A claim zooms into part of its scene, and a 2× capture zoomed that far drew fewer
-  than two image pixels per CSS pixel on a Retina screen. Next's optimiser made it worse: it served
-  every capture as lossy WebP at quality 75 with the colour at half resolution, which smears small
-  text. So the window is shot at 3×, each claim is cut from that by `lib/frames.ts` (the same
-  arithmetic the page lays it out with), and the pages serve the files as written, never through
+- **Sharpness.** A claim used to zoom into part of its scene, and a 2× capture zoomed that far drew
+  fewer than two image pixels per CSS pixel on a Retina screen. Next's optimiser made it worse: it
+  served every capture as lossy WebP at quality 75 with the colour at half resolution, which smears
+  small text. So the window is shot at 3×, a claim's part is photographed on its own at that density
+  and drawn near the size it has in the app, and the pages serve the files as written, never through
   `/_next/image`.
 
 - **The computer name.** Every shot walks its text nodes and replaces the developer's machine name,
@@ -111,15 +181,22 @@ Four things the script and the pages are careful about, all of which have bitten
 
 ## The mark, and the glass
 
-`public/realm-mark.svg` is `resources/icon-src/mark.svg` — the cube with a lit doorway, written by
-`resources/icon-src/render.mjs` from `mark.mjs` — and the header draws it beside the name. The
-favicons (`app/icon.png`, `app/apple-icon.png`) and `public/app-icon.png` are the app icon drawn from
-`resources/icon-src/icons.mjs`; the share images come from `/share` (`pnpm capture:share`).
+The mark is flat: the cube's silhouette with the doorway cut out of it. `scripts/render-icons.mjs`
+(`node scripts/render-icons.mjs`) draws every file of it the site serves, two ways:
+
+- **One colour**, for small uses. `public/icon.svg` is the favicon, dark ink on a light tab strip and
+  light ink on a dark one (`prefers-color-scheme`); `app/favicon.ico` is the same mark in white on a
+  Realm-blue tile, for browsers that ask for an .ico; `public/mask-icon.svg` is Safari's pinned tab.
+  The header and footer draw the mark inline beside the name (`components/Wordmark.tsx`), in the
+  text colour.
+- **Three flat planes**, top `#9cc1ff`, left `#4f8cf5`, right `#2457c4`, for the app icon:
+  `public/realm-mark.svg` wherever the page shows the mark large, `public/apple-icon.png` (full-bleed,
+  iOS rounds it) and `public/app-icon.png` (the tile inset the way the Dock draws it). The share
+  images come from `/share` (`pnpm capture:share`), whose wordmark carries this mark.
+
+`app/layout.tsx` lists the icons rather than leaving them to Next's file names, because Safari's mask
+icon has no file convention and naming any icon in the metadata replaces the file-based ones.
 
 `lib/mark.ts` works the mark's geometry out the way `mark.mjs` does: its six faces, the walls and
-the doorway's floor, jamb and lit back. The landing page's field (`lib/dimension/`) assembles, lights
-and tiles exactly those faces, and `lib/realm-liquid-glass.ts` bakes the same mark's walls into a signed distance field and refracts
-Realm-blue, white and silver light streams through it, and `components/RealmCanvas.tsx` runs it —
-pausing offscreen and in a hidden tab, one frozen frame under reduced motion, the vector mark where
-WebGPU is unavailable. No page mounts it now: the landing page leads with a capture of the product,
-and the mark sits in the lockup, where a shader would draw a smudge.
+the doorway's floor, jamb and back. The landing page's field builds every realm on it from exactly that
+drawing (`components/realms/hive/cube.ts`), the cube with its doorway cut where the logo cuts it.

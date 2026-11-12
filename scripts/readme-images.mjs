@@ -33,8 +33,8 @@ for (const name of SHOWN) {
   execFileSync("ffmpeg", [
     "-loglevel", "error", "-y",
     "-f", "lavfi", "-i", `color=c=${PAGE}:s=2880x1800`,
-    "-i", join(from, `${name}.png`),
-    "-filter_complex", "[0][1]overlay=format=auto",
+    "-i", join(from, `${name}-4320.webp`),
+    "-filter_complex", "[1]scale=2880:1800[frame];[0][frame]overlay=format=auto",
     "-frames:v", "1", "-pix_fmt", "rgb24",
     join(to, `${name}.png`),
   ])
