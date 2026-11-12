@@ -343,6 +343,24 @@ describe("§6 motion table", () => {
     }
   });
 
+  it("keeps the queued message's focused ring inside the row that clips it", () => {
+    // THE MUTANT: the field's left margin back at -6px, past the row's 4px padding, so the row's
+    // overflow (kept for the enter and leave animation) shaved the ring off the field's left side.
+    const sides = (body: string, prop: string): number[] => {
+      const v = body.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+)`))![1]!.trim().split(/\s+/).map(parseFloat);
+      const [t, r = t, b = t, l = r] = v as [number, number?, number?, number?];
+      return [t, r, b, l];
+    };
+    const row = bodiesFor(".composer-queue-item .queue-item-body").join(";");
+    const field = bodiesFor(".composer-queue-item .queue-edit").join(";");
+    expect(row).toContain("overflow: hidden");
+    const spread = parseFloat(bodiesFor("body").join(" ").match(/--focus-ring-field: 0 0 0 ([\d.]+)px/)![1]!);
+    const padding = sides(row, "padding"), margin = sides(field, "margin");
+    ["top", "right", "bottom", "left"].forEach((side, i) => {
+      expect(padding[i]! + margin[i]! - spread, side).toBeGreaterThanOrEqual(0);
+    });
+  });
+
   it("lights one menu row: the focused one, and none while a press-opened menu rests (MN-04)", () => {
     // THE MUTANTS: a hover fill of its own, a second lit row beside the focus; the focus fill
     // ungated, the first row lit under a pointer that has not moved.
