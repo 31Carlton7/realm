@@ -301,6 +301,8 @@ describe("the permission a scheduled task runs in (SEC-08)", () => {
 
   it("runs a task whose row holds no mode in `default`, never Full access", async () => {
     const { spaceId } = await boot();
+    // A caller that names no mode is not the person's page, and gets `default` too.
+    expect(app.schedules.create(task(spaceId, { title: "Unnamed", permissionMode: undefined })).permissionMode).toBe("default");
     const legacy = app.schedules.create(task(spaceId, { title: "Legacy" }));
     app.db.prepare("UPDATE schedules SET permission_mode = NULL WHERE id = ?").run(legacy.id);
     expect(app.schedules.list(spaceId).find((s) => s.id === legacy.id)!.permissionMode).toBeNull();
