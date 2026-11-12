@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type TabRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, defaultModelKey, readModelDefaults, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type TabRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, runsInFullAccess, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import { ASKS_IN_FULL_ACCESS, fullAccessAllows, fullAccessLogLine } from "@realm/contracts";
@@ -2443,6 +2443,15 @@ export class SessionService {
     this.d.settings.set(MODEL_EFFORTS_KEY, { ...kept, ...levels });
   }
 
+  /** What an un-pinned session's harness ran is its CLI's default (`MODEL_DEFAULTS_KEY`): the next
+   *  session's picker ticks it before that session's own handshake. Written only when it changed. */
+  private noteDefaultModel(s: Session, model: string): void {
+    if (!model) return;
+    const key = defaultModelKey(s.agentKind, s.accountId);
+    const held = readModelDefaults(this.d.settings.get(MODEL_DEFAULTS_KEY));
+    if (held[key] !== model) this.d.settings.set(MODEL_DEFAULTS_KEY, { ...held, [key]: model });
+  }
+
   /**
    * Say so when the agent under the transcript cannot read it.
    *
@@ -2527,6 +2536,7 @@ export class SessionService {
       this.bootWaiters.get(id)?.resolve(ev.payload);
       if (before.status !== "moving") this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
       if (ev.payload.supportsFastMode !== undefined || ev.payload.fastModeModels || ev.payload.effortModels) this.noteFastSupport(before, ev.payload);
+      if (before.model === null) this.noteDefaultModel(before, ev.payload.model);
     }
     // A refused truncating resume is claimed here FIRST, and deliberately kept away from failover: the
     // refusal is deterministic, so every retry mechanism in the building would re-send a request that

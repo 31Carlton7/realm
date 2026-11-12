@@ -68,6 +68,23 @@ export function readEffortSupport(raw: unknown): Record<string, string[]> {
 }
 
 /**
+ * The `settings` row holding the model each harness last ran for a session that pinned none — its
+ * CLI's default, as that session's handshake reported it: `{ [defaultModelKey]: modelId }`. It is what
+ * lets a session that has not started yet, or a reviewer, tick the model that will actually run rather
+ * than a "Default" row. Filed by account as well as agent, since two accounts can be on plans with
+ * different defaults. Written by the server on `init`; the session's own handshake still wins.
+ */
+export const MODEL_DEFAULTS_KEY = "models.defaults";
+
+export const defaultModelKey = (kind: AgentKind, accountId: string | null | undefined): string => `${kind}:${accountId ?? ""}`;
+
+/** The row as a map, keeping only non-empty strings — settings rows are user-editable JSON. */
+export function readModelDefaults(raw: unknown): Record<string, string> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter((kv): kv is [string, string] => typeof kv[1] === "string" && kv[1] !== ""));
+}
+
+/**
  * Whether Realm can ASK this agent for fast mode at all. A fact about Realm's own adapters, not about
  * any model: Claude takes it as a flag setting at start and mid-session, Codex as the `priority` service
  * tier on each `turn/start`, and no other adapter has a channel to say it on. WHICH models can run it is

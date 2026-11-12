@@ -21,7 +21,7 @@ import {
   forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
@@ -1465,6 +1465,8 @@ export type AppState = TeammatesSlice & {
   /** The reasoning levels each harness said a model takes (`MODEL_EFFORTS_KEY`), filed the same way —
    *  what a session's effort control offers before its own harness has answered. */
   effortSupport: Record<string, string[]>;
+  /** The model each harness last ran un-pinned (`MODEL_DEFAULTS_KEY`): its CLI's default, by `defaultModelKey`. */
+  modelDefaults: Record<string, string>;
   /** The model catalog, keyed by canonical model key — what the picker's detail pane reads for a
    *  model's price, context window and reasoning efforts. Empty before the first load AND on a dead
    *  network, which are the same thing as far as the picker is concerned: rows render without
@@ -4623,7 +4625,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", libraryTab: {}, connectionsTab: "apps", memoryLibraryRev: 0, librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, draftTabs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, draftTabs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelDefaults: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
@@ -6227,11 +6229,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (ev.event.type === "error" && ev.event.payload.failure === "auth") {
           void get().run(() => get().probeAgents(true));
         }
-        /* A harness just said whether a model can run fast mode, and the server has already filed
-           it (it writes before it broadcasts). Re-read here, before the returns below, because the
-           answer is wanted by sessions that have not STARTED — the next one on this model offers the
-           switch before its first message only if this copy has heard. */
-        if (ev.event.type === "init" && (ev.event.payload.supportsFastMode !== undefined || ev.event.payload.fastModeModels || ev.event.payload.effortModels)) {
+        /* A harness just said whether a model can run fast mode, or which model it runs un-pinned,
+           and the server has already filed it (it writes before it broadcasts). Re-read here, before
+           the returns below, because the answer is wanted by sessions that have not STARTED — the next
+           one on this model offers the switch, and ticks its CLI's default, only if this copy has heard. */
+        if (ev.event.type === "init" && (ev.event.payload.supportsFastMode !== undefined || ev.event.payload.fastModeModels || ev.event.payload.effortModels
+          || get().sessions[ev.sessionId]?.model === null)) {
           void get().run(() => get().refreshFastSupport());
         }
         /* The session changed agents — a failover's handoff, or a switch made in another window. The
@@ -8026,8 +8029,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ modelFavorites: (Array.isArray(raw) ? raw : []).filter((k): k is string => typeof k === "string") });
       },
       async refreshFastSupport() {
-        const [fast, efforts] = await Promise.all([api.getSetting(MODEL_FAST_SUPPORT_KEY), api.getSetting(MODEL_EFFORTS_KEY)]);
-        set({ fastSupport: readFastSupport(fast), effortSupport: readEffortSupport(efforts) });
+        const [fast, efforts, defaults] = await Promise.all([api.getSetting(MODEL_FAST_SUPPORT_KEY), api.getSetting(MODEL_EFFORTS_KEY), api.getSetting(MODEL_DEFAULTS_KEY)]);
+        set({ fastSupport: readFastSupport(fast), effortSupport: readEffortSupport(efforts), modelDefaults: readModelDefaults(defaults) });
       },
       async refreshModelCatalog(force = false) {
         // Same mount-storm shape as probeAgents, for the same reason: a four-pane split asks four
