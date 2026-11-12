@@ -416,7 +416,10 @@ Rules:
   look: the prompter stays its opaque card with the picture feathered out round it, never glass over
   it, and a guard measures every run of text against the worst pixel behind it and lowers the picture
   there until the greeting holds 3:1 and every other run holds what it had on the plain ground. A
-  busy picture costs the picture, never the words. The looks are data (`gallery.json`), and the same
+  busy picture costs the picture, never the words. The picture fills the pane to its bottom edge with
+  no fade there (the owner, 11-11: "this image should expand towards the bottom"): the pane's edge ends
+  it the way the top edge does, and a fade partway down only leaves a band of plain ground that reads as
+  the picture running out. The looks are data (`gallery.json`), and the same
   file, the effects and the settings keys are what the phone reads.
 
 The light theme is an equal mode, not an inverted dark screenshot. Use its authored token values.

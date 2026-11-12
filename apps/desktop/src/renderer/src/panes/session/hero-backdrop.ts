@@ -5,8 +5,8 @@
  * The image only lends its tonality (and, for some looks, a little of its hue): every colour on
  * screen is the theme's ground or a step off it toward its ink or accent, so a backdrop changes with
  * the face and the theme rather than standing on top of them. Around the greeting and the prompter
- * the dither thins out over a measured rect (the calm zone), so the words keep their contrast, and
- * the whole picture fades out toward the pane's foot.
+ * the dither thins out over a measured rect (the calm zone), so the words keep their contrast. The
+ * picture fills the pane to its bottom edge.
  */
 
 /** How one face prints the image. Coverage is the share of cells inked, mapped from luminance. */
@@ -56,7 +56,7 @@ const VERT = `#version 300 es
 in vec2 a_pos;
 void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
 
-const FRAG = `#version 300 es
+export const FRAG = `#version 300 es
 precision highp float;
 uniform sampler2D u_img;
 uniform vec2 u_res, u_imgSize;
@@ -124,9 +124,7 @@ void main() {
     on = step(bayer8(id), cov - 0.001);
   }
   vec3 col = mix(ground, ink, on);
-  // Out toward the pane's foot, where the transcript will be read once there is one.
-  float a = 1.0 - smoothstep(0.62, 0.98, frag.y / u_res.y);
-  o = vec4(col * a, a);
+  o = vec4(col, 1.0);
 }`;
 
 export type Rgb = [number, number, number];
