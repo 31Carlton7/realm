@@ -95,9 +95,10 @@ function startRealmServer() {
   const dist = path.join(repoRoot, "apps/server/dist/main.js");
   if (!fs.existsSync(dist)) throw new Error("apps/server/dist/main.js missing — run: pnpm --filter @realm/server build");
   const child = spawn("node", [dist], {
-    env: { ...process.env, REALM_HOME: path.join(scratch, "home"), REALM_PORT: "0" },
-    stdio: ["ignore", "pipe", "inherit"],
+    env: { ...process.env, REALM_HOME: path.join(scratch, "home"), REALM_PORT: "0", REALM_APP_TOKEN_STDIN: "1" },
+    stdio: ["pipe", "pipe", "inherit"],
   });
+  child.stdin.end(`${APP_TOKEN}\n`);
   const ready = new Promise((resolve, reject) => {
     let buf = "";
     const timer = setTimeout(() => reject(new Error("realm-server did not report ready in 20s")), 20_000);
@@ -117,14 +118,10 @@ function startRealmServer() {
 }
 
 
-/** The RPC token realm-server minted at boot. It lives only in the 0600 `<home>/daemon.json` — never
- *  on stdout — and the socket refuses a handshake that does not offer it as a subprotocol. */
-function daemonToken(home) {
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8"));
-    return typeof raw.token === "string" && raw.token ? raw.token : null;
-  } catch { return null; }
-}
+/** The app's RPC token, handed to the server over its stdin as main does: `daemon.json` carries only
+ *  the CLI's, which cannot register a browser host. */
+const APP_TOKEN = require("node:crypto").randomBytes(32).toString("base64url");
+const daemonToken = () => APP_TOKEN;
 
 // ---- a minimal RPC client over the server's WS ----
 function connectRpc(port, token) {

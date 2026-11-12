@@ -43,6 +43,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { CAPTURE_DENSITY, WINDOW } from "../lib/frames.ts"
 import { encode, rawDir } from "./encode-product.mjs"
 import { spawnLiveElectron } from "../../apps/desktop/scripts/lib/live-app.mjs"
+import { daemonState } from "../../apps/desktop/scripts/lib/daemon-token.mjs"
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 /** The checkout whose built app is photographed. The site's line isn't a release, so name the tag's worktree here. */
@@ -372,8 +373,9 @@ function connectCdp(url) {
 
 /**
  * The RPC socket takes a token, and it travels as the WebSocket subprotocol `realm.<token>` — the one
- * channel both `ws` and a browser can set (apps/server/src/rpc/server.ts). realm-server mints it at
- * boot and writes it to `daemon.json` under REALM_HOME, which is the only place it exists.
+ * channel both `ws` and a browser can set (apps/server/src/rpc/server.ts). The app's own token is in
+ * main's memory; launched through `spawnLiveElectron`, the unpackaged app also writes it to
+ * `<home>/live-app-token`, which `daemonState` reads (`daemon.json` holds only the CLI's).
  */
 function connectRpc(port, token) {
   const socket = new WebSocket(`ws://127.0.0.1:${port}`, [`realm.${token}`])
@@ -1683,13 +1685,7 @@ async function main() {
 
   let page = await attach()
   const token = await until(
-    () => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8")).token ?? null
-      } catch {
-        return null
-      }
-    },
+    () => daemonState(home)?.token ?? null,
     20_000,
     "realm-server's token",
   )

@@ -20,7 +20,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 // The socket refuses a handshake without the `realm.<token>` subprotocol; the token is in the home.
-const { daemonToken, tokenProtocols } = await import(pathToFileURL(path.join(repoRoot, "apps/desktop/scripts/lib/daemon-token.mjs")).href);
+const { daemonToken, handOverAppToken, tokenProtocols } = await import(pathToFileURL(path.join(repoRoot, "apps/desktop/scripts/lib/daemon-token.mjs")).href);
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-skill-roots-live-"));
 let server = null;
 
@@ -58,9 +58,10 @@ function rpc(port, token) {
 async function boot(env) {
   const home = fs.mkdtempSync(path.join(scratch, "realm-home-"));
   server = spawn(process.execPath, [path.join(repoRoot, "apps/server/dist/main.js")], {
-    env: { ...process.env, ...env, REALM_HOME: home, REALM_PORT: "0" },
-    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...env, REALM_HOME: home, REALM_PORT: "0", REALM_APP_TOKEN_STDIN: "1" },
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  handOverAppToken(server, home);
   server.stderr.on("data", () => {});
   const port = await new Promise((ok, bad) => {
     const timer = setTimeout(() => bad(new Error("server did not report ready")), 20000);

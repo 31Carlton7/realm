@@ -1,24 +1,50 @@
 /**
- * The RPC token, for a live check that dials realm-server's socket directly.
+ * The app's RPC token, for a live check that dials realm-server's socket directly.
  *
- * The socket refuses a handshake that does not offer `realm.<token>` as its WebSocket subprotocol —
- * it binds loopback, and loopback is reachable from any web page. The token is minted at boot and
- * written only to `<home>/daemon.json` at 0600, never to stdout, so a script that wants on the
- * socket reads it from the scratch home it already chose.
+ * The socket refuses a handshake that does not offer a token as its WebSocket subprotocol — it binds
+ * loopback, and loopback is reachable from any web page. `<home>/daemon.json` carries only the
+ * `realm` CLI's token, which the server refuses for most methods (`apps/server/src/rpc/cli-methods.ts`):
+ * any agent with the sandbox off can read that file. The app's own token exists only in main's
+ * memory, so an unpackaged build started with `REALM_LIVE_APP_TOKEN=1` — every launch through
+ * `live-app.mjs` — writes it to `<home>/live-app-token` for the check (`src/main/app-token.ts`).
+ *
+ * `daemonState(home).token` is therefore the app's token when the app wrote one, and the CLI's
+ * otherwise; `cliToken` is always the file's own.
  *
  * Polled rather than read once: a script that has seen the app's window is past this, but one racing
  * the ready line can arrive a few milliseconds early.
  */
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
+export const LIVE_APP_TOKEN_FILE = "live-app-token";
+
+export function liveAppToken(home) {
+  try { return fs.readFileSync(path.join(home, LIVE_APP_TOKEN_FILE), "utf8").trim() || null; } catch { return null; }
+}
 
 export function daemonState(home) {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8"));
-    return typeof raw?.token === "string" && raw.token ? raw : null;
+    if (typeof raw?.token !== "string" || !raw.token) return null;
+    return { ...raw, cliToken: raw.token, token: liveAppToken(home) ?? raw.token };
   } catch {
     return null;
   }
+}
+
+/**
+ * For a check that spawns realm-server itself, as main does: started with `REALM_APP_TOKEN_STDIN=1`
+ * and a piped stdin, it reads the app's token from there. The token is also left in
+ * `<home>/live-app-token`, where `daemonToken` finds it.
+ */
+export function handOverAppToken(child, home) {
+  const token = randomBytes(32).toString("base64url");
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, LIVE_APP_TOKEN_FILE), token, { mode: 0o600 });
+  child.stdin.end(`${token}\n`);
+  return token;
 }
 
 export async function daemonToken(home, { timeoutMs = 15_000 } = {}) {
