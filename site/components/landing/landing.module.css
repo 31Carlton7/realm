@@ -289,11 +289,46 @@
   width: 100%;
 }
 
+/* A wide section: the claim on top, then two components side by side at their own size, so neither
+   covers the other. */
+.realm[data-wide] .column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 48px;
+}
+
+.realm[data-wide] .claim {
+  flex: none;
+  max-width: 600px;
+}
+
+.realm[data-wide] .figure {
+  flex: none;
+}
+
+.realm[data-wide] .stage {
+  align-items: center;
+  gap: 32px;
+  padding: 64px 48px;
+}
+
+.realm[data-wide] .aside {
+  position: static;
+  order: -1;
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.realm[data-wide] .lifted {
+  min-width: 0;
+}
+
 .realm .caption {
   margin-top: 28px;
 }
 
-.realm:has(.aside) .caption {
+.realm:not([data-wide]):has(.aside) .caption {
   margin-top: 56px;
 }
 
@@ -321,6 +356,10 @@
   text-wrap: pretty;
 }
 
+.credit {
+  display: block;
+}
+
 .footLinks {
   display: flex;
   gap: 24px;
@@ -345,14 +384,14 @@
 
   .ring {
     left: 50%;
-    top: 220px;
-    width: min(76vw, 300px);
+    top: 166px;
+    width: min(56vw, 210px);
   }
 
   .heroCopy {
     min-height: 0;
     justify-content: flex-start;
-    padding: 330px 20px 0;
+    padding: 228px 20px 0;
   }
 
   .h1 {
@@ -362,17 +401,22 @@
   }
 
   .lede {
-    margin-top: 20px;
-    font-size: 17px;
+    margin-top: 16px;
+    font-size: 16px;
+    line-height: 1.55;
   }
 
   .actions {
-    margin-top: 28px;
+    margin-top: 24px;
+  }
+
+  .micro {
+    margin-top: 16px;
   }
 
   .heroShot {
     width: calc(100% - 40px);
-    margin-top: 56px;
+    margin-top: 32px;
     padding-bottom: 72px;
   }
 
@@ -396,11 +440,16 @@
     font-size: 30px;
   }
 
-  .stage {
+  .stage,
+  .realm[data-wide] .stage {
     flex-direction: column;
     align-items: center;
     gap: 16px;
-    padding: 28px 16px;
+    padding: 24px 12px;
+  }
+
+  .realm[data-wide] .aside {
+    order: 0;
   }
 
   .frameWorld {
