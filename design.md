@@ -965,6 +965,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   element's rect each frame, so a rim can never drift off its image. And every effect argues a claim
   the copy also makes — the six faces are the six things a realm holds, the hive is spaces side by
   side. An effect with no claim under it is decoration and does not ship.
+- A field's detail (stars, grain) never sits under text; mask it from text blocks. One star above a
+  period read as a colon in the hero's lede, so the sky reads the rect of every block of text over it,
+  plus a margin, and draws no star there at any width.
 - A frame loop is outside every mechanism this app governs motion with, and has to re-implement all
   of them. Both of the controls above are CSS: reduced motion is an app-wide `* { animation: none }`,
   and the `data-quiet` pause the power audit measured is `animation-play-state`. A canvas driven by

@@ -39,27 +39,27 @@ export function Hero({ downloads, version, changelog, world, session }: Props) {
       </div>
       <Aperture ring={ring} className={s.sky} />
       <header className={s.nav}>
-        <a href="/" className={s.brand}>
+        <a href="/" className={s.brand} data-clear>
           <Mark className={s.brandMark} />
           <span>Realm</span>
         </a>
-        <nav className={s.links} aria-label="Site">
+        <nav className={s.links} aria-label="Site" data-clear>
           <a href="/docs">Docs</a>
           <a href="/changelog">Changelog</a>
           <a href={site.repo}>Source</a>
         </nav>
       </header>
       <div className={s.heroCopy}>
-        <h1 className={s.h1}>One workspace for every coding agent.</h1>
-        <p className={s.lede}>
+        <h1 className={s.h1} data-clear>One workspace for every coding agent.</h1>
+        <p className={s.lede} data-clear>
           Run Claude Code, Codex and the other agents you already use side by side on your computer. Each one signs in
           the way it already does, with your own account or key.
         </p>
-        <div className={s.actions}>
+        <div className={s.actions} data-clear>
           <DownloadButton downloads={downloads} size="lg" />
           <QuietButton href={site.repo}>Source</QuietButton>
         </div>
-        <p className={s.micro}>
+        <p className={s.micro} data-clear>
           Free and open source under the MIT licence.{" "}
           <a href={`/changelog/${changelog}`} className={s.release}>
             What&apos;s new in Realm <span className="font-mono text-[12px] text-accent-ink">{version}</span>
@@ -68,7 +68,7 @@ export function Hero({ downloads, version, changelog, world, session }: Props) {
       </div>
       <figure className={s.heroShot}>
         <Crop shot={session} sizes={{ wide: "min(960px, 100vw - 56px)", phone: "calc(100vw - 40px)" }} />
-        <figcaption className={s.caption}>A new session in Realm, opened onto Cosmic Cliffs.</figcaption>
+        <figcaption className={s.caption} data-clear>A new session in Realm, opened onto Cosmic Cliffs.</figcaption>
       </figure>
     </section>
   )
