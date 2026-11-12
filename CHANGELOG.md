@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.11.1 - 2026-11-12
+
+- A task an agent schedules runs no higher than the session that made it. Scheduled from a session on Ask each time, it asks each time. Scheduled from Full access, it runs in Full access. A task you make yourself in Scheduled runs in the mode you pick there, and tasks that already exist keep running as they do today.
+- A folded run says how many calls Full access ran on its own, for example "1 command, 1 ran without asking".
+- The model picker ticks the model that will actually run when a session has none pinned.
+- Every text field draws its focus ring from one rule.
+- The queued message's edit field keeps its whole focus ring and has room beside the caret.
+
 ## v2.11.0 - 2026-11-11
 
 - The picture behind a new session runs to the bottom of the pane. It used to fade into the plain ground about 60% of the way down. Now it covers the whole pane at every window size, for every built-in picture, generated look and image of your own.
