@@ -1678,7 +1678,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Durable runs: a goal that owns a session across attempts and survives restarts. Not on the
   // delegation engine on purpose — nobody is blocked on a run, so its state is a row and its settle
   // rides the session-event hook above (runs/service.ts).
+  const schedulesStore = new SchedulesStore(db);
   runs = new RunService({ store: new RunsStore(db), settings, sessions, rpc, environments: envService, skills, notifications,
+    scheduleMode: (id) => schedulesStore.get(id)?.permissionMode ?? null,
     // A run a schedule fired may owe its schedule something once it is over (archiving a success).
     // Read through the variable, which is assigned on the next statement and before any run settles.
     onSettled: (run) => { schedules?.runSettled(run); },
@@ -1688,7 +1690,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // from anything the process was holding (schedules/service.ts). Started after boot recovery below,
   // not here, so a catch-up firing lands in a world whose live runs have already been reconciled.
   schedules = new ScheduleService({
-    store: new SchedulesStore(db), runs, rpc,
+    store: schedulesStore, runs, rpc,
     spaceExists: (id) => Boolean(spaces.get(id)),
     // A teammate's clock writes into its chat (made just below), not into a run.
     teammates: { clockFired: (schedule) => team?.clockFired(schedule) ?? "gone" },

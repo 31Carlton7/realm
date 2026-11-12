@@ -7,7 +7,7 @@ type Row = {
   constraints_json: string | null; next_run_at: number | null; last_run_at: number | null;
   last_run_id: string | null; last_skipped_at: number | null;
   new_session_per_run: number; archive_succeeded: number; created_at: number; updated_at: number;
-  role_id: string | null;
+  role_id: string | null; permission_mode: string | null;
 };
 
 /** A constraints blob that does not parse reads as "no constraints" rather than throwing — the same
@@ -26,7 +26,7 @@ const toSchedule = (r: Row): Schedule => ({
   constraints: parseConstraints(r.constraints_json),
   nextRunAt: r.next_run_at, lastRunAt: r.last_run_at, lastRunId: r.last_run_id, lastSkippedAt: r.last_skipped_at,
   newSessionPerRun: r.new_session_per_run === 1, archiveSucceeded: r.archive_succeeded === 1,
-  roleId: r.role_id ?? null,
+  roleId: r.role_id ?? null, permissionMode: r.permission_mode ?? null,
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
@@ -35,11 +35,13 @@ export type ScheduleInsert = {
   newSessionPerRun: boolean; archiveSucceeded: boolean;
   /** The teammate whose clock this is (`TeammateSchedule`). */
   roleId?: string | null;
+  /** What its runs start in (`Schedule.permissionMode`); a teammate's clock has none. */
+  permissionMode?: string | null;
 };
 
 export type ScheduleUpdate = {
   spaceId?: string; title?: string; goal?: string; cron?: string; enabled?: boolean; constraints?: RunConstraints | null;
-  newSessionPerRun?: boolean; archiveSucceeded?: boolean;
+  newSessionPerRun?: boolean; archiveSucceeded?: boolean; permissionMode?: string;
 };
 
 /**
@@ -82,11 +84,11 @@ export class SchedulesStore {
     // nothing ahead. Both are `null`, and the page reads that column to say "paused" / "never".
     const next = input.enabled ? nextFireOf(input.cron, ts) : null;
     this.db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json,
-        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, role_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?)`)
+        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, role_id, permission_mode, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.title, input.goal, input.cron, input.enabled ? 1 : 0,
         input.constraints ? JSON.stringify(input.constraints) : null, next,
-        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, input.roleId ?? null, ts, ts);
+        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, input.roleId ?? null, input.permissionMode ?? null, ts, ts);
     return this.get(id)!;
   }
 
@@ -112,12 +114,13 @@ export class SchedulesStore {
       ...(patch.constraints !== undefined ? { constraints: patch.constraints } : {}),
       ...(patch.newSessionPerRun !== undefined ? { newSessionPerRun: patch.newSessionPerRun } : {}),
       ...(patch.archiveSucceeded !== undefined ? { archiveSucceeded: patch.archiveSucceeded } : {}),
+      ...(patch.permissionMode !== undefined ? { permissionMode: patch.permissionMode } : {}),
     };
     this.db.prepare(`UPDATE schedules SET space_id = ?, title = ?, goal = ?, cron = ?, enabled = ?, constraints_json = ?,
-        new_session_per_run = ?, archive_succeeded = ?, next_run_at = ?, updated_at = ? WHERE id = ?`)
+        new_session_per_run = ?, archive_succeeded = ?, permission_mode = ?, next_run_at = ?, updated_at = ? WHERE id = ?`)
       .run(next.spaceId, next.title, next.goal, next.cron, next.enabled ? 1 : 0,
         next.constraints ? JSON.stringify(next.constraints) : null,
-        next.newSessionPerRun ? 1 : 0, next.archiveSucceeded ? 1 : 0,
+        next.newSessionPerRun ? 1 : 0, next.archiveSucceeded ? 1 : 0, next.permissionMode,
         next.enabled ? nextFireOf(next.cron, ts) : null, ts, id);
     return this.get(id);
   }

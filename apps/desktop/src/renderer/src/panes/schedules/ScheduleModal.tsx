@@ -16,7 +16,7 @@ export type ModalOpen = { schedule: Schedule } | { draft: Draft };
  * or not, how often, what time), and Advanced for HOW (a new session per run or one conversation
  * continued, archiving successes, the space, and the model it runs on). The model is the prompter's
  * own chip and picker, so its row also holds what Codex's Effort row did — the model's own levels —
- * and fast mode, beside the Full access every run starts in.
+ * and fast mode, beside the permission every run starts in.
  *
  * The instructions are sent as written, because they are standing orders to an agent that will never
  * see this modal — and they may name other models for the work they hand out, which is the run's
@@ -52,7 +52,7 @@ export function ScheduleModal({ open, spaces, onClose, onSaved }: {
     const body = {
       title: d.title.trim(), goal: d.goal, cron: editing && whenKept ? editing.cron : exprOf(d)!,
       constraints: constraintsOf(d, editing?.constraints ?? null, catalog.levels.levels.map((l) => l.id)),
-      newSessionPerRun: d.newSessionPerRun, archiveSucceeded: d.archiveSucceeded,
+      newSessionPerRun: d.newSessionPerRun, archiveSucceeded: d.archiveSucceeded, permissionMode: d.permissionMode,
     };
     setSaving(true);
     run(async () => {

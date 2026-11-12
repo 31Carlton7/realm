@@ -40,14 +40,14 @@ export function checkInOf(t: Teammate): Schedule | null {
   return {
     id: clock.id, spaceId: t.spaceId, title: t.name, goal: clock.prompt, cron: clock.cron, enabled: clock.enabled, constraints: null,
     nextRunAt: clock.nextRunAt, lastRunAt: clock.lastRunAt, lastRunId: null, lastSkippedAt: clock.lastSkippedAt,
-    newSessionPerRun: false, archiveSucceeded: false, roleId: t.id, createdAt: t.createdAt, updatedAt: t.updatedAt,
+    newSessionPerRun: false, archiveSucceeded: false, roleId: t.id, permissionMode: null, createdAt: t.createdAt, updatedAt: t.updatedAt,
   };
 }
 
 /**
  * The run constraints a task's sheet asks for, laid over what the task carried, as the desktop's sheet
  * lays them (`constraintsOf`): anything else its runs were given stays, and a permission it still holds
- * goes, since every scheduled run is Full access. Fast mode is not on the phone's sheet, so it stays while
+ * goes, since a scheduled run starts in the task's own `permissionMode`. Fast mode is not on the phone's sheet, so it stays while
  * the agent can be asked for it.
  */
 export function taskConstraints(before: RunConstraints | null, agentKind: AgentKind, model: string | null, effort: string | null): RunConstraints {

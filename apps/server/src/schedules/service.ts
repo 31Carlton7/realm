@@ -23,9 +23,8 @@ const dedupeKeyFor = (scheduleId: string, dueAt: number) => `schedule:${schedule
  * mid-tick and the worst case is a schedule that fires once when it comes back.
  *
  * **A firing creates a RUN and stops there.** Attempts, the human gate, worktrees, restart recovery
- * and the Full access every scheduled run works in are all `RunService`'s, already built and already
- * tested. A
- * scheduler that dispatched sessions itself would be a second, worse answer to every one of those.
+ * and starting the run in the schedule's `permissionMode` are all `RunService`'s, already built and
+ * already tested. A scheduler that dispatched sessions itself would be a second, worse answer to every one of those.
  *
  * **A missed firing is either caught up or admitted.** A Mac sleeps. A daily schedule on a laptop
  * that woke five hours late runs once (inside `SCHEDULE_CATCHUP_MS`); one that woke five days late
@@ -195,7 +194,9 @@ export class ScheduleService {
     // the list looking armed and never fire — the failure would be invisible until someone noticed
     // the work had not happened, which for unattended work can be weeks.
     if (nextFireOf(parsed.cron, this.now()) === null) throw this.unfireable(parsed.cron);
-    const made = this.d.store.create(parsed);
+    // A caller that names no mode gets `default`, never Full access: the person's page names its pick
+    // (`schedules.create`), and an agent's tool names its session's.
+    const made = this.d.store.create({ ...parsed, permissionMode: parsed.permissionMode ?? "default" });
     this.announce(made.spaceId);
     return made;
   }
