@@ -13,7 +13,17 @@ import { useEffect, useRef } from "react"
  * It moves once: on load the opening widens from a point of light to the ring, about a second and a
  * half, and then the loop stops. After that it draws only when its box changes size. Under reduced
  * motion it is drawn open, once.
+ *
+ * No star sits under text. Every element in the hero marked `data-clear` (the nav, the copy, the
+ * caption) is read as the rect round its contents, grown by CLEAR_MARGIN, and the shader drops any star whose centre falls
+ * inside one, fading over CLEAR_FEATHER beyond it. The rects are read again whenever the canvas or
+ * any of those elements changes size, and once the fonts have loaded.
  */
+
+const MAX_CLEAR = 12
+/** Clear space round a text block, in CSS px: a few px of air plus the widest star's own radius. */
+const CLEAR_MARGIN = 10
+const CLEAR_FEATHER = 8
 
 const VERT = `#version 300 es
 in vec2 p;
@@ -25,6 +35,10 @@ uniform vec2 uRes;
 uniform vec3 uRing;
 uniform float uDpr;
 uniform float uOpen;
+#define MAX_CLEAR ${MAX_CLEAR}
+uniform vec4 uClear[MAX_CLEAR];
+uniform int uClearN;
+uniform float uFeather;
 out vec4 outColor;
 
 float h21(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -34,6 +48,18 @@ float noise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1, 0)), u.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), u.x), u.y);
 }
+// 0 inside any text block's rect (already grown by the margin), rising to 1 over uFeather beyond it.
+float clearOf(vec2 p) {
+  float m = 1.0;
+  for (int i = 0; i < MAX_CLEAR; i++) {
+    if (i >= uClearN) break;
+    vec4 r = uClear[i];
+    vec2 d = max(max(r.xy - p, p - r.zw), 0.0);
+    m = min(m, smoothstep(0.0, uFeather, length(d)));
+  }
+  return m;
+}
+
 float fbm(vec2 p) {
   float a = 0.5, s = 0.0;
   for (int i = 0; i < 5; i++) { s += a * noise(p); p = p * 2.03 + 17.1; a *= 0.5; }
@@ -52,7 +78,8 @@ float stars(vec2 px, float cell, float keep, float seed) {
     float d = length((f - pos) * cell);
     float mag = pow(h21(cid + seed * 3.1), 2.6);
     float size = (0.5 + 0.8 * mag) * uDpr;
-    s += (0.15 + mag) * exp(-d * d / (size * size));
+    // Masked by where the star's centre falls, so a star near text goes whole rather than cut in half.
+    s += (0.15 + mag) * exp(-d * d / (size * size)) * clearOf((id + pos) * cell);
   }
   return s;
 }
@@ -89,7 +116,7 @@ void main() {
   vec3 outside = space(px, uv) + light;
   float a = mix(1.0, shade, inside);
   vec3 c = mix(outside, light, inside);
-  c += (h21(px) - 0.5) / 255.0 * 2.0 * (1.0 - inside);
+  c += (h21(px) - 0.5) / 255.0 * 2.0 * (1.0 - inside) * clearOf(px);
   outColor = vec4(c, a);
 }`
 
@@ -140,11 +167,34 @@ export function Aperture({ ring, className }: { ring: React.RefObject<HTMLElemen
         const cy = (box.bottom - (slot.top + slot.height / 2)) * dpr
         gl.uniform3f(u("uRing"), cx, cy, (slot.width / 2) * dpr)
       }
+      const rects = new Float32Array(MAX_CLEAR * 4)
+      clear.slice(0, MAX_CLEAR).forEach((node, i) => {
+        // The contents' box, not the element's: a block stretched across the column would clear a
+        // band of sky far wider than its words.
+        range.selectNodeContents(node)
+        const r = range.getBoundingClientRect()
+        rects.set(
+          [
+            (r.left - box.left - CLEAR_MARGIN) * dpr,
+            (box.bottom - r.bottom - CLEAR_MARGIN) * dpr,
+            (r.right - box.left + CLEAR_MARGIN) * dpr,
+            (box.bottom - r.top + CLEAR_MARGIN) * dpr,
+          ],
+          i * 4,
+        )
+      })
+      gl.uniform4fv(u("uClear"), rects)
+      gl.uniform1i(u("uClearN"), Math.min(clear.length, MAX_CLEAR))
+      gl.uniform1f(u("uFeather"), CLEAR_FEATHER * dpr)
       draw()
     }
+    const range = document.createRange()
+    const clear = Array.from(el.parentElement?.querySelectorAll<HTMLElement>("[data-clear]") ?? [])
     size()
     const observer = new ResizeObserver(size)
     observer.observe(el)
+    clear.forEach((node) => observer.observe(node))
+    void document.fonts.ready.then(size)
 
     let frame = 0
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
