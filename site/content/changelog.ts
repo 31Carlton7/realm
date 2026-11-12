@@ -21,6 +21,29 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-11-1",
+    title: "Realm v2.11.1",
+    date: "2026-11-12",
+    version: "v2.11.1",
+    area: "Release",
+    summary:
+      "A task an agent schedules runs no higher than the session that made it, and a folded run counts what Full access ran on its own.",
+    short: "Scheduled tasks keep their session's access",
+    body: [
+      { kind: "h", text: "Access" },
+      { kind: "ul", items: [
+        "**A task an agent schedules runs no higher than the session that made it.** Scheduled from a session on Ask each time, it asks each time. Scheduled from Full access, it runs in Full access. A task you make yourself in Scheduled runs in the mode you pick there, and tasks that already exist keep running as they do today.",
+        "**A folded run says how many calls Full access ran on its own,** for example \"1 command, 1 ran without asking\".",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**The model picker ticks the model that will actually run** when a session has none pinned.",
+        "**Every text field draws its focus ring from one rule.**",
+        "**The queued message's edit field keeps its whole focus ring** and has room beside the caret.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-11-0",
     title: "Realm v2.11.0",
     date: "2026-11-11",
