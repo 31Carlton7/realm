@@ -18,8 +18,9 @@
  * run on a Mac raises macOS's microphone prompt for the test Electron; the script waits for a person
  * to click Allow.
  *
- * Electron is launched through LaunchServices (`open`), so the microphone is asked of this Electron
- * rather than of whatever app ran the script.
+ * Electron starts through lib/live-app.mjs. With LIVE_FEED=1 it runs quietly (nothing on screen, nothing
+ * played); without it the check says it is seen, since the window comes forward and `say` uses the
+ * speakers.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { connect } from "node:net";
@@ -28,6 +29,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9223), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8788);
@@ -266,11 +268,11 @@ async function main() {
     REALM_VOICE_BIN: path.join(repoRoot, "apps/desktop/native/bin/realmvoice"),
     LIVE_USER_DATA: userData, LIVE_MAIN: mainEntry,
   };
-  const app = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app");
-  execFileSync("open", ["-n", ...Object.entries(env).flatMap(([k, v]) => ["--env", `${k}=${v}`]), app, "--args", wrapper, `--user-data-dir=${userData}`,
-    "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"]);
-  const pid = await until(() => { try { return Number(execFileSync("pgrep", ["-f", wrapper], { encoding: "utf8" }).split("\n")[0]) || null; } catch { return null; } }, 30_000, "electron");
-  electron = { kill: (sig) => { try { process.kill(pid, sig); } catch { /* gone */ } } };
+  electron = spawnLiveElectron([wrapper, `--user-data-dir=${userData}`,
+    "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
+    env: { ...process.env, ...env }, stdio: "ignore",
+    visible: FEED ? undefined : "voice mode through the air: the window comes forward and say plays through the speakers",
+  });
   const targets = () => fetch(`http://127.0.0.1:${CDP_PORT}/json/list`).then((r) => r.json()).catch(() => []);
   const target = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file://")), 60_000, "renderer");
   const c = cdp(target.webSocketDebuggerUrl);
