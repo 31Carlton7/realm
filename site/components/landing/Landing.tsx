@@ -39,7 +39,7 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
         world={world("webb")}
         session={shot(
           "session",
-          "A new, empty session in Realm on the Cosmic Cliffs picture, asking what we're working on, with the prompter under it.",
+          "A new, empty session in Realm on the Cosmic Cliffs picture, asking “What's next in Realm?” over the prompter, set to Opus 5.5.",
           "session-phone",
         )}
       />
