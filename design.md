@@ -193,6 +193,13 @@ as a sliver at its edge. The caption belongs to the picture: it hangs from the m
 foot, not under it as a card of its own. A phone gets a capture laid out at a phone's width, never
 the wide one drawn at a third of its size.
 
+Crops shown together share one scale. Two components from the same window are drawn at the same
+pixels per point, so their text reads at one size; when they do not fit side by side they stack or
+the frame narrows them together, and neither is ever enlarged to balance the other (11-12, Team
+access drawn half again larger than the Computer tab beside it). A component set in one of the
+worlds leaves that world readable: it takes a corner and the picture shows above and beside it,
+because a frame the component nearly fills shows only a coloured edge, not a place.
+
 ## Surfaces and depth
 
 Realm is dark-first. The base palette is a cool neutral ladder:

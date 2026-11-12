@@ -20,7 +20,7 @@ const captures: Record<string, { w: number; h: number }> = early
 const picture = (name: string): Picture => {
   const size = captures[name]
   if (!size) throw new Error(`no capture "${name}" in content/early.json`)
-  return { src: `/early/${name}.webp`, ...size }
+  return { src: `/early/${name}.webp`, src1x: `/early/${name}-1x.webp`, ...size }
 }
 const shot = (name: string, alt: string, phone?: string): Shot => ({ ...picture(name), alt, ...(phone ? { phone: picture(phone) } : {}) })
 
@@ -39,7 +39,7 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
         world={world("webb")}
         session={shot(
           "session",
-          "A new, empty session in Realm on the Cosmic Cliffs picture, asking “What's next in Realm?” over the prompter, set to Opus 5.5.",
+          `A new, empty session in Realm on the Cosmic Cliffs picture, asking "What's next in Realm?" over the prompter, set to Opus 5.5.`,
           "session-phone",
         )}
       />
@@ -47,6 +47,8 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
       <Realm
         id="teammates"
         world={world("church")}
+        focus={[0.3, 0.6]}
+        stage="corner"
         quiet="Teammates and their Lead."
         claim="Tell the Lead what you need and it asks the teammate who fits."
         body={
@@ -59,7 +61,7 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
         }
         main={shot(
           "lead",
-          "The Lead's chat. It asked Desktop Polish, Engines and Docs Writer for parts of a release; Engines is working and the other two are done. Below, after “give polish full access”, a line says the Lead set @polish to Full access at your request, with an Undo.",
+          `The Lead's chat. It asked Desktop Polish, Engines and Docs Writer for parts of a release; Engines is working and the other two are done. Below, after "give polish full access", a line says the Lead set @polish to Full access at your request, with an Undo.`,
           "lead-phone",
         )}
         caption="The Lead's chat: three teammates asked, then @polish raised to Full access."
@@ -68,7 +70,7 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
       <Realm
         id="computer"
         world={world("hubble")}
-        wide
+        stage="pair"
         quiet="Team access and the Computer tab."
         claim="Set the whole team's access once, then see what each teammate is doing."
         body={
@@ -118,15 +120,20 @@ type RealmProps = {
   main: Shot
   aside?: Shot
   caption: string
-  flip?: boolean
-  /** The figure takes the column's full width under the claim, so two components sit side by side at their own size. */
-  wide?: boolean
+  /** Where the world's subject sits, kept in the frame. */
+  focus?: [number, number]
+  /**
+   * How the figure sits under the claim, at the column's full width. `corner`: one component in the
+   * frame's lower right, so the world shows above and beside it. `pair`: two components side by side,
+   * stacked when they do not fit. Every crop on a stage shares one scale, its size in the app.
+   */
+  stage: "corner" | "pair"
 }
 
 /** One section: its claim, and one component from the app set in one of the app's worlds. */
-function Realm({ id, world, quiet, claim, body, main, aside, caption, flip = false, wide = false }: RealmProps) {
+function Realm({ id, world, quiet, claim, body, main, aside, caption, focus = [0.5, 0.5], stage }: RealmProps) {
   return (
-    <section className={s.realm} aria-labelledby={`${id}-title`} data-flip={flip || undefined} data-wide={wide || undefined}>
+    <section className={s.realm} aria-labelledby={`${id}-title`} data-stage={stage}>
       <div className={s.column}>
         <div className={s.claim}>
           <h2 className={s.h2} id={`${id}-title`}>
@@ -134,12 +141,12 @@ function Realm({ id, world, quiet, claim, body, main, aside, caption, flip = fal
           </h2>
           <p className={s.body}>{body}</p>
         </div>
-        <figure className={s.figure}>
+        <figure>
           <div className={s.frame}>
-            <World file={world.file} className={s.frameWorld} />
+            <World file={world.file} x={focus[0]} y={focus[1]} className={s.frameWorld} />
             <div className={s.stage}>
-              <Crop shot={main} className={s.lifted} />
-              {aside && <Crop shot={aside} className={`${s.lifted} ${s.aside}`} />}
+              {aside && <Crop shot={aside} />}
+              <Crop shot={main} />
             </div>
           </div>
           <figcaption className={s.caption}>{caption}</figcaption>

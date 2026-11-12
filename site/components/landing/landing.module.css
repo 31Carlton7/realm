@@ -95,8 +95,8 @@
   position: absolute;
   z-index: 0;
   left: 70%;
-  top: calc(92px + (max(100svh, 760px) - 242px) / 2);
-  width: min(40vw, 560px);
+  top: calc(92px + (max(100svh, 760px) - 382px) / 2);
+  width: min(34vw, 470px);
   aspect-ratio: 1;
   translate: -50% -50%;
   pointer-events: none;
@@ -115,7 +115,7 @@
   max-width: 1240px;
   margin: 0 auto;
   padding: 0 28px;
-  min-height: calc(max(100svh, 760px) - 92px - 150px);
+  min-height: calc(max(100svh, 760px) - 92px - 290px);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -162,13 +162,13 @@
   text-underline-offset: 3px;
 }
 
-/* The product, under the fold's edge: the first screen shows the top of a new session. */
+/* The product, under the fold's edge: the first screen shows a new session down to its prompter. */
 .heroShot {
   position: relative;
   z-index: 2;
   width: min(100% - 56px, 960px);
   margin: 0 auto;
-  padding-bottom: 120px;
+  padding-bottom: 72px;
 }
 
 .heroShot .crop img {
@@ -181,6 +181,7 @@
 
 .crop img {
   display: block;
+  width: calc(var(--w) * var(--scale, 1px));
   max-width: 100%;
   height: auto;
   border-radius: 14px;
@@ -203,22 +204,22 @@
   padding: 120px 0;
 }
 
+.hero + .realm {
+  padding-top: 48px;
+}
+
+/* The claim on top, then the world at the column's full width. */
 .column {
   max-width: 1240px;
   margin: 0 auto;
   padding: 0 28px;
   display: flex;
-  align-items: center;
-  gap: 64px;
-}
-
-.realm[data-flip] .column {
-  flex-direction: row-reverse;
+  flex-direction: column;
+  gap: 48px;
 }
 
 .claim {
-  flex: 0 0 360px;
-  min-width: 0;
+  max-width: 600px;
 }
 
 .h2 {
@@ -241,15 +242,11 @@
   text-wrap: pretty;
 }
 
-.figure {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
 /* The world is the frame: the app's own picture, dimmed so the component on it reads first. */
 .frame {
   position: relative;
   isolation: isolate;
+  container-type: inline-size;
 }
 
 .frameWorld {
@@ -267,69 +264,48 @@
   background: linear-gradient(oklch(0.12 0.03 262 / 0.28), oklch(0.12 0.03 262 / 0.5));
 }
 
+/* Every crop on a stage is drawn at its size in the app (Crop.tsx), times one shared --scale: a pixel
+   a point, unless the frame is narrower than --span points of components plus the padding. */
 .stage {
-  position: relative;
+  --pad: 48px;
+  --scale: min(1px, (100cqi - 2 * var(--pad)) / var(--span));
   display: flex;
-  justify-content: center;
-  padding: 64px 56px;
-}
-
-.lifted img {
-  border-radius: 14px;
-}
-
-.aside {
-  position: absolute;
-  left: -40px;
-  bottom: -36px;
-  width: min(300px, 46%);
-}
-
-.aside img {
-  width: 100%;
-}
-
-/* A wide section: the claim on top, then two components side by side at their own size, so neither
-   covers the other. */
-.realm[data-wide] .column {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 48px;
-}
-
-.realm[data-wide] .claim {
-  flex: none;
-  max-width: 600px;
-}
-
-.realm[data-wide] .figure {
-  flex: none;
-}
-
-.realm[data-wide] .stage {
-  align-items: center;
   gap: 32px;
-  padding: 64px 48px;
+  padding: var(--pad);
 }
 
-.realm[data-wide] .aside {
-  position: static;
-  order: -1;
-  width: auto;
-  flex: 0 1 auto;
-  min-width: 0;
+/* One component in the lower right, so the world reads as a place above and beside it. The frame
+   keeps the picture's own proportions unless the component needs more height. */
+.realm[data-stage="corner"] .stage {
+  --span: 760;
+  min-height: calc(100cqi * 1190 / 1920);
+  padding-top: 120px;
+  justify-content: flex-end;
+  align-items: flex-end;
 }
 
-.realm[data-wide] .lifted {
-  min-width: 0;
+.realm[data-stage="corner"] .frameWorld::after {
+  background: linear-gradient(oklch(0.12 0.03 262 / 0.08), oklch(0.12 0.03 262 / 0.36));
+}
+
+/* Two components side by side at one scale; stacked, at the same scale, when they do not fit. */
+.realm[data-stage="pair"] .stage {
+  --span: 778;
+  flex-direction: column;
+  align-items: center;
+}
+
+@container (min-width: 1170px) {
+  .realm[data-stage="pair"] .stage {
+    --span: 1074;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+  }
 }
 
 .realm .caption {
   margin-top: 28px;
-}
-
-.realm:not([data-wide]):has(.aside) .caption {
-  margin-top: 56px;
 }
 
 /* ---- Foot ---- */
@@ -424,45 +400,49 @@
     padding: 72px 0;
   }
 
-  .column,
-  .realm[data-flip] .column {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 36px;
-    padding: 0 20px;
+  .hero + .realm {
+    padding-top: 32px;
   }
 
-  .claim {
-    flex: none;
+  .column {
+    gap: 36px;
+    padding: 0 20px;
   }
 
   .h2 {
     font-size: 30px;
   }
 
-  .stage,
-  .realm[data-wide] .stage {
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    padding: 24px 12px;
+  .crop img {
+    width: calc(var(--wp) * var(--scale, 1px));
   }
 
-  .realm[data-wide] .aside {
-    order: 0;
+  .stage {
+    --pad: 12px;
+    gap: 16px;
+  }
+
+  /* On a phone the whole picture is a band at the frame's head, and the component hangs from its
+     lower third, so the horizon still shows above it. */
+  .realm[data-stage="corner"] .frameWorld {
+    bottom: auto;
+    aspect-ratio: 1920 / 1190;
+  }
+
+  .realm[data-stage="corner"] .stage {
+    --span: 394;
+    min-height: 0;
+    padding-top: calc(100cqi * 1190 / 1920 * 0.7);
+    padding-bottom: 0;
+    justify-content: center;
+  }
+
+  .realm[data-stage="pair"] .stage {
+    --span: 412;
   }
 
   .frameWorld {
     border-radius: 20px;
-  }
-
-  .aside {
-    position: static;
-    width: 100%;
-  }
-
-  .realm:has(.aside) .caption {
-    margin-top: 20px;
   }
 
   .footColumn {
