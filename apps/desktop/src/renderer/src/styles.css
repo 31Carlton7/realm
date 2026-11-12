@@ -3169,7 +3169,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .caret-preview { display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 10px 12px; resize: none;
   border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-ctl); background: var(--field); color: var(--rl-text-bright);
   font: var(--fw-medium) 15px/1.55 var(--font-ui); }
-.caret-preview:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.caret-preview:focus { outline: none; box-shadow: var(--focus-ring-field); }
 
 /* ── The tooltip (v2) ───────────────────────────────────────────────────────
    One layer for the window (tooltips.ts): the `title` every control carries, in the app's own type a
@@ -3334,10 +3334,12 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    height and the wrapping differ, so a form mixing the two reads as one form. */
 .field textarea { padding: 7px 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
   color: var(--rl-text-bright); outline: none; font: inherit; line-height: 1.5; resize: vertical; }
-.field textarea:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
-/* One focus-ring formula for every text-entry surface (§3): neutral ink at 35%, 2px. */
+.field textarea:focus { box-shadow: var(--focus-ring-field); outline: none; }
+/* One focus ring for every text-entry surface (§3): the accent at 35%, 2px. Declared on the body, not the
+   root, so it takes the accent an inactive window drains there. */
+body { --focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .field input:not(.switch):not(.checkbox):not(.search-field):focus, select:focus, .rename:focus, .hex:focus {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
+  box-shadow: var(--focus-ring-field); outline: none; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
 .profile-add-link { align-self: flex-start; font-size: 12px; color: var(--rl-text-dim); padding: 1px 0; }
@@ -4296,7 +4298,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagents-task-who { display: inline-flex; align-items: center; gap: 6px; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--ink-2); }
 .subagents-task-who > svg { flex: none; }
 .subagents-task input { min-width: 0; height: 28px; padding: 0 9px; border: none; border-radius: var(--r-ctl); background: var(--field); color: var(--ink); font: inherit; font-size: 13px; outline: none; }
-.subagents-task input:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.subagents-task input:focus { box-shadow: var(--focus-ring-field); }
 .subagents-task input::placeholder { color: var(--ink-3); }
 .subagents-compose-foot { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px 12px; }
 .subagents-split[aria-pressed="true"] { background: var(--rl-active); color: var(--ink); }
@@ -5195,7 +5197,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* A long list's filter, and the file field's search: the field fill, the accent ring on focus. */
 .question-filter { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: var(--r-ctl); corner-shape: squircle;
   background: var(--field); color: var(--ink-3); }
-.question-filter:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.question-filter:focus-within { box-shadow: var(--focus-ring-field); }
 .question-filter input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
 .question-filter input::placeholder { color: var(--ink-3); }
 
@@ -5220,7 +5222,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 
 /* A typed answer: the field fill, and a padlock for a secret — whose destination is said under it. */
 .question-text { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--field); color: var(--ink-3); }
-.question-text:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.question-text:focus-within { box-shadow: var(--focus-ring-field); }
 .question-text-input { flex: 1; min-width: 0; height: 34px; padding: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 14px; color: var(--ink); color-scheme: inherit; }
 textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; resize: vertical; line-height: 20px; }
 .question-text-input::placeholder { color: var(--ink-3); }
@@ -5559,8 +5561,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font: inherit; font-size: 13px; line-height: 18px; color: var(--rl-text-bright);
   background: var(--surface); border: 0; border-radius: calc(var(--r-chip) - 4px); /* concentric with the row's 4px inset */
   box-shadow: 0 0 0 var(--hairline-w) var(--rl-line); outline: none; }
-/* Focused, it is a field like the others: their 2px accent ring, not a hairline in the accent. */
-.composer-queue-item .queue-edit:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+/* Focused, it is a field like the others: their ring, not a hairline in the accent. */
+.composer-queue-item .queue-edit:focus { box-shadow: var(--focus-ring-field); }
 
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
@@ -6881,7 +6883,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .agent-code-row { display: flex; gap: 8px; width: 100%; }
 .agent-code { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: none; border-radius: var(--r-ctl); corner-shape: squircle;
   background: var(--field); color: var(--rl-text-bright); font: 13px var(--font-mono); outline: none; }
-.agent-code:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.agent-code:focus { box-shadow: var(--focus-ring-field); }
 /* The other agents: one line to open them, then a quiet list — still a pick, each a radio in the
    same group as the cards. */
 .onboarding-more { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-left: 28px; padding: 4px 8px;
@@ -6922,7 +6924,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .space-name { flex: 1; min-width: 0; height: 36px; padding: 0 11px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
 .space-name::placeholder { color: var(--rl-text-faint); }
-.space-name:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.space-name:focus { box-shadow: var(--focus-ring-field); }
 /* The folder: a control and its hint on one line, the whole field a drop target. Dashed only while a
    drag is over it — a dashed box at rest is an empty state asking to be filled, and this one is
    optional. Under it, where the space works without one. */
@@ -6960,7 +6962,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .new-space-row .profile-add-row input { height: 30px; padding: 0 9px; }
 .new-space-memory { min-height: 64px; padding: 7px 9px; font-size: 14px; line-height: 20px; resize: vertical; }
 .new-space-row .profile-add-row input::placeholder, .new-space-memory::placeholder { color: var(--rl-text-faint); }
-.new-space-row .profile-add-row input:focus, .new-space-memory:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.new-space-row .profile-add-row input:focus, .new-space-memory:focus { box-shadow: var(--focus-ring-field); }
 /* The identity and the card are one fieldset, so Create can lock them together while it runs. The
    lock dims them a beat late: a Create that lands at once never flashes the form grey. One opacity
    for the whole form, rather than each control greying by its own disabled rule. */
@@ -7998,7 +8000,7 @@ select { appearance: none; padding-right: 22px;
 .settings-row > .settings-text { flex: none; width: min(280px, 45%); height: 28px; padding: 0 9px; font: inherit; font-size: 13px;
   border-radius: var(--r-ctl); corner-shape: squircle; border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); }
 .settings-row > .settings-text::placeholder { color: var(--rl-text-faint); }
-.settings-row > .settings-text:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.settings-row > .settings-text:focus { outline: none; box-shadow: var(--focus-ring-field); }
 .settings-row > .settings-tabs { flex: none; margin: 0; }
 /* A segmented control too wide to stand beside its label goes under it at its own width, never
    stretched: a capped 340px with equal segments drew one control two ways on one page. */
@@ -8763,7 +8765,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
   background: var(--rl-card); color: var(--rl-text-bright); font: inherit; font-size: 14px; line-height: 20px; resize: vertical; outline: none;
   transition: box-shadow var(--dur-hover) ease; }
 .cr-field::placeholder { color: var(--rl-text-faint); }
-.cr-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.cr-field:focus { box-shadow: var(--focus-ring-field); }
 
 .cr-tree { flex: 0 0 var(--cr-tree-w); min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 0 4px; }
 .cr-tree-filter { position: relative; flex: none; }
@@ -8849,7 +8851,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .sched-modal-name { height: 44px; }
 .sched-modal-goal { display: block; min-height: 120px; padding: 12px 14px; line-height: 20px; resize: vertical; }
 .sched-modal-name::placeholder, .sched-modal-goal::placeholder { color: var(--rl-text-faint); }
-.sched-modal-name:focus, .sched-modal-goal:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.sched-modal-name:focus, .sched-modal-goal:focus { box-shadow: var(--focus-ring-field); }
 .sched-modal .settings-row { min-height: 48px; padding: 8px 12px 8px 16px; }
 /* A setting's value, as Codex sets it: quiet text at the row's end that is a menu, the control's ring
    only under the pointer. Still a native select — a Mac menu, type-to-select and all. */
@@ -8863,7 +8865,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
   background: var(--field); color: var(--rl-text-bright); outline: none; }
 .sched-cron { width: 168px; font-family: var(--font-mono); font-size: 13px; }
 .sched-date { font: inherit; font-size: 13px; }
-.sched-cron:focus, .sched-date:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.sched-cron:focus, .sched-date:focus { box-shadow: var(--focus-ring-field); }
 .sched-modal-when { margin: -4px 4px 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .sched-modal-when[data-invalid] { color: var(--rl-warning); }
 .sched-modal-advanced { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin: 0 0 -4px 10px; padding: 2px 4px;
@@ -9145,7 +9147,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
   background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; outline: none;
 }
 .search-field::placeholder { color: var(--rl-text-faint); }
-.search-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.search-field:focus { box-shadow: var(--focus-ring-field); }
 .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 /* Codex's tabs: a word until it is chosen, then a filled pill. A fill on every chip at rest made a
    row of six equal buttons, and the one that was on had to be found by its weight. */
@@ -9274,7 +9276,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .engine-account-actions { margin-left: auto; flex: none; display: flex; gap: 2px; }
 .engine-account-rename { flex: 0 1 220px; min-width: 0; height: 28px; padding: 0 8px; border: none; border-radius: var(--r-ctl); corner-shape: squircle;
   background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
-.engine-account-rename:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.engine-account-rename:focus { box-shadow: var(--focus-ring-field); }
 .engine-account-confirm { display: flex; align-items: center; gap: 10px; }
 .engine-account-confirm p { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 .engine-accounts-add { align-self: flex-start; margin-left: -7px; }
@@ -11123,7 +11125,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-group { width: 180px; height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); font: inherit; outline: none; }
 .tm-group::placeholder { color: var(--rl-text-faint); }
-.tm-group:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.tm-group:focus { box-shadow: var(--focus-ring-field); }
 /* Its check-in, a card of its own in Schedule a task's rows: the switch, WHEN, then what it is told. */
 .tm-clock .settings-row-main { flex-direction: column; align-items: flex-start; gap: 2px; }
 .tm-clock-prompt > textarea { flex: 1; min-height: 52px; }
