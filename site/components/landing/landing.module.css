@@ -274,14 +274,13 @@
   padding: var(--pad);
 }
 
-/* One component in the lower right, so the world reads as a place above and beside it. The frame
-   keeps the picture's own proportions unless the component needs more height. */
+/* One component in the upper right, over the sky, with a band below it for the world's horizon, so
+   the brightest part of the picture shows and the world reads as a place beside and below it. */
 .realm[data-stage="corner"] .stage {
   --span: 760;
-  min-height: calc(100cqi * 1190 / 1920);
-  padding-top: 120px;
+  padding-bottom: calc(var(--pad) + 440 * var(--scale));
   justify-content: flex-end;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
 .realm[data-stage="corner"] .frameWorld::after {
@@ -379,8 +378,8 @@
   .lede {
     margin-top: 16px;
     font-size: 16px;
-    text-wrap: pretty;
     line-height: 1.55;
+    text-wrap: pretty;
   }
 
   .actions {
@@ -424,7 +423,7 @@
   }
 
   /* On a phone the whole picture is a band at the frame's head, and the component hangs from its
-     lower third, so the horizon still shows above it. */
+     lower fifth, so the horizon and its hills show above it. */
   .realm[data-stage="corner"] .frameWorld {
     bottom: auto;
     aspect-ratio: 1920 / 1190;
@@ -433,7 +432,7 @@
   .realm[data-stage="corner"] .stage {
     --span: 394;
     min-height: 0;
-    padding-top: calc(100cqi * 1190 / 1920 * 0.7);
+    padding-top: calc(100cqi * 1190 / 1920 * 0.8);
     padding-bottom: 0;
     justify-content: center;
   }

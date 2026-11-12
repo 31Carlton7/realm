@@ -47,7 +47,7 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
       <Realm
         id="teammates"
         world={world("church")}
-        focus={[0.3, 0.6]}
+        focus={[0.5, 0.6]}
         stage="corner"
         quiet="Teammates and their Lead."
         claim="Tell the Lead what you need and it asks the teammate who fits."
@@ -124,8 +124,8 @@ type RealmProps = {
   focus?: [number, number]
   /**
    * How the figure sits under the claim, at the column's full width. `corner`: one component in the
-   * frame's lower right, so the world shows above and beside it. `pair`: two components side by side,
-   * stacked when they do not fit. Every crop on a stage shares one scale, its size in the app.
+   * frame's upper right, so the world's horizon shows below and beside it. `pair`: two components side
+   * by side, stacked when they do not fit. Every crop on a stage shares one scale, its size in the app.
    */
   stage: "corner" | "pair"
 }

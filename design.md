@@ -198,7 +198,14 @@ pixels per point, so their text reads at one size; when they do not fit side by 
 the frame narrows them together, and neither is ever enlarged to balance the other (11-12, Team
 access drawn half again larger than the Computer tab beside it). A component set in one of the
 worlds leaves that world readable: it takes a corner and the picture shows above and beside it,
-because a frame the component nearly fills shows only a coloured edge, not a place.
+because a frame the component nearly fills shows only a coloured edge, not a place. The corner it
+takes is the one away from the world's brightest part: a painting's horizon glow is its subject, and
+a component over it leaves a dark picture with a lit rim (11-12, the Lead's chat over Twilight's
+sunset). When the component at its own size cannot clear the subject, the frame grows round it
+rather than the component shrinking.
+
+A paragraph never ends on a word or two alone. Balance a short lede's lines, or narrow its measure,
+and check it at every width it is laid out at; the words stay as written.
 
 ## Surfaces and depth
 
