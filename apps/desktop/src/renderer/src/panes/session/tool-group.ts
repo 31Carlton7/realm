@@ -179,6 +179,8 @@ export type ToolRunSummary = {
   add: number; del: number;
   /** Calls whose result was an error. The one count the head may never drop. */
   failed: number;
+  /** Calls Full access allowed after the agent's CLI asked (`ranUnasked`), and how many were commands. */
+  unasked: number; unaskedCommands: number;
   /** The call still in flight, as its row says it ("Run pnpm test"), or null once nothing is. */
   liveStep: string | null;
 };
@@ -204,7 +206,7 @@ const stepLine = (b: ToolBlock): string => {
  *  times edited one file, and saying "4 files" would be a lie. */
 export function summarizeToolRun(blocks: readonly ToolBlock[]): ToolRunSummary {
   const files = new Set<string>();
-  let commands = 0, reads = 0, edits = 0, searches = 0, add = 0, del = 0, failed = 0;
+  let commands = 0, reads = 0, edits = 0, searches = 0, add = 0, del = 0, failed = 0, unasked = 0, unaskedCommands = 0;
   let live: ToolBlock | null = null;
   for (const b of blocks) {
     if (FILE_TOOLS.has(b.name)) { const p = toolSummary(b.name, b.input); if (p) files.add(p); }
@@ -217,6 +219,7 @@ export function summarizeToolRun(blocks: readonly ToolBlock[]): ToolRunSummary {
       if (s) { add += s.add; del += s.del; }
     } else if (verb === "Search" || verb === "Find files" || verb === "Search web") searches++;
     if (b.result?.isError) failed++;
+    else if (b.ranUnasked) { unasked++; if (verb === "Run") unaskedCommands++; }
     if (!b.result) live = b;
   }
   // The span is min→max rather than first→last: a sub-agent's calls are counted in here and they
@@ -224,7 +227,7 @@ export function summarizeToolRun(blocks: readonly ToolBlock[]): ToolRunSummary {
   let lo = Infinity, hi = -Infinity;
   for (const b of blocks) { lo = Math.min(lo, b.ts); hi = Math.max(hi, b.ts); }
   return { tools: blocks.length, files: files.size, commands, durationMs: blocks.length ? Math.max(0, hi - lo) : 0,
-    reads, edits, searches, add, del, failed, liveStep: live ? stepLine(live) : null };
+    reads, edits, searches, add, del, failed, unasked, unaskedCommands, liveStep: live ? stepLine(live) : null };
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : word.endsWith("h") ? "es" : "s"}`;
@@ -232,12 +235,16 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : word.e
 /** The settled head's work, as parts in reading order — "4 reads", "2 edits", "3 commands" — with
  *  the zero ones dropped. The edits' +/− and the failures are drawn beside these by the head itself,
  *  because one is coloured and the other may never be cut. */
-export function runWork(s: ToolRunSummary): { reads: string | null; edits: string | null; searches: string | null; commands: string | null } {
+export function runWork(s: ToolRunSummary): { reads: string | null; edits: string | null; searches: string | null; commands: string | null; unasked: string | null } {
+  // Said after the commands when every call it counts is one, and as its own part otherwise.
+  const unasked = s.unasked ? `${s.unasked} ran without asking` : null;
+  const onCommands = unasked !== null && s.unaskedCommands === s.unasked;
   return {
     reads: s.reads ? plural(s.reads, "read") : null,
     edits: s.edits ? plural(s.edits, "edit") : null,
     searches: s.searches ? plural(s.searches, "search") : null,
-    commands: s.commands ? plural(s.commands, "command") : null,
+    commands: s.commands ? plural(s.commands, "command") + (onCommands ? `, ${unasked}` : "") : null,
+    unasked: onCommands ? null : unasked,
   };
 }
 

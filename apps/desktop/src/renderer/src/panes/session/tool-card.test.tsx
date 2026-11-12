@@ -940,4 +940,30 @@ describe("a call Full access ran without asking", () => {
     render(<ToolCard block={block("ran")} sessionStatus="idle" />);
     expect(screen.queryByText("Ran without asking")).toBeNull();
   });
+
+  const head = () => screen.getByRole("button", { name: /tool calls/ });
+  const unasked = (b: ToolBlock): ToolBlock => ({ ...b, ranUnasked: true });
+
+  it("is counted on a folded run's head after its commands, in the plural", () => {
+    render(<ToolGroup steps={steps([
+      unasked(tool("u1", "Bash", { command: "a" })), unasked(tool("u2", "Bash", { command: "b" })),
+      tool("u3", "Bash", { command: "c" }), tool("u4", "Read", { file_path: "/d.ts" }),
+    ])} sessionStatus="idle" />);
+    expect(head()).toHaveTextContent("Worked for <1s · 1 read · 3 commands, 2 ran without asking");
+  });
+
+  it("is its own part when a call that is not a command ran unasked", () => {
+    render(<ToolGroup steps={steps([
+      unasked(tool("v1", "Bash", { command: "a" })), unasked(tool("v2", "Edit", { file_path: "/e.ts", old_string: "x", new_string: "y" })),
+      tool("v3", "Read", { file_path: "/f.ts" }),
+    ])} sessionStatus="idle" />);
+    expect(head()).toHaveTextContent(/1 command · 2 ran without asking$/);
+  });
+
+  it("leaves a run where nothing ran unasked reading exactly as it did", () => {
+    render(<ToolGroup steps={steps([
+      tool("w1", "Bash", { command: "a" }), tool("w2", "Bash", { command: "b" }), tool("w3", "Read", { file_path: "/g.ts" }),
+    ])} sessionStatus="idle" />);
+    expect(head().textContent).toBe("Worked for <1s · 1 read · 2 commands");
+  });
 });
