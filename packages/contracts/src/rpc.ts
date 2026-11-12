@@ -2145,8 +2145,11 @@ export const Methods = {
    *
    *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
    *  draft has no element chips — so a message that never touched a browser pane puts exactly the
-   *  bytes on this wire that it always has. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), tabs: z.array(TabRefSchema).max(MAX_TAB_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
+   *  bytes on this wire that it always has.
+   *
+   *  `spoken` says the text was transcribed from voice mode: the transcript marks it, and the agent is
+   *  told its reply will be read aloud. */
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), tabs: z.array(TabRefSchema).max(MAX_TAB_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto"), spoken: z.literal(true).optional() })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0 || (p.tabs?.length ?? 0) > 0, { message: "a message needs text, an attachment or a tab" }), result: z.object({ ok: z.literal(true) }) },
   /** Drop one message off the queue before its turn comes. `queuedId` rather than an index: the queue
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a

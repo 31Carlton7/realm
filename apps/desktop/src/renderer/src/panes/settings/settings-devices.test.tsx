@@ -48,7 +48,7 @@ describe("Settings ▸ Devices", () => {
   it("is a page of its own in the You group, after Notifications, headed Devices", async () => {
     await mount();
     const you = within(screen.getByRole("group", { name: "You" })).getAllByRole("radio").map((r) => r.closest("label")!.textContent);
-    expect(you).toEqual(["General", "Appearance", "Keys", "Notifications", "Devices"]);
+    expect(you).toEqual(["General", "Appearance", "Keys", "Notifications", "Devices", "Voice"]);
     expect(screen.getByRole("heading", { name: "Devices", level: 1 })).toBeInTheDocument();
   });
 

@@ -25,6 +25,7 @@ import { Toasts } from "./components/Toasts";
 import { AppPickerBridge } from "./app-pick/AppPicker";
 import { QuickChat } from "./components/QuickChat";
 import { MediaViewer } from "./components/viewer/MediaViewer";
+import { VoiceView } from "./voice/VoiceView";
 import { PageOverlay } from "./components/PageOverlay";
 import { PageNavProvider } from "./components/page-nav";
 import { SpaceOverview } from "./components/sidebar/SpaceOverview";
@@ -864,6 +865,8 @@ export function App() {
       <QuickChat />
       {/* Every file the app shows opens here, over the window, with the session's prompter under it. */}
       <MediaViewer />
+      {/* Voice mode, over the whole window while it is open: one session's conversation, out loud. */}
+      <VoiceView />
       <CommandPalette />
       <SpaceOverview />
       {/* What the window has to say, at its foot and over everything: a failed action, a receipt. */}

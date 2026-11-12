@@ -1,0 +1,362 @@
+// RealmVoice — voice mode's speech to text and text to speech, both on this Mac.
+//
+// The renderer owns the microphone and the speakers: it captures with Chromium's echo cancellation
+// on, and plays what this helper synthesises through Web Audio, so the canceller has Realm's own
+// voice as its reference. This helper never opens an audio device. It turns 16 kHz mono PCM into
+// words with SpeechAnalyzer (SFSpeechRecognizer on-device where the analyzer is unavailable), and
+// turns sentences into PCM with AVSpeechSynthesizer.
+//
+// Protocol: one JSON object per line. Commands on stdin:
+//   {"t":"listen","turn":N}                start transcribing a new utterance
+//   {"t":"audio","pcm":"<base64 Int16 LE>"} the utterance's next samples, 16 kHz mono
+//   {"t":"end"}                            the utterance is over: finalise it
+//   {"t":"cancel"}                         drop the utterance
+//   {"t":"speak","id":"…","text":"…","voice":"<identifier>"?,"rate":1.0?}
+//   {"t":"hush"}                           stop speaking and drop everything queued
+// Events on stdout:
+//   {"t":"ready","stt":"analyzer"|"recognizer"|"none","voice":"<identifier>","voices":[…]}
+//   {"t":"partial","turn":N,"text":"…"}   {"t":"final","turn":N,"text":"…"}
+//   {"t":"audio","id":"…","rate":22050,"pcm":"<base64 Int16 LE>"}   {"t":"spoken","id":"…"}
+//   {"t":"error","message":"…"}
+//
+// `realmvoice --voices` prints {"voice","voices"} and exits, for Settings.
+//
+// Build: swiftc -O -o bin/realmvoice RealmVoice.swift   (see scripts/build-native.mjs)
+// Exits when stdin closes (parent gone).
+
+import AVFoundation
+import Foundation
+import Speech
+
+let output = DispatchQueue(label: "realmvoice.output")
+
+func emit(_ event: [String: Any]) {
+  output.async {
+    guard var data = try? JSONSerialization.data(withJSONObject: event) else { return }
+    data.append(0x0a)
+    FileHandle.standardOutput.write(data)
+  }
+}
+
+/// The samples the renderer sends: 16 kHz, mono, signed 16-bit.
+let inputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
+
+func pcmBuffer(_ data: Data) -> AVAudioPCMBuffer? {
+  let frames = AVAudioFrameCount(data.count / 2)
+  guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: frames) else { return nil }
+  buffer.frameLength = frames
+  data.withUnsafeBytes { raw in
+    buffer.int16ChannelData![0].update(from: raw.bindMemory(to: Int16.self).baseAddress!, count: Int(frames))
+  }
+  return buffer
+}
+
+// MARK: - Speech to text
+
+protocol Listener: AnyObject {
+  func begin(turn: Int)
+  func feed(_ buffer: AVAudioPCMBuffer)
+  func end()
+  func cancel()
+}
+
+/// SpeechAnalyzer with a SpeechTranscriber, one analyzer per utterance. Partials carry every final
+/// segment so far plus the volatile one, so the renderer only ever replaces its text.
+final class AnalyzerListener: Listener {
+  private let locale: Locale
+  private var input: AsyncStream<AnalyzerInput>.Continuation?
+  private var analyzer: SpeechAnalyzer?
+  private var converter: AVAudioConverter?
+  private var analyzerFormat: AVAudioFormat?
+
+  init(locale: Locale) { self.locale = locale }
+
+  func prepare() async {
+    let transcriber = makeTranscriber()
+    do {
+      if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+        try await request.downloadAndInstall()
+      }
+    } catch {
+      emit(["t": "error", "message": "The speech model for \(locale.identifier) could not be installed: \(error.localizedDescription)"])
+    }
+    analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
+    if let format = analyzerFormat, format != inputFormat { converter = AVAudioConverter(from: inputFormat, to: format) }
+  }
+
+  private func makeTranscriber() -> SpeechTranscriber {
+    SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults, .fastResults], attributeOptions: [])
+  }
+
+  func begin(turn: Int) {
+    cancel()
+    let transcriber = makeTranscriber()
+    let analyzer = SpeechAnalyzer(modules: [transcriber])
+    let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
+    self.analyzer = analyzer
+    input = continuation
+    Task {
+      var finished = ""
+      var volatile = ""
+      do {
+        try await analyzer.start(inputSequence: stream)
+        for try await result in transcriber.results {
+          let text = String(result.text.characters)
+          if result.isFinal { finished += text; volatile = "" } else { volatile = text }
+          emit(["t": "partial", "turn": turn, "text": (finished + volatile).trimmingCharacters(in: .whitespaces)])
+        }
+      } catch {
+        emit(["t": "error", "message": "Transcription stopped: \(error.localizedDescription)"])
+      }
+      emit(["t": "final", "turn": turn, "text": (finished + volatile).trimmingCharacters(in: .whitespaces)])
+    }
+  }
+
+  func feed(_ buffer: AVAudioPCMBuffer) {
+    guard let input else { return }
+    if let converter, let format = analyzerFormat {
+      let ratio = format.sampleRate / inputFormat.sampleRate
+      guard let converted = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1) else { return }
+      var given = false
+      converter.convert(to: converted, error: nil) { _, status in
+        if given { status.pointee = .noDataNow; return nil }
+        given = true
+        status.pointee = .haveData
+        return buffer
+      }
+      input.yield(AnalyzerInput(buffer: converted))
+    } else {
+      input.yield(AnalyzerInput(buffer: buffer))
+    }
+  }
+
+  func end() {
+    guard let analyzer, let input else { return }
+    input.finish()
+    self.input = nil
+    self.analyzer = nil
+    Task { try? await analyzer.finalizeAndFinishThroughEndOfInput() }
+  }
+
+  func cancel() {
+    guard let analyzer, let input else { return }
+    input.finish()
+    self.input = nil
+    self.analyzer = nil
+    Task { await analyzer.cancelAndFinishNow() }
+  }
+}
+
+/// The fallback: SFSpeechRecognizer, held on-device. It asks for the Speech Recognition grant the
+/// first time it is used, which SpeechAnalyzer does not.
+final class RecognizerListener: Listener {
+  private let recognizer: SFSpeechRecognizer
+  private var request: SFSpeechAudioBufferRecognitionRequest?
+  private var task: SFSpeechRecognitionTask?
+
+  init?(locale: Locale) {
+    guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.supportsOnDeviceRecognition else { return nil }
+    self.recognizer = recognizer
+  }
+
+  func begin(turn: Int) {
+    cancel()
+    if SFSpeechRecognizer.authorizationStatus() == .notDetermined { SFSpeechRecognizer.requestAuthorization { _ in } }
+    let request = SFSpeechAudioBufferRecognitionRequest()
+    request.requiresOnDeviceRecognition = true
+    request.shouldReportPartialResults = true
+    self.request = request
+    var sentFinal = false
+    task = recognizer.recognitionTask(with: request) { result, error in
+      if let result {
+        let text = result.bestTranscription.formattedString
+        emit(["t": result.isFinal ? "final" : "partial", "turn": turn, "text": text])
+        if result.isFinal { sentFinal = true }
+      }
+      if error != nil, !sentFinal { sentFinal = true; emit(["t": "final", "turn": turn, "text": result?.bestTranscription.formattedString ?? ""]) }
+    }
+  }
+
+  func feed(_ buffer: AVAudioPCMBuffer) { request?.append(buffer) }
+
+  func end() { request?.endAudio(); request = nil }
+
+  func cancel() { task?.cancel(); task = nil; request = nil }
+}
+
+// MARK: - Text to speech
+
+func voiceRank(_ voice: AVSpeechSynthesisVoice) -> Int {
+  if voice.quality == .premium { return 4 }
+  if voice.identifier.contains("siri") { return 3 }
+  if voice.quality == .enhanced { return 2 }
+  // Among the voices every Mac has, the compact neural ones read as speech; the Eloquence set and the
+  // old MacinTalk voices read as a machine.
+  return voice.identifier.hasPrefix("com.apple.voice.") ? 1 : 0
+}
+
+func usableVoices(for locale: Locale) -> [AVSpeechSynthesisVoice] {
+  let language = locale.language.languageCode?.identifier ?? "en"
+  return AVSpeechSynthesisVoice.speechVoices()
+    .filter { $0.language.hasPrefix(language) && !$0.voiceTraits.contains(.isNoveltyVoice) }
+    .sorted { a, b in
+      let ra = voiceRank(a), rb = voiceRank(b)
+      if ra != rb { return ra > rb }
+      // The person's own region first: en-US before en-GB on a US Mac.
+      let ha = a.language == locale.identifier.replacingOccurrences(of: "_", with: "-")
+      let hb = b.language == locale.identifier.replacingOccurrences(of: "_", with: "-")
+      if ha != hb { return ha }
+      return a.name < b.name
+    }
+}
+
+/// Speaks one sentence at a time, in order, into PCM for the renderer to play. `hush` drops the
+/// queue and the sentence in progress, and a generation counter keeps a stopped sentence's late
+/// buffers from reaching the renderer.
+final class Speaker {
+  private let synthesizer = AVSpeechSynthesizer()
+  private var queue: [(id: String, utterance: AVSpeechUtterance)] = []
+  private var busy = false
+  private var generation = 0
+  let fallbackVoice: AVSpeechSynthesisVoice?
+
+  init(locale: Locale) { fallbackVoice = usableVoices(for: locale).first }
+
+  /// Main queue only.
+  func speak(id: String, text: String, voice: String?, rate: Double?) {
+    let utterance = AVSpeechUtterance(string: text)
+    utterance.voice = voice.flatMap { AVSpeechSynthesisVoice(identifier: $0) } ?? fallbackVoice
+    let scale = min(max(rate ?? 1, 0.5), 2)
+    utterance.rate = min(AVSpeechUtteranceDefaultSpeechRate * Float(scale), AVSpeechUtteranceMaximumSpeechRate)
+    queue.append((id, utterance))
+    pump()
+  }
+
+  func hush() {
+    generation += 1
+    queue.removeAll()
+    synthesizer.stopSpeaking(at: .immediate)
+    busy = false
+  }
+
+  private func pump() {
+    guard !busy, !queue.isEmpty else { return }
+    let (id, utterance) = queue.removeFirst()
+    busy = true
+    let started = generation
+    // The synthesizer hands over a few milliseconds at a time; a line per buffer would be hundreds
+    // per sentence, so they go out in runs of about a fifth of a second.
+    var pending = Data()
+    var rate = 22_050.0
+    synthesizer.write(utterance) { [weak self] buffer in
+      guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+      let samples = int16Samples(pcm)
+      DispatchQueue.main.async {
+        guard let self, started == self.generation else { return }
+        if let samples { pending.append(samples); rate = pcm.format.sampleRate }
+        let done = pcm.frameLength == 0
+        if !pending.isEmpty, done || pending.count >= Int(rate / 5) * 2 {
+          emit(["t": "audio", "id": id, "rate": rate, "pcm": pending.base64EncodedString()])
+          pending.removeAll(keepingCapacity: true)
+        }
+        if done {
+          emit(["t": "spoken", "id": id])
+          self.busy = false
+          self.pump()
+        }
+      }
+    }
+  }
+
+  /// The first sentence a synthesizer speaks takes most of a second to start; this pays that before
+  /// anyone is waiting on it.
+  func warm() {
+    let utterance = AVSpeechUtterance(string: " ")
+    utterance.voice = fallbackVoice
+    synthesizer.write(utterance) { _ in }
+  }
+}
+
+func int16Samples(_ buffer: AVAudioPCMBuffer) -> Data? {
+  let frames = Int(buffer.frameLength)
+  guard frames > 0 else { return nil }
+  if let ints = buffer.int16ChannelData { return Data(bytes: ints[0], count: frames * 2) }
+  guard let floats = buffer.floatChannelData else { return nil }
+  var data = Data(count: frames * 2)
+  data.withUnsafeMutableBytes { raw in
+    let out = raw.bindMemory(to: Int16.self)
+    for i in 0..<frames { out[i] = Int16(max(-1, min(1, floats[0][i])) * Float(Int16.max)) }
+  }
+  return data
+}
+
+// MARK: - Main
+
+func transcriptionLocale() async -> Locale {
+  let current = Locale.current
+  let supported = await SpeechTranscriber.supportedLocales
+  let tag = current.identifier(.bcp47)
+  if supported.contains(where: { $0.identifier(.bcp47) == tag }) { return current }
+  return Locale(identifier: "en-US")
+}
+
+func voiceList(_ locale: Locale) -> [[String: Any]] {
+  usableVoices(for: locale).map { ["id": $0.identifier, "name": $0.name, "language": $0.language, "quality": voiceRank($0)] as [String: Any] }
+}
+
+// `realmvoice --voices`: the voices Settings can offer, and the one used when none is chosen.
+if CommandLine.arguments.contains("--voices") {
+  let voices = voiceList(Locale.current)
+  let data = try! JSONSerialization.data(withJSONObject: ["voice": usableVoices(for: Locale.current).first?.identifier ?? "", "voices": voices])
+  FileHandle.standardOutput.write(data)
+  exit(0)
+}
+
+let speaker = Speaker(locale: Locale.current)
+var listener: Listener?
+
+let setup = DispatchSemaphore(value: 0)
+DispatchQueue.main.async { speaker.warm() }
+Task {
+  let locale = await transcriptionLocale()
+  var kind = "none"
+  if SpeechTranscriber.isAvailable {
+    let analyzer = AnalyzerListener(locale: locale)
+    await analyzer.prepare()
+    listener = analyzer
+    kind = "analyzer"
+  } else if let recognizer = RecognizerListener(locale: locale) {
+    listener = recognizer
+    kind = "recognizer"
+  }
+  emit(["t": "ready", "stt": kind, "voice": speaker.fallbackVoice?.identifier ?? "", "voices": voiceList(Locale.current)])
+  setup.signal()
+}
+
+let reader = Thread {
+  setup.wait()
+  while let line = readLine(strippingNewline: true) {
+    guard let data = line.data(using: .utf8),
+          let command = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let type = command["t"] as? String else { continue }
+    // Listening and speaking each keep to the main queue, so commands land in the order they came.
+    DispatchQueue.main.async {
+      switch type {
+      case "listen": listener?.begin(turn: command["turn"] as? Int ?? 0)
+      case "audio":
+        if let b64 = command["pcm"] as? String, let bytes = Data(base64Encoded: b64), let buffer = pcmBuffer(bytes) { listener?.feed(buffer) }
+      case "end": listener?.end()
+      case "cancel": listener?.cancel()
+      case "speak":
+        if let id = command["id"] as? String, let text = command["text"] as? String {
+          speaker.speak(id: id, text: text, voice: command["voice"] as? String, rate: command["rate"] as? Double)
+        }
+      case "hush": speaker.hush()
+      default: break
+      }
+    }
+  }
+  exit(0)
+}
+reader.start()
+RunLoop.main.run()

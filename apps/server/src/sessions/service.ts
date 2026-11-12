@@ -71,7 +71,14 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   tabs?: GatheredTabs;
   /** The person sent it: set by the RPC methods the person's windows and phone call, and by nothing an
    *  agent can reach. A turn is the person's (`personStartedTurn`) only when every message in it is. */
-  byPerson?: boolean };
+  byPerson?: boolean;
+  /** Transcribed from voice mode. Marks the transcript's message, and adds `SPOKEN_NOTE` to the wire. */
+  spoken?: true };
+
+/** What the agent is told about a message said aloud: that its reply will be heard, not read. The
+ *  voice view skips code and tables when it reads a reply, so the agent is asked to keep the answer
+ *  in prose and leave anything only a screen can carry in the chat. */
+export const SPOKEN_NOTE = "\n\n(Said aloud in Realm's voice mode and transcribed, so a word may be misheard. Your reply will be read aloud: answer in short spoken sentences, and leave code, tables and long lists in the chat, saying that you have.)";
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -828,6 +835,7 @@ export class SessionService {
       this.d.settings.set(movePrefaceKey(id), null);
       msg = { ...msg, note: `${msg.note ?? ""}\n\n${preface}` };
     }
+    if (msg.spoken) msg = { ...msg, note: `${msg.note ?? ""}${SPOKEN_NOTE}` };
     // Recorded BEFORE the message goes out, because the failure this enables recovery from can
     // arrive on the very first event back. A new turn also clears the previous one's retry budget
     // and chain position — those are per-turn, not per-session.
@@ -840,7 +848,7 @@ export class SessionService {
     this.notePersonTurn(id, msg.byPerson === true);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}),
       ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(msg.from ? { from: msg.from } : {}), ...(refs.length ? { refs } : {}),
-      ...(msg.tabs?.cards.length ? { tabs: msg.tabs.cards } : {}) }));
+      ...(msg.tabs?.cards.length ? { tabs: msg.tabs.cards } : {}), ...(msg.spoken ? { spoken: true as const } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
   }
 

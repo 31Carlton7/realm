@@ -19,6 +19,7 @@
  *  - **Camera** — `granted`/`denied`/`unknown`, from `getMediaAccessStatus("camera")`, the same pure
  *    status read as Screen Recording's. macOS reaches a connected iPhone's screen as a camera, so this
  *    is the grant that makes a real phone's picture live video rather than a screenshot a second.
+ *  - **Microphone** — the same status read again. It is what voice mode hears the person through.
  *  - **Accessibility** — `granted`/`denied`, from `isTrustedAccessibilityClient(false)` (the false
  *    IS the no-prompt contract). The API cannot tell "denied" from "never asked", so the row's
  *    detail says so instead of pretending.
@@ -33,7 +34,7 @@
  * macOS only reveals these grants by asking" spent its first half saying the chip out loud.
  */
 
-export type TccPermissionId = "filesAndFolders" | "automation" | "screenRecording" | "camera" | "accessibility" | "fullDisk";
+export type TccPermissionId = "filesAndFolders" | "automation" | "screenRecording" | "camera" | "microphone" | "accessibility" | "fullDisk";
 
 /** `unknown` = no prompt-free probe exists (or it could not answer): "Can't be checked until used". */
 export type TccState = "granted" | "denied" | "unknown";
@@ -60,6 +61,7 @@ export const TCC_SETTINGS_URLS: Record<TccPermissionId, string> = {
   automation: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
   screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
   camera: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+  microphone: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
   fullDisk: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
 };
@@ -73,6 +75,8 @@ export type TccProbeDeps = {
   screenStatus(): "not-determined" | "granted" | "denied" | "restricted" | "unknown";
   /** `systemPreferences.getMediaAccessStatus("camera")` — a status read that never prompts. */
   cameraStatus(): "not-determined" | "granted" | "denied" | "restricted" | "unknown";
+  /** `systemPreferences.getMediaAccessStatus("microphone")` — the same status read. */
+  microphoneStatus(): "not-determined" | "granted" | "denied" | "restricted" | "unknown";
   /** `systemPreferences.isTrustedAccessibilityClient(false)` — false = never prompt. */
   accessibilityTrusted(): boolean;
   /** Open-for-read the given path (then close). Throws with `code` EPERM/EACCES when TCC refuses. */
@@ -93,6 +97,7 @@ export function probeTcc(deps: TccProbeDeps): TccRow[] {
     },
     screenRecordingRow(deps),
     cameraRow(deps),
+    microphoneRow(deps),
     accessibilityRow(deps),
     fullDiskRow(deps),
   ];
@@ -119,6 +124,17 @@ function cameraRow(deps: TccProbeDeps): TccRow {
   if (status === "granted") return { id, label, state: "granted", detail: "macOS reports the grant directly. It is how a connected iPhone's screen reaches Realm live." };
   if (status === "denied" || status === "restricted") return { id, label, state: "denied", detail: "macOS reports the grant as refused, so a connected iPhone shows a screenshot about once a second." };
   return { id, label, state: "unknown", detail: "Not asked yet. Realm asks when you choose Show live under a connected iPhone." };
+}
+
+function microphoneRow(deps: TccProbeDeps): TccRow {
+  const id = "microphone" as const, label = "Microphone";
+  let status: string;
+  try { status = deps.microphoneStatus(); } catch (e) {
+    return { id, label, state: "unknown", detail: `The status query failed (${(e as Error).message}).` };
+  }
+  if (status === "granted") return { id, label, state: "granted", detail: "macOS reports the grant directly. Voice mode hears you through it." };
+  if (status === "denied" || status === "restricted") return { id, label, state: "denied", detail: "macOS reports the grant as refused, so voice mode cannot hear you." };
+  return { id, label, state: "unknown", detail: "Not asked yet. Realm asks the first time you start voice mode." };
 }
 
 function accessibilityRow(deps: TccProbeDeps): TccRow {

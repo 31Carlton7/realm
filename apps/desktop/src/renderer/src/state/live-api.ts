@@ -156,6 +156,7 @@ export const liveApi = (): Api => ({
   previewTab: (sessionId, tab) => rpc().call("tabs.preview", { sessionId, tab }),
   mentionFiles: (sessionId, query, limit) => rpc().call("mentions.files", { sessionId, query, ...(limit ? { limit } : {}) }),
   interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
+  sendSpoken: async (id, text) => { await rpc().call("sessions.send", { id, text, attachments: [], spoken: true }); },
   dequeuePrompt: async (id, queuedId) => { await rpc().call("sessions.dequeue", { id, queuedId }); },
   releaseQueuedPrompt: async (id, queuedId) => { await rpc().call("sessions.releaseQueued", { id, queuedId }); },
   holdQueuedPrompt: async (id, queuedId, held) => (await rpc().call("sessions.holdQueued", { id, queuedId, held })).held,

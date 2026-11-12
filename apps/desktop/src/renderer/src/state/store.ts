@@ -57,6 +57,7 @@ import { usableModel } from "../panes/session/model-catalog";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
+import { DEFAULT_VOICE_PREFS, VOICE_PREFS_KEY, readVoicePrefs, type VoicePrefs } from "../voice/voice-prefs";
 import type { AskAnswers } from "@realm/contracts";
 import { NOTIFICATIONS_IPHONE_KEY, type PairRequest, type PairingWindow, type RemoteStatus } from "@realm/contracts";
 
@@ -415,6 +416,8 @@ export type Api = TeammatesApi & {
   /** `mentions.files` — the session's checkout ranked for the `@` list, secrets left out server-side. */
   mentionFiles(sessionId: string, query: string, limit?: number): Promise<ProjectFilesResult>;
   interruptSession(id: string): Promise<void>;
+  /** `sessions.send` with `spoken` — a message said in voice mode. No draft and no chips go with it. */
+  sendSpoken(id: string, text: string): Promise<void>;
   /** `sessions.dequeue` — drop a queued message before its turn comes. */
   dequeuePrompt(id: string, queuedId: string): Promise<void>;
   /** `sessions.releaseQueued` — send one queued message now. Server-side by id, so the mentions and
@@ -1711,6 +1714,11 @@ export type AppState = TeammatesSlice & {
   /** The media viewer, when a file is open in it — see `state/viewer.ts`. Transient: a file is looked
    *  at, not kept, so it is never written into the saved view and a profile switch takes it away. */
   viewer: ViewerState | null;
+  /** Voice mode, while it is open over the window: the session it talks to, and whether it opened on
+   *  a held press (push-to-talk from the prompter's mic button). Transient, like the viewer. */
+  voice: { sessionId: string; held: boolean } | null;
+  /** Voice mode's settings (`voice/voice-prefs.ts`), read when voice mode or its settings page opens. */
+  voicePrefs: VoicePrefs;
   /**
    * A session looked at without being opened (W11b): a tab of the focused session's side pane, from
    * any space, beside `owner` (the session item it was opened beside). TRANSIENT, which is the whole of
@@ -2620,6 +2628,13 @@ export type AppState = TeammatesSlice & {
    *  transcript when it is not held yet, so the exchange can be drawn as it arrives. */
   openViewer(input: OpenViewerInput): void;
   closeViewer(): void;
+  /** Open voice mode on a session. `held` when the press that opened it is still down. */
+  openVoice(sessionId: string, held?: boolean): void;
+  closeVoice(): void;
+  loadVoicePrefs(): Promise<void>;
+  setVoicePrefs(patch: Partial<VoicePrefs>): Promise<void>;
+  /** A message heard in voice mode, sent to the session marked as spoken. */
+  sendSpoken(id: string, text: string): Promise<void>;
   /** The next or previous sibling. Stops at the ends: the list is the one the eye just walked. */
   stepViewer(delta: 1 | -1): void;
   /** Files the viewer's exchange produced: added after the one on show, which `show` moves to — a
@@ -4490,7 +4505,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
       set({
         activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
-        view: null, layout: null, focusedLeafId: null, peek: null, viewer: null, sheetSnap: null, offscreenBrowsers: [],
+        view: null, layout: null, focusedLeafId: null, peek: null, viewer: null, voice: null, sheetSnap: null, offscreenBrowsers: [],
         // Diffs and patches are keyed by checkout path, and every pane that could show one belongs to
         // the profile being left.
         diffs: {}, diffLoading: {}, patches: {},
@@ -4629,7 +4644,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
-      sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
+      sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null, voice: null, voicePrefs: DEFAULT_VOICE_PREFS,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, memoryLearning: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
@@ -7452,6 +7467,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         holdViewerSession();
       },
       closeViewer() { if (get().viewer) set({ viewer: null }); },
+      openVoice(sessionId, held = false) {
+        set({ voice: { sessionId, held }, viewer: null });
+      },
+      closeVoice() { if (get().voice) set({ voice: null }); },
+      async loadVoicePrefs() { set({ voicePrefs: readVoicePrefs(await api.getSetting(VOICE_PREFS_KEY)) }); },
+      async setVoicePrefs(patch) {
+        const next = readVoicePrefs({ ...get().voicePrefs, ...patch });
+        set({ voicePrefs: next });
+        await api.setSetting(VOICE_PREFS_KEY, next);
+      },
+      async sendSpoken(id, text) {
+        const st = get().sessionStatus[id];
+        if (st !== "running" && st !== "waiting_permission") { const moved = movedAt(id, Date.now()); if (moved) set(moved); }
+        await api.sendSpoken(id, text);
+      },
       stepViewer(delta) {
         const v = get().viewer; if (!v) return;
         const index = Math.max(0, Math.min(v.index + delta, v.files.length - 1));
