@@ -430,6 +430,7 @@ export function ToolGroup({ steps, sessionStatus, subagent = false, endsTurn = f
               {summary.del > 0 && <span className="tool-stat-del"> −{summary.del}</span>}</>,
             work.searches,
             work.commands,
+            work.unasked,
           ]).filter(Boolean).map((part, i) => <span key={i}> · {part}</span>)}
         </span>
         {summary.failed > 0 && (
