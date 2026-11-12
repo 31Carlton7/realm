@@ -6,8 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3100",
-    "build": "node scripts/copy-worlds.mjs && next build && node scripts/check-release-drift.mjs",
+    "build": "node scripts/copy-worlds.mjs && pnpm test && next build && node scripts/check-release-drift.mjs",
     "start": "next start",
+    "test": "node --test 'tests/*.test.mjs'",
     "typecheck": "tsc --noEmit && node scripts/check-contrast.mjs",
     "capture:product": "node scripts/capture-product.mjs",
     "capture:share": "node scripts/capture-share-images.mjs",
