@@ -67,7 +67,7 @@ export function Hero({ downloads, version, changelog, world, session }: Props) {
         </p>
       </div>
       <figure className={s.heroShot}>
-        <Crop shot={session} />
+        <Crop shot={session} sizes={{ wide: "min(960px, 100vw - 56px)", phone: "calc(100vw - 40px)" }} />
         <figcaption className={s.caption}>A new session in Realm, opened onto Cosmic Cliffs.</figcaption>
       </figure>
     </section>
