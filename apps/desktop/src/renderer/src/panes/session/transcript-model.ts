@@ -81,6 +81,12 @@ export type Block =
    */
   | { kind: "context_reset"; note: string; reason: "declined" | "unsupported"; ts: number }
   /**
+   * A teammate's access changed from inside a chat (`access_changed`): the Lead's `team_set_access`,
+   * or the person's Undo of one. `latest` is false once a later line for the same teammate is here,
+   * so Undo is offered only where it takes back that change and nothing after it.
+   */
+  | { kind: "access_changed"; teammateId: string; handle: string; by: string | null; from: string; to: string; note: string; latest: boolean; ts: number }
+  /**
    * The session moved to another checkout, and runs there from here on. The fourth seam: everything
    * above it ran at `from`, and its paths are under that root.
    */
@@ -451,6 +457,11 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     case "context_reset":
       return { ...t, blocks: [...dropPending(blocks),
         { kind: "context_reset", note: e.payload.note, reason: e.payload.reason, ts: e.ts }] };
+    case "access_changed": {
+      const p = e.payload;
+      const earlier = blocks.map((b) => (b.kind === "access_changed" && b.teammateId === p.teammateId && b.latest ? { ...b, latest: false } : b));
+      return { ...t, blocks: [...earlier, { kind: "access_changed", teammateId: p.teammateId, handle: p.handle, by: p.by, from: p.from, to: p.to, note: p.note, latest: true, ts: e.ts }] };
+    }
     case "retrying": {
       // Replace rather than stack: attempt 2 says what attempt 1 said, one number later, and a
       // transcript that keeps both is a transcript reporting the wait instead of the work.

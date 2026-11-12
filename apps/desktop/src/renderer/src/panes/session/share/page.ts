@@ -368,6 +368,7 @@ function renderBlock(b: Block, nested: readonly ToolNode[], byCall: Map<string, 
     case "handoff": return `<p class="note"><strong>Handed over</strong> from ${esc(b.from)} to ${esc(b.to)} · ${esc(b.note)}</p>`;
     case "compacted": return `<p class="note"><strong>Context compacted</strong>${b.postTokens === undefined ? "" : ` · ${b.preTokens.toLocaleString("en-US")} tokens summarised to ${b.postTokens.toLocaleString("en-US")}`}</p>`;
     case "context_reset": return `<p class="note"><strong>Context reset</strong> · ${esc(b.note)}</p>`;
+    case "access_changed": return `<p class="note"><strong>Access</strong> · ${esc(b.note)}</p>`;
     case "moved": return `<p class="note"><strong>Moved</strong> · ${esc(movedSentence(b))}</p>`;
     case "move_failed": return `<p class="note"><strong>Move failed</strong> · ${esc(b.note)}</p>`;
     case "run": return `<p class="run">${b.stopped ? "Stopped after" : b.failed ? "Failed after" : "Worked for"} ${formatDuration(b.ms)}</p>`;

@@ -1,4 +1,4 @@
-import type { CreateTeammateInput, ReorderTeammatesInput, TeamAccess, TeamAccessMode, Teammate, TeammateTaskSession, UpdateTeammateInput } from "@realm/contracts";
+import type { CreateTeammateInput, ReorderTeammatesInput, TeamAccess, TeamAccessMode, Teammate, TeammatePermissionMode, TeammateTaskSession, UpdateTeammateInput } from "@realm/contracts";
 
 /** The teammate calls the renderer makes (`teammates.*`, contracts/rpc.ts). */
 export type TeammatesApi = {
@@ -12,6 +12,7 @@ export type TeammatesApi = {
   teammateSessions(id: string): Promise<TeammateTaskSession[]>;
   teamAccess(spaceId: string): Promise<TeamAccess>;
   setTeamAccess(spaceId: string, mode: TeamAccessMode | null): Promise<TeamAccess>;
+  teammateUndoAccess(id: string, from: TeammatePermissionMode, to: TeammatePermissionMode): Promise<Teammate>;
 };
 
 /**
@@ -46,6 +47,8 @@ export type TeammatesSlice = {
   teamAccessChanged(spaceId: string): Promise<void>;
   /** For the person's Team access control alone, which must carry `data-no-agent`. */
   setTeamAccess(spaceId: string, mode: TeamAccessMode | null): Promise<void>;
+  /** The Undo on a `team_set_access` line, which must carry `data-no-agent` too. */
+  undoTeammateAccess(id: string, from: TeammatePermissionMode, to: TeammatePermissionMode): Promise<void>;
 };
 
 type Host = TeammatesSlice & { spaces: readonly { id: string }[] };
@@ -101,6 +104,10 @@ export function teammatesSlice<S extends Host>(
     },
     async setTeamAccess(spaceId, mode) {
       set({ teamAccess: { ...get().teamAccess, [spaceId]: await api.setTeamAccess(spaceId, mode) } });
+    },
+    async undoTeammateAccess(id, from, to) {
+      const t = await api.teammateUndoAccess(id, from, to);
+      await get().refreshTeammates(t.spaceId);
     },
     async hydrateTeamGroupFolds() {
       const v = await api.getSetting("ui.sidebarTeamGroupsFolded");

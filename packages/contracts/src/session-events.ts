@@ -269,6 +269,20 @@ const P = {
    * Failover needs no special case here: it clears the token BEFORE the restart, so the session has
    * no id to have been refused and `handoff` is the only seam that speaks there.
    */
+  /**
+   * A teammate's access changed from inside a chat: the Lead's `team_set_access`, or the person's Undo
+   * of one. Written to the Lead's chat and to the teammate's. `by` is the Lead's handle, or null when
+   * the person did it; only a line the Lead wrote offers Undo, which puts `teammateId` back on `from`.
+   * `note` is the sentence shown, built server-side so every surface tells it identically.
+   */
+  access_changed: z.object({
+    teammateId: z.string(),
+    handle: z.string(),
+    by: z.string().nullable(),
+    from: z.string(),
+    to: z.string(),
+    note: z.string(),
+  }),
   context_reset: z.object({
     agent: z.string(),
     reason: z.enum(["declined", "unsupported"]),
@@ -484,6 +498,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("compacted"),
   variant("init"),
   variant("context_reset"),
+  variant("access_changed"),
   variant("moving"),
   variant("moved"),
   variant("move_failed"),
@@ -521,7 +536,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "moving", "moved", "move_failed", "summary", "prompt_hint", "turn_changes", "files_made"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "access_changed", "moving", "moved", "move_failed", "summary", "prompt_hint", "turn_changes", "files_made"];
 
 /**
  * `text` with `delta` joined on, where the delta starts at `at` in it. A delta the text already

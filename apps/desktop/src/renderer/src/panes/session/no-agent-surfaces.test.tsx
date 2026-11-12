@@ -92,6 +92,13 @@ const SURFACES = [
   /* How a profile's sign-ins are unlocked. An agent able to press "Without asking" would be choosing
      to fill passwords with nobody there; main also asks macOS before any weakening, so this is the
      first of two guards, not the only one. The confirm sheet is portalled, so it carries its own. */
+  /* The Undo on a line saying the Lead changed a teammate's access. It is the person's word on what an
+     agent did with their access, so an agent pressing it, either way, would be the agent deciding. */
+  {
+    what: "a teammate access line's Undo",
+    file: "apps/desktop/src/renderer/src/panes/session/AccessLine.tsx",
+    on: 'className="msg-handoff-link"',
+  },
   {
     what: "the sign-in unlock setting",
     file: "apps/desktop/src/renderer/src/panes/settings/SettingsPage.tsx",

@@ -99,7 +99,9 @@ const BLOCKS: Record<string, string> = {
     "- **This space's teammates.** `team_list` says who is here — each teammate's handle, what it does, whether it " +
     "is the Lead, and what it is working on. `team_message` puts a message in a teammate's own chat (`to`: its handle, " +
     "or `lead`): to ask it something, or to hand it work that is its to do. Add `wait: true` only when you cannot go on " +
-    "without its answer; otherwise carry on, and it answers in its own chat.",
+    "without its answer; otherwise carry on, and it answers in its own chat. `team_set_access` sets a teammate's access " +
+    "when the person asks: only the Lead, in its own chat, in a turn the person started (never one a teammate's message, " +
+    "a schedule or another session started), never above the Lead's own mode, and with a line in both chats the person can Undo.",
 
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane, `terminal_write` types into it, " +

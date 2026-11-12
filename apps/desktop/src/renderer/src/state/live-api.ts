@@ -365,4 +365,5 @@ export const liveApi = (): Api => ({
   teammateSessions: (id) => rpc().call("teammates.sessions", { id }),
   teamAccess: (spaceId) => rpc().call("teams.access.get", { spaceId }),
   setTeamAccess: (spaceId, mode) => rpc().call("teams.access.set", { spaceId, mode }),
+  teammateUndoAccess: (id, from, to) => rpc().call("teammates.undoAccess", { id, from, to }),
 });

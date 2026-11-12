@@ -80,7 +80,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  * NEVER class `read` (without `asksFirst`) a tool that changes state, sends something, moves the
  * user's screen or reveals a secret value: such a name runs with no prompt from either engine. Classed
  * otherwise on purpose: `docs_open`, `docs_reveal`, `pane_show`, `session_open`, `space_switch` (each changes what is
- * on screen); `team_message` (puts a turn in a teammate's chat).
+ * on screen); `team_message` (puts a turn in a teammate's chat); `team_set_access` (changes a teammate's mode).
  */
 export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   // Promptless reads first, in the order `REALM_READ_ONLY_TOOLS` has always listed them.
@@ -181,6 +181,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-schedule__schedule_create": internal,
 
   "realm-team__team_message": internal,
+  "realm-team__team_set_access": internal,
 
   "realm-memory__memory_save": internal,
   "realm-memory__memory_remove": internal,
