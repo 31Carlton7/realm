@@ -103,12 +103,14 @@ export const canReview = (kind: AgentKind): boolean => AGENT_SUPPORTS_PLAN_MODE[
  * alone. The scripted agent joins them where this Realm runs one: a check that drives the page has to
  * be able to pick it.
  */
-export function reviewerRows({ kind, model, agentProbe, favorites }: {
+export function reviewerRows({ kind, model, agentProbe, favorites, ran = null }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; favorites: readonly string[];
+  /** What the agent's CLI last ran un-pinned (`MODEL_DEFAULTS_KEY`), the model a reviewer on no model runs. */
+  ran?: string | null;
 }): ModelRow[] {
   const reviewable = (rows: ModelRow[]) => rows.filter((r) => canReview(r.kind))
     .map((r) => ({ ...r, harnesses: r.harnesses.filter(canReview), alternates: r.alternates.filter(canReview) }));
-  const rows = reviewable(modelRows({ kind, model, agentProbe, canSwitchAgent: true, favorites }));
+  const rows = reviewable(modelRows({ kind, model, agentProbe, canSwitchAgent: true, favorites, ran }));
   if (kind === "fake" || !agentProbe.some((p) => p.kind === "fake")) return rows;
   const scripted = reviewable(modelRows({ kind: "fake", model: null, agentProbe, canSwitchAgent: true, favorites }))
     .filter((r) => r.kind === "fake").map((r) => ({ ...r, selected: false }));
@@ -120,14 +122,14 @@ export function reviewerRows({ kind, model, agentProbe, favorites }: {
  *  fast mode before anything has run. */
 export type ReviewerCatalog = { rows: ModelRow[]; levels: EffortOptions; fast: FastAvailability; tip: string };
 
-export function reviewerCatalog({ pick, agentProbe, favorites, info, effortSupport, fastSupport }: {
-  pick: Pick<ReviewerPick, "agentKind" | "model">; agentProbe: AgentProbe[]; favorites: readonly string[];
+export function reviewerCatalog({ pick, agentProbe, favorites, info, effortSupport, fastSupport, ran = null }: {
+  pick: Pick<ReviewerPick, "agentKind" | "model">; agentProbe: AgentProbe[]; favorites: readonly string[]; ran?: string | null;
   /** The model catalog, the levels Claude Code has named per model and its fast-mode answers, as the
    *  store mirrors them. */
   info: Record<string, ModelInfo>; effortSupport: Record<string, string[]>; fastSupport: Record<string, boolean>;
 }): ReviewerCatalog {
   const { agentKind: kind, model } = pick;
-  const rows = reviewerRows({ kind, model, agentProbe, favorites });
+  const rows = reviewerRows({ kind, model, agentProbe, favorites, ran });
   const levels = effortOptions({ kind, model, agentProbe, info: info[rows.find((r) => r.selected)?.key ?? ""], remembered: effortSupport });
   return { rows, levels, fast: fastModeAvailability({ kind, model, agentProbe, remembered: fastSupport, rows }), tip: fastModeTip(kind, model, agentProbe) };
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, AGENT_NOTES, DIRECTORY_MIME, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type DiffFileStatus, type DiffSummary, type Environment } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_NOTES, DIRECTORY_MIME, MODEL_DEFAULTS_KEY, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type DiffFileStatus, type DiffSummary, type Environment } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } from "../../state/store.test-fakes";
@@ -1880,8 +1880,8 @@ describe("the picker for a session that pinned no model", () => {
   const info = (key: string, efforts: string[]) => ({ [canonicalModelKey(key)]: { key: canonicalModelKey(key), label: key, vendor: "", priceIn: null, priceOut: null, context: null, efforts, blurb: null } });
   const modelInfo = { ...info("Claude Fable 5.1", ["low", "medium"]), ...info("Claude Opus 5.5", ["low", "medium", "high", "xhigh"]) };
 
-  async function mountUnpinned(events: ReturnType<typeof sessionEvent>[]) {
-    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", model: null, lastEventSeq: events.length })] });
+  async function mountUnpinned(events: ReturnType<typeof sessionEvent>[], settings: Record<string, unknown> = {}) {
+    const api = fakeApi({ settings, sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", model: null, lastEventSeq: events.length })] });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ modelInfo, sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: events.length, t: reduceAll(events) } } });
     render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
@@ -1904,6 +1904,28 @@ describe("the picker for a session that pinned no model", () => {
     openPicker();
     expect(ticked()).toEqual(["Opus 5.5"]);
     expect(screen.getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuemax", "3"); // low, medium, high, xhigh
+  });
+
+  it("ticks what the CLI last ran un-pinned before this session's own handshake, and sends no model (PR-05)", async () => {
+    // THE MUTANT: the filed default never reaches the picker, so a fresh session ticks Default while
+    // the CLI is known to run Opus 5.5.
+    const { api, store } = await mountUnpinned([], { [MODEL_DEFAULTS_KEY]: { "claude:": "claude-opus-5-5" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Opus 5.5High"));
+    openPicker();
+    expect(ticked()).toEqual(["Opus 5.5"]);
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.change(box(), { target: { value: "go", selectionStart: 2, selectionEnd: 2 } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(api.sent).toEqual([{ id: "se1", text: "go", attachments: [] }]));
+    expect(api.calls.filter((c) => c.startsWith("setSessionOptions") || c.startsWith("setSessionAgent"))).toEqual([]);
+    expect(store.getState().sessions.se1?.model).toBeNull();
+  });
+
+  it("lets the session's own handshake win over the filed default, which is another account's or older", async () => {
+    await mountUnpinned([sessionEvent("init", { providerSessionId: "p", model: "claude-sonnet-5-5", tools: [], cwd: "/w" })], { [MODEL_DEFAULTS_KEY]: { "claude:": "claude-opus-5-5", "claude:acct-2": "claude-haiku-5-5" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Sonnet 5.5"));
+    openPicker();
+    expect(ticked()).toEqual(["Sonnet 5.5"]);
   });
 
   it("still sends no model: the tick is what ran, not a pick", async () => {

@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { AGENT_META, AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, defaultAccountId, hasAccounts, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type TabEntry, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, defaultAccountId, defaultModelKey, hasAccounts, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type TabEntry, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -330,6 +330,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
      yet can offer the switch on. Its own `init` overrides it the moment it has one. */
   const fastSupport = useApp((s) => s.fastSupport);
   const effortSupport = useApp((s) => s.effortSupport);
+  const defaultModel = useApp((s) => (session ? s.modelDefaults[defaultModelKey(session.agentKind, session.accountId)] ?? null : null));
   const mentionSkills = useMemo(
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
@@ -821,7 +822,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onResume={() => run(() => resumeGoal(id))}
               onDrop={() => run(() => clearGoal(id))}
               onDone={() => run(() => setGoalStatus(id, "complete", "Marked done by you."))} />}
-            sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
+            sessionInit={transcript.init} defaultModel={defaultModel} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             mentions={mentionSources} refs={draftRefs} tabs={draftTabs} onRemoveTab={(itemId) => removeDraftTab(id, itemId)} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}

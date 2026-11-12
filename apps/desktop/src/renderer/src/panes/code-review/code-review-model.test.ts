@@ -87,6 +87,17 @@ describe("the reviewer", () => {
     expect(pinned.filter((r) => r.selected).map((r) => r.label)).toEqual(["Claude Opus 5.5"]);
   });
 
+  it("ticks the model the CLI last ran un-pinned for a pick of no model, and keeps the pick unpinned (PR-05)", () => {
+    // THE MUTANT: `ran` dropped on the way to modelRows, so the Default row stays ticked though the
+    // CLI has said which model it runs.
+    const catalog = reviewerCatalog({ pick: { agentKind: "claude", model: null }, agentProbe: probe, favorites: [], info: {},
+      effortSupport: {}, fastSupport: {}, ran: "claude-opus-5-5" });
+    expect(catalog.rows.filter((r) => r.selected).map((r) => r.label)).toEqual(["Claude Opus 5.5"]);
+    expect(catalog.rows.some((r) => r.label === "Default")).toBe(false);
+    // Before anything has run un-pinned, today's Default row.
+    expect(reviewerRows({ kind: "claude", model: null, agentProbe: probe, favorites: [], ran: null }).filter((r) => r.selected).map((r) => r.label)).toEqual(["Default"]);
+  });
+
   it("lists the scripted agent once, and only where this Realm runs one", () => {
     expect(reviewerRows({ kind: "claude", model: null, agentProbe: probe.slice(0, 2), favorites: [] }).some((r) => r.kind === "fake")).toBe(false);
     const own = reviewerRows({ kind: "fake", model: null, agentProbe: probe, favorites: [] });

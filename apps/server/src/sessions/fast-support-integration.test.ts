@@ -3,7 +3,7 @@ import WebSocket from "ws";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
-import { MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
+import { MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 
@@ -75,6 +75,7 @@ async function boot() {
   const space = (await c.call("spaces.create", { profileId: p.id, name: "A" })).result;
   const remembered = async () => (await c.call("settings.get", { key: MODEL_FAST_SUPPORT_KEY })).result.value as Record<string, boolean> | null;
   const levels = async () => (await c.call("settings.get", { key: MODEL_EFFORTS_KEY })).result.value as Record<string, string[]> | null;
+  const defaults = async () => (await c.call("settings.get", { key: MODEL_DEFAULTS_KEY })).result.value as Record<string, string> | null;
   /** Starts a session's adapter the way anything real does — on the first send — and waits for its handshake. */
   const run = async (model: string | null) => {
     const before = claude.starts.length;
@@ -82,7 +83,7 @@ async function boot() {
     await c.call("sessions.send", { id: session.id, text: "go" });
     await waitFor(() => claude.starts.length === before + 1);
   };
-  return { c, claude, remembered, levels, run };
+  return { c, claude, remembered, levels, defaults, run };
 }
 
 describe("fast-mode support, remembered past the session that heard it", () => {
@@ -160,6 +161,27 @@ describe("fast-mode support, remembered past the session that heard it", () => {
     // A beat for the handshake to have been handled — the session's status settles after it.
     await new Promise((r) => setTimeout(r, 50));
     expect(await remembered()).toEqual({ "claude:claude-opus-5-5": true });
+    c.close();
+  });
+});
+
+describe("the model a harness runs un-pinned, remembered for the next session's picker (PR-05)", () => {
+  it("is filed from an un-pinned session's handshake, under its agent and account", async () => {
+    // THE MUTANT: nothing filed, so a session that has not started ticks a "Default" row while the
+    // CLI's own default is what will run.
+    const { c, defaults, run } = await boot();
+    await run(null);
+    await waitFor(async () => (await defaults())?.["claude:"] !== undefined);
+    expect(await defaults()).toEqual({ "claude:": "resolved-by-the-harness" });
+    c.close();
+  });
+
+  it("is not filed from a session that pinned its model, which says nothing about the default", async () => {
+    // THE MUTANT: filing every handshake, which would name a pinned Sonnet as the CLI's default.
+    const { c, remembered, defaults, run } = await boot();
+    await run("claude-sonnet-5");
+    await waitFor(async () => (await remembered())?.["claude:claude-sonnet-5"] !== undefined);
+    expect(await defaults()).toBeNull();
     c.close();
   });
 });

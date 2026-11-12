@@ -331,12 +331,16 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".sidebar").join(" ")).toContain("transition: --sidebar-open var(--dur-move)");
   });
 
-  it("rings the queued message's edit field as every other field is rung (MN-05)", () => {
-    // THE MUTANT: the hairline in the accent it had, a ring no other field wears.
+  it("rings every text field, the queued message's edit field among them, with one token (MN-05)", () => {
+    // THE MUTANTS: a field spelling the ring out again, which drifts from the others the first time
+    // one is tuned; the queued message's edit field on a ring of its own; the token on the root, where
+    // it keeps the active accent in a window that has drained it.
     const ring = (sel: string) => RULES.filter((r) => r.selectors.includes(sel)).map((r) => r.body.match(/box-shadow:[^;]*/)?.[0]).filter(Boolean);
-    const field = ring(".field textarea:focus");
-    expect(field).toEqual(["box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent)"]);
-    expect(ring(".composer-queue-item .queue-edit:focus-visible")).toEqual(field);
+    expect(bodiesFor("body").join(" ")).toContain("--focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent)");
+    expect(css.match(/color-mix\(in srgb, var\(--rl-accent\) 35%, transparent\)/g)).toHaveLength(2); // the token, and the composer's squircle ring
+    for (const sel of [".field textarea:focus", ".search-field:focus", ".settings-row > .settings-text:focus", ".composer-queue-item .queue-edit:focus"]) {
+      expect(ring(sel), sel).toEqual(["box-shadow: var(--focus-ring-field)"]);
+    }
   });
 
   it("lights one menu row: the focused one, and none while a press-opened menu rests (MN-04)", () => {

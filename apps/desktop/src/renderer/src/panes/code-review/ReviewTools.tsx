@@ -2,7 +2,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
-  AGENT_META, REVIEW_INSTRUCTIONS_MAX, REVIEW_INSTRUCTION_EXAMPLES,
+  AGENT_META, REVIEW_INSTRUCTIONS_MAX, defaultModelKey, REVIEW_INSTRUCTION_EXAMPLES,
   prName, type AgentKind, type PrDetail, type PrPlace, type PrRef, type PrReview, type ReviewerPick,
 } from "@realm/contracts";
 import { useDissolve } from "../../components/ScrollFades";
@@ -24,7 +24,8 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
  *  name does not — and the level it was started at, where one was asked for. */
 export function useReviewerName(kind: AgentKind, model: string | null, effort: string | null): { label: string; level: string | null } {
   const agentProbe = useApp((s) => s.agentProbe);
-  const label = useMemo(() => chipLabel(kind, model, modelRows({ kind, model, agentProbe, canSwitchAgent: false }), agentProbe), [kind, model, agentProbe]);
+  const ran = useApp((s) => s.modelDefaults[defaultModelKey(kind, null)] ?? null);
+  const label = useMemo(() => chipLabel(kind, model, modelRows({ kind, model, agentProbe, canSwitchAgent: false, ran }), agentProbe, ran), [kind, model, agentProbe, ran]);
   return { label, level: effort ? formatEffort(effort) : null };
 }
 
@@ -87,8 +88,10 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
     return () => { live = false; };
   }, [profileId, hold]);
   const { agentKind: kind, model } = pick;
-  const catalog = useMemo(() => reviewerCatalog({ pick: { agentKind: kind, model }, agentProbe, favorites, info, effortSupport, fastSupport }),
-    [kind, model, agentProbe, favorites, info, effortSupport, fastSupport]);
+  // A review runs on the CLI's own account, so its default is that account's.
+  const ran = useApp((s) => s.modelDefaults[defaultModelKey(kind, null)] ?? null);
+  const catalog = useMemo(() => reviewerCatalog({ pick: { agentKind: kind, model }, agentProbe, favorites, info, effortSupport, fastSupport, ran }),
+    [kind, model, agentProbe, favorites, info, effortSupport, fastSupport, ran]);
   /* A change is the profile's at once: there is no Save for a pick. Laid over the pick as it is now
      rather than as this render saw it, so a level set straight after a model lands on that model. */
   const choose = (patch: Partial<ReviewerPick>) => {
@@ -102,7 +105,7 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
   const fast: FastMode | undefined = catalog.fast.state === "none" ? undefined
     : { on: pick.fastMode, state: null, reason: null, requested: null, onChange: (on) => choose({ fastMode: on }), availability: catalog.fast, tip: catalog.tip };
   const runs = reviewRun(pick, catalog);
-  const label = chipLabel(kind, model, catalog.rows, agentProbe);
+  const label = chipLabel(kind, model, catalog.rows, agentProbe, ran);
   const level = runs.effort ? formatEffort(runs.effort) : null;
   const [open, setOpen] = useState(false);
   const more = useRef<HTMLButtonElement>(null);
@@ -129,7 +132,7 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
       <button ref={more} type="button" className="icon-btn cr-review-more" aria-label="Review instructions" title="How to review — the model and your instructions"
         aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="chevronDown" size={12} /></button>
       {open && (
-        <InstructionsPopover anchorRef={more} profileId={profileId} pick={pick} rows={catalog.rows} effort={effort} fast={fast}
+        <InstructionsPopover anchorRef={more} profileId={profileId} pick={pick} ran={ran} rows={catalog.rows} effort={effort} fast={fast}
           onPick={(agentKind, picked) => choose({ agentKind, model: picked })} onClose={() => setOpen(false)} blocked={blocked} onRun={start} />
       )}
     </span>
@@ -141,8 +144,8 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
  * which every review in the profile follows. Add example offers what people tell a reviewer, one a
  * press, appended where the person can edit it. Save and run does both in that order.
  */
-function InstructionsPopover({ anchorRef, profileId, pick, rows, effort, fast, onPick, onClose, blocked, onRun }: {
-  anchorRef: RefObject<HTMLButtonElement | null>; profileId: string; pick: ReviewerPick; rows: ModelRow[];
+function InstructionsPopover({ anchorRef, profileId, pick, ran, rows, effort, fast, onPick, onClose, blocked, onRun }: {
+  anchorRef: RefObject<HTMLButtonElement | null>; profileId: string; pick: ReviewerPick; ran: string | null; rows: ModelRow[];
   /** The picked model's level and fast mode as its card sets them, or absent where its harness takes neither. */
   effort?: EffortControl; fast?: FastMode;
   onPick: (kind: AgentKind, model: string | null) => void; onClose: () => void;
@@ -192,7 +195,7 @@ function InstructionsPopover({ anchorRef, profileId, pick, rows, effort, fast, o
             keys, and the card under the list for the level and fast mode — a pick leaves it open, so
             a model and how it runs are set in one visit. Opened from in here it is part of this
             popover while it is up (use-anchored-popover). */}
-        <ModelPicker kind={pick.agentKind} model={pick.model} agentProbe={agentProbe} effort={effort} fast={fast} rows={rows} info={modelInfo} eggs={eggs}
+        <ModelPicker kind={pick.agentKind} model={pick.model} agentProbe={agentProbe} ran={ran} effort={effort} fast={fast} rows={rows} info={modelInfo} eggs={eggs}
           onToggleFavorite={(key) => run(() => toggleModelFavorite(key))} onPick={onPick} />
       </div>
       <textarea ref={field} className="cr-field" rows={5} aria-label="Review instructions" disabled={text === null}

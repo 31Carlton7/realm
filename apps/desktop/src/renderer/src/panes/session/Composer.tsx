@@ -409,7 +409,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -571,6 +571,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   /** This session's own handshake, where it has one — its model and what the harness said about
    *  that model's fast mode. */
   sessionInit?: { model: string; supportsFastMode?: boolean; efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
+  /** What this agent's CLI ran the last time a session pinned no model (`MODEL_DEFAULTS_KEY`): the
+   *  model in force until this session's own handshake says. */
+  defaultModel?: string | null;
   /** What harnesses have said about fast mode, per agent and model (`MODEL_FAST_SUPPORT_KEY`) — how
    *  a session that has not started can offer the switch on the harness's word. */
   fastSupport?: Record<string, boolean>;
@@ -1135,9 +1138,10 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   // Built HERE rather than inside ModelPicker so the chip, the list, the effort levels and the
   // fast-mode answer all read the same rows: two independent `modelRows` calls could disagree about
   // which harness a model resolved to.
+  const ran = sessionInit?.model ?? defaultModel;
   const rows = useMemo(
-    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, handoff: handsOver, favorites: modelFavorites, ran: sessionInit?.model ?? null }),
-    [kind, session.model, agentProbe, canSwitchAgent, handsOver, modelFavorites, sessionInit?.model]);
+    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, handoff: handsOver, favorites: modelFavorites, ran }),
+    [kind, session.model, agentProbe, canSwitchAgent, handsOver, modelFavorites, ran]);
   /* The active model's context window, joined through the SAME canonical key the picker's rows use —
      the session stores a per-harness wire id (`gpt-5.3-codex[reasoning=medium]`), which no catalog is
      keyed by, so the selected ROW is the only thing that can bridge the two. Null whenever the
@@ -1440,7 +1444,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             {/* ONE chip, not two. A harness is only ever chosen FOR a model, so that choice lives on
                 the model's own row in the picker, where there is one. The chip still wears the
                 harness's mark, so nothing a harness chip said is lost. */}
-            <ModelPicker kind={kind} model={session.model} agentProbe={agentProbe} ran={sessionInit?.model ?? null} effort={effort} rows={rows} info={modelInfo}
+            <ModelPicker kind={kind} model={session.model} agentProbe={agentProbe} ran={ran} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
               onPick={onPickModel} fast={fast} eggs={eggs} account={account}
               switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />
