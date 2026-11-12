@@ -60,7 +60,7 @@ export const claims: Claim[] = [
     id: "agents",
     title: "Bring the agent you already use.",
     body:
-      "Each agent below runs with its own login, models and permission modes. Realm never asks for an API key.",
+      "Each agent below runs with its own login or key, models and permission modes.",
     capture: "models",
     part: "models",
     caption: "Claude's models in the picker, with Opus\u00a05.5 at Max and fast mode on.",
@@ -196,7 +196,7 @@ export const faq: Question[] = [
   },
   {
     q: "Do I need an API key?",
-    a: "No. Realm drives the CLI you already have, on whatever plan or key you already pay for. It never proxies a provider's traffic and never asks for a key.",
+    a: "Not for Claude or Codex: you sign in with your own account, and its usage counts against your plan. A few agents, such as Gemini and DeepSeek, take an API key in their own configuration instead. Realm drives the CLI you already have and never proxies a provider's traffic.",
   },
   {
     q: "Where does my work live?",

@@ -33,7 +33,7 @@ const AGENTS: { id: AgentId; name: string }[] = [
 const FACTS: { title: string; body: string }[] = [
   { title: "On your computer", body: "Transcripts, documents and checkpoints live under ~/Realm." },
   { title: "No account", body: "Nothing to sign up for, and nothing you make is uploaded." },
-  { title: "No API key", body: "Realm drives the agent CLIs you have, on your own plan." },
+  { title: "Your own sign-in", body: "Realm drives the agent CLIs you have, on your own plan or key." },
   { title: "Mac, Windows and Linux", body: "Signed and notarized on the Mac. The source is on GitHub." },
 ]
 
