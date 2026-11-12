@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.11.0 - 2026-11-11
+
+- The picture behind a new session runs to the bottom of the pane. It used to fade into the plain ground about 60% of the way down. Now it covers the whole pane at every window size, for every built-in picture, generated look and image of your own.
+- Ask the Lead to change a teammate's access. "Give polish full access" in the Lead's chat now does it. Only the Lead can, only in a turn you started, and never above the Lead's own access. A line in both chats says what changed, with an Undo.
+- The folder chip under the prompter holds still while git answers. Its chevron no longer flashes in and shrinks the chip.
+- Realm Mobile: a pairing link opened from outside the app asks "Pair with <Mac>?" before it pairs the phone, even when no Mac is paired yet.
+
 ## v2.10.1 - 2026-11-11
 
 - Giving a whole team Full access asks first. Choosing Full access on the Team access row shows the same red "Allow everything? Confirm" as the prompter and Settings, and nothing changes until you press it. Ask each time and Accept edits still apply at once.
