@@ -371,10 +371,22 @@ describe("§6 motion table", () => {
     const body = bodiesFor(radio).join(";");
     expect(body).toContain("height: auto");
     expect(body).toContain("align-self: center");
-    const shared = RULES.findIndex((r) => r.selectors.includes(".field input:not(.switch):not(.checkbox):not(.search-field)") && /height: 30px/.test(r.body));
+    const shared = RULES.findIndex((r) => r.selectors.includes('.field input:not(.switch):not(.checkbox):not(.search-field, [type="radio"], [type="checkbox"])') && /height: 30px/.test(r.body));
     const own = RULES.findIndex((r) => r.selectors.includes(radio));
     expect(shared).toBeGreaterThanOrEqual(0);
     expect(own, "declared after the shared field rule, which has the same specificity").toBeGreaterThan(shared);
+  });
+
+  it("gives a radio or a checkbox in a field neither the text field's box nor its ring", () => {
+    // THE MUTANTS: either type dropped from the exclusion, so it takes the 30px box (or the ring); the
+    // exclusions split into one :not() each, which lifts the rule to 0,6,1 and lets it beat rules it
+    // used to lose to.
+    const skins = RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".field input")) && /height: 30px|--focus-ring-field/.test(r.body));
+    expect(skins).toHaveLength(2);
+    for (const sel of skins.flatMap((r) => r.selectors.filter((x) => x.startsWith(".field input")))) {
+      for (const type of ["radio", "checkbox"]) expect(sel, sel).toContain(`[type="${type}"]`);
+      expect(sel.match(/:not\(/g), sel).toHaveLength(3);
+    }
   });
 
   it("lights one menu row: the focused one, and none while a press-opened menu rests (MN-04)", () => {
@@ -2712,7 +2724,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // The toggle beside it is still its own control, and still outside the field's box.
     expect(panel).toContain('className="skills-filter-toggle"');
     const field = RULES.find((r) => r.selectors.some((sel) => sel.startsWith(".field input")) && r.body.includes("height: 30px"));
-    expect(field?.selectors.find((x) => x.startsWith(".field input"))).toContain(":not(.search-field)");
+    expect(field?.selectors.find((x) => x.startsWith(".field input"))).toMatch(/:not\(\.search-field[,)]/);
   });
 
   it("buttons are BUI Button's tiers: secondary = surface on shadow-btn LIFTING to hover; primary = the accent FILL with the filled highlight and the fill's hover step", () => {
