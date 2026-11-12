@@ -778,6 +778,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  socket open to anything on loopback, which is what the suite's several hundred `createApp` calls
    *  want — production mints one in `main.ts` and writes it to the 0600 state file. */
   token?: string;
+  /** The `realm` CLI's token, written to `daemon.json`: it opens only the CLI's own methods. */
+  cliToken?: string;
   /** W5 test/live-check knobs for the browser-agent registry: `fallbackKind` (default claude) is the
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
@@ -1956,6 +1958,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await machineProxy.listen();
   const port = await rpc.listen(opts.port, "127.0.0.1", {
     token: opts.token,
+    cliToken: opts.cliToken,
     /* The origins Realm loads its own renderer from, measured rather than assumed: a packaged window
        is a `file://` document and Chromium stamps `Origin: file://` on its WebSocket handshake; under
        `pnpm dev` the window is the Vite server and stamps that origin instead. Everything else that

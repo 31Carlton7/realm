@@ -16,6 +16,7 @@
  */
 import { performance } from "node:perf_hooks";
 import { DAEMON_PROTOCOL_MAX, DAEMON_PROTOCOL_MIN, type DaemonState } from "@realm/contracts";
+import { appTokenSha256 } from "./app-token";
 
 /** What `system.info` said, or null for a port that did not answer in time. */
 export type Probe = { bootId: string; protocol: number } | null;
@@ -138,19 +139,21 @@ const isAlive = (pid: number): boolean => {
 export type DaemonEndpoint = { port: number; token: string };
 
 /**
- * Where realm-server is now: the endpoint `daemon.json` records, when that is a different one and the
- * pid that wrote it is alive; otherwise `known`.
+ * Where realm-server is now: the port `daemon.json` records, when that is a different one, the pid
+ * that wrote it is alive, and it was handed `known`'s token; otherwise `known`.
  *
- * A server mints its port and token at every boot, so the one the supervisor started after a crash
- * is somewhere nothing attached to the old one knows about. The file is the only place that says
- * where. A file still naming the dead server — a crash does not clear it — names a pid that is gone,
- * and is not followed; neither is a server on its way out.
+ * A server binds a new port at every boot, so the one the supervisor started after a crash is
+ * somewhere nothing attached to the old one knows about. The file is the only place that says where.
+ * The token is not followed: the file holds the CLI's, and main hands every server it starts the same
+ * app token. A file still naming the dead server — a crash does not clear it — names a pid that is
+ * gone, and is not followed; neither is a server on its way out, nor one somebody else started.
  */
 export function followDaemon(known: DaemonEndpoint, recorded: DaemonState | null, pidAlive: (pid: number) => boolean = isAlive): DaemonEndpoint {
   if (!recorded || recorded.state !== "running") return known;
-  if (recorded.port === known.port && recorded.token === known.token) return known;
+  if (recorded.port === known.port) return known;
+  if (recorded.appTokenSha256 !== appTokenSha256(known.token)) return known;
   if (!pidAlive(recorded.pid)) return known;
-  return { port: recorded.port, token: recorded.token };
+  return { port: recorded.port, token: known.token };
 }
 
 /** How long a `wait` decision is honoured before we stop believing in the daemon it named. Matches
@@ -162,6 +165,7 @@ export const DAEMON_WAIT_MS = 15_000;
 export const DAEMON_UNRESPONSIVE_MS = 10_000;
 
 export type DaemonHandle = {
+  /** `token` is the app's: the one this launch handed the server, or the sealed copy it reattached with. */
   port: number; home: string; token: string; adopted: boolean; state: DaemonState;
   /** Set when we are attached to a daemon this app did not ship, because the user chose to keep it
    *  working. The UI says so and refuses to start new sessions against it; null is the ordinary case. */
@@ -186,10 +190,13 @@ export async function ensureDaemon(d: {
   readState: (home: string) => DaemonState | null;
   probe: (port: number, token: string) => Promise<Probe>;
   spawn: (home: string) => void;
+  /** The app's token for a server in this home: the one this launch handed it, or the sealed copy a
+   *  previous launch left. Null for a server nobody here can drive, which is then replaced. */
+  ownToken: (state: DaemonState) => string | null;
   onHandoff: (state: DaemonState, why: HandoffWhy) => Promise<HandoffResult>;
   /** Stop a daemon this launch did not start that will not answer, or will not finish a drain nobody
    *  is waiting on any more. Resolves once it is gone, or is known not to be a realm-server at all. */
-  replace: (state: DaemonState, why: "unresponsive" | "draining") => Promise<void>;
+  replace: (state: DaemonState, why: "unresponsive" | "draining" | "unowned") => Promise<void>;
   /** The bundle id now at a daemon's `entry` (see `decideLaunch`'s `onDisk`). */
   bundleOnDisk?: (entry: string) => string;
   /** Stop any realm-server still holding this home that no state file names — called right before
@@ -231,8 +238,19 @@ export async function ensureDaemon(d: {
     });
 
     if (decision.kind === "adopt") {
+      const token = d.ownToken(decision.state);
+      if (token === null) {
+        // The CLI's token in its state file cannot drive it, and nothing else here can. Restarting a
+        // server is always correct: sessions resume and terminals come back.
+        if (replaced.has(decision.state.bootId)) throw new Error(`realm-server (pid ${decision.state.pid}) was not started by this app and could not be stopped — see the log under ${d.home}/logs/server.log`);
+        replaced.add(decision.state.bootId);
+        d.log?.(`[daemon] pid ${decision.state.pid} holds no token this app can drive it with; replacing it`);
+        await d.replace(decision.state, "unowned");
+        deadline = now() + DAEMON_WAIT_MS;
+        continue;
+      }
       d.log?.(`[daemon] adopted pid ${decision.state.pid} on port ${decision.state.port}`);
-      return { port: decision.state.port, home: d.home, token: decision.state.token, adopted: !spawned, state: decision.state, stale: null };
+      return { port: decision.state.port, home: d.home, token, adopted: !spawned, state: decision.state, stale: null };
     }
     if (decision.kind === "handoff") {
       // A hand-off that said `replaced` and left the daemon where it was would otherwise be asked again
@@ -245,9 +263,12 @@ export async function ensureDaemon(d: {
       const outcome = await d.onHandoff(decision.state, decision.why);
       // `adopt` is the user choosing to carry on with the old server. Returned from here rather than
       // looped back into `decideLaunch`, which would decide `handoff` again and ask a second time.
-      if (outcome.kind === "adopt") {
-        return { port: decision.state.port, home: d.home, token: decision.state.token, adopted: true, state: decision.state, stale: outcome.stale };
+      const kept = outcome.kind === "adopt" ? d.ownToken(decision.state) : null;
+      if (outcome.kind === "adopt" && kept !== null) {
+        return { port: decision.state.port, home: d.home, token: kept, adopted: true, state: decision.state, stale: outcome.stale };
       }
+      // Kept, but with no token to drive it by: it goes the way a restart would have sent it.
+      if (outcome.kind === "adopt") await d.replace(decision.state, "unowned");
       // `replaced`: the old daemon is going away, and however long that took is not time the
       // replacement should be charged for. The next pass reads the world again rather than assuming
       // how far along it is.

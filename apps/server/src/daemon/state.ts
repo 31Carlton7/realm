@@ -7,13 +7,14 @@
  * daemon's own next `stdout.write` after that parent exits takes EPIPE. So the port, and everything
  * else a second launch needs to decide what to do, is written to a file instead.
  *
- * The file is mode 0600 because it carries the RPC token. It is written by rename so a reader never
+ * The file is mode 0600 because it carries the CLI's RPC token. It is written by rename so a reader never
  * sees half of it, and every read is validated — a truncated or hand-edited file reads as "no daemon"
  * rather than throwing on a path where throwing would stop the app from starting at all.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import type { Readable } from "node:stream";
 import { DAEMON_LOCK_FILE, DAEMON_STATE_FILE, DaemonStateSchema, bundleIdOf, type DaemonState } from "@realm/contracts";
 
 export type { DaemonState };
@@ -42,6 +43,33 @@ export function currentBundleId(entry: string): string {
 export const BOOT_ID = randomUUID();
 
 export const newToken = (): string => randomBytes(32).toString("base64url");
+
+export const tokenSha256 = (token: string): string => createHash("sha256").update(token).digest("hex");
+
+/**
+ * The app's token, as the first line its parent writes on our stdin (`APP_TOKEN_STDIN_ENV`). A pipe
+ * is the one channel a same-user process cannot read: argv is in `ps -axww`, the environment in
+ * `ps -E`. No line in time is a failed boot, not a server that mints its own and that the app that
+ * started it then cannot drive.
+ */
+export function readHandedToken(input: Readable, timeoutMs = 10_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let buf = "";
+    const finish = (fn: () => void) => { clearTimeout(timer); input.off("data", onData); input.off("end", onEnd); input.off("error", onError); fn(); };
+    const onData = (chunk: Buffer | string) => {
+      buf += chunk.toString();
+      const nl = buf.indexOf("\n");
+      if (nl === -1) return;
+      const token = buf.slice(0, nl).trim();
+      finish(() => (token ? resolve(token) : reject(new Error("the app handed over an empty token"))));
+      input.destroy?.();
+    };
+    const onEnd = () => finish(() => reject(new Error("the app closed stdin without handing over its token")));
+    const onError = (e: Error) => finish(() => reject(e));
+    const timer = setTimeout(() => finish(() => reject(new Error(`no token on stdin within ${timeoutMs} ms`))), timeoutMs);
+    input.on("data", onData); input.once("end", onEnd); input.once("error", onError);
+  });
+}
 
 /** Write the state file atomically at 0600. The temp file is a sibling so the rename stays on one
  *  volume, and it carries the pid so two launches racing cannot scribble on each other's temp. */

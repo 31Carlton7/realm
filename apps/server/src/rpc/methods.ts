@@ -1114,7 +1114,7 @@ export function registerMethods(d: Deps): void {
      that is a headless server's only way to do it from elsewhere. Only this machine's own app may
      say whether someone is sitting at it. */
   const fromTheOwner = (ctx: CallContext): void => {
-    if (ctx.principal !== "local" && !ctx.principal.startsWith("token:")) throw new RpcError("FORBIDDEN", "only this Mac can do that");
+    if (ctx.principal !== "local" && ctx.principal !== "cli" && !ctx.principal.startsWith("token:")) throw new RpcError("FORBIDDEN", "only this Mac can do that");
   };
   const fromTheMac = (ctx: CallContext): void => {
     if (ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only this Mac can do that");

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DAEMON_UNRESPONSIVE_MS, DAEMON_WAIT_MS, daemonModeEnabled, decideLaunch, ensureDaemon, followDaemon, type HandoffWhy, type Probe } from "./daemon";
 import type { DaemonState } from "@realm/contracts";
+import { appTokenSha256 } from "./app-token";
 
 const OURS = { bundleId: "100:200" };
 const state = (over: Partial<DaemonState> = {}): DaemonState => ({
@@ -101,6 +102,7 @@ describe("ensureDaemon", () => {
           readState: () => file,
           probe: async (_port: number, _token: string): Promise<Probe> => (file ? probe({ bootId: file.bootId, protocol: file.protocol }) : null),
           spawn: () => { this.spawns++; this.order.push("spawn"); },
+          ownToken: (s: DaemonState) => s.token,
           onHandoff: async (_s: DaemonState, why: HandoffWhy) => { this.handoffs.push(why); return { kind: "replaced" as const }; },
           // Stopping it takes its state file with it, as a real server's shutdown does.
           replace: async (s: DaemonState) => { this.replaced.push(s.pid); file = null; },
@@ -279,10 +281,10 @@ describe("ensureDaemon", () => {
 describe("followDaemon", () => {
   const known = { port: 8790, token: "t" };
 
-  it("follows a server started since to its new port and token", () => {
+  it("follows a server started since to its new port, with the app's token it was handed", () => {
     // MUTANT: return `known` here and every window stays dialing the crashed server's port forever.
-    expect(followDaemon(known, state({ pid: 5151, port: 61_234, token: "t2", bootId: "boot-b" }), () => true))
-      .toEqual({ port: 61_234, token: "t2" });
+    expect(followDaemon(known, state({ pid: 5151, port: 61_234, token: "cli-2", bootId: "boot-b", appTokenSha256: appTokenSha256("t") }), () => true))
+      .toEqual({ port: 61_234, token: "t" });
   });
 
   it("stays put when the file names the server it already knows, or nothing at all", () => {
@@ -292,8 +294,8 @@ describe("followDaemon", () => {
 
   it("does not follow a file whose writer is dead, or one on its way out", () => {
     // A crash does not clear the file. Its pid is gone, and the supervisor has not written a new one yet.
-    expect(followDaemon(known, state({ port: 61_234, token: "t2" }), () => false)).toBe(known);
-    expect(followDaemon(known, state({ port: 61_234, token: "t2", state: "draining" }), () => true)).toBe(known);
+    expect(followDaemon(known, state({ port: 61_234, token: "t2", appTokenSha256: appTokenSha256("t") }), () => false)).toBe(known);
+    expect(followDaemon(known, state({ port: 61_234, token: "t2", state: "draining", appTokenSha256: appTokenSha256("t") }), () => true)).toBe(known);
   });
 });
 

@@ -7,16 +7,19 @@ import type { ZodTypeAny, z } from "zod";
 import { parseWireMessage, type EventName, type EventPayload, type RpcResponse } from "@realm/contracts";
 import type { HandshakeLimiter } from "../access/limiter";
 import { RpcError } from "../store/rows";
+import { CLI_METHODS } from "./cli-methods";
 
 /**
- * Who a call is from. `local` is everything on this Mac: every socket (the renderer, main's bridge,
- * the CLI) and every in-process call made on the Mac's own behalf. `phone:<id>` is a paired phone,
+ * Who a call is from. `local` is Realm's own app on this Mac (the renderer and main's bridge, which
+ * hold the app's token) and every in-process call made on the Mac's own behalf. `cli` is a socket that
+ * offered the token in `daemon.json`, which any agent with the sandbox off can read: it reaches only
+ * `CLI_METHODS`. `phone:<id>` is a paired phone,
  * which reaches handlers only through the mobile API (`remote/api.ts`) — an allowlist by construction,
  * so a handler checking the principal is a second lock, never the first. `token:<id>` is the owner on
  * another machine, through the access token with that id (`listenRemote`): the whole RPC, as `local`
  * has it, except what only this machine's own app may do.
  */
-export type Principal = "local" | `phone:${string}` | `token:${string}`;
+export type Principal = "local" | "cli" | `phone:${string}` | `token:${string}`;
 
 /** What a handler knows about its caller. `client` is null for an in-process `call()`, so a handler
  *  that needs a socket to answer later (`browserHost.register`) must refuse a null, never adopt it. */
@@ -48,6 +51,8 @@ const IN_PROCESS: CallContext = { client: null, principal: "local" };
  */
 export type ListenOptions = {
   token?: string;
+  /** The `realm` CLI's token: a handshake offering it is let in as principal `cli`. */
+  cliToken?: string;
   allowedOrigins?: readonly string[];
 };
 
@@ -59,16 +64,23 @@ const sameSecret = (a: string, b: string): boolean => {
 };
 
 /** The handshake decision, pure over the two headers it reads so every branch is testable without a
- *  socket. Offered protocols are compared constant-time; length alone leaks nothing useful here. */
-export function acceptsHandshake(
+ *  socket: who the dial is and the protocol to echo back, or null to refuse it. Offered protocols are
+ *  compared constant-time; length alone leaks nothing useful here. */
+export function handshakePrincipal(
   offer: { origin?: string; protocols: readonly string[] },
   opts: ListenOptions,
-): boolean {
-  if (offer.origin !== undefined && !(opts.allowedOrigins ?? []).includes(offer.origin)) return false;
-  if (opts.token === undefined) return true;
-  const want = tokenProtocol(opts.token);
-  return offer.protocols.some((p) => sameSecret(p, want));
+): { principal: "local" | "cli"; protocol: string | null } | null {
+  if (offer.origin !== undefined && !(opts.allowedOrigins ?? []).includes(offer.origin)) return null;
+  if (opts.token === undefined) return { principal: "local", protocol: null };
+  const app = tokenProtocol(opts.token);
+  if (offer.protocols.some((p) => sameSecret(p, app))) return { principal: "local", protocol: app };
+  if (opts.cliToken === undefined) return null;
+  const cli = tokenProtocol(opts.cliToken);
+  return offer.protocols.some((p) => sameSecret(p, cli)) ? { principal: "cli", protocol: cli } : null;
 }
+
+export const acceptsHandshake = (offer: { origin?: string; protocols: readonly string[] }, opts: ListenOptions): boolean =>
+  handshakePrincipal(offer, opts) !== null;
 
 /** `Sec-WebSocket-Protocol` is a comma-separated list; `ws` hands `handleProtocols` a Set but
  *  `verifyClient` only the raw header, and the token check has to happen there — see `listen`. */
@@ -123,15 +135,16 @@ export class RpcServer {
       // Both checks live in `verifyClient` because `handleProtocols` is not called at all when the
       // client offers no subprotocol — a tokenless dial would sail straight past it. `handleProtocols`
       // is then only there to echo the accepted value back, which a browser needs to see.
+      const accepted = new WeakMap<IncomingMessage, NonNullable<ReturnType<typeof handshakePrincipal>>>();
       const options: ServerOptions = {
         port, host,
-        verifyClient: ({ req }: { req: IncomingMessage }) => acceptsHandshake(
-          { origin: req.headers.origin, protocols: offeredProtocols(req.headers["sec-websocket-protocol"]) },
-          opts,
-        ),
+        verifyClient: ({ req }: { req: IncomingMessage }) => {
+          const who = handshakePrincipal({ origin: req.headers.origin, protocols: offeredProtocols(req.headers["sec-websocket-protocol"]) }, opts);
+          if (who) accepted.set(req, who);
+          return who !== null;
+        },
       };
-      const token = opts.token;
-      if (token !== undefined) options.handleProtocols = () => tokenProtocol(token);
+      if (opts.token !== undefined) options.handleProtocols = (_offered, req) => accepted.get(req)?.protocol ?? false;
       const wss = new WebSocketServer(options);
       this.wss = wss;
       wss.once("error", reject);
@@ -140,7 +153,7 @@ export class RpcServer {
         wss.on("error", (err) => process.stderr.write(`[realm-server] ws error: ${err.message}\n`));
         const addr = wss.address(); resolve(typeof addr === "object" && addr ? addr.port : port);
       });
-      wss.on("connection", (ws) => this.attach(ws, "local"));
+      wss.on("connection", (ws, req) => this.attach(ws, accepted.get(req)?.principal ?? "local"));
     });
   }
 
@@ -296,6 +309,7 @@ export class RpcServer {
   /** The one path from a method name to its result, shared by the socket and `call()` so the two
    *  cannot drift: the same lookup, the same parse, the same handler. */
   private async dispatch(method: string, params: unknown, ctx: CallContext): Promise<unknown> {
+    if (ctx.principal === "cli" && !CLI_METHODS.has(method)) throw new RpcError("FORBIDDEN", `the realm CLI's token cannot call ${method}`);
     const m = this.methods.get(method);
     if (!m) throw new RpcError("METHOD_NOT_FOUND", method);
     const parsed = m.schema.safeParse(params);

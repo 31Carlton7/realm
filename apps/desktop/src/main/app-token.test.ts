@@ -68,7 +68,8 @@ describe("the sealed copy of the app's token", () => {
     const main = readFileSync(join(__dirname, "index.ts"), "utf8");
     expect(main).toMatch(/unsealAppToken\([^)]*safeStorage\)/);
     expect(main).toMatch(/sealAppToken\([^)]*safeStorage\)/);
-    const store = readFileSync(join(__dirname, "app-token.ts"), "utf8");
+    const store = readFileSync(join(__dirname, "app-token.ts"), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    expect(store).toContain("safe.encryptString(token)");
     expect(store).not.toMatch(/kSecUseDataProtectionKeychain|SecItem|keychain-passwords|execFile|spawn/);
   });
 });

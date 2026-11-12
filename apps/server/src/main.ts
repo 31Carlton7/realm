@@ -14,11 +14,11 @@ import { phoneVideo } from "./simulators/phone-video";
 import { simctl } from "./simulators/simctl";
 import { realLayaRuntime } from "./laya/runtime";
 import { realMachineProbe } from "./resources/machine";
-import { DAEMON_PROTOCOL } from "@realm/contracts";
+import { APP_TOKEN_STDIN_ENV, DAEMON_PROTOCOL } from "@realm/contracts";
 import { relayBase } from "@realm/remote";
 import { realmHome } from "./paths";
 import { defaultRelay } from "./remote/relays";
-import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
+import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readHandedToken, readState, releaseLock, tokenSha256, writeState } from "./daemon/state";
 import { listenFromEnv } from "./access/listen";
 import { homeKeyFile } from "./remote/home-key";
 import { clearCaptureLeftovers } from "./remote/screens";
@@ -26,7 +26,12 @@ import { machineAccounts } from "./accounts/probe";
 
 const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
-const token = newToken();
+/** The `realm` CLI's token, the one `daemon.json` carries. Any agent with the sandbox off can read
+ *  that file, so the socket lets it call only the CLI's own methods (`rpc/cli-methods.ts`). */
+const cliToken = newToken();
+/** Whether the app that started us writes its own token on our stdin. */
+const tokenOnStdin = process.env[APP_TOKEN_STDIN_ENV] === "1";
+delete process.env[APP_TOKEN_STDIN_ENV];
 const entry = process.argv[1] ?? "";
 let lockedHome: string | null = null;
 /** Set once the app exists; called when `daemon.drain` is accepted. */
@@ -47,6 +52,10 @@ delete process.env.REALM_TOKEN;
 delete process.env.REALM_SERVER;
 
 try {
+  // The token that opens every method. The Realm app mints it, keeps it in memory, and hands it over
+  // on the spawn pipe. A server nobody handed one (`realm serve`, a service) mints its own and tells
+  // no one: there is no app to drive it, and the CLI has its own token.
+  const appToken = tokenOnStdin ? await readHandedToken(process.stdin) : newToken();
   const home = realmHome();
   // Mutual exclusion is on the HOME, not the port. What two servers would corrupt is one `realm.db`:
   // two live-session maps, two schedulers claiming the same rows, two processes racing the migration
@@ -74,7 +83,7 @@ try {
   }
 
   const app = await createApp({
-    home, port, token,
+    home, port, token: appToken, cliToken,
     // Announced in the state file, not just held in memory: the next launcher reads that file before
     // it reads anything else.
     onDraining: () => markDraining?.(),
@@ -142,7 +151,7 @@ try {
   // The state file is written only now, because `createApp` is what binds the port — a file
   // announcing a port nothing is listening on is worse than no file at all.
   writeState(home, {
-    version: 1, pid: process.pid, bootId: BOOT_ID, port: app.port, token, home, protocol: DAEMON_PROTOCOL,
+    version: 1, pid: process.pid, bootId: BOOT_ID, port: app.port, token: cliToken, appTokenSha256: tokenSha256(appToken), home, protocol: DAEMON_PROTOCOL,
     bundleId: currentBundleId(entry), entry, startedAt: Date.now(), state: "running",
   });
 
