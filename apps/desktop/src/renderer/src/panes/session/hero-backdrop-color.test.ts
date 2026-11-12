@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { COLOR_LOOKS, contrast, ditherColor, guard, pictureAlpha, safeOpacity, type GuardSample, type Hush, type TextRun } from "./hero-backdrop-color";
-import type { Rect, Rgb } from "./hero-backdrop";
+import { COLOR_LOOKS, contrast, coverFit, ditherColor, guard, pictureAlpha, safeOpacity, type GuardSample, type Hush, type TextRun } from "./hero-backdrop-color";
+import { FRAG, type Rect, type Rgb } from "./hero-backdrop";
 
 const fill = (w: number, h: number, rgb: [number, number, number]) => {
   const px = new Uint8ClampedArray(w * h * 4);
@@ -71,34 +71,50 @@ describe("safeOpacity", () => {
   });
 });
 
+describe("the picture reaches the pane's bottom edge", () => {
+  it("covers the whole pane at any shape, from the top and centred across", () => {
+    for (const [w, h] of [[1750, 1100], [600, 1300], [2400, 700]] as const) {
+      const fit = coverFit(w, h, 1920, 1080);
+      expect(fit.y).toBe(0);
+      expect(fit.h).toBeGreaterThanOrEqual(h);
+      expect(fit.w).toBeGreaterThanOrEqual(w);
+      expect(fit.x).toBeCloseTo((w - fit.w) / 2, 5);
+    }
+  });
+
+  it("draws the generated looks at full strength all the way down", () => {
+    expect(FRAG).toContain("o = vec4(col, 1.0);");
+  });
+});
+
 describe("pictureAlpha", () => {
-  const look = { feather: 32, fade: [0, 0.2] as [number, number] };
+  const look = { feather: 32 };
   const card = { x: 200, y: 300, w: 600, h: 120 };
 
   it("runs the whole picture above the card, where the greeting sits", () => {
-    expect(pictureAlpha(500, 200, 900, card, look)).toBe(1);
-    expect(pictureAlpha(500, 300 - 32, 900, card, look)).toBeCloseTo(1, 5);
+    expect(pictureAlpha(500, 200, card, look)).toBe(1);
+    expect(pictureAlpha(500, 300 - 32, card, look)).toBeCloseTo(1, 5);
   });
 
   it("shows nothing on the card, and feathers back within a feather's width of it", () => {
-    expect(pictureAlpha(500, 360, 900, card, look)).toBe(0);
-    const near = pictureAlpha(200 - 12, 360, 900, card, look), far = pictureAlpha(200 - 32, 360, 900, card, look);
+    expect(pictureAlpha(500, 360, card, look)).toBe(0);
+    const near = pictureAlpha(200 - 12, 360, card, look), far = pictureAlpha(200 - 32, 360, card, look);
     expect(near).toBeGreaterThan(0);
     expect(near).toBeLessThan(far);
     expect(far).toBeCloseTo(1, 5);
   });
 
-  it("starts to fade at the card's foot and is gone a fifth of the pane below it", () => {
-    expect(pictureAlpha(50, 420, 900, card, look)).toBe(1);
-    expect(pictureAlpha(50, 420 + 90, 900, card, look)).toBeCloseTo(0.5, 5);
-    expect(pictureAlpha(50, 420 + 180, 900, card, look)).toBe(0);
+  it("runs whole below the card, down to the pane's bottom edge", () => {
+    expect(pictureAlpha(50, 420, card, look)).toBe(1);
+    expect(pictureAlpha(500, 420 + 32, card, look)).toBeCloseTo(1, 5);
+    expect(pictureAlpha(50, 2400, card, look)).toBe(1);
   });
 
   it("lowers the picture under a hush to its level, and only near it", () => {
     const hush = { rect: { x: 300, y: 100, w: 400, h: 40 }, level: 0.3, reach: 40 };
-    expect(pictureAlpha(500, 120, 900, card, look, [hush])).toBeCloseTo(0.3, 5);
-    expect(pictureAlpha(500, 100 - 40, 900, card, look, [hush])).toBeCloseTo(1, 5);
-    expect(pictureAlpha(50, 120, 900, card, look, [hush])).toBe(1);
+    expect(pictureAlpha(500, 120, card, look, [hush])).toBeCloseTo(0.3, 5);
+    expect(pictureAlpha(500, 100 - 40, card, look, [hush])).toBeCloseTo(1, 5);
+    expect(pictureAlpha(50, 120, card, look, [hush])).toBe(1);
   });
 });
 
@@ -115,7 +131,7 @@ describe("a picture shown as it is", () => {
     const px = new Uint8ClampedArray((x1 - x0) * (y1 - y0) * 4);
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
       const i = ((y - y0) * (x1 - x0) + x - x0) * 4;
-      px.set([...busy[y * W + x]!, 255 * pictureAlpha(x + 0.5, y + 0.5, H, card, look, hushes)], i);
+      px.set([...busy[y * W + x]!, 255 * pictureAlpha(x + 0.5, y + 0.5, card, look, hushes)], i);
     }
     return px;
   };
