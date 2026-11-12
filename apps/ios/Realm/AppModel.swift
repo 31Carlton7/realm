@@ -145,7 +145,7 @@ final class AppModel {
     /// What the person changed about sessions' rows here — a rename, a pin, an archive — shown over what
     /// the Mac lists until it lists them so.
     var rowEdits = RowEdits()
-    /// The Rename alert, while it is up: the session, and the title in its field.
+    /// The Rename sheet, while it is up: the session, and the title in its field.
     var renaming: RenameDraft?
     /// The lead whose sub-agents' sheet a row's press-and-hold opened over Home, while it is up.
     var subagentsShown: String?

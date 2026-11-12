@@ -216,7 +216,7 @@ struct RowActions: Equatable {
     }
 }
 
-/// The Rename alert's state: the session, and what its field holds.
+/// The Rename sheet's state: the session, and what its field holds.
 struct RenameDraft: Equatable {
     let row: SessionRow
     var title: String
@@ -379,21 +379,18 @@ struct SessionMenu: View {
 }
 
 extension View {
-    /// The alert Rename opens, wherever it was pressed: the title in a field, and Rename to keep it.
-    func renameAlert() -> some View {
-        modifier(RenameAlert())
+    /// The sheet Rename opens, wherever it was pressed: the title in a field, and Save to keep it.
+    func renameSheet() -> some View {
+        modifier(RenameSessionSheet())
     }
 }
 
-private struct RenameAlert: ViewModifier {
+private struct RenameSessionSheet: ViewModifier {
     @Environment(AppModel.self) private var model
 
     func body(content: Content) -> some View {
-        content.alert("Rename session", isPresented: shown) {
-            TextField("Title", text: title)
-            Button("Cancel", role: .cancel) { model.renaming = nil }
-            Button("Rename") { model.rename() }
-                .disabled(model.renaming?.change == nil)
+        content.sheet(isPresented: shown) {
+            RenameSheet(title: "Rename session", name: title, canSave: model.renaming?.change != nil) { model.rename() }
         }
     }
 
@@ -422,7 +419,7 @@ extension AppModel {
         }
     }
 
-    /// Renames the session the alert is up for, if its field says something new.
+    /// Renames the session the sheet is up for, if its field says something new.
     func rename() {
         guard let draft = renaming else { return }
         renaming = nil

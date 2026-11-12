@@ -107,6 +107,8 @@ struct ComposerView: View {
     @State private var active = 0
     /// `/attach` asks where the files come from, as `+` does.
     @State private var attachAsked = false
+    /// The source picked on that sheet, opened once the sheet has gone: one presentation at a time.
+    @State private var attachPicked: AttachmentPick?
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
@@ -117,7 +119,7 @@ struct ComposerView: View {
         let tabs = model.draftTabs[sessionId] ?? []
         let preparing = model.preparingAttachments[sessionId] ?? 0
         let options = model.sessionOptions[sessionId]
-        let presenting = settingsShown || moveShown || picking != nil || previewing != nil || attachAsked
+        let presenting = settingsShown || moveShown || picking != nil || previewing != nil || attachAsked || attachPicked != nil
         let open = suggestions(text, session: session)
         // Asked whether or not anything else matches: a word that names only a file opens the list
         // once the Mac's answer comes.
@@ -223,12 +225,11 @@ struct ComposerView: View {
             guard mention != nil else { return }
             await model.loadTabs(sessionId)
         }
-        .confirmationDialog("Add to this message", isPresented: $attachAsked, titleVisibility: .hidden) {
-            Button("Photo library") { picking = .photos }
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button("Take photo") { picking = .camera }
-            }
-            Button("Choose files") { picking = .files }
+        .sheet(isPresented: $attachAsked, onDismiss: {
+            picking = attachPicked
+            attachPicked = nil
+        }) {
+            ChoiceSheet(title: "Add to this message", choices: attachChoices)
         }
         // Under Reduce Motion the strip does not grow into place: it is there.
         .animation(reduceMotion ? nil : Motion.morph, value: attachments.count + preparing + tabs.count)
@@ -251,6 +252,18 @@ struct ComposerView: View {
             guard !now, refocus else { return }
             refocus = false
             focused.wrappedValue = true
+        }
+    }
+
+    private var attachChoices: [ChoiceSheet.Choice] {
+        var sources: [(String, AttachmentPick)] = [("Photo library", .photos)]
+        if UIImagePickerController.isSourceTypeAvailable(.camera) { sources.append(("Take photo", .camera)) }
+        sources.append(("Choose files", .files))
+        return sources.map { title, source in
+            ChoiceSheet.Choice(title: title) {
+                attachPicked = source
+                attachAsked = false
+            }
         }
     }
 

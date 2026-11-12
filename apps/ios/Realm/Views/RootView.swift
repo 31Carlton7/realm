@@ -38,7 +38,7 @@ struct RootView: View {
                             .backOnGround()
                         }
                 }
-                .renameAlert()
+                .renameSheet()
                 .sessionActionSheets()
                 // A lead's sub-agents, from its row's press-and-hold.
                 .sheet(item: subagentsLead) { lead in

@@ -246,11 +246,12 @@ struct TeammateLink: View {
         }
         .sensoryFeedback(.selection, trigger: teammate.lead)
         // The Mac's own words for what Archive does.
-        .confirmationDialog("Archive \(teammate.name)?", isPresented: $archiving, titleVisibility: .visible) {
-            Button("Archive", role: .destructive) { Task { await model.archive(teammate) } }
-                .accessibilityIdentifier("teammate-archive-confirm")
-        } message: {
-            Text("Leaves the Team list; its sessions stay.")
+        .sheet(isPresented: $archiving) {
+            ConfirmSheet(title: "Archive \(teammate.name)?", message: "Leaves the Team list; its sessions stay.",
+                         button: "Archive", role: .destructive) {
+                archiving = false
+                Task { await model.archive(teammate) }
+            }
         }
         .accessibilityIdentifier("teammate-\(teammate.handle)")
     }
