@@ -43,12 +43,13 @@ struct PairView: View {
         .fullScreenCover(isPresented: $scanning) {
             ScannerScreen { text in
                 scanning = false
-                model.open(pairingText: text)
+                model.open(pairingText: text, fromScanner: true)
             }
         }
         .sheet(isPresented: $pasting) {
             PasteLinkSheet()
         }
+        .pairConfirmation(shown: overTheTop)
     }
 
     private var welcome: some View {
@@ -416,5 +417,50 @@ struct QRScanner: UIViewControllerRepresentable {
                 }
             }
         }
+    }
+}
+
+/// What a pairing link asks before it pairs: the Mac it names and the relay it goes through, so a
+/// stranger's Mac is plain to see, and the Mac it replaces if this iPhone has one.
+struct PairConfirmation: Equatable {
+    let title: String
+    let message: String
+
+    init(_ link: PairingLink, replacing paired: String?) {
+        title = "Pair with “\(link.macName)”?"
+        let relay = link.relay.host() ?? link.relay.absoluteString
+        message = if let paired {
+            "This iPhone will stop showing \(paired)'s sessions and show \(link.macName)'s instead, through \(relay)."
+        } else {
+            "This iPhone will show \(link.macName)'s sessions and questions, through \(relay). Pair only with a Mac you know."
+        }
+    }
+}
+
+extension View {
+    /// Asks about the pairing link waiting in `confirmingPairLink`, on a sheet of Realm's own ground.
+    /// Cancel leaves the phone as it was.
+    func pairConfirmation(shown: Bool) -> some View {
+        modifier(PairConfirmationSheet(shown: shown))
+    }
+}
+
+private struct PairConfirmationSheet: ViewModifier {
+    let shown: Bool
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        content.sheet(isPresented: asking) {
+            if let link = model.confirmingPairLink.flatMap({ try? PairingLink.decode($0) }) {
+                let asking = PairConfirmation(link, replacing: model.store.pairedMac?.macName)
+                ConfirmSheet(title: asking.title, message: asking.message, button: "Pair") {
+                    model.confirmPairing()
+                }
+            }
+        }
+    }
+
+    private var asking: Binding<Bool> {
+        Binding(get: { shown && model.confirmingPairLink != nil }, set: { if !$0 { model.confirmingPairLink = nil } })
     }
 }

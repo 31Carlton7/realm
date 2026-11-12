@@ -73,16 +73,8 @@ struct RootView: View {
         // action, the caret — each of which asks for it where it is drawn.
         .tint(Palette.ink)
         .overlay(alignment: .top) { ToastView() }
-        .confirmationDialog(replaceTitle, isPresented: replacing, titleVisibility: .visible) {
-            Button("Pair") {
-                let link = model.replacingPairLink
-                model.replacingPairLink = nil
-                if let link { Task { await model.pair(with: link) } }
-            }
-            Button("Cancel", role: .cancel) { model.replacingPairLink = nil }
-        } message: {
-            Text("This iPhone will stop showing \(model.store.pairedMac?.macName ?? "this Mac")'s sessions.")
-        }
+        // Over the top, the pairing sheet asks it instead: one sheet cannot present over another from here.
+        .pairConfirmation(shown: !pairingOverTheTop.wrappedValue)
     }
 
     private var subagentsLead: Binding<ShownLead?> {
@@ -112,15 +104,6 @@ struct RootView: View {
             model.pairingRequested = false
             if !model.pairing.isBusy { model.pairing = .idle }
         })
-    }
-
-    private var replacing: Binding<Bool> {
-        Binding(get: { model.replacingPairLink != nil }, set: { if !$0 { model.replacingPairLink = nil } })
-    }
-
-    private var replaceTitle: String {
-        let name = model.replacingPairLink.flatMap { try? PairingLink.decode($0) }?.macName ?? "another Mac"
-        return "Pair with \(name)?"
     }
 }
 

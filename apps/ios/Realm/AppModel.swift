@@ -102,8 +102,9 @@ final class AppModel {
     /// When a row first arrived live, by its key; rows that came with the session's opening have none.
     @ObservationIgnored private(set) var rowBirths: [String: Date] = [:]
     var toast: Toast?
-    /// A pairing link for a different Mac, waiting for the person to say it replaces this one.
-    var replacingPairLink: String?
+    /// A pairing link waiting for the person to say yes: any link from outside the app, and a code the
+    /// scanner read for a different Mac than this one.
+    var confirmingPairLink: String?
     /// What is typed in each session's composer and not sent yet: leaving a session keeps it.
     var composerDrafts: [String: String] = [:]
     /// What each `@label` picked into a session's composer names, until it is sent.
@@ -185,7 +186,7 @@ final class AppModel {
     @ObservationIgnored let log = Logger(subsystem: "co.charmtechnologies.realm.ios", category: "app")
     @ObservationIgnored let courier: Courier
     @ObservationIgnored private let vault = Vault(store: KeychainStore())
-    @ObservationIgnored private var identity: DeviceIdentity?
+    @ObservationIgnored var identity: DeviceIdentity?
     @ObservationIgnored private(set) var connection: MobileConnection?
     @ObservationIgnored private var listeners: [Task<Void, Never>] = []
     @ObservationIgnored private var pushRegistration: PushRegistration?
@@ -335,7 +336,9 @@ final class AppModel {
         open(pairingText: url.absoluteString)
     }
 
-    func open(pairingText text: String) {
+    /// A link from outside the app could name anyone's Mac, so a new Mac is always asked about. The
+    /// scanner reads the person's own Mac's screen, and asks only before it replaces another Mac.
+    func open(pairingText text: String, fromScanner: Bool = false) {
         guard let link = try? PairingLink.decode(text) else {
             show(toast: "That is not a Realm pairing link.")
             return
@@ -344,11 +347,18 @@ final class AppModel {
             if paired.macId == link.macId && paired.windowId == link.windowId { return }
             // Settings makes way: what comes next is asked over Home.
             settingsShown = false
-            if paired.macId != link.macId {
-                replacingPairLink = text
-                return
-            }
         }
+        let newMac = store.pairedMac?.macId != link.macId
+        if newMac && (!fromScanner || store.pairedMac != nil) {
+            confirmingPairLink = text
+            return
+        }
+        Task { await pair(with: text) }
+    }
+
+    func confirmPairing() {
+        guard let text = confirmingPairLink else { return }
+        confirmingPairLink = nil
         Task { await pair(with: text) }
     }
 
