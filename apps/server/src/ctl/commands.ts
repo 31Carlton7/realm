@@ -48,7 +48,8 @@ export const USAGE = `usage: realm <command> [options]
                                          commit every change in a checkout (its id, from run --json
                                          or worktree list); --push also pushes its branch, and
                                          --pr pushes it and opens a pull request
-  pair                                   pair an iPhone with this server: a code to scan
+  pair                                   pair an iPhone with this server: a code to scan, and
+                                         the phone accepted in Realm (or here, over --server)
   phones [list] | phones remove <id|name>
                                          the phones paired with it; remove one to revoke it
   token create <name> | list | revoke <id|name>
@@ -493,7 +494,7 @@ export async function runCtl(argv: string[], io: CtlIo): Promise<number | null> 
         return shipped(r, { push, openPr }) ? 0 : 1;
       }
       case "pair":
-        return await pair(c, io, json, print);
+        return await pair(c, io, json, print, target.kind === "url");
       case "phones": {
         const sub = rest[0] ?? "list";
         const s = await c.call<RemoteStatus>("remote.status");
@@ -553,22 +554,32 @@ const clock = (ms: number): string => { const s = Math.max(0, Math.ceil(ms / 100
  * `realm pair`: Settings ▸ Devices ▸ Pair an iPhone, in a terminal — for a server with no window
  * (a Linux box, a Mac running `realm serve`), or one on another machine (`--server`).
  *
- * It opens the same pairing window the sheet does and draws the same link as a code; a phone that
- * scans it and proves the code's secret is put to the person here, by name, and only a yes pairs it.
+ * It opens the same pairing window the sheet does and draws the same link as a code. On this machine
+ * the phone that scans it is accepted in Realm's own window: the token in `daemon.json` cannot answer,
+ * because any agent with the sandbox off can read it and pair a phone of its own. Over `--server`, with
+ * the owner's access token, the phone is put to the person here, by name, and only a yes pairs it.
  * Ctrl-C closes the window, so a code left on a screen stops working when the command does.
  */
-async function pair(c: CtlClient, io: CtlIo, json: boolean, print: (value: unknown, human: string) => void): Promise<number> {
+async function pair(c: CtlClient, io: CtlIo, json: boolean, print: (value: unknown, human: string) => void, answerHere: boolean): Promise<number> {
   const now = io.now ?? Date.now;
   const say = (s: string) => (json ? io.err(s) : io.out(s));
   const requests: PairRequest[] = [];
   let wake: (() => void) | null = null;
   let dropped = false;
+  /** A phone has been sent to Realm's window, so the status is where its answer shows. */
+  let asked = false;
   const off = c.onEvent((event, payload) => {
     if (event === "remote.pairRequest") { requests.push(payload as PairRequest); wake?.(); }
+    if (event === "remote.changed") wake?.();
   });
   c.onClose(() => { dropped = true; wake?.(); });
   const onAbort = () => wake?.();
   io.signal?.addEventListener("abort", onAbort);
+  const paired = (phone: RemoteStatus["phones"][number], s: RemoteStatus): number => {
+    print({ paired: true, phoneId: phone.phoneId, name: phone.name, model: phone.model, relay: s.relay },
+      `Paired ${phone.name}. It reaches ${s.macName} through ${s.relay}. To take it back: realm phones remove ${phone.phoneId}`);
+    return 0;
+  };
   try {
     const started = now();
     const win = await c.call<PairingWindow>("remote.pair.start");
@@ -587,6 +598,12 @@ async function pair(c: CtlClient, io: CtlIo, json: boolean, print: (value: unkno
           say("Stopped. The code no longer works.");
           return 130;
         }
+        if (asked) {
+          const s = await c.call<RemoteStatus>("remote.status");
+          const phone = s.phones.find((ph) => ph.addedAt >= started);
+          if (phone) return paired(phone, s);
+          if (s.pairing?.windowId !== win.windowId && now() < win.expiresAt) throw new CtlError("DECLINED", "the pairing window was closed in Realm, and no phone was paired");
+        }
         const left = win.expiresAt - now();
         if (left <= 0) throw new CtlError("EXPIRED", "the code expired before a phone used it; run realm pair again for a new one");
         await new Promise<void>((resolveWait) => {
@@ -597,6 +614,11 @@ async function pair(c: CtlClient, io: CtlIo, json: boolean, print: (value: unkno
       }
       const r = requests.shift()!;
       if (r.windowId !== win.windowId) continue;
+      if (!answerHere) {
+        say(`\n"${r.name}" wants to pair. Accept it in Realm, on ${status.macName}. (Ctrl-C to stop)`);
+        asked = true;
+        continue;
+      }
       const answer = await (io.prompt?.(`\nPair "${r.name}" (${r.model || "iPhone"})? It can read every session on ${status.macName} and answer for you. [y/N] `) ?? Promise.resolve(null));
       const accept = answer !== null && /^\s*y(es)?\s*$/i.test(answer);
       // Realm's own window may have been asked too, and answered first: then this answer finds no
@@ -613,11 +635,7 @@ async function pair(c: CtlClient, io: CtlIo, json: boolean, print: (value: unkno
         const s = await c.call<RemoteStatus>("remote.status");
         const phone = s.phones.find((ph) => ph.name === r.name && ph.addedAt >= started);
         if (!phone && !answeredHere && now() > deadline) throw new CtlError("DECLINED", `${r.name} was answered in Realm's window, and not paired`);
-        if (phone) {
-          print({ paired: true, phoneId: phone.phoneId, name: phone.name, model: phone.model, relay: s.relay },
-            `Paired ${phone.name}. It reaches ${s.macName} through ${s.relay}. To take it back: realm phones remove ${phone.phoneId}`);
-          return 0;
-        }
+        if (phone) return paired(phone, s);
         if (now() > deadline) throw new CtlError("PAIR_FAILED", `${r.name} did not finish pairing`);
         await (io.sleep ?? ((ms: number) => new Promise((res) => setTimeout(res, ms))))(200);
       }

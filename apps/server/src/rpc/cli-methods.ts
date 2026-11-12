@@ -5,7 +5,9 @@
  * do over the socket. It is an allowlist so a method added later is refused until someone decides
  * the CLI needs it. Never add the ones that answer for the user or loosen what agents may do:
  * `sessions.respondPermission`, `sandbox.set`, `sandbox.setDefaults`, `settings.set`,
- * `terminals.write`.
+ * `terminals.write`, `sessions.setOptions`, `teammates.update`, or the one that sets a team's access. Nor
+ * `remote.pair.answer`: a phone the agent paired could answer permission cards as that phone, so
+ * `realm pair` opens the window and only Realm's own accepts the phone.
  */
 export const CLI_METHODS: ReadonlySet<string> = new Set([
   "system.info",
@@ -24,6 +26,5 @@ export const CLI_METHODS: ReadonlySet<string> = new Set([
   "remote.status",
   "remote.pair.start",
   "remote.pair.cancel",
-  "remote.pair.answer",
   "remote.phones.remove",
 ]);
