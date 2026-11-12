@@ -370,7 +370,7 @@ extension View {
     func shipConfirmation(_ step: Binding<ShipStep?>, tree: WorkingTree?, message: String, run: @escaping (ShipStep) -> Void) -> some View {
         sheet(item: step) { taken in
             if let asking = ShipConfirmation(taken, branch: tree?.branch, ahead: tree?.ahead ?? 0, message: message) {
-                ConfirmSheet(asking: asking) {
+                ConfirmSheet(title: asking.title, message: asking.message, button: asking.button) {
                     step.wrappedValue = nil
                     run(taken)
                 }
@@ -380,27 +380,29 @@ extension View {
 }
 
 /// An outward step's question: its title and what it does, the step's own button in ink, Cancel beside it.
-private struct ConfirmSheet: View {
-    let asking: ShipConfirmation
+struct ConfirmSheet: View {
+    let title: String
+    let message: String
+    let button: String
     let confirm: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var height: CGFloat = 280
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(asking.title)
+            Text(title)
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(Palette.ink)
-            Text(asking.message)
+            Text(message)
                 .font(.subheadline)
                 .foregroundStyle(Palette.ink2)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Button("Cancel") { dismiss() }
                     .buttonStyle(GreyButtonStyle())
-                Button(asking.button, action: confirm)
+                Button(button, action: confirm)
                     .buttonStyle(InkButtonStyle())
-                    .accessibilityIdentifier("ship-confirm")
+                    .accessibilityIdentifier("confirm")
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.top, 10)
