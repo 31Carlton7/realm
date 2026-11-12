@@ -346,6 +346,7 @@ describe("§6 motion table", () => {
   it("keeps the queued message's focused ring inside the row that clips it", () => {
     // THE MUTANT: the field's left margin back at -6px, past the row's 4px padding, so the row's
     // overflow (kept for the enter and leave animation) shaved the ring off the field's left side.
+    // And the padding back at 2px, which put the caret on the ring's inner edge.
     const sides = (body: string, prop: string): number[] => {
       const v = body.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+)`))![1]!.trim().split(/\s+/).map(parseFloat);
       const [t, r = t, b = t, l = r] = v as [number, number?, number?, number?];
@@ -359,6 +360,8 @@ describe("§6 motion table", () => {
     ["top", "right", "bottom", "left"].forEach((side, i) => {
       expect(padding[i]! + margin[i]! - spread, side).toBeGreaterThanOrEqual(0);
     });
+    const inner = sides(field, "padding");
+    expect([inner[1], inner[3]], "the field's padding beside its text").toEqual([6, 6]);
   });
 
   it("lights one menu row: the focused one, and none while a press-opened menu rests (MN-04)", () => {

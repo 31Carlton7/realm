@@ -5555,8 +5555,10 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 }
 
 /* A message being edited: the row's text grown into a field — the same size and ink, wrapping instead
-   of clamping, and only as tall as what is typed (up to six lines, then it scrolls). */
-.composer-queue-item .queue-edit { min-width: 0; margin: -2px 0 0 -2px; padding: 2px; resize: none;
+   of clamping, and only as tall as what is typed (up to six lines, then it scrolls). Its text opens
+   4px right of the resting line: the row's 4px inset is all the room the ring has, and holding the
+   text still would grow the row's held fill past the head's edge. */
+.composer-queue-item .queue-edit { min-width: 0; margin: -2px 0 0 -2px; padding: 2px 6px; resize: none;
   field-sizing: content; min-height: 22px; max-height: calc(6 * 18px + 4px);
   font: inherit; font-size: 13px; line-height: 18px; color: var(--rl-text-bright);
   background: var(--surface); border: 0; border-radius: calc(var(--r-chip) - 2px); /* concentric with the row's 2px inset */
