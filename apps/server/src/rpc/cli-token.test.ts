@@ -8,16 +8,25 @@ import { RpcServer, tokenProtocol, type CallContext } from "./server";
 /**
  * SEC-06 (b): `daemon.json` carries a token for the `realm` CLI, and an agent with the sandbox off can
  * read that file. The token must open the CLI's own methods and nothing else — above all not the
- * ones that answer a permission card, turn the sandbox off, change settings or type into a terminal.
+ * ones that answer a permission card, turn the sandbox off, change settings or type into a terminal,
+ * widen an agent's or a teammate's access, or accept a phone (which could then answer as itself).
  */
 const APP = "app-token-only-main-holds";
 const CLI = "cli-token-in-daemon-json";
 
-const RESTRICTED = ["sessions.respondPermission", "sandbox.set", "sandbox.setDefaults", "settings.set", "terminals.write"];
+const RESTRICTED = [
+  "sessions.respondPermission", "sandbox.set", "sandbox.setDefaults", "settings.set", "terminals.write",
+  // A phone it paired could answer permission cards as that phone.
+  "remote.pair.answer",
+  // Each widens what an agent may do without asking.
+  "sessions.setOptions", "teammates.update", "teams.access.set", "runs.approve", "computer.allowedApps.set", "mcp.setAllowedTools",
+];
 
-/** Every method the `realm` CLI calls, read from its source so a new command is covered by itself. */
+/** Every method the `realm` CLI calls, read from its source so a new command is covered by itself.
+ *  `remote.pair.answer` it calls only over `--server`, with the owner's access token. */
 const cliSource = readFileSync(join(__dirname, "../ctl/commands.ts"), "utf8");
-const CLI_CALLS = [...new Set([...cliSource.matchAll(/\.call(?:<[^>]*>)?\("([a-zA-Z]+\.[a-zA-Z.]+)"/g)].map((m) => m[1]!))];
+const CLI_CALLS = [...new Set([...cliSource.matchAll(/\.call(?:<[^>]*>)?\("([a-zA-Z]+\.[a-zA-Z.]+)"/g)].map((m) => m[1]!))]
+  .filter((m) => m !== "remote.pair.answer");
 
 let server: RpcServer;
 afterEach(async () => { await server?.close(); });
@@ -62,6 +71,15 @@ describe("the CLI token in daemon.json", () => {
     const ws = await dial(port, CLI);
     for (const m of RESTRICTED) expect({ m, code: (await call(ws, m)).error?.code }).toEqual({ m, code: "FORBIDDEN" });
     expect(seen).toEqual([]);
+    ws.close();
+  });
+
+  it("opens a pairing window but cannot accept the phone that scans it", async () => {
+    const { port, seen } = await serve(["remote.pair.start", "remote.pair.answer"]);
+    const ws = await dial(port, CLI);
+    expect(await call(ws, "remote.pair.start")).toMatchObject({ ok: true, result: "remote.pair.start" });
+    expect((await call(ws, "remote.pair.answer")).error?.code).toBe("FORBIDDEN");
+    expect(seen).toHaveLength(1);
     ws.close();
   });
 
