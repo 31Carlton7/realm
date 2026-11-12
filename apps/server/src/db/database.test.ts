@@ -57,6 +57,7 @@ function v3Fixture(path: string): { spaceId: string; sessionId: string } {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V3_SCHEMA);
   for (const v of [1, 2, 3]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO profiles VALUES (?, ?, ?, ?, ?, ?, ?)").run("p1", "Work", "user", "#000000", 0, 1, 1);
   db.prepare("INSERT INTO spaces (id, profile_id, name, icon, sort_order, folder_path, layout_json, active_item_id, created_at, updated_at, color) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)")
     .run("sp1", "p1", "Versed", "folder", 0, "/tmp/versed", 1, 1, "#7c6cff");
@@ -91,6 +92,27 @@ function stubTeamSources(db: DatabaseSync): void {
   if (cols("spaces").length === 0) db.exec("CREATE TABLE spaces (id TEXT PRIMARY KEY)");
   if (cols("team_roles").length === 0) db.exec("CREATE TABLE team_roles (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, template TEXT, created_at INTEGER NOT NULL)");
   if (cols("team_reviews").length === 0) db.exec("CREATE TABLE team_reviews (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, kind TEXT NOT NULL, record_path TEXT)");
+}
+
+/**
+ * What the schedule-mode migration (SEC-08) reads, added where a stub below left it out: a session's
+ * space and mode, an event's payload, and — in a fixture stamped past the migrations that made them —
+ * the schedules table and its `role_id`. Each fixture runs the chain to its END, and a real home has
+ * all of these. Anything a stub already has, or a later migration will make, is left alone.
+ */
+function stubScheduleModeSources(db: DatabaseSync): void {
+  const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
+  const stamped = (db.prepare("SELECT COALESCE(MAX(version), 0) AS v FROM schema_version").get() as { v: number }).v;
+  const madeBy = (needle: string) => migrations.findIndex((m) => m.includes(needle)) + 1;
+  if (cols("sessions").length === 0) db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT, permission_mode TEXT)");
+  for (const c of ["space_id", "permission_mode"]) if (!cols("sessions").includes(c)) db.exec(`ALTER TABLE sessions ADD COLUMN ${c} TEXT`);
+  if (cols("session_events").length === 0) db.exec("CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL DEFAULT 0, type TEXT NOT NULL DEFAULT '', payload_json TEXT NOT NULL DEFAULT '{}')");
+  if (!cols("session_events").includes("payload_json")) db.exec("ALTER TABLE session_events ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'");
+  if (stamped >= madeBy("CREATE TABLE schedules (")) {
+    if (cols("schedules").length === 0) db.exec("CREATE TABLE schedules (id TEXT PRIMARY KEY)");
+    for (const c of ["space_id TEXT", "title TEXT", "created_at INTEGER"]) if (!cols("schedules").includes(c.split(" ")[0]!)) db.exec(`ALTER TABLE schedules ADD COLUMN ${c}`);
+  }
+  if (stamped >= madeBy("ALTER TABLE schedules ADD COLUMN role_id") && !cols("schedules").includes("role_id")) db.exec("ALTER TABLE schedules ADD COLUMN role_id TEXT");
 }
 
 describe("database", () => {
@@ -165,6 +187,7 @@ function v4Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V4_SCHEMA);
   for (const v of [1, 2, 3, 4]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO profiles VALUES (?, ?, ?, ?, ?, ?, ?)").run("p1", "Work", "user", "#000000", 0, 1, 1);
   const space = db.prepare("INSERT INTO spaces (id, profile_id, name, icon, sort_order, folder_path, layout_json, active_item_id, created_at, updated_at, color) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, '#7c6cff')");
   space.run("sp1", "p1", "Versed", "folder", 0, "/tmp/versed", 10, 10);
@@ -385,6 +408,7 @@ function v8McpFixture(path: string): { serverId: string } {
   db.exec(`CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
     sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
   for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run("srv1", "airtable", "stdio", "/usr/bin/node", '["/abs/s.mjs"]', "", '{"AIRTABLE_API_KEY":"pat-x"}', 1, 1);
   db.close();
@@ -748,6 +772,7 @@ function v32Fixture(path: string): void {
   db.exec(V32_REWIND_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= 32; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1')").run();
   db.prepare("INSERT INTO environments (id) VALUES ('env1')").run();
   db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, status,
@@ -869,6 +894,7 @@ function v34Fixture(path: string): void {
   db.exec(V34_HISTORY_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= 34; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', 0, 1, 1)");
   profile.run("p1", "Work");
   profile.run("p2", "Home");
@@ -971,6 +997,7 @@ function v35Fixture(path: string): void {
   db.exec(V35_FAVICON_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= 35; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', 0, 1, 1)");
   profile.run("p1", "Work");
   profile.run("p2", "Home");
@@ -1060,6 +1087,7 @@ function v36Fixture(path: string): void {
   db.exec(V36_PROFILES_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= 36; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', ?, ?, 1)");
   profile.run("pSchool", "School", 1, 5);
   profile.run("pWork", "Work", 0, 9);
@@ -1127,6 +1155,7 @@ describe("migration v37 — a browser partition per profile", () => {
     db.exec(V36_PROFILES_SCHEMA);
     stubActivitySources(db);
     for (let v = 1; v <= 36; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+    stubScheduleModeSources(db);
     db.close();
     const fresh = openDatabase(p);
     expect(fresh.prepare("SELECT COUNT(*) AS n FROM profiles").get()).toEqual({ n: 0 });
@@ -1182,6 +1211,7 @@ function v37Fixture(path: string): void {
   db.exec(V37_SCHEDULED_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= 37; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1')").run();
   db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json, next_run_at, last_run_at, last_run_id, last_skipped_at, created_at, updated_at)
     VALUES ('SCH1', 'sp1', 'Morning triage', 'Read the new issues.', '0 9 * * 1-5', 1, '{"agentKind":"fake"}', 500, 400, 'r-clock', NULL, 10, 20)`).run();
@@ -1300,6 +1330,7 @@ function v38Fixture(path: string): void {
   db.exec(V38_SESSIONS_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= 38; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Charts'), ('sess2', 'Other')").run();
   db.close();
 }
@@ -1379,6 +1410,7 @@ function v39Fixture(path: string): void {
   db.exec(V39_PROFILES_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= LIBRARY_FILES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
     VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser'), ('pHome', 'Home', 'house', '#22c55e', 1, 2, 2, 'persist:browser-pHome')`).run();
   db.close();
@@ -1486,6 +1518,7 @@ function v40Fixture(path: string): void {
   db.exec(V40_EVENTS_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= SAVED_TURNS_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
     VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser')`).run();
   db.prepare(`INSERT INTO library_files (id, profile_id, path, name, ext, size, digest, ts)
@@ -1640,6 +1673,7 @@ function v42Fixture(path: string): void {
   db.exec(V42_TEAMS_SCHEMA);
   stubActivitySources(db);
   for (let v = 1; v <= TEAM_ROLES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1'), ('sp2')").run();
   db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json, next_run_at, last_run_at, last_run_id, last_skipped_at, created_at, updated_at)
     VALUES ('SCH1', 'sp1', 'Morning triage', 'Read the new issues.', '0 9 * * 1-5', 1, NULL, 500, 400, 'r-clock', NULL, 10, 20)`).run();
@@ -1776,6 +1810,7 @@ function teamRolesFixture(path: string, through: number, extra = ""): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V45_TEAM_ROLES_SCHEMA + extra);
   for (let v = 1; v <= through; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1'), ('sp2')").run();
   db.prepare(`INSERT INTO team_roles (id, space_id, name, brief, realmite_json, agent_kind, wake_on_review, week_budget_usd, created_at, updated_at)
     VALUES ('R1', 'sp1', 'Content Producer', 'Make slides.', '{"seed":"cp"}', 'claude', 0, 25, 10, 20)`).run();
@@ -1874,6 +1909,7 @@ function v45Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V45_SESSIONS_SCHEMA);
   for (let v = 1; v <= ACTIVITY_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   const session = db.prepare(`INSERT INTO sessions (id, space_id, agent_kind, status, title, last_event_seq, created_at, updated_at, environment_id)
     VALUES (?, 'sp1', 'claude', 'idle', ?, 0, ?, ?, 'env1')`);
   // `updated_at` far past every event: the rows were written to after they last talked (a resume, a
@@ -2050,6 +2086,7 @@ function beforeRemoteDevices(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(BEFORE_REMOTE_DEVICES);
   for (let v = 1; v <= REMOTE_DEVICES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  stubScheduleModeSources(db);
   db.prepare("INSERT INTO settings (key, value_json) VALUES ('power.preventSleep', 'true'), ('notifications.relay.iphone', 'false')").run();
   db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Org access')").run();
   db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('sess1', 10, 'user_message', '{\"text\":\"Fix the crash\",\"attachments\":[]}')").run(); // seq 1
@@ -2170,6 +2207,7 @@ describe("the memory_learned migration — how far Realm has read each session f
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_MEMORY_LEARNED);
     for (let v = 1; v <= MEMORY_LEARNED_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+    stubScheduleModeSources(db);
     db.prepare("INSERT INTO settings (key, value_json) VALUES ('memory.learning:p1', 'false')").run();
     db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Billing'), ('sess2', 'Docs')").run();
     db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('sess1', 10, 'user_message', '{\"text\":\"Dana owns billing\",\"attachments\":[]}')").run();
@@ -2316,6 +2354,7 @@ describe("the space_team_access migration — one Team access mode per space", (
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_TEAM_ACCESS);
     for (let v = 1; v <= TEAM_ACCESS_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    stubScheduleModeSources(db);
     db.exec(`INSERT INTO spaces (id, profile_id, name, icon, sort_order, folder_path, created_at, updated_at) VALUES ('sp1', 'p1', 'API', 'f', 0, '/tmp/api', 1, 1), ('sp2', 'p1', 'Web', 'f', 1, '/tmp/web', 1, 1);
       INSERT INTO team_roles (id, space_id, name, permission_mode, handle) VALUES ('r1', 'sp1', 'CTO', 'acceptEdits', 'cto');
       INSERT INTO settings (key, value_json) VALUES ('defaultPermissionMode', '"default"');`);
