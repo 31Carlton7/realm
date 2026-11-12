@@ -1,6 +1,6 @@
 import {
-  AGENT_FAST_MODE, AGENT_TAKES_EFFORT, cadenceOf, cronOf, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
-  type AgentKind, type Cadence, type Repeat, type Run, type RunConstraints, type Schedule,
+  AGENT_FAST_MODE, AGENT_TAKES_EFFORT, ScheduleModeSchema, cadenceOf, cronOf, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
+  type AgentKind, type Cadence, type Repeat, type Run, type RunConstraints, type Schedule, type ScheduleMode,
 } from "@realm/contracts";
 import { cadenceSentence, type SUGGESTIONS } from "@realm/view";
 
@@ -130,6 +130,9 @@ export type Draft = {
   effort: string | null;
   /** Fast mode, asked of every run's session. */
   fastMode: boolean;
+  /** The mode every run starts in (`Schedule.permissionMode`): Full access for a new task, and what the
+   *  task holds for a saved one, so a task an agent scheduled from an asking session opens saying so. */
+  permissionMode: ScheduleMode;
 };
 
 /** The part of a draft that says WHEN — what a teammate's check-in has of a task too. */
@@ -145,6 +148,7 @@ export function blankDraft(spaceId: string, agentKind: AgentKind, now = Date.now
   return {
     title: "", goal: "", ...blankWhen(now),
     newSessionPerRun: true, archiveSucceeded: false, spaceId, agentKind, model: null, effort: null, fastMode: false,
+    permissionMode: "bypassPermissions",
   };
 }
 
@@ -181,6 +185,7 @@ export function draftOf(s: Schedule, fallbackKind: AgentKind, now = Date.now()):
     ...blankDraft(s.spaceId, s.constraints?.agentKind ?? fallbackKind, now), ...whenOf(s.cron, now),
     title: s.title, goal: s.goal, newSessionPerRun: s.newSessionPerRun, archiveSucceeded: s.archiveSucceeded,
     model: s.constraints?.model ?? null, effort: s.constraints?.effort ?? null, fastMode: s.constraints?.fastMode === true,
+    permissionMode: ScheduleModeSchema.catch("default").parse(s.permissionMode),
   };
 }
 
@@ -215,8 +220,9 @@ export const draftValid = (d: Draft, now = Date.now(), kept: string | null = nul
  * The run constraints a draft asks for, laid over what the task already carried: the modal owns the
  * agent, the model, the level and fast mode, and anything else a task was given through `runs`'
  * vocabulary — a skill subset, a worktree — is kept rather than dropped by an edit that never showed
- * it. A permission is the exception, and is dropped: every scheduled run is Full access, so one a task
- * still holds from before is never read, and keeping it would leave the row saying otherwise.
+ * it. A permission is the exception, and is dropped: a scheduled run starts in the task's own
+ * `permissionMode`, so one the constraints still hold from before is never read, and keeping it would
+ * leave the row saying otherwise.
  *
  * Only what the chosen model's harness can be asked is written. A level is one of `levels`, the
  * model's own as the card drew them — a level set under another model is not what runs, the card

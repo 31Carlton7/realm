@@ -23,7 +23,7 @@ afterEach(() => { vi.useRealTimers(); });
 const DAY = 86_400_000;
 const schedule = (over: Partial<Schedule> = {}): Schedule => ({
   id: "sch1", spaceId: "s1", title: "Morning triage", goal: "Read the new issues and group them by area.",
-  cron: "0 9 * * *", enabled: true, constraints: { agentKind: "fake" },
+  cron: "0 9 * * *", enabled: true, constraints: { agentKind: "fake" }, permissionMode: "bypassPermissions",
   nextRunAt: new Date(2026, 8, 8, 9).getTime(), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
   newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 1, updatedAt: 1, ...over,
 });
@@ -253,15 +253,21 @@ describe("the Schedule a task modal", () => {
     expect(store.getState().schedules.s1![0]!.constraints).toEqual({ agentKind: "codex", model: "gpt-5.6-terra" });
   });
 
-  it("says every run starts in Full access, on every agent, and offers nothing else", async () => {
-    /* THE MUTANT: the old menu — Ask each time and Accept edits — offered beside runs that ignore it. */
-    await mount();
-    const { picker } = await openPicker();
+  it("starts a new task in Full access, and saves the permission the person picks", async () => {
+    /* THE MUTANT: the menu drawn but its pick never sent, so every task the page makes is Full access
+       whatever the person chose. */
+    const { store } = await mount();
+    const { dialog, picker } = await openPicker();
     const perms = () => within(picker).getByRole("group", { name: "Permissions" });
-    expect(within(perms()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Full access"]);
+    expect(within(perms()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Ask each time", "Accept edits", "Full access"]);
     expect(within(perms()).getByRole("button", { name: "Full access" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(picker).getByRole("option", { name: /^OpenCode/ }));
-    expect(within(perms()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Full access"]);
+    fireEvent.click(within(perms()).getByRole("button", { name: "Accept edits" }));
+    expect(within(perms()).getByRole("button", { name: "Accept edits" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "Nightly" } });
+    fireEvent.change(within(dialog).getByLabelText("Instructions"), { target: { value: "Sweep the inbox." } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(store.getState().schedules.s1).toHaveLength(1));
+    expect(store.getState().schedules.s1![0]!.permissionMode).toBe("acceptEdits");
   });
 
   it("offers the scripted agent where this Realm runs one, as the checks that drive the app need", async () => {
@@ -304,6 +310,23 @@ describe("the task's card", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.calls).toContain("updateSchedule:sch1"));
     await waitFor(() => expect(store.getState().schedules.s1![0]!.cron).toBe("30 9 * * 2"));
+  });
+
+  it("opens a task an agent scheduled from an asking session on Ask each time, and keeps it there on save", async () => {
+    /* THE MUTANT: the draft opened on Full access whatever the task holds, so any edit on the page
+       quietly raised an agent's task to Full access. */
+    const { api, store } = await mount({ schedules: [schedule({ permissionMode: "default" })] });
+    fireEvent.click(task("Morning triage"));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Morning triage" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit task" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Advanced" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+    const picker = screen.getByRole("dialog", { name: "Model picker" });
+    expect(within(within(picker).getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Ask each time" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "Triage" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.calls).toContain("updateSchedule:sch1"));
+    await waitFor(() => expect(store.getState().schedules.s1![0]).toMatchObject({ title: "Triage", permissionMode: "default" }));
   });
 
   it("renames a one-shot that has run, and offers no Pause for it", async () => {

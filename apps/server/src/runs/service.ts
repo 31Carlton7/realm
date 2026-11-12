@@ -62,7 +62,7 @@ export type CreateRunInput = {
  * **The human gate.** A run stops at `blocked` when its worker asks for a person, and only
  * `approve` moves it on. Unattended automation that can never stop and ask is the failure mode this
  * state exists to make impossible. `bypassPermissions` is not in a run's vocabulary (contracts/runs.ts),
- * and the runs that get it are a scheduled task's, which Realm puts there itself (`runPermissionMode`).
+ * and the runs that get it are a scheduled task's whose row holds it (`runPermissionMode`).
  */
 export class RunService {
   /** Shutdown latch. A dispatch is an async chain of DB writes that can outlive `close()`; without
@@ -85,6 +85,9 @@ export class RunService {
     /** Told of every run that reaches a terminal state, after it is written — the scheduler's hook
      *  for what a schedule does once its run is over (archiving a success). */
     onSettled?: (run: Run) => void;
+    /** The mode a schedule's runs start in (`Schedule.permissionMode`), or null for a schedule that is
+     *  gone or holds none. */
+    scheduleMode?: (scheduleId: string) => string | null;
     /** Worker kind when the run named none: claude in production; tests override to the fake. */
     fallbackKind?: AgentKind;
     /** Test seam only — production leaves this alone and uses the real clock. */
@@ -321,7 +324,7 @@ export class RunService {
       if (sessionId && !this.sessionRuns(sessionId, run.agentKind)) sessionId = null;
       const model = run.constraints?.model ?? null, effort = run.constraints?.effort ?? null;
       const fastMode = run.constraints?.fastMode === true;
-      const permissionMode = runPermissionMode(run);
+      const permissionMode = runPermissionMode(run, run.scheduleId === null ? null : this.d.scheduleMode?.(run.scheduleId) ?? null);
       if (!sessionId) {
         try {
           const created = this.d.sessions.create({
@@ -560,13 +563,14 @@ const OUTCOME_WORD: Record<string, string> = {
 };
 
 /**
- * The permission a run's session works in. A scheduled task's run is always Full access, whatever its
- * constraints say: it goes while nobody is at the Mac, and a permission prompt it stopped on would
- * wait for someone to come back. A run started by hand gets what it asked for, and Full access is not
- * among what it can ask.
+ * The permission a run's session works in. A scheduled task's run starts in its schedule's mode,
+ * whatever its constraints say: Full access for a task the person made and left there, and no higher
+ * than the conversation that made it for one an agent scheduled (`schedule_create`). A schedule that
+ * holds no mode, or is gone, runs in `default`. A run started by hand gets what it asked for, and Full
+ * access is not among what it can ask.
  */
-export function runPermissionMode(run: Pick<Run, "scheduleId" | "constraints">): string {
-  if (run.scheduleId !== null) return "bypassPermissions";
+export function runPermissionMode(run: Pick<Run, "scheduleId" | "constraints">, scheduleMode: string | null): string {
+  if (run.scheduleId !== null) return scheduleMode ?? "default";
   return run.constraints?.permissionMode ?? "default";
 }
 

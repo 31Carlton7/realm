@@ -1862,6 +1862,8 @@ CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, project_id T
   provider_cursor TEXT, rewind_fork_json TEXT, rewind_refusal TEXT);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+-- Every home has it (v23); the schedule-mode migration at the end of the chain adds to it.
+CREATE TABLE schedules (id TEXT PRIMARY KEY, role_id TEXT);
 ${REVIEW_TABLES_STUB}`;
 
 /** Stamped up to the version BEFORE the activity column, found from the migration's own text so the
@@ -2040,6 +2042,8 @@ CREATE TABLE saved_turns (
   saved_at INTEGER NOT NULL);
 CREATE INDEX saved_turns_session ON saved_turns(session_id, event_seq);
 CREATE INDEX saved_turns_recent ON saved_turns(saved_at DESC, event_seq DESC);
+-- Every home has it (v23); the schedule-mode migration at the end of the chain adds to it.
+CREATE TABLE schedules (id TEXT PRIMARY KEY, role_id TEXT);
 `;
 const REMOTE_DEVICES_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS remote_devices"));
 
@@ -2158,6 +2162,8 @@ CREATE TABLE team_roles (id TEXT PRIMARY KEY);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE INDEX session_events_session ON session_events(session_id, seq);
+-- Every home has it (v23); the schedule-mode migration at the end of the chain adds to it.
+CREATE TABLE schedules (id TEXT PRIMARY KEY, role_id TEXT);
 `;
 const MEMORY_LEARNED_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS memory_learned"));
 
@@ -2304,6 +2310,8 @@ CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, name TEXT NO
   color TEXT NOT NULL DEFAULT '#7c6cff', groups_json TEXT);
 CREATE TABLE team_roles (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, name TEXT NOT NULL,
   permission_mode TEXT NOT NULL DEFAULT 'default', handle TEXT);
+-- Every home has it (v23); the schedule-mode migration at the end of the chain adds to it.
+CREATE TABLE schedules (id TEXT PRIMARY KEY, role_id TEXT);
 `;
 const TEAM_ACCESS_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS space_team_access"));
 
@@ -2363,6 +2371,60 @@ describe("the space_team_access migration — one Team access mode per space", (
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     expect(() => again.exec(migrations[TEAM_ACCESS_AT]!)).not.toThrow();
     expect(again.prepare("SELECT space_id, mode FROM space_team_access").all()).toEqual([{ space_id: "sp1", mode: "bypassPermissions" }]);
+    again.close();
+  });
+});
+
+/** The schedules table as it shipped before the schedule-mode migration, written out by hand. */
+const BEFORE_SCHEDULE_MODE = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, goal TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, constraints_json TEXT,
+  next_run_at INTEGER, last_run_at INTEGER, last_run_id TEXT, last_skipped_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  new_session_per_run INTEGER NOT NULL DEFAULT 1, archive_succeeded INTEGER NOT NULL DEFAULT 0, role_id TEXT);
+`;
+const SCHEDULE_MODE_AT = migrations.findIndex((m) => m.includes("ALTER TABLE schedules ADD COLUMN permission_mode"));
+
+describe("the schedule-mode migration — what an existing scheduled task runs in (SEC-08)", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_SCHEDULE_MODE);
+    for (let v = 1; v <= SCHEDULE_MODE_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
+      INSERT INTO schedules (id, space_id, title, goal, cron, created_at, updated_at, role_id) VALUES
+        ('weekly', 'sp1', 'Weekly review', 'Go.', '0 9 * * 1', 10, 10, NULL),
+        ('nightly', 'sp1', 'Nightly cleanup', 'Go.', '0 2 * * *', 20, 20, NULL),
+        ('clock', 'sp1', 'Ops', 'Check in.', '0 * * * *', 30, 30, 'role-1');`);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  const modes = (db: DatabaseSync) => Object.fromEntries(
+    (db.prepare("SELECT id, permission_mode AS m FROM schedules").all() as { id: string; m: string | null }[]).map((r) => [r.id, r.m]));
+
+  it("is appended at the end of the chain, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_MODE_AT).toBe(migrations.length - 1);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("keeps every existing task in the Full access it has always run in, and leaves a teammate's clock NULL", () => {
+    const { db } = migrated();
+    expect(modes(db)).toEqual({ weekly: "bypassPermissions", nightly: "bypassPermissions", clock: null });
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing and moves no row", () => {
+    const { p, db } = migrated();
+    db.prepare("UPDATE schedules SET permission_mode = 'default' WHERE id = 'weekly'").run();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(modes(again)).toEqual({ weekly: "default", nightly: "bypassPermissions", clock: null });
     again.close();
   });
 });

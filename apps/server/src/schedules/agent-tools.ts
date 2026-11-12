@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { describeSchedule, onceExpr, parseMoment, type RunConstraints, type Schedule, type Session } from "@realm/contracts";
+import { describeSchedule, onceExpr, parseMoment, type RunConstraints, type Schedule, type ScheduleMode, type Session } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
+import { MODE_RANK } from "../delegation/dispatch";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import type { ScheduleService } from "./service";
 
@@ -17,11 +18,12 @@ export const SCHEDULE_PROVIDER_NAME = "realm-schedule";
  * missing was somewhere to put the number.
  *
  * **It schedules, and it does not execute.** `schedule_create` writes a row and returns. What fires
- * later is a RUN, which is where attempts, worktrees, restart recovery, the human gate and the
- * permission a scheduled run works in (always Full access, `runPermissionMode`) already live — so
- * nothing in this file has an opinion about any of them. The one thing a caller must understand is that the run starts a FRESH session: it inherits
- * none of this conversation, which is why the `goal` field's description asks for standing
- * instructions rather than a follow-up.
+ * later is a RUN, which is where attempts, worktrees, restart recovery and the human gate already
+ * live. The one opinion this file has is the permission: the task runs in this session's mode as it
+ * stands now, never higher (`scheduledMode`). The goal is the agent's own words and the run goes while
+ * nobody watches, so one approved tool call must not turn an asking conversation into unattended Full
+ * access. The run starts a FRESH session: it inherits none of this conversation, which is why the
+ * `goal` field's description asks for standing instructions rather than a follow-up.
  *
  * **Two tools, and the third is deliberately absent.** `schedule_create` and `schedule_list`, so an
  * agent can also answer "did you already set that up?" — asked the same thing twice, a session that
@@ -33,8 +35,8 @@ export const SCHEDULE_PROVIDER_NAME = "realm-schedule";
 export type ScheduleAgentToolsDeps = {
   schedules: Pick<ScheduleService, "create" | "list">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
-  /** The calling session's row — whose agent, model, level and speed the task it schedules runs on. */
-  sessions?: { get(id: string): Pick<Session, "agentKind" | "model" | "effort" | "fastMode"> };
+  /** The calling session's row — whose agent, model, level, speed and mode the task it schedules runs on. */
+  sessions?: { get(id: string): Pick<Session, "agentKind" | "model" | "effort" | "fastMode" | "permissionMode"> };
 };
 
 const CreateArgs = z.object({
@@ -50,7 +52,7 @@ const TOOLS: Tool[] = [
     description: [
       "Schedule work to start later in this space — once at a moment, or repeatedly on a cron.",
       "What fires is a task: a FRESH agent session with none of this conversation, so write `goal` as complete standing instructions — name the repository, the branch, the channel, the person, everything it needs — never as a follow-up to something said here.",
-      "It always runs in Full access, whatever this session's mode: nobody is there to answer a permission prompt when it fires.",
+      "It runs in this session's permission mode as it is now, never higher: scheduled from Ask each time it asks each time (and waits for the user at each prompt), from Full access it runs in Full access.",
       "Give exactly one of `at` (once) or `cron` (repeating). Resolve a relative ask like \"in two weeks\" to an absolute moment yourself and pass it as `at`.",
       "Use this when the user asks for something to happen LATER. Do the work now when they are asking for it now, and never schedule something you could finish in this turn.",
       "Tell the user the moment it is set for, in their own terms — work that arrives unannounced is the failure this tool has to avoid.",
@@ -124,6 +126,7 @@ function createSchedule(d: ScheduleAgentToolsDeps, ctx: ProviderCallContext, arg
   const made = d.schedules.create({
     spaceId: ctx.spaceId, title, goal, cron: expr, enabled: true,
     constraints: callerConstraints(d, ctx.sessionId), newSessionPerRun: true, archiveSucceeded: false,
+    permissionMode: scheduledMode(d, ctx.sessionId),
   });
   const when = made.nextRunAt === null ? describeSchedule(made.cron) : `${describeSchedule(made.cron)} — first run ${moment(made.nextRunAt)}`;
   return ok(`Scheduled "${made.title}": ${when}.\nIt starts a task in this space, which will appear under Scheduled tasks and in the Tasks lens when it runs.`);
@@ -142,6 +145,17 @@ function callerConstraints(d: ScheduleAgentToolsDeps, sessionId: string): RunCon
   try { caller = d.sessions.get(sessionId); } catch { return null; }
   return { agentKind: caller.agentKind, ...(caller.model ? { model: caller.model } : {}), ...(caller.effort ? { effort: caller.effort } : {}),
     ...(caller.fastMode ? { fastMode: true } : {}) };
+}
+
+/**
+ * The mode the task runs in: the calling session's, as it is when the task is made, so changing the
+ * session later moves nothing. A mode outside `MODE_RANK` (a harness's own string) is `default`, as
+ * delegation ranks it, and a session that cannot be read is `default` too: the cap fails toward asking.
+ */
+function scheduledMode(d: ScheduleAgentToolsDeps, sessionId: string): ScheduleMode {
+  let mode: string;
+  try { mode = d.sessions?.get(sessionId).permissionMode ?? "default"; } catch { return "default"; }
+  return Object.hasOwn(MODE_RANK, mode) ? (mode as ScheduleMode) : "default";
 }
 
 function listSchedules(d: ScheduleAgentToolsDeps, ctx: ProviderCallContext): CallToolResult {

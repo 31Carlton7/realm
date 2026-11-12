@@ -31,12 +31,11 @@ export function useRunCatalog(kind: AgentKind, model: string | null): RunCatalog
   }, [kind, model, agentProbe, favorites, info, effortSupport, fastSupport]);
 }
 
-/** The permission every scheduled run starts in, in the prompter's words, and the only one: Realm
- *  puts a run a schedule fires in Full access itself (`runPermissionMode`), on every agent. Shown
- *  where the choice used to be, so the picker says what will run rather than leaving it to be guessed. */
-const PERMISSIONS: OverflowGroup[] = [{ label: "Permissions", items: [
-  { label: PERMISSION_MODES.find((m) => m.id === "bypassPermissions")!.label, checked: true, onSelect: () => {} },
-] }];
+/** The permission every run starts in, in the prompter's words. A task an agent scheduled opens on the
+ *  mode its conversation was in, and the person can move it from there. */
+const permissions = (mode: string, onChange: (patch: Partial<Draft>) => void): OverflowGroup[] => [{ label: "Permissions", items:
+  PERMISSION_MODES.map((m) => ({ label: m.label, checked: m.id === mode, onSelect: () => onChange({ permissionMode: m.id }) })),
+}];
 
 /**
  * The Schedule a task modal's Model row: the prompter's own chip and picker over the task's draft —
@@ -45,7 +44,7 @@ const PERMISSIONS: OverflowGroup[] = [{ label: "Permissions", items: [
  * prompter; a draft holds all of it until the task is saved (`constraintsOf`).
  */
 export function ScheduleRunPicker({ draft, catalog, onChange }: {
-  draft: Pick<Draft, "agentKind" | "model" | "effort" | "fastMode">;
+  draft: Pick<Draft, "agentKind" | "model" | "effort" | "fastMode" | "permissionMode">;
   catalog: RunCatalog;
   onChange: (patch: Partial<Draft>) => void;
 }) {
@@ -74,7 +73,7 @@ export function ScheduleRunPicker({ draft, catalog, onChange }: {
   return (
     <ModelPicker kind={kind} model={draft.model} agentProbe={catalog.agentProbe} effort={effort} rows={catalog.rows} info={catalog.info}
       onToggleFavorite={(key) => run(() => toggleModelFavorite(key))}
-      onPick={(agentKind, model) => onChange({ agentKind, model })} fast={fast} overflow={PERMISSIONS} eggs={eggs} />
+      onPick={(agentKind, model) => onChange({ agentKind, model })} fast={fast} overflow={permissions(draft.permissionMode, onChange)} eggs={eggs} />
   );
 }
 

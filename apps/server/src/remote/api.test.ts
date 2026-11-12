@@ -1460,7 +1460,7 @@ describe("Review", () => {
 describe("Scheduled", () => {
   const schedule = (id: string, spaceId: string, cron: string, extra: Partial<Schedule> = {}): Schedule => ({
     id, spaceId, title: id, goal: id, cron, enabled: true, constraints: null, nextRunAt: null, lastRunAt: null, lastRunId: null, lastSkippedAt: null,
-    newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 0, updatedAt: 0, ...extra,
+    newSessionPerRun: true, archiveSucceeded: false, roleId: null, permissionMode: "bypassPermissions", createdAt: 0, updatedAt: 0, ...extra,
   });
   const run = (id: string, state: Run["state"], sessionId: string | null): Run => ({
     id, spaceId: "s1", title: id, goal: id, agentKind: "claude", environmentId: null, constraints: null, dedupeKey: null, state, attempt: 1, maxAttempts: 1, sessionId,

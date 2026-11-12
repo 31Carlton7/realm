@@ -103,7 +103,7 @@ const limits = (agentKind: string, extra: Partial<PlanLimits> = {}): PlanLimits 
   ({ agentKind, subscriptionType: null, organization: null, windows: [], alert: "none", alertWindow: null, unavailable: null, detail: null, ts: 0, ...extra });
 const schedule = (id: string, spaceId: string, title: string, cron: string, extra: Partial<Schedule> = {}): Schedule => ({
   id, spaceId, title, goal: `${title}, as the task says.`, cron, enabled: true, constraints: null, nextRunAt: null, lastRunAt: null, lastRunId: null,
-  lastSkippedAt: null, newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 1_789_000_000_000, updatedAt: 1_789_000_000_000, ...extra,
+  lastSkippedAt: null, newSessionPerRun: true, archiveSucceeded: false, roleId: null, permissionMode: "bypassPermissions", createdAt: 1_789_000_000_000, updatedAt: 1_789_000_000_000, ...extra,
 });
 const run = (id: string, scheduleId: string, state: Run["state"], sessionId: string | null): Run => ({
   id, spaceId: "sp1", title: "Run", goal: "Run", agentKind: "claude", environmentId: null, constraints: null, dedupeKey: null, state, attempt: 1, maxAttempts: 1,

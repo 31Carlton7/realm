@@ -8,7 +8,7 @@ import {
 const now = new Date(2026, 8, 7, 12).getTime(); // a Monday, noon
 const DAY = 86_400_000;
 const schedule = (over: Partial<Schedule> = {}): Schedule => ({
-  id: "sch1", spaceId: "s1", title: "Morning triage", goal: "read the new issues", cron: "0 9 * * *", enabled: true,
+  id: "sch1", spaceId: "s1", title: "Morning triage", goal: "read the new issues", cron: "0 9 * * *", enabled: true, permissionMode: "bypassPermissions",
   constraints: null, nextRunAt: now + DAY, lastRunAt: null, lastRunId: null, lastSkippedAt: null,
   newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 1, updatedAt: 1, ...over,
 });
@@ -146,8 +146,8 @@ describe("the modal's draft", () => {
   });
 
   it("asks for the agent, the model, its level and fast mode, drops a permission, and keeps whatever else the task was given", () => {
-    /* A scheduled run is Full access whatever the task holds, so a permission left from before is not
-       written back. THE MUTANT: a row still saying Plan about runs that work in Full access. */
+    /* A scheduled run starts in the task's own mode whatever its constraints hold, so a permission left
+       there from before is not written back. THE MUTANT: a row still saying Plan about runs that do not. */
     const before = { permissionMode: "plan" as const, skills: ["triage"], model: "old", fastMode: true };
     const d = { ...draftOf(schedule({ constraints: before }), "codex", now), model: "gpt-5.6-terra", effort: "medium" };
     expect(constraintsOf(d, before, ["low", "medium", "high"]))

@@ -1295,4 +1295,14 @@ export const migrations: string[] = [
     mode TEXT NOT NULL,
     set_at INTEGER NOT NULL);
   `,
+  // The mode a scheduled task's runs start in (SEC-08). Every run a schedule fired used to be Full access;
+  // now the row holds the mode: the person's pick for a task they made, the making session's mode for
+  // one an agent made. A task that exists already keeps the Full access it has always run in, and the
+  // person lowers it in the task's Permissions menu. A teammate's clock (`role_id`) is left NULL: it
+  // makes no run, and fires in the teammate's mode. The ALTER makes a second run fail before the UPDATE,
+  // inside the migration's transaction.
+  `
+  ALTER TABLE schedules ADD COLUMN permission_mode TEXT;
+  UPDATE schedules SET permission_mode = 'bypassPermissions' WHERE role_id IS NULL;
+  `,
 ];

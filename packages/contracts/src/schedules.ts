@@ -13,9 +13,10 @@ import { RunConstraintsSchema } from "./runs";
  *
  * So this file is only about WHEN. `runs.create` is what happens next, and everything a run's
  * vocabulary refuses a schedule refuses too, by construction: `RunConstraintsSchema` is reused
- * verbatim rather than mirrored. The permission is the exception that is not a constraint at all —
- * every run a schedule fires works in Full access, which `RunService` sets (`runPermissionMode`), so
- * a `permissionMode` stored here is never read for one.
+ * verbatim rather than mirrored. The permission is the exception that is not a constraint at all: a
+ * run's constraints cannot ask for Full access, and a schedule can, so it is the row's own
+ * `permissionMode` (`runPermissionMode` reads it), and a `permissionMode` in the constraints is never
+ * read for a scheduled run.
  *
  * WHEN has two spellings, and `nextFireOf` is the single gate in front of both: a cron expression for
  * work that recurs, and `once:<epoch ms>` for a single moment. They share one field because they
@@ -440,6 +441,10 @@ export const SCHEDULE_CATCHUP_MS = 6 * 60 * 60 * 1000;
  *  anything finer would be a timer that mostly finds nothing. */
 export const SCHEDULE_TICK_MS = 60_000;
 
+/** The modes a scheduled task can start its runs in: the ones a session can be put in. */
+export const ScheduleModeSchema = z.enum(["plan", "ask", "default", "acceptEdits", "bypassPermissions"]);
+export type ScheduleMode = z.infer<typeof ScheduleModeSchema>;
+
 export const ScheduleSchema = z.object({
   id: IdSchema,
   spaceId: IdSchema,
@@ -451,8 +456,14 @@ export const ScheduleSchema = z.object({
   cron: z.string(),
   enabled: z.boolean(),
   /** Narrowing for the runs this creates. Same schema a run takes, so a schedule can never ask for
-   *  something a run would refuse. Its `permissionMode` is not read: a scheduled run is Full access. */
+   *  something a run would refuse. Its `permissionMode` is not read: the row's own is. */
   constraints: RunConstraintsSchema.nullable(),
+  /** The mode every run this fires starts in. A task the person makes runs in what they pick, Full
+   *  access unless they pick lower. One an agent makes (`schedule_create`) runs in the mode its session
+   *  had when it made it, so a single tool call cannot buy unattended work more access than the
+   *  conversation it came from. Null on a teammate's clock, which runs in the teammate's mode, and read
+   *  as `default` on any other row. */
+  permissionMode: z.string().nullable(),
   /** When this will next fire, as the server last computed it. Persisted rather than derived at read
    *  time so a schedule the runner has already claimed cannot be claimed twice by a concurrent tick. */
   nextRunAt: z.number().int().nullable(),
@@ -488,6 +499,8 @@ export const CreateScheduleSchema = z.object({
   constraints: RunConstraintsSchema.nullable().default(null),
   newSessionPerRun: z.boolean().default(true),
   archiveSucceeded: z.boolean().default(false),
+  /** Left out, `default`: only the person's own path (`schedules.create` over RPC) fills in Full access. */
+  permissionMode: ScheduleModeSchema.optional(),
 });
 export type CreateScheduleInput = z.infer<typeof CreateScheduleSchema>;
 
@@ -502,5 +515,6 @@ export const UpdateScheduleSchema = z.object({
   constraints: RunConstraintsSchema.nullable().optional(),
   newSessionPerRun: z.boolean().optional(),
   archiveSucceeded: z.boolean().optional(),
+  permissionMode: ScheduleModeSchema.optional(),
 });
 export type UpdateScheduleInput = z.infer<typeof UpdateScheduleSchema>;

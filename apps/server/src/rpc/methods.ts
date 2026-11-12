@@ -1074,7 +1074,8 @@ export function registerMethods(d: Deps): void {
   });
   reg("schedules.create", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
-    return d.schedules.create(p);
+    // The person's own path (the Scheduled page, the phone): Full access unless they picked lower.
+    return d.schedules.create({ ...p, permissionMode: p.permissionMode ?? "bypassPermissions" });
   });
   reg("schedules.update", (p) => d.schedules.update(p));
   reg("schedules.delete", (p) => ({ deleted: d.schedules.remove(p.id) }));

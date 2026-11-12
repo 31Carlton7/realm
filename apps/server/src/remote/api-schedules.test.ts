@@ -219,7 +219,7 @@ describe("a teammate's check-in from a phone", () => {
 describe("a task's row", () => {
   const schedule: Schedule = {
     id: "t", spaceId: "s", title: "t", goal: "g", cron: "0 9 * * *", enabled: true, constraints: { agentKind: "codex", model: "gpt", effort: "high" }, nextRunAt: 5, lastRunAt: 4, lastRunId: "r",
-    lastSkippedAt: 3, newSessionPerRun: false, archiveSucceeded: true, roleId: null, createdAt: 0, updatedAt: 0,
+    lastSkippedAt: 3, newSessionPerRun: false, archiveSucceeded: true, roleId: null, permissionMode: "bypassPermissions", createdAt: 0, updatedAt: 0,
   };
   const failed = { state: "failed", sessionId: "se", error: "x".repeat(TASK_ERROR_MAX + 50) } as unknown as Run;
 

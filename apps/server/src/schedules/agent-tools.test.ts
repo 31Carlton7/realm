@@ -35,7 +35,7 @@ let enabled: boolean;
 
 const row = (input: CreateScheduleInput): Schedule => ({
   id: `sch${rows.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
-  cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints, roleId: null,
+  cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints, roleId: null, permissionMode: input.permissionMode ?? null,
   // The real store derives this; the fake mirrors the one property the tools read back — a one-shot
   // resolves to its own moment, and a cron to something ahead.
   nextRunAt: parseOnce(input.cron) ?? Date.parse("2026-10-01T09:00:00Z"),
@@ -44,7 +44,7 @@ const row = (input: CreateScheduleInput): Schedule => ({
 });
 const MANUAL = { enabled: true, constraints: null, newSessionPerRun: true, archiveSucceeded: false } as const;
 /** The session asking, as `sessions.get` would hand it back. */
-let caller: Pick<Session, "agentKind" | "model" | "effort" | "fastMode"> | null;
+let caller: Pick<Session, "agentKind" | "model" | "effort" | "fastMode" | "permissionMode"> | null;
 
 /** The day these tests are set on. Their moments are written as dates, and a one-shot is only ever
  *  scheduled ahead of now: on the real clock they ran out on 2026-09-30, the date most of them name.
@@ -56,7 +56,7 @@ beforeEach(() => {
   vi.useFakeTimers({ now: TODAY, toFake: ["Date"] });
   rows = [];
   enabled = true;
-  caller = { agentKind: "codex", model: "gpt-5.6-terra", effort: "medium", fastMode: false };
+  caller = { agentKind: "codex", model: "gpt-5.6-terra", effort: "medium", fastMode: false, permissionMode: "default" };
   provider = createScheduleAgentProvider({
     schedules: {
       create: (input: CreateScheduleInput) => {
@@ -79,6 +79,21 @@ const call = (tool: string, args: unknown = {}) => provider.call(ctx, tool, args
 const text = (r: Awaited<ReturnType<typeof call>>) => (r.content[0] as { text: string }).text;
 
 describe("schedule_create", () => {
+  it("writes the task the mode its session is in now, and `default` for a mode Realm does not rank or a session it cannot read", async () => {
+    // THE MUTANTS: the mode left off the call, so the row takes the person's Full access; and an
+    // unranked or unreadable mode passed through as if it were a rung above asking.
+    const modes: (string | null)[] = [];
+    for (const mode of ["default", "acceptEdits", "bypassPermissions", "plan", "some-acp-mode", "toString"]) {
+      caller = { ...caller!, permissionMode: mode };
+      await call("schedule_create", { title: mode, goal: "G", cron: "0 9 * * 1" });
+      modes.push(rows.at(-1)!.permissionMode);
+    }
+    caller = null;
+    await call("schedule_create", { title: "no session", goal: "G", cron: "0 9 * * 1" });
+    modes.push(rows.at(-1)!.permissionMode);
+    expect(modes).toEqual(["default", "acceptEdits", "bypassPermissions", "plan", "default", "default", "default"]);
+  });
+
   it("turns a local moment into a one-shot and says which moment it took", () => {
     // The agent has to be able to repeat the time back to the user. An answer that only said "done"
     // would leave the user with work arriving at a moment nobody confirmed.
@@ -143,13 +158,13 @@ describe("schedule_create", () => {
   it("runs it at the asking session's own level and speed, a level Claude has no word for included", async () => {
     /* THE MUTANTS: the level filtered to Claude's five (Codex's `minimal` dropped on the way), and the
        bolt left behind — a conversation on fast mode scheduling work that then ran slow. */
-    caller = { agentKind: "codex", model: "gpt-5.6-sol", effort: "minimal", fastMode: true };
+    caller = { agentKind: "codex", model: "gpt-5.6-sol", effort: "minimal", fastMode: true, permissionMode: "default" };
     await call("schedule_create", { title: "Quick", goal: "G", cron: "0 9 * * *" });
     expect(rows[0]!.constraints).toEqual({ agentKind: "codex", model: "gpt-5.6-sol", effort: "minimal", fastMode: true });
   });
 
   it("leaves the model to the agent where the session pinned none, and the run's fallback where it cannot be read", async () => {
-    caller = { agentKind: "claude", model: null, effort: null, fastMode: false };
+    caller = { agentKind: "claude", model: null, effort: null, fastMode: false, permissionMode: "default" };
     await call("schedule_create", { title: "A", goal: "G", cron: "0 9 * * *" });
     expect(rows[0]!.constraints).toEqual({ agentKind: "claude" });
     caller = null;
@@ -198,10 +213,10 @@ describe("schedule_list", () => {
 });
 
 describe("what the agent is told", () => {
-  it("says a scheduled task runs in Full access, so it does not promise the user a restricted one", async () => {
+  it("says a scheduled task runs no higher than this session, so it does not promise the user Full access", async () => {
     const create = (await provider.tools(ctx)).find((t) => t.name === "schedule_create")!;
-    expect(create.description).toContain("always runs in Full access");
-    expect(create.description).not.toMatch(/never runs in Full access/i);
+    expect(create.description).toContain("this session's permission mode as it is now, never higher");
+    expect(create.description).not.toMatch(/always runs in Full access/i);
   });
 });
 
@@ -232,7 +247,7 @@ describe("one source of truth", () => {
     const spaceId = new SpacesStore(db, home).create({ profileId, name: "Alpha", icon: "folder" }).id;
     const schedules = new ScheduleService({ store: new SchedulesStore(db), runs: { create: () => { throw new Error("no firing here"); }, latestForSchedule: () => null }, rpc: { broadcast: () => {} } });
     const real = createScheduleAgentProvider({ schedules, mcp: { providerEnabled: () => true },
-      sessions: { get: () => ({ agentKind: "fake", model: "fake", effort: null, fastMode: true }) } });
+      sessions: { get: () => ({ agentKind: "fake", model: "fake", effort: null, fastMode: true, permissionMode: "default" }) } });
     const res = await real.call({ sessionId: "sess-1", spaceId }, "schedule_create", { title: "Weekly review", goal: "Write the status update.", cron: "0 16 * * 5" });
     expect(res.isError).toBe(false);
     const [listed] = schedules.list(spaceId);
