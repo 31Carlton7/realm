@@ -7,7 +7,7 @@ import type { ZodTypeAny, z } from "zod";
 import { parseWireMessage, type EventName, type EventPayload, type RpcResponse } from "@realm/contracts";
 import type { HandshakeLimiter } from "../access/limiter";
 import { RpcError } from "../store/rows";
-import { CLI_METHODS } from "./cli-methods";
+import { cliMayCall, type ServerOwner } from "./cli-methods";
 
 /**
  * Who a call is from. `local` is Realm's own app on this Mac (the renderer and main's bridge, which
@@ -53,6 +53,8 @@ export type ListenOptions = {
   token?: string;
   /** The `realm` CLI's token: a handshake offering it is let in as principal `cli`. */
   cliToken?: string;
+  /** Decides whether the CLI's token may accept a phone (`cliMayCall`). Unset is `app`, the stricter. */
+  owner?: ServerOwner;
   allowedOrigins?: readonly string[];
 };
 
@@ -125,12 +127,14 @@ export class RpcServer {
   private clients = new Set<WebSocket>();
   private listeners = new Set<BroadcastListener>();
   private remotes = new Set<RemoteListener>();
+  private owner: ServerOwner = "app";
 
   register<S extends ZodTypeAny>(name: string, schema: S, handler: Handler<S>): void {
     this.methods.set(name, { schema, handler: handler as Handler<ZodTypeAny> });
   }
 
   listen(port: number, host = "127.0.0.1", opts: ListenOptions = {}): Promise<number> {
+    this.owner = opts.owner ?? "app";
     return new Promise((resolve, reject) => {
       // Both checks live in `verifyClient` because `handleProtocols` is not called at all when the
       // client offers no subprotocol — a tokenless dial would sail straight past it. `handleProtocols`
@@ -309,7 +313,7 @@ export class RpcServer {
   /** The one path from a method name to its result, shared by the socket and `call()` so the two
    *  cannot drift: the same lookup, the same parse, the same handler. */
   private async dispatch(method: string, params: unknown, ctx: CallContext): Promise<unknown> {
-    if (ctx.principal === "cli" && !CLI_METHODS.has(method)) throw new RpcError("FORBIDDEN", `the realm CLI's token cannot call ${method}`);
+    if (ctx.principal === "cli" && !cliMayCall(method, this.owner)) throw new RpcError("FORBIDDEN", `the realm CLI's token cannot call ${method}`);
     const m = this.methods.get(method);
     if (!m) throw new RpcError("METHOD_NOT_FOUND", method);
     const parsed = m.schema.safeParse(params);

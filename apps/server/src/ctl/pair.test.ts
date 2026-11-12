@@ -3,6 +3,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { startLocalRelay, type LocalRelay } from "@realm/relay/src/node";
+import type { PairRequest } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { createToken } from "../access/tokens";
 import { homeKeyFile } from "../remote/home-key";
@@ -20,15 +21,15 @@ afterEach(async () => {
   remoteSecretBox.setHomeKey(null);
 });
 
-/** A headless server — no Realm window, so no keychain key — with a relay on loopback, as `realm
- *  serve` on a Linux box would run with its own relay setting. `daemon.json` carries the CLI's token,
- *  as `main.ts` writes it; the app's own token is held only here, standing in for Realm's window. */
-async function headless(o: { listen?: boolean } = {}) {
+/** A server with no keychain key and a relay on loopback, its `daemon.json` carrying the CLI's token
+ *  as `main.ts` writes it. `owner` is who started it: `app` is Realm's window, whose own token is held
+ *  only here, standing in for it; `terminal` is `realm serve` on a Linux box, with no window at all. */
+async function server(o: { owner: "app" | "terminal"; listen?: boolean }) {
   remoteSecretBox.setKey(null);
   remoteSecretBox.setHomeKey(null);
   const home = tempDir("realm-pair-home-");
   const relay = await startLocalRelay({ port: 0 }); relays.push(relay);
-  const app = await createApp({ home, port: 0, token: "app-token", cliToken: "daemon-token",
+  const app = await createApp({ home, port: 0, token: "app-token", cliToken: "daemon-token", owner: o.owner,
     remote: { defaultRelay: relay.url, homeKey: { file: homeKeyFile(home), create: true } },
     ...(o.listen ? { access: { listen: { host: "127.0.0.1", port: 0, tls: null, allowPlaintext: false } } } : {}) });
   apps.push(app);
@@ -62,9 +63,9 @@ function pairing(argv: string[], answer: (question: string) => string | null | P
   return { out, err, asked, done, link };
 }
 
-describe("realm pair", () => {
+describe("realm pair, on a server Realm's window started", () => {
   it("draws the code in the terminal, sends the person to Realm to accept the phone, and reports it paired", async () => {
-    const h = await headless();
+    const h = await server({ owner: "app" });
     const off = realmWindowSays(h.app, true);
     const run = pairing(["pair", "--home", h.home], () => "y");
     const url = await run.link;
@@ -89,7 +90,7 @@ describe("realm pair", () => {
   });
 
   it("pairs nothing when Realm's window says no, whatever the terminal would have said", async () => {
-    const h = await headless();
+    const h = await server({ owner: "app" });
     const off = realmWindowSays(h.app, false);
     const stop = new AbortController();
     const run = pairing(["pair", "--home", h.home, "--json"], () => "y", stop.signal);
@@ -101,17 +102,23 @@ describe("realm pair", () => {
     expect(await h.app.rpc.call("remote.status", {})).toMatchObject({ phones: [] });
   });
 
-  it("cannot accept a phone itself: the token in daemon.json opens a window but cannot answer one", async () => {
-    const h = await headless();
+  it("will not let an agent holding daemon.json's token accept the phone it scanned", async () => {
+    const h = await server({ owner: "app" });
     const c = await connect({ kind: "home", home: h.home });
     try {
-      await expect(c.call("remote.pair.start")).resolves.toMatchObject({ url: expect.stringContaining("https://realm.computer/pair#") });
-      await expect(c.call("remote.pair.answer", { requestId: "any", accept: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      const asked = new Promise<PairRequest>((res) => c.onEvent((event, payload) => { if (event === "remote.pairRequest") res(payload as PairRequest); }));
+      const win = await c.call<{ url: string }>("remote.pair.start");
+      const scanned = new TestPhone().pair(win.url, { name: "Agent's iPhone", timeoutMs: 5_000 }).catch((e: Error) => ({ ok: false, reason: e.message }));
+      const request = await asked;
+      await expect(c.call("remote.pair.answer", { requestId: request.requestId, accept: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await c.call("remote.pair.cancel");
+      expect((await scanned).ok).toBe(false);
+      expect(await h.app.rpc.call("remote.status", {})).toMatchObject({ phones: [] });
     } finally { c.close(); }
   });
 
   it("closes the window on Ctrl-C, so the code on the screen stops working", async () => {
-    const h = await headless();
+    const h = await server({ owner: "app" });
     const stop = new AbortController();
     const run = pairing(["pair", "--home", h.home], () => "y", stop.signal);
     const url = await run.link;
@@ -122,8 +129,31 @@ describe("realm pair", () => {
     expect(late.ok).toBe(false);
   });
 
+});
+
+describe("realm pair, on a server realm serve started", () => {
+  it("puts the phone to the person in the terminal, and a yes there pairs it", async () => {
+    const h = await server({ owner: "terminal" });
+    const run = pairing(["pair", "--home", h.home], () => "y");
+    const phone = new TestPhone();
+    expect(await phone.pair(await run.link, { name: "Carlton's iPhone", model: "iPhone18,1" })).toEqual({ ok: true });
+    expect(await run.done).toBe(0);
+    expect(run.asked).toEqual([expect.stringContaining(`Pair "Carlton's iPhone" (iPhone18,1)?`)]);
+    expect(run.out.join("\n")).not.toContain("Accept it in Realm");
+    expect(run.out.at(-1)).toMatch(/^Paired Carlton's iPhone\./);
+    expect((await phone.connect()).macOnline).toBe(true);
+  });
+
+  it("pairs nothing on a no in the terminal", async () => {
+    const h = await server({ owner: "terminal" });
+    const run = pairing(["pair", "--home", h.home, "--json"], () => "n");
+    expect(await new TestPhone().pair(await run.link, { name: "Someone's iPhone" })).toEqual({ ok: false, reason: "declined" });
+    expect(await run.done).not.toBe(0);
+    expect(await h.app.rpc.call("remote.status", {})).toMatchObject({ phones: [] });
+  });
+
   it("works from another machine, over an access token, and the phone can be removed from there too", async () => {
-    const h = await headless({ listen: true });
+    const h = await server({ owner: "terminal", listen: true });
     const { token } = createToken(h.home, "laptop");
     const run = pairing(["pair", "--server", h.app.access!.url, "--token", token], () => "yes");
     expect(await new TestPhone().pair(await run.link, { name: "Carlton's iPhone" })).toEqual({ ok: true });

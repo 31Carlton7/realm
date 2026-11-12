@@ -51,11 +51,11 @@ function call(ws: WebSocket, method: string): Promise<{ ok: boolean; result?: un
   });
 }
 
-async function serve(methods: readonly string[]): Promise<{ port: number; seen: CallContext[] }> {
+async function serve(methods: readonly string[], owner?: "app" | "terminal"): Promise<{ port: number; seen: CallContext[] }> {
   server = new RpcServer();
   const seen: CallContext[] = [];
   for (const m of methods) server.register(m, z.object({}).passthrough(), async (_p, ctx) => { seen.push(ctx); return m; });
-  const port = await server.listen(0, "127.0.0.1", { token: APP, cliToken: CLI });
+  const port = await server.listen(0, "127.0.0.1", { token: APP, cliToken: CLI, owner });
   return { port, seen };
 }
 
@@ -81,6 +81,24 @@ describe("the CLI token in daemon.json", () => {
     expect((await call(ws, "remote.pair.answer")).error?.code).toBe("FORBIDDEN");
     expect(seen).toHaveLength(1);
     ws.close();
+  });
+
+  it("accepts a phone on a server realm serve started, where the terminal is the only one to ask, and nothing more", async () => {
+    const { port, seen } = await serve(RESTRICTED, "terminal");
+    const ws = await dial(port, CLI);
+    for (const m of RESTRICTED) expect({ m, code: (await call(ws, m)).error?.code }).toEqual({ m, code: m === "remote.pair.answer" ? undefined : "FORBIDDEN" });
+    expect(seen).toHaveLength(1);
+    ws.close();
+  });
+
+  it("is refused a phone on a server Realm's window started, and on one that does not say who started it", async () => {
+    for (const owner of ["app", undefined] as const) {
+      const { port } = await serve(["remote.pair.answer"], owner);
+      const ws = await dial(port, CLI);
+      expect({ owner, code: (await call(ws, "remote.pair.answer")).error?.code }).toEqual({ owner, code: "FORBIDDEN" });
+      ws.close();
+      await server.close();
+    }
   });
 
   it("is refused for a method nobody listed, so a new one fails closed", async () => {

@@ -162,14 +162,15 @@ there once, over SSH.
 ### Pairing an iPhone with a server that has no window
 
 ```sh
-realm pair                           # draws the pairing code; accept the phone in Realm
-realm --server <name> pair           # from another machine: draws the code, then asks before pairing
+realm pair                           # draws the pairing code, then asks before pairing
+realm --server <name> pair           # from another machine: the same, over an access token
 realm phones; realm phones remove <id|name>
 ```
 
-On the server itself, `realm pair` only opens the pairing window: the token it reads from `daemon.json` can
-be read by any agent with the sandbox off, so it cannot accept a phone. Accept it in Realm's window, or
-run `realm pair` with `--server` and the owner's access token, which asks in the terminal. A server started by `realm serve` has no Realm app
+On a server `realm serve` started, `realm pair` asks in the terminal, the only place there is to say yes.
+On one Realm's window started, it only opens the pairing window and you accept the phone in Realm: the
+token it reads from `daemon.json` can be read by any agent with the sandbox off, so there it cannot
+accept a phone. A server started by `realm serve` has no Realm app
 to unlock the Keychain, so it keeps its phone identity sealed with its own key, in `<home>/keys/remote.key`
 (0600), or in the file `$REALM_REMOTE_KEY_FILE` names, such as a systemd credential. Anyone who can
 read that home can read the key. The app opens what a headless server paired. A headless server never

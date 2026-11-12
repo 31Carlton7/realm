@@ -40,6 +40,12 @@ describe("realm-server's boot", () => {
     expect(main).not.toMatch(/process\.env\.[A-Z_]+\s*=\s*appToken/);
   });
 
+  it("is owned by Realm's window only when its token came over the pipe, never by anything in daemon.json", () => {
+    expect(main).toMatch(/const tokenOnStdin = process\.env\[APP_TOKEN_STDIN_ENV\] === "1";/);
+    expect(main).toMatch(/appToken = tokenOnStdin \? await readHandedToken\(process\.stdin\)/);
+    expect(main).toMatch(/owner: tokenOnStdin \? "app" : "terminal"/);
+  });
+
   it("hashes with SHA-256, the way main compares a sealed copy", () => {
     expect(tokenSha256("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   });

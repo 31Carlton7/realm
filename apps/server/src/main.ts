@@ -84,6 +84,10 @@ try {
 
   const app = await createApp({
     home, port, token: appToken, cliToken,
+    // The structured signal for who owns this server: its token came over the pipe from Realm's
+    // window, which then accepts phones itself. Nothing in `daemon.json` feeds it, so an agent that
+    // can edit that file cannot change it.
+    owner: tokenOnStdin ? "app" : "terminal",
     // Announced in the state file, not just held in memory: the next launcher reads that file before
     // it reads anything else.
     onDraining: () => markDraining?.(),

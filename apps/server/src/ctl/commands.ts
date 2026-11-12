@@ -49,7 +49,8 @@ export const USAGE = `usage: realm <command> [options]
                                          or worktree list); --push also pushes its branch, and
                                          --pr pushes it and opens a pull request
   pair                                   pair an iPhone with this server: a code to scan, and
-                                         the phone accepted in Realm (or here, over --server)
+                                         the phone accepted in Realm's window, or here on a
+                                         server realm serve started (or over --server)
   phones [list] | phones remove <id|name>
                                          the phones paired with it; remove one to revoke it
   token create <name> | list | revoke <id|name>
@@ -494,7 +495,7 @@ export async function runCtl(argv: string[], io: CtlIo): Promise<number | null> 
         return shipped(r, { push, openPr }) ? 0 : 1;
       }
       case "pair":
-        return await pair(c, io, json, print, target.kind === "url");
+        return await pair(c, io, json, print, target.kind === "url" || (await c.call<{ owner?: string }>("system.info")).owner === "terminal");
       case "phones": {
         const sub = rest[0] ?? "list";
         const s = await c.call<RemoteStatus>("remote.status");
@@ -554,10 +555,11 @@ const clock = (ms: number): string => { const s = Math.max(0, Math.ceil(ms / 100
  * `realm pair`: Settings ▸ Devices ▸ Pair an iPhone, in a terminal — for a server with no window
  * (a Linux box, a Mac running `realm serve`), or one on another machine (`--server`).
  *
- * It opens the same pairing window the sheet does and draws the same link as a code. On this machine
- * the phone that scans it is accepted in Realm's own window: the token in `daemon.json` cannot answer,
- * because any agent with the sandbox off can read it and pair a phone of its own. Over `--server`, with
- * the owner's access token, the phone is put to the person here, by name, and only a yes pairs it.
+ * It opens the same pairing window the sheet does and draws the same link as a code. Where the phone
+ * that scans it is accepted depends on who owns the server. One Realm's window started is answered
+ * there: the token in `daemon.json` cannot, because any agent with the sandbox off can read it and pair
+ * a phone of its own. One `realm serve` started has no window, so the phone is put to the person here,
+ * by name, and only a yes pairs it; so it is over `--server`, with the owner's access token.
  * Ctrl-C closes the window, so a code left on a screen stops working when the command does.
  */
 async function pair(c: CtlClient, io: CtlIo, json: boolean, print: (value: unknown, human: string) => void, answerHere: boolean): Promise<number> {

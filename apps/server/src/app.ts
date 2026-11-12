@@ -167,6 +167,7 @@ import { ForkService } from "./sessions/fork";
 import { FailoverService } from "./sessions/failover";
 import { ImportService } from "./import/service";
 import { RpcServer } from "./rpc/server";
+import type { ServerOwner } from "./rpc/cli-methods";
 import { registerMethods } from "./rpc/methods";
 import { AppViewsStore } from "./store/app-views";
 import { SavedTurnsStore } from "./store/saved-turns";
@@ -780,6 +781,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   token?: string;
   /** The `realm` CLI's token, written to `daemon.json`: it opens only the CLI's own methods. */
   cliToken?: string;
+  /** Who started this server, which decides whether the CLI's token may accept a phone. `main.ts`
+   *  says `app` when its token came over the spawn pipe; unset is `app`, the stricter. */
+  owner?: ServerOwner;
   /** W5 test/live-check knobs for the browser-agent registry: `fallbackKind` (default claude) is the
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
@@ -1865,6 +1869,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const projectSearch = new ProjectSearchService();
   /** The remote listener, once it is up (below, after the loopback socket). */
   let access: Access | null = null;
+  const owner = opts.owner ?? "app";
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
@@ -1872,6 +1877,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
     access: () => (access ? { url: access.url } : null),
+    owner,
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
     memoryLearning: memoryLearner,
@@ -1959,6 +1965,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const port = await rpc.listen(opts.port, "127.0.0.1", {
     token: opts.token,
     cliToken: opts.cliToken,
+    owner,
     /* The origins Realm loads its own renderer from, measured rather than assumed: a packaged window
        is a `file://` document and Chromium stamps `Origin: file://` on its WebSocket handshake; under
        `pnpm dev` the window is the Vite server and stamps that origin instead. Everything else that
