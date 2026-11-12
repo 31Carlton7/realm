@@ -38,7 +38,8 @@ export function toolStatus(name: string, input: Record<string, unknown>): string
 /** How a permission card is read: what is being asked, and how to answer it. */
 export function permissionPrompt(p: PendingPermission, agentName: string): string {
   if (p.ask) return `${agentName} has a question for you in the chat.`;
-  const what = p.title.replace(/`/g, "").replace(/\s+/g, " ").trim().replace(/[.:]$/, "");
+  // A card with no title of its own is "Allow Bash?" (the adapters' fallback): read as "asks to use Bash".
+  const what = p.title.replace(/`/g, "").replace(/\s+/g, " ").trim().replace(/[.:?]$/, "").replace(/^allow /i, "use ");
   return `${agentName} asks to ${what.charAt(0).toLowerCase()}${what.slice(1)}. Say yes or no.`;
 }
 

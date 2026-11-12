@@ -44,6 +44,9 @@ describe("Narrator", () => {
     const n = new Narrator(0, "Mina");
     const p: PendingPermission = { requestId: "r1", toolName: "Bash", input: { command: "rm -rf dist" }, title: "Run `rm -rf dist`" };
     expect(n.next(t([], [p]), 0, true)).toEqual(["Mina asks to run rm -rf dist. Say yes or no."]);
+    // THE MUTANT: the fallback title read as it is drawn, "asks to allow Bash?. Say yes or no."
+    const fallback: PendingPermission = { requestId: "r9", toolName: "Bash", input: {}, title: "Allow Bash?" };
+    expect(new Narrator(0, "Mina").next(t([], [fallback]), 0, true)).toEqual(["Mina asks to use Bash. Say yes or no."]);
     // THE MUTANT: forget which were read — the same question every time the transcript changes.
     expect(n.next(t([], [p]), 0, true)).toEqual([]);
   });
