@@ -53,7 +53,7 @@ export function Hero({ downloads, version, changelog, world, session }: Props) {
         <h1 className={s.h1}>One workspace for every coding agent.</h1>
         <p className={s.lede}>
           Run Claude Code, Codex and the other agents you already use side by side on your computer. Each one signs in
-          with your own account, and Realm never asks for an API key.
+          the way it already does, with your own account or key.
         </p>
         <div className={s.actions}>
           <DownloadButton downloads={downloads} size="lg" />
