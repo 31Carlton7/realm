@@ -104,7 +104,7 @@ extension AppModel {
 }
 
 extension View {
-    /// The sheets and the confirmation a session's menus open, wherever the menu was.
+    /// The sheets a session's menus open, wherever the menu was.
     func sessionActionSheets() -> some View {
         modifier(SessionActionSheets())
     }
@@ -122,20 +122,14 @@ private struct SessionActionSheets: ViewModifier {
             .sheet(item: $model.switchingAgent) { row in
                 SwitchAgentSheet(row: row)
             }
-            .confirmationDialog(deleteTitle, isPresented: deleting, titleVisibility: .visible, presenting: model.deleting) { row in
-                Button("Delete", role: .destructive) { model.deleteSession(row) }
-                Button("Cancel", role: .cancel) {}
-            } message: { _ in
-                Text("Deletes the session and its transcript. Nothing in Realm brings it back.")
+            .sheet(item: $model.deleting) { row in
+                ConfirmSheet(title: "Delete “\(row.displayTitle)”?",
+                             message: "Deletes the session and its transcript. Nothing in Realm brings it back.",
+                             button: "Delete", role: .destructive) {
+                    model.deleting = nil
+                    model.deleteSession(row)
+                }
             }
-    }
-
-    private var deleteTitle: String {
-        "Delete “\(model.deleting?.displayTitle ?? "this session")”?"
-    }
-
-    private var deleting: Binding<Bool> {
-        Binding(get: { model.deleting != nil }, set: { if !$0 { model.deleting = nil } })
     }
 }
 

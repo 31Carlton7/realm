@@ -211,12 +211,14 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.refreshNotificationStatus() }
-        .confirmationDialog("Forget \(model.store.pairedMac?.macName ?? "this Mac")?", isPresented: $confirmingForget,
-                            titleVisibility: .visible) {
-            Button("Forget \(model.store.pairedMac?.macName ?? "this Mac")", role: .destructive) { model.forgetMac() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This iPhone stops showing its sessions and deletes what it kept of them. To pair again, scan a new code.")
+        .sheet(isPresented: $confirmingForget) {
+            let mac = model.store.pairedMac?.macName ?? "this Mac"
+            ConfirmSheet(title: "Forget \(mac)?",
+                         message: "This iPhone stops showing its sessions and deletes what it kept of them. To pair again, scan a new code.",
+                         button: "Forget \(mac)", role: .destructive) {
+                confirmingForget = false
+                model.forgetMac()
+            }
         }
     }
 

@@ -452,6 +452,17 @@ struct TaskActions {
     }
 }
 
+/// Delete's question for a task, or for a teammate's check-in, from its row or its page.
+private struct DeleteTaskSheet: View {
+    let task: ScheduledTask
+    let delete: () -> Void
+
+    var body: some View {
+        ConfirmSheet(title: TaskActions.deleteTitle(task), message: TaskActions.deleteMessage(task),
+                     button: task.teammateId != nil ? "Delete check-in" : "Delete task", role: .destructive, confirm: delete)
+    }
+}
+
 /// The rows of a task's menu, the same on its list row and on its own page.
 private struct TaskMenuItems: View {
     let task: ScheduledTask
@@ -516,12 +527,11 @@ private struct TaskRow: View {
             Button("Run now") { actions.runNow(task) }
         }
         .accessibilityIdentifier("task-\(task.title)")
-        .confirmationDialog(TaskActions.deleteTitle(task), isPresented: $deleting, titleVisibility: .visible) {
-            Button(task.teammateId != nil ? "Delete check-in" : "Delete task", role: .destructive) {
+        .sheet(isPresented: $deleting) {
+            DeleteTaskSheet(task: task) {
+                deleting = false
                 Task { _ = await actions.delete(task) }
             }
-        } message: {
-            Text(TaskActions.deleteMessage(task))
         }
     }
 }
@@ -638,21 +648,22 @@ struct ScheduledTaskView: View {
                         TaskMenuItems(task: task, actions: TaskActions(model: model), edit: { editing = .edit(task) }) { deleting = true }
                     }
                     .accessibilityIdentifier("task-more")
-                    .confirmationDialog(TaskActions.deleteTitle(task), isPresented: $deleting, titleVisibility: .visible) {
-                        Button(task.teammateId != nil ? "Delete check-in" : "Delete task", role: .destructive) {
-                            Task {
-                                if await TaskActions(model: model).delete(task) { dismiss() }
-                            }
-                        }
-                    } message: {
-                        Text(TaskActions.deleteMessage(task))
-                    }
                 }
                 .sharedBackgroundVisibility(.hidden)
             }
         }
         .sheet(item: $editing) { start in
             TaskSheet(start: start, spaces: spaces)
+        }
+        .sheet(isPresented: $deleting) {
+            if let task {
+                DeleteTaskSheet(task: task) {
+                    deleting = false
+                    Task {
+                        if await TaskActions(model: model).delete(task) { dismiss() }
+                    }
+                }
+            }
         }
         .task(id: model.channelGeneration) {
             async let team: Void = model.work.loadTeam()

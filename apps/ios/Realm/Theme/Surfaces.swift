@@ -63,6 +63,13 @@ struct GreyButtonStyle: ButtonStyle {
     }
 }
 
+/// A destructive step's button: the same capsule in the danger fill, with the white word it is solved for.
+struct DangerButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        CapsuleLabel(configuration: configuration, fill: Palette.dangerFill, ink: .white)
+    }
+}
+
 /// A chip over the composer — Review changes, a suggested reply, who is working: a card's capsule
 /// lifted as the composer under it is, with the words in ink.
 struct ChipButtonStyle: ButtonStyle {

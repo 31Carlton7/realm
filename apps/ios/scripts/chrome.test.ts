@@ -15,6 +15,13 @@ describe("the iPhone's chrome", () => {
     expect(sources.filter(({ text }) => glass.test(text)).map(({ path }) => path)).toEqual([]);
   });
 
+  it("asks on Realm's sheets, never the system's dialogs", () => {
+    // iOS 26 draws a dialog, an alert and a popover as a glass slab: a light grey one on the dark face.
+    // A question goes on `ConfirmSheet` or `ChoiceSheet`, a name to change on `RenameSheet`.
+    const dialogs = /\.(confirmationDialog|alert|actionSheet|popover)\(/;
+    expect(sources.filter(({ text }) => dialogs.test(text)).map(({ path }) => path)).toEqual([]);
+  });
+
   it("hides the glass under every toolbar button but a title", () => {
     const counts = sources.map(({ path, text }) => {
       const items = [...text.matchAll(/^\s*ToolbarItem(?:Group)?\((.*)$/gm)].filter((m) => !m[1]!.includes(".principal")).length;

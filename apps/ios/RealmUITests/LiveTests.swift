@@ -34,7 +34,7 @@ final class LiveTests: XCTestCase {
             XCTAssert(forget.waitForExistence(timeout: 5))
             shot("settings")
             forget.tap()
-            let confirm = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Forget ")).element(boundBy: 1)
+            let confirm = app.buttons["confirm"]
             XCTAssert(confirm.waitForExistence(timeout: 5))
             confirm.tap()
         }
@@ -908,12 +908,12 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.buttons["Unpin"].exists && app.buttons["Archive"].exists)
         shot("p-row-menu")
         app.buttons["Rename"].tap()
-        let alert = app.alerts["Rename session"]
-        XCTAssert(alert.waitForExistence(timeout: 5), "Rename opened no alert")
-        // The field has the keyboard as the alert comes, its caret after the title: a press would move it.
-        alert.textFields.firstMatch.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40) + "Rework the mapper's events")
-        shot("p-rename-alert")
-        alert.buttons["Rename"].tap()
+        let field = app.textFields["rename-field"]
+        XCTAssert(field.waitForExistence(timeout: 5), "Rename opened no sheet")
+        // The field has the keyboard as the sheet comes, its caret after the title: a press would move it.
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40) + "Rework the mapper's events")
+        shot("p-rename-sheet")
+        app.buttons["rename-save"].tap()
         XCTAssert(row("Rework the mapper's events").waitForExistence(timeout: 10), "the row does not show its new name")
         XCTAssertFalse(row("Rework the transcript mapper").exists)
         shot("p-renamed")
@@ -1046,9 +1046,9 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.buttons["Rename"].waitForExistence(timeout: 5))
         shot("\(prefix)-p-row-menu")
         app.buttons["Rename"].tap()
-        XCTAssert(app.alerts["Rename session"].waitForExistence(timeout: 5))
-        shot("\(prefix)-p-rename-alert")
-        app.alerts["Rename session"].buttons["Cancel"].tap()
+        XCTAssert(app.textFields["rename-field"].waitForExistence(timeout: 5))
+        shot("\(prefix)-p-rename-sheet")
+        app.buttons["Cancel"].tap()
         let compose = app.buttons["new-session"]
         XCTAssert(compose.waitForExistence(timeout: 10))
         compose.tap()
