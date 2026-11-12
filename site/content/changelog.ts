@@ -21,6 +21,793 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-11-0",
+    title: "Realm v2.11.0",
+    date: "2026-11-11",
+    version: "v2.11.0",
+    area: "Release",
+    summary:
+      "A new session's picture fills the pane, and the Lead can change a teammate's access when you ask.",
+    short: "Pictures that fill the pane, and the Lead sets access",
+    body: [
+      { kind: "h", text: "New" },
+      { kind: "ul", items: [
+        "**The picture behind a new session runs to the bottom of the pane.** It used to fade into the plain ground about 60% of the way down. Now it covers the whole pane at every window size, for every built-in picture, generated look and image of your own.",
+        "**Ask the Lead to change a teammate's access.** \"Give polish full access\" in the Lead's chat now does it. Only the Lead can, only in a turn you started, and never above the Lead's own access. A line in both chats says what changed, with an Undo.",
+      ] },
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**The folder chip under the prompter holds still while git answers.** Its chevron no longer flashes in and shrinks the chip.",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**A pairing link opened from outside the app asks \"Pair with <Mac>?\" before it pairs the phone,** even when no Mac is paired yet.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-10-1",
+    title: "Realm v2.10.1",
+    date: "2026-11-11",
+    version: "v2.10.1",
+    area: "Release",
+    summary:
+      "Giving a whole team Full access asks first, the New teammate sheet follows the space's Team access, and the transcript says what ran without asking.",
+    short: "Full access for a team asks first",
+    body: [
+      { kind: "h", text: "Team access" },
+      { kind: "ul", items: [
+        "**Giving a whole team Full access asks first.** Choosing Full access on the Team access row shows the same red \"Allow everything? Confirm\" as the prompter and Settings, and nothing changes until you press it. Ask each time and Accept edits still apply at once.",
+        "**The New teammate sheet follows Team access.** While a space's Team access is set, the sheet's permissions are locked to it.",
+      ] },
+      { kind: "h", text: "Transcripts" },
+      { kind: "ul", items: [
+        "**The transcript says what Full access ran on its own.** A command the agent's CLI asked about, and Full access allowed without a card, reads \"Ran without asking\" on its row.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-10-0",
+    title: "Realm v2.10.0",
+    date: "2026-11-11",
+    version: "v2.10.0",
+    area: "Release",
+    summary:
+      "Set a whole space's team to one access level, open new sessions on a picture, and pick Claude Fable 5.2.",
+    short: "Team access, new-session backgrounds and Fable 5.2",
+    body: [
+      { kind: "h", text: "Team access" },
+      { kind: "ul", items: [
+        "**One setting at the head of the sidebar's Team list puts every teammate in a space on one access level** (Ask each time, Accept edits or Full access), now and for teammates made there later. It reads Mixed when they differ. A teammate changed on its own afterwards keeps its level and makes the space Mixed.",
+        "**The access chip in a teammate's chat now sets the teammate,** not that chat alone, and its running task sessions follow. A task session's chip still changes only that task.",
+        "**Raising a teammate to Full access answers the cards its sessions were waiting on,** except a flagged command that names rm, which keeps waiting for you.",
+        "**Full access follows one rule for what runs without asking,** whichever agent asks, and each command it lets through is written on the session's record.",
+      ] },
+      { kind: "h", text: "New-session backgrounds" },
+      { kind: "ul", items: [
+        "**A new session opens on a picture behind its greeting,** on by default: Sky by day and Webb's \"Cosmic Cliffs\" at night.",
+        "**Settings ▸ Appearance ▸ Background has a gallery** of paintings, space images and looks made for Realm, pictures of your own, Off and Shuffle, with the credit for every picture in Picture credits.",
+      ] },
+      { kind: "h", text: "Models" },
+      { kind: "ul", items: [
+        "**Claude Fable 5.2 is in the model picker.**",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**Delete is drawn as a trash can,** and the x stays for closing and removing.",
+        "**Text you have to read is set in a more readable ink,** and your own messages have a tone behind them in light mode.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-9-5",
+    title: "Realm v2.9.5",
+    date: "2026-11-11",
+    version: "v2.9.5",
+    area: "Release",
+    summary:
+      "The window's frame runs as one strip across the panes, and the last of the interface audit lands.",
+    short: "One frame across the window, and the last of the audit",
+    body: [
+      { kind: "h", text: "The window" },
+      { kind: "ul", items: [
+        "**The window's frame colour now runs as one strip across the top of the session panes and the side panel.** Both sit under it as sheets, the way the sidebar's list does, and the lines between panes start under the strip.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**A side panel tab shows its full name in a tooltip only when the name is cut off.**",
+        "**Sheets close with a drawn icon** instead of a typed character.",
+        "**In light mode, cards lift with a shadow as they do in dark,** without the extra ring around them.",
+        "**The install card gives a plain sentence** where a raw error showed.",
+        "**Connection rows say Connected as a plain word,** with no green dot. A failure stays amber.",
+        "**The Permissions tooltip in Settings no longer covers the row below it.**",
+        "**A new session's bar shows no status before anything has been sent,** and a folded sidebar leaves nothing to focus under the window buttons.",
+        "**A menu opened by a press lights no row until the pointer moves,** and with no model pinned the model picker ticks its Default row.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-9-4",
+    title: "Realm v2.9.4",
+    date: "2026-11-11",
+    version: "v2.9.4",
+    area: "Release",
+    summary:
+      "Full access stops asking about commands Claude Code couldn't parse, and a teammate's access reaches the sessions it already has running.",
+    short: "Fewer Allow cards, and access that reaches running sessions",
+    body: [
+      { kind: "h", text: "Fewer cards to answer" },
+      { kind: "ul", items: [
+        "**A session in Full access no longer stops on an \"Allow Bash?\" card when Claude Code simply could not parse a command,** such as a JavaScript snippet passed inline. Realm runs it and notes it in the log. A flagged command that names rm still asks, and so does one that asks to leave Claude Code's sandbox.",
+        "**Changing a teammate's access now reaches the task sessions it already has running.** Raising it to Full access answers the cards those sessions were waiting on, except questions, plan approvals and the browser's own checks. Lowering it holds their next step to the new level.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**Show all unfolds the space's own sessions in place,** and a Needs you row no longer repeats the space you are in.",
+        "**The rail's icons are drawn at one size,** and each button has a 40 by 40 press area.",
+        "**The Engines page says Ready and Not installed as plain words,** with amber only for Signed out or Couldn't check. Where a raw error showed, it gives a plain sentence.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-9-3",
+    title: "Realm v2.9.3",
+    date: "2026-11-10",
+    version: "v2.9.3",
+    area: "Release",
+    summary:
+      "A permission card says who is asking, the pickers share one size, and the side panel and browser are tidier.",
+    short: "Permission cards say who's asking, and tidier pickers",
+    body: [
+      { kind: "h", text: "Asking and picking" },
+      { kind: "ul", items: [
+        "**A permission card says who is asking first** (\"Claude asks\", or the teammate's name), then shows the command once. Its keys are drawn as the menus' key chips, with one Return glyph.",
+        "**The /, @, + and model pickers share one width and one row height,** and a picker that opens under a resting pointer keeps its first row lit.",
+        "**An error that is a sentence reads in the app's own type,** and captured output keeps the mono box.",
+        "**A long server name on a tool row ends in an ellipsis,** and the note about attachments an agent cannot see fits on one line.",
+      ] },
+      { kind: "h", text: "Side panel and browser" },
+      { kind: "ul", items: [
+        "**A new tab's page shows the shortcut beside Terminal,** as the + menu does.",
+        "**In the side panel, the showing tab is marked by its label's ink,** not an accent colour. The session summary sets only folders, branches and models in mono, and its section heads are easier to read.",
+        "**The browser's address and find fields show the app's focus ring.**",
+        "**On a teammate's Computer tab, the Now and Done rows line up on one edge.**",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-9-2",
+    title: "Realm v2.9.2",
+    date: "2026-11-10",
+    version: "v2.9.2",
+    area: "Release",
+    summary:
+      "A security code Realm fills in stays out of what an agent can read, and pages and Settings are drawn one way.",
+    short: "Filled security codes kept from agents, and a tidier Settings",
+    body: [
+      { kind: "h", text: "Keeping agents in their lane" },
+      { kind: "ul", items: [
+        "**A security code Realm fills in for you stays out of everything an agent can read of the page afterwards:** its snapshots, the page's text, and the console and network logs. In the agent's screenshots the field is painted over.",
+        "**What it can't cover:** a screenshot can still show the digits if the page draws them somewhere other than the field, or inside another site's frame.",
+      ] },
+      { kind: "h", text: "Pages and Settings" },
+      { kind: "ul", items: [
+        "**Every empty page and pane shows the same empty state,** and a button you cannot press yet is dimmed once, not twice.",
+        "**Settings draws its controls one way:** segmented controls sit at their own width with one line under each label, and sections open with the chevron the rest of the app uses.",
+        "**The Engines page shows each engine's state as a dot and a word** and its facts as plain text, and Update all is the page's one primary button.",
+        "**Connections has its sections in the sidebar's column,** as Settings and the Library do, and every Connect is a plain button.",
+        "**On first run, agent names keep their width,** the default folder gets its own line, and the caret stays on its field when something above it grows.",
+        "**The tooltip for a two-line row sits under the row,** not over the chip under the pointer.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-9-1",
+    title: "Realm v2.9.1",
+    date: "2026-11-10",
+    version: "v2.9.1",
+    area: "Release",
+    summary:
+      "Realm's server key stays off the command line and out of sandboxed agents' reach, plus a round of fixes to pickers, cards and tooltips.",
+    short: "Realm's server key kept private, and a round of fixes",
+    body: [
+      { kind: "h", text: "Keeping agents in their lane" },
+      { kind: "ul", items: [
+        "**The key Realm's windows use to reach its own server no longer shows on any command line,** where other programs on your Mac could read it. Agents working in a sandbox can no longer read it from a file or inherit it.",
+        "**After updating, quit Realm fully and reopen it.** Windows that were already open keep the old command line until then.",
+      ] },
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**The / picker is as wide as the @ picker,** so its hints are no longer cut short. A note about attachments names each file by the name you picked, and two files with the same name are told apart.",
+        "**Machine cards and simulator devices are drawn as cards,** and the side panel's tabs are no longer crushed when the panel is narrow.",
+        "**Every picture gets the same edge,** in light and dark.",
+        "**A sidebar row shows a tooltip only when its name is cut short.** The tooltip sits beside the row and no longer repeats the row's state.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-9-0",
+    title: "Realm v2.9.0",
+    date: "2026-11-10",
+    version: "v2.9.0",
+    area: "Release",
+    summary:
+      "Security codes from Messages and Mail offered in code fields, pull requests on the phone, and a security pass that keeps agents out of what isn't theirs.",
+    short: "Security codes in code fields, and a security pass",
+    body: [
+      { kind: "h", text: "New" },
+      { kind: "ul", items: [
+        "**Security codes sent to Messages and Mail can be offered in a site's one-time-code field** in a browser pane, so a sign-in that texts or emails a code no longer stops an agent. Turn it on in Settings ▸ Passwords ▸ Security codes. An agent has to ask each time, and never sees the code.",
+        "**A turn's sources show as a stack of site icons:** three, then a count of the rest.",
+        "**Every row of a run sits on one edge,** and a tooltip no longer covers the row it describes.",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**The diff pane and the pull request are on the phone.** See a session's changes, stage files, commit, push and open a pull request, and read a pull request's checks, files, comments and reviews.",
+      ] },
+      { kind: "h", text: "Keeping agents in their lane" },
+      { kind: "ul", items: [
+        "**A password Realm fills stays out of what an agent can read,** even if the page later shows the field as plain text.",
+        "**Agents are kept out of the data Realm's browser engine stores,** and the cookies its panes keep are now encrypted. The packaged app ignores NODE_OPTIONS and debugging switches, and loads only its own sealed code and checks it first. macOS may ask once to let Realm use its Safe Storage item; choose Always Allow.",
+        "**Web pages in browser panes are refused the camera, microphone, location, notifications and every other permission,** except fullscreen and writing to the clipboard.",
+        "**Allow always lasts for the session.** It no longer writes to your Claude settings.",
+        "**PDFs are read with a newer pdf.js,** past a flaw that let a PDF run script.",
+        "**Electron moves to 45.3.0,** which brings three weeks of browser security fixes to every pane.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-8-5",
+    title: "Realm v2.8.5",
+    date: "2026-11-09",
+    version: "v2.8.5",
+    area: "Release",
+    summary:
+      "The About window stays shut until you ask for it, and you can make and manage scheduled tasks from the phone.",
+    short: "About stays shut, and Schedules on the phone",
+    body: [
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**The About window no longer opens by itself.** It now opens only when you pick About Realm from the menu.",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Make, change, pause and delete scheduled tasks** and teammates' check-ins from the phone.",
+        "**A scheduled task with no runs yet says what it is waiting for,** an unread run shows as a bold title, and a failed run's reason reads in quiet ink.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-8-4",
+    title: "Realm v2.8.4",
+    date: "2026-11-09",
+    version: "v2.8.4",
+    area: "Release",
+    summary:
+      "Your space's folder, the Library and the memory library, all on the phone.",
+    short: "Your folder, the Library and memory on the phone",
+    body: [
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Browse a space's folder and the Library on the phone, and search them.** Files outside the folder, and files that hold a secret, stay off the phone.",
+        "**Read, search, edit, add and remove memories** in the memory library.",
+        "**Two terminal tabs with the same name can now be told apart.**",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-8-3",
+    title: "Realm v2.8.3",
+    date: "2026-11-07",
+    version: "v2.8.3",
+    area: "Release",
+    summary:
+      "A window for each space, your open tabs as context, and no more glass. Plus search, panes, goals and teammates in Realm Mobile.",
+    short: "A window for each space, and your open tabs as context",
+    body: [
+      { kind: "h", text: "Windows and context" },
+      { kind: "ul", items: [
+        "**Open a space in a new window.** Windows come back after a relaunch, and each one is named by its space.",
+        "**@ mention your open tabs as context cards,** on the Mac and the phone.",
+      ] },
+      { kind: "h", text: "Look and feel" },
+      { kind: "ul", items: [
+        "**The Photos-style blur is back and the glass is gone,** on the Mac and the phone.",
+        "**The Computer tab's Stop button says exactly what it stops.**",
+        "**Tooltips no longer cover open menus.**",
+      ] },
+      { kind: "h", text: "Agents and models" },
+      { kind: "ul", items: [
+        "**Realm runs the newest copy of an agent's CLI on your PATH,** so an older copy no longer hides newer models.",
+        "**A session with no model picked is named and ticked by the model its CLI really runs.**",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Search the Mac's sessions** and find words inside a session.",
+        "**Watch the Mac's browser and terminal panes.**",
+        "**Delete, fork, move and switch a session's agent,** and save its turns.",
+        "**Follow a session's goal and to-do list,** with a working session on the Lock Screen and in the Dynamic Island.",
+        "**Make, archive, lead and reorder teammates.**",
+        "**Quieter colour throughout.**",
+      ] },
+      { kind: "h", text: "This site" },
+      { kind: "ul", items: [
+        "**The background draws at 60 fps while nothing is moving,** and at your display's full rate while you scroll, point or resize. Thanks to Jack Lau (jackulau) for the fix.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-8-2",
+    title: "Realm v2.8.2",
+    date: "2026-11-04",
+    version: "v2.8.2",
+    area: "Release",
+    summary:
+      "A teammate's Computer tab shows what it is doing on this Mac, sub-agents run on their parent's model, and Realm Mobile replies draw math, diagrams and charts.",
+    body: [
+      { kind: "h", text: "Teammates and sub-agents" },
+      { kind: "ul", items: [
+        "**A teammate's Computer tab says what it is doing on this Mac:** what needs you, what is working, and what each finished session opened, merged or shipped.",
+        "**Sub-agents run on the model their parent runs,** and every label shows the model they really run.",
+        "**A session row is marked unread once its sub-agents finish,** not before, and selecting it clears the mark.",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Replies draw math, diagrams, charts and comparisons.**",
+        "**The composer has slash commands and @mentions.**",
+        "**Answer a permission or reply straight from a notification.**",
+        "**Amber is the only colour a state wears.**",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-8-1",
+    title: "Realm v2.8.1",
+    date: "2026-11-04",
+    version: "v2.8.1",
+    area: "Release",
+    summary:
+      "A new sidebar with your spaces on a rail and everything that needs you in one place, plus your team on the phone.",
+    body: [
+      { kind: "h", text: "A new sidebar" },
+      { kind: "ul", items: [
+        "**Your spaces sit on a rail,** and the column shows one space at a time.",
+        "**Needs you gathers what is waiting** across every space.",
+        "**Your avatar on the rail switches profiles.**",
+        "**A teammate's sessions now live in its Computer panel.**",
+      ] },
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**A reply that is still streaming survives a reload.**",
+        "**A queued move survives a reload.**",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Your team on the phone.**",
+        "**A calmer Sub-agents sheet.**",
+        "**The Move sheet names real folders.**",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-8-0",
+    title: "Realm v2.8.0",
+    date: "2026-11-04",
+    version: "v2.8.0",
+    area: "Release",
+    summary:
+      "Move a running session to another checkout or a new worktree, from the Mac or your phone, and keep the conversation. Plus a file gallery and sharing from any app in Realm Mobile.",
+    body: [
+      { kind: "h", text: "Move a session to another checkout" },
+      { kind: "ul", items: [
+        "**Move a running session to another checkout or a new worktree.** The conversation carries over.",
+        "**Move it from the Mac or from your phone.**",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**A full-screen gallery for a message's files.**",
+        "**Share photos, videos and files from any app** into a session or a teammate.",
+        "**Tap a session's title for its info.**",
+        "**Sub-agents sit under their lead.**",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-7-2",
+    title: "Realm v2.7.2",
+    date: "2026-11-04",
+    version: "v2.7.2",
+    area: "Release",
+    summary: "A teammate's chat keeps the model you pick for it.",
+    body: [
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**Picking a model or effort in a teammate's chat now saves to the teammate.**",
+        "**Setting a teammate back to Default takes effect in its open chat.**",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-7-1",
+    title: "Realm v2.7.1",
+    date: "2026-11-03",
+    version: "v2.7.1",
+    area: "Release",
+    summary:
+      "See a teammate at work from the session that messaged it, fold away Team and Sessions in the sidebar, and switch accounts from one row per account.",
+    body: [
+      { kind: "h", text: "Teammates in the transcript" },
+      { kind: "ul", items: [
+        "**When a session messages a teammate, the teammate shows in the transcript** with its icon, what it was asked, and whether it is working or done.",
+        "**Each teammate shows the model it really runs.** A teammate on the CLI's default model was listed as Fable 5.1 while it ran Opus 5.5.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**Team and Sessions in the sidebar fold away,** and stay folded until you open them again.",
+        "**A cleaner account switcher in the model picker:** one row per account, with its email, and its own panel for signing in.",
+        "**Realm Mobile shows sub-agents under their lead session.**",
+        "**CI is faster.**",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-7-0",
+    title: "Realm v2.7.0",
+    date: "2026-11-02",
+    version: "v2.7.0",
+    area: "Release",
+    summary:
+      "Teammates you message: agents that stay, start their own sessions, talk to each other and check in on a schedule. Plus every agent's memory in one place, and switching agents and accounts mid-conversation.",
+    body: [
+      { kind: "h", text: "Teammates you message" },
+      { kind: "ul", items: [
+        "**A teammate is an agent that stays.** Give it a name, what it does, an icon, a model and a folder, and it keeps one chat you come back to. Its chat is a real session: replies stream, and its questions and permission cards are answered in place.",
+        "**Teammates start their own sessions for the work** and tell you in a sentence or two, with a link. Those sessions are listed under the teammate in the sidebar and in its Computer panel, never hidden, and a piece of work one teammate hands to another sits under the session that asked for it.",
+        "**Teammates talk to each other.** Any agent in the space can see who is on the team and message a teammate, and wait for its answer. Type `@cto` in any prompter to pass a message to that teammate.",
+        "**A Lead routes the work.** Make one teammate the Lead and it hands each ask to the teammate who fits, so you are not the one in the middle.",
+        "**Teammates can check in on a schedule.** The message lands in the teammate's chat, unread, and its answer waits there for you.",
+        "**Each teammate has its own Computer panel:** the Mac it runs on and whether it is working, its Files, Terminal and Simulator, and every session it started, newest first.",
+        "**New icons.** A teammate wears one flat colour in one of eight shapes, with two small eyes. Pick them when you add it.",
+        "**What changed from the first Teams.** Your teammates and their schedules come across as they were, and keep Full access, as their runs had. The first Teams' Review batches, posting tickets, record pages, policies, team vault and Lab are gone; their data stays on disk. \"Add teammate…\" in the prompter's + menu, which adds a sub-agent to a session, is now called \"Add sub-agent…\".",
+      ] },
+      { kind: "h", text: "Every agent's memory in one place" },
+      { kind: "ul", items: [
+        "**Library ▸ Memory lists every memory file your agents read:** Realm's memory repo and documents, Claude's `CLAUDE.md` files and project memory, Codex's `AGENTS.md`, Cursor's rules and Gemini's `GEMINI.md`. Search them all at once.",
+        "**Read, edit, add and delete them there.** Each memory says which agents read it, and its `[[links]]` open the memory they name. An edit in Realm's memory repo is one commit; Realm asks once before it writes into an agent's own file.",
+      ] },
+      { kind: "h", text: "Switch agents and accounts mid-conversation" },
+      { kind: "ul", items: [
+        "**Move a conversation to another agent.** Pick a Codex model in a Claude session, or the other way round. Realm writes a summary of the conversation to a file, hands it to the new agent, and the transcript shows \"Switched from … to … · Summary\".",
+        "**More than one Claude or Codex account.** Add accounts in Settings ▸ Engines or from the prompter's model menu, and pick which one a session runs on. When an account hits its usage limit, Realm offers to continue on another.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**A sub-agent's report opens and closes** wherever it is shown, and a long one starts closed.",
+        "**A sub-agent's brief reads in parts** (where it works, what to read first, what to build) when the sub-agent is opened as its own session, too.",
+        "**A new session made in the Activity view** is selected, scrolled into view and ready to type in, however you made it.",
+        "**Codex's image generation shows the calm loader** while it draws.",
+        "**Help ▸ Report a Bug** and Settings ▸ General ▸ About link to Realm on GitHub.",
+        "**`realm ship`** commits a finished run's changes from the command line, and with `--push` or `--pr` pushes them and opens a pull request.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-6-3",
+    title: "Realm v2.6.3",
+    date: "2026-11-02",
+    version: "v2.6.3",
+    area: "Release",
+    summary:
+      "The model picker follows your CLIs: a Claude or Codex update brings its new models to Realm on its own, with Sonnet 5.5 and Haiku 5.5 there today.",
+    body: [
+      { kind: "h", text: "The model picker follows your CLIs" },
+      { kind: "ul", items: [
+        "**New models show up when the CLI has them.** Realm used to list Claude's models from a list of its own, so a `claude` update could bring new models that Realm didn't show. Now Realm asks the `claude` CLI itself which models it offers, so a CLI update brings its models to the picker with no Realm update. Sonnet 5.5 and Haiku 5.5 are there today.",
+        "**Claude sessions run the `claude` that Settings ▸ Engines shows.** That's your own CLI when it works, otherwise the copy that comes with Realm. Before, sessions always ran Realm's own copy, even after you updated yours.",
+        "**Codex picks up an update without a restart.** Realm used to keep running the Codex it started with after you updated Codex. Now new sessions start on the updated Codex, and ones already running finish on the old one.",
+        "**The picker marks the model each CLI actually runs by default.** Claude's list showed Fable 5.1 twice, as a \"default\" row and as itself, while the CLI was defaulting to Opus 5.5. Now the CLI's real default is the one ticked, and it appears once.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-6-2",
+    title: "Realm v2.6.2",
+    date: "2026-10-28",
+    version: "v2.6.2",
+    area: "Release",
+    summary:
+      "Realm uses far less memory: Settings ▸ RAM shows what it holds and frees it, Laya, simulators and hidden browser panes let go when nobody is using them, terminals start when you open them, and agents can check the Mac before heavy work.",
+    body: [
+      { kind: "h", text: "Realm uses less memory" },
+      { kind: "ul", items: [
+        "**Settings ▸ RAM shows what Realm holds.** It lists Realm's own memory by part (agents, terminals, browser panes, simulators, Laya) beside the Mac's memory pressure and swap, with buttons to free it now.",
+        "**Laya loads only when a step needs it,** and lets go after ten idle minutes. It used to hold about 2.4 GB all day.",
+        "**Simulators Realm booted shut down when nobody is using them,** after 30 idle minutes, or sooner when memory is short. Realm never shuts down a simulator it didn't boot, one on screen, one an agent, Xcode or a debugger is using, or one used in the last five minutes.",
+        "**Hidden browser panes give their memory back** after 20 minutes, and come back to the same page and scroll when shown. Realm never does this to a pane an agent is using, one you typed into, or one playing media.",
+        "**Terminals start their shell when you first open them,** not all at once when Realm starts.",
+        "**Idle agents and MCP servers stop sooner when memory is short.** Never one mid-turn, waiting on you, or holding background work such as a dev server or a loop. Browser and device MCP servers keep running unless you choose otherwise.",
+      ] },
+      { kind: "h", text: "For agents" },
+      { kind: "ul", items: [
+        "**`machine_status`** gives an agent the Mac's memory pressure, swap and load before a build, a full test suite or a simulator boot, with advice on how many test workers to use.",
+      ] },
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**Checking which models an agent can run no longer leaves its helpers running** afterwards.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-6-1",
+    title: "Realm v2.6.1",
+    date: "2026-10-28",
+    version: "v2.6.1",
+    area: "Release",
+    summary:
+      "Watch a session's simulators and machines live from your iPhone, read a session on the phone like a chat, and the Memory page names more of Claude's projects.",
+    body: [
+      { kind: "h", text: "Realm on your iPhone" },
+      { kind: "p", text: "The Mac side of these is in this release; the iPhone side arrives in the next TestFlight build." },
+      { kind: "ul", items: [
+        "**Watch a session's screens from your phone.** A Screens button in the session shows the simulators and machines its space has open, live at about a frame a second, with Pause and Share. A Mac app's own windows aren't shown on the phone yet. On a Mac older than 2.6.1, the button stays hidden.",
+        "**Reading a session on the phone is calmer.** Rows stay inside the screen, even next to a long tool name. A tool's row shows a glyph for its kind. Reads of several files group into one row, and files go by their names, not full paths. A live line at the foot replaces the floating \"Working\" pill.",
+      ] },
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**The Memory page names more of Claude's projects.** A Claude project whose folder has an underscore, a dot or a space in its path now shows that folder, not Claude's encoded name.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-6-0",
+    title: "Realm v2.6.0",
+    date: "2026-10-28",
+    version: "v2.6.0",
+    area: "Release",
+    summary:
+      "Realm keeps your agents' memory itself, on by default, so every engine (Claude, Codex, Cursor, Gemini) reads and adds to the same memory, and Documents keeps your place in every file across tab, session and space switches.",
+    body: [
+      { kind: "h", text: "Memory that doesn't depend on the model" },
+      { kind: "ul", items: [
+        "**Realm keeps your memory, on by default.** Every profile now has a memory repo, made the first time Realm starts unless you detached yours, and each space keeps its own folder in it.",
+        "**Claude's memory lands in Realm.** Claude sessions save what they learn straight into their space's folder, not `~/.claude`, and Realm commits it as each turn ends.",
+        "**What Claude already remembered comes with it.** Realm brings each project's memory in from `~/.claude/projects` to the space that works there, and keeps bringing in what Claude saves outside Realm. A project no space works in waits on the Memory page with a choice of where it goes.",
+        "**Every agent reads it.** Codex, Cursor, Gemini and the other agents get the same memory Claude does. Cursor and the other ACP agents get it at the top of their first message, and it never shows in your transcript.",
+        "**Less of your context, more of your cache.** The memory a session carries is capped at 28,000 characters (it was 150,000), with its own space's first. It stays the same across a session's restarts, so the prompt cache keeps hitting. `memory_search` ranks what it finds and puts the current space's facts first.",
+        "**Realm learns from your sessions.** When a session goes quiet, Realm notes what is worth remembering, whichever agent ran it. About once a week it tidies each profile's memory, as one commit you can undo. \"Learn from sessions\" on the profile's Memory page turns it off.",
+        "**No cheaper models behind your back.** Titles, recaps and memory learning now run on the same frontier model as your sessions.",
+      ] },
+      { kind: "h", text: "Documents keeps your place" },
+      { kind: "ul", items: [
+        "**Study guides come back as you left them.** Switching tab, session or space no longer resets a guide: answers, checked quizzes, steps, flashcards, open sections and scroll all return. A course's own progress survives a relaunch.",
+        "**Every kind of file keeps its place:** Markdown in Source or Rich, code, sheets, PDFs and video, with your caret.",
+        "**Your typing is safe.** Unsaved typing is kept across a switch. Documents never writes over a PDF or video, and never brings back a file deleted on disk unless you choose Keep mine.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-5-1",
+    title: "Realm v2.5.1",
+    date: "2026-10-27",
+    version: "v2.5.1",
+    area: "Release",
+    summary:
+      "Clicks in the sidebar work again on Electron 45, updates finish and reconnect instead of leaving the old server running, and Realm on Windows starts its server.",
+    body: [
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**Clicks in the sidebar work again.** Since 2.5.0, a real click on Settings' pages, Back, the search field, the profile header, Activity, a session's row or New space could do nothing, because Chromium 156 made the window's drag areas reach every element inside them. Only the strips meant for dragging drag the window now, and a window in full screen has none at all.",
+        "**Updates finish.** Restart and update now stops Realm's server before the new version replaces the app, and a relaunch that finds an old or stuck server replaces it instead of showing \"Connection lost — reconnecting…\" forever. Quit Realm & stop agents waits until nothing is left running, so a fresh download can replace the app. If an update can't install, Realm reopens and says so.",
+        "**Realm on Windows starts.** The installer now carries a server that can find its own packages; no Windows release before this one could start its server once installed. Installing over 2.3, 2.4 or 2.5 works, and the installer is half the size.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-5-0",
+    title: "Realm v2.5.0",
+    date: "2026-10-24",
+    version: "v2.5.0",
+    area: "Release",
+    summary:
+      "Realm is open source under the MIT License and builds without any private registry; a `realm` command line in every app drives Realm headless and from scripts; a Realm on another machine with access tokens, Tailscale and a service; phones that pair from a terminal and a production relay; Realm for iPhone's new Home and composer; a folding sub-agent report; Electron 45; and a Linux AppImage that opens in about three seconds.",
+    body: [
+      { kind: "h", text: "Open source" },
+      { kind: "ul", items: [
+        "**Realm is MIT-licensed.** The code is yours to read, build, change and ship. A few bundled parts keep their own licenses; THIRD-PARTY-NOTICES.md lists them.",
+        "**Anyone can build it.** `pnpm install && pnpm build` no longer needs the Hugeicons Pro registry: without it, Realm draws Hugeicons' free pack, which has every icon Realm uses, drawn the same.",
+      ] },
+      { kind: "h", text: "Run Realm anywhere" },
+      { kind: "ul", items: [
+        "**A `realm` command line.** Every Realm app now carries `realm` (in `Resources/bin`): serve Realm without a window, open a repository, give each task a worktree of its own, run a command in each, wait, read logs and kill one, with `--json` for scripts. A command you start shows in the sidebar as a terminal, and the worktree it makes is one you can review.",
+        "**A Realm on another machine.** `realm serve --listen` takes clients from other machines over TLS, behind Tailscale (`--tailscale`) or through an SSH tunnel, with access tokens you make and revoke (`realm token`). Save it once (`realm remote add`), then aim any command at it with `--server`. `realm service install` keeps it running as a systemd or launchd service.",
+        "**Pair a phone from a terminal.** `realm pair` shows the pairing code in the terminal, so Realm for iPhone works with a headless server too, on Linux included.",
+      ] },
+      { kind: "h", text: "Realm for iPhone" },
+      { kind: "ul", items: [
+        "**Home, one profile at a time.** Profiles in the title, your sessions listed your way, Pinned, and a compose button for a new session with its space, agent, model and mode.",
+        "**A new composer.** Photos, camera and files on +, the model and mode chips, and Stop in the send button.",
+        "**More of the Mac on the phone.** Pin, rename and archive; the Mac's queue (Send now, Edit, Remove); sub-agents; Usage; Review; Scheduled.",
+        "**Read on the phone means read on the Mac.** Home also stops listing the sub-agent and team runs the Mac's sidebar hides, the largest text sizes no longer cut or cover anything, and menus are drawn in ink.",
+        "**A production relay.** Released Macs pair through Realm's production relay. Phones paired on the old one follow their Mac there on their own, with nothing to pair again.",
+      ] },
+      { kind: "h", text: "Sessions" },
+      { kind: "ul", items: [
+        "**\"What it reported\" folds away,** and keeps its first line when closed. A sub-agent's brief is drawn as the parts its lead wrote — where it works, what to read first, what to build — as readable text.",
+        "**A new session made in the Activity view comes into view,** however far down the list was scrolled.",
+        "**A calmer loader** for an image or video being made: the picture's own size, its glyph, one slow ring.",
+        "**Skills keep your login.** On a machine whose Claude login lives in `~/.claude/settings.json` (an `apiKeyHelper` and an `env` block), sessions in a space with skills no longer answer \"Not logged in\". Thanks to Abdulrahman Sadiq (#209).",
+      ] },
+      { kind: "h", text: "Documents" },
+      { kind: "ul", items: [
+        "**Show in Finder** from the Documents pane: the open document, or the space's folder.",
+      ] },
+      { kind: "h", text: "Under the hood" },
+      { kind: "ul", items: [
+        "**Electron 45, Chromium 156.** Squircle corners are now drawn by the engine itself, and the browser pane's user agent says Chrome 156.",
+        "**Linux opens in about 3 seconds.** The AppImage runs on AppImage's static runtime (no libfuse2 needed) and is 150 MB smaller; the deb is 100 MB smaller.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-4-0",
+    title: "Realm v2.4.0",
+    date: "2026-10-19",
+    version: "v2.4.0",
+    area: "Release",
+    summary:
+      "A team you message like a chat, one teammate to a thread, a redesigned Review with Undo, teammates you add to any session from the prompter, what changed in plain words, sessions shared as one web page, Full access from any mode, Sign in with Google in the browser, and a Realm that comes back after its server crashes.",
+    body: [
+      { kind: "h", text: "Teams" },
+      { kind: "ul", items: [
+        "**A team is a messenger.** Each teammate is a chat with its Realmite. Its runs, drafts, handoffs, questions, scheduled runs and budget stops are all in one thread, with a prompter to message it. A message answers the question it's waiting on, or carries on its last session.",
+        "**Review, redesigned.** An inbox in plain words (\"Email to dana@acme.com\"), and each draft shown as the thing itself: a post with its slides, an email with its subject, a document as a page, a diff, a stack of files. The role's \"why I made this\" sits above it, and the decision bar says exactly what Approve will do. Send back and Reject open in place.",
+        "**Undo an approval.** Approving in Review or in a teammate's chat leaves a toast with Undo, which puts the draft back in Waiting for you until something has left Realm.",
+        "Review no longer contradicts itself about drafts Realm doesn't send, and a role that calls a tool that doesn't exist is told so before anyone is asked to approve it.",
+      ] },
+      { kind: "h", text: "Sessions" },
+      { kind: "ul", items: [
+        "**Add a teammate from (+).** Bring another agent into any session to help, with a brief, in the same folder or its own worktree. The session's agent is told it joined, an @mention sends it a message, and stopping your turn leaves the teammates you added running.",
+        "**The agents at work sit over the prompter.** One row shows every agent in the session, teammates and sub-agents alike, each with its own mark and state. It replaces the strip under the transcript and the count in the session bar.",
+        "**What changed, in plain words.** The branch and line counts over the prompter became a pill, \"Changed 3 files\" or \"Added 2 images\", that opens a review grouped by kind: pictures before and after, documents rendered, code as diffs. The branch and counts live inside it.",
+        "**Share a session as a web page.** ⋯ ▸ Share as web page… (or `/share`) saves one HTML file that reads well on a phone or a desktop, in light or dark, fetches nothing, and hides tokens and your home folder.",
+        "**Full access from any mode.** A Claude session switches to Full access mid-session, whatever mode it started in.",
+      ] },
+      { kind: "h", text: "Look and feel" },
+      { kind: "ul", items: [
+        "**Cards without borders, on true squircles.** Every card has a continuous corner and no outline; its fill and a soft shadow give it depth. The theme picker's tiles match.",
+        "**Chrome doesn't select.** Headers, labels, chips and status lines no longer highlight. Messages, code, diffs and documents still do, and so does the text of a toast.",
+        "**Lighter shadows** under the prompter and its files, and a sub-agent's \"What it reported\" card is big enough to read.",
+        "**Pinned sessions show their space's icon** instead of the model's.",
+      ] },
+      { kind: "h", text: "Browser and documents" },
+      { kind: "ul", items: [
+        "**Sign in with Google works.** Sign-in popups open as real windows, so the page that opened one gets the answer and the popup closes itself.",
+        "**PDF arrows step one page at a time**, on slide decks and right to the last page.",
+      ] },
+      { kind: "h", text: "Reliability" },
+      { kind: "ul", items: [
+        "**Realm comes back after its server crashes.** Windows reconnect on their own, keeping drafts and panes. If the server won't come back, the banner offers to restart it. A paired iPhone finds its Mac again too.",
+        "**Saved passwords are never thrown away.** `secrets.json` is written all at once; an unreadable one is kept aside and Settings ▸ Passwords says where. A Keychain that refuses access leaves the file alone and offers Try again.",
+        "**More than thirty bugs fixed.** Among them: scheduled tasks firing every minute through the hour that repeats when the clocks go back; a restore deleting gitignored files like `.env`; a failed send wiping what you typed; a lead's running sub-agents vanishing from its list; Restart to update stopping every agent; the monthly budget alert never firing; Settings ▸ Import freezing Realm while it read your agents' history; and ⇧⏎ on a permission card not allowing always.",
+        "Finished one-time tasks can be renamed, and on the day the clocks go forward a daily 2:30 task runs at 3:00 instead of being skipped.",
+      ] },
+      { kind: "h", text: "Realm for iPhone" },
+      { kind: "ul", items: [
+        "**Pair an iPhone in Settings ▸ Devices.** The phone reaches your Mac through Realm's relay, encrypted end to end, shows Needs you by the sidebar's own rule, and gets notifications. In TestFlight for now.",
+      ] },
+      { kind: "h", text: "Docs" },
+      { kind: "ul", items: [
+        "**Docs on realm.computer**, and an architecture map in `docs/architecture`: the whole system, how each feature works, and a poster you can pan and zoom.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-3-0",
+    title: "Realm v2.3.0",
+    date: "2026-10-14",
+    version: "v2.3.0",
+    area: "Release",
+    summary:
+      "Text files that read like the documents pane, files with their own logos, a real video player, sub-agents beside the session, password autofill that agents use without seeing the password, a Worktrees tab, GitHub's MCP server connecting, Laya on by default, and Linux and Windows previews.",
+    body: [
+      { kind: "h", text: "Files, documents and video" },
+      { kind: "ul", items: [
+        "**Text files read like the documents pane.** Opening a text file from Library, an attachment or the documents list shows Markdown rendered and code highlighted with line numbers, readable in light and dark, instead of a grey picture of the page.",
+        "**Files wear their own logos.** A `.ts` file is TypeScript's blue mark, a `package.json` is npm's, across Library, the documents list, session file rows and the prompter, from the Material Icon Theme set.",
+        "**Code scrolls sideways.** Long lines in the documents pane scroll horizontally with the line numbers held in place; wide code blocks in Markdown scroll on their own.",
+        "**A redesigned prompter tray.** Attached files and folders are cards with their icon, name and size; pictures stay thumbnails.",
+        "**A real video player.** Videos play in Realm's own player wherever they open, with a scrubber that shows the time under the pointer, speed, loop, picture in picture, full screen, J/K/L and frame stepping, and it remembers where you stopped. A format Chromium can't play offers a playable copy when ffmpeg is installed.",
+        "**Files an agent makes anywhere open.** A file written to `/tmp`, your Downloads or a path relative to the session opens, previews and shows in Finder, read-only outside the space. Agents can reveal a file in Finder themselves.",
+      ] },
+      { kind: "h", text: "Agents" },
+      { kind: "ul", items: [
+        "**Sub-agents open beside the session.** Clicking a sub-agent opens a redesigned viewer in the side panel instead of a sheet over your session: its live transcript, its state, its result pinned when it finishes, and its requests answerable right there.",
+        "**Agents know everything Realm can do.** Every agent, Cursor and Gemini included, is told about every Realm tool and when to reach for it, and can ask Realm for the live list of what's switched on, connected and signed in, so it finishes more on its own.",
+        "**MCP calls show their app.** A Gmail search shows Gmail's mark, a Linear issue Linear's, and Realm's own tools show the pane they drive.",
+      ] },
+      { kind: "h", text: "Passwords" },
+      { kind: "ul", items: [
+        "**Autofill passwords in the browser.** Import your Passwords app export (or Chrome's, 1Password's, Bitwarden's), use the login keychain, or let Realm save a password after you sign in. Click an empty sign-in field for the site's passwords, and Touch ID fills them.",
+        "**Agents sign in without seeing the password.** An agent asks to fill a saved password; you approve it, or allow it for that site, and the password never reaches the model or the transcript.",
+        "**Settings ▸ Passwords** searches, shows, copies, edits and imports them.",
+      ] },
+      { kind: "h", text: "Spaces, worktrees and Review" },
+      { kind: "ul", items: [
+        "**Right-click a space** for the same menu its ⋯ opens. The prompter shows the space's own icon.",
+        "**A Worktrees tab** lists every checkout with its branch, changes, ahead and behind, and last activity. A new worktree starts from the branch you pick, and removing one says what goes and can keep its branch.",
+        "**Review can reject or close.** Reject sends your reason back to the role; Close works after you approve too, and takes back anything not sent yet.",
+      ] },
+      { kind: "h", text: "Connections" },
+      { kind: "ul", items: [
+        "**GitHub's MCP server connects.** Connect uses your GitHub CLI sign-in, a device code, or a pasted token, instead of asking for an app's client id and secret.",
+      ] },
+      { kind: "h", text: "Laya and everywhere else" },
+      { kind: "ul", items: [
+        "**Laya is on by default.** It installs itself once Realm is idle on Apple silicon with room to spare, and runs in Shadow. Turning it off keeps it off.",
+        "**An on switch stays blue under the pointer**, and the Realm mark shimmers while a page loads.",
+        "**Linux and Windows previews.** Realm's core (sessions, terminals, the browser, documents, connections) runs on Linux and Windows. These builds are unsigned and don't update themselves yet; Mac-only features are hidden there.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-2-0",
+    title: "Realm v2.2.0",
+    date: "2026-10-13",
+    version: "v2.2.0",
+    area: "Release",
+    summary:
+      "What's new after every update, scheduled tasks and team roles in Full access, agents that close their own reviews, Mac permissions in one click, and long pages that no longer hide their controls from agents.",
+    body: [
+      { kind: "ul", items: [
+        "**What's new, after every update.** The first window after an update shows that version's notes, and the gift button above your profile shows them again any time.",
+        "**Scheduled tasks and team roles run in Full access.** Nobody is there to answer a permission prompt when they fire, so they no longer stop at one. A team's own rules still ask and refuse for its roles, and Cursor's prompts are answered for them too.",
+        "**Agents can close their own reviews.** A draft that was replaced, done another way or withdrawn leaves Needs you without you clearing it by hand.",
+        "**Mac permissions in one click, and they stay.** Settings ▸ Computer use asks for each grant and opens the right pane, turns the row Granted when you switch it on, and repairs a grant an earlier build held that macOS stopped honouring.",
+        "**Long pages no longer hide their controls from agents.** Reading Realm's window, a web page or a Mac app now lists what's on screen and any form first, and an agent can page through the rest, search it, or read one region.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-1-0",
+    title: "Realm v2.1.0",
+    date: "2026-10-12",
+    version: "v2.1.0",
+    area: "Release",
+    summary:
+      "Teams for a space, a Realmite for every role, long sessions that open in a fifth of a second, a sixth of the CPU while an agent works, and overscroll that carries past the edge the way macOS does.",
+    body: [
+      { kind: "h", text: "Teams" },
+      { kind: "p", text: "**A space can have a team.** Make team gives a space roles, each with its own Realmite, from seven templates or a custom teammate. Run a role now or on a schedule, and its work waits in Review for you to approve or send back. Teams can hand work to each other, mention one another, carry goals and budgets, and keep their own vault. Posting outside Realm waits for your approval, and the space's policies (what never happens, what asks first) bind every session in it, yours included. No agent can change a policy." },
+      { kind: "h", text: "Sessions" },
+      { kind: "ul", items: [
+        "**Unread sessions** show a bold title and a blue dot, and the sidebar keeps the most recently active spaces and sessions at the top without moving the one you have selected.",
+        "**Queued messages** sit in a tray above the prompter, where each one can be edited or removed.",
+        "**Sub-agents** show as a strip in the transcript while they run, open in your session's mode, and get their own Agents tab.",
+        "**Activity cards** are redesigned, and the Usage page is rebuilt around what each agent actually reports.",
+        "**⌘\\** opens a split with a new session, and a new session uses the model you last sent with.",
+        "A **Sessions page** lists every session in a space, and a **PDF viewer** opens PDFs in Documents.",
+      ] },
+      { kind: "h", text: "Everywhere else" },
+      { kind: "ul", items: [
+        "**Open in Realm Browser** on any link's right-click menu, and a setting for where links open.",
+        "**Light mode** has the depth dark mode has, and your theme and Easter eggs now survive an update.",
+        "**A new flat icon**, with a one-colour mark in the menu bar, and eight others to put on the Dock.",
+        "**The sign-in vault** can unlock with Touch ID, Touch ID or password, once per session, or without asking.",
+      ] },
+      { kind: "h", text: "Faster and lighter" },
+      { kind: "ul", items: [
+        "**Opening a long session** loads its newest part first: the largest session we measured opens in 0.2 s instead of 2–2.6 s, and older turns load as you scroll up.",
+        "**While an agent works** Realm uses about a sixth of the CPU it did, and a window nobody has touched for half a minute goes quiet.",
+        "**Typing** no longer restyles the whole sidebar on every key, and the cursor settles after a few beats.",
+        "**Startup** loads about a third of the code it did; Settings, terminals, maths and code highlighting load when first needed.",
+        "**Session history is stored compressed.** This makes 2.1.0 a one-way upgrade: an older Realm cannot read history written by this one.",
+        "**Idle agents** are stopped after 30 minutes and pick their conversation back up on your next message.",
+      ] },
+      { kind: "h", text: "Scrolling" },
+      { kind: "p", text: "**Overscroll feels like macOS.** A flick that reaches the end of a list carries past it at its own speed, stretches, and springs back, instead of stopping dead. Scroll bar tracks are gone, and the sidebar scrolls smoothly." },
+    ],
+  },
+  {
     slug: "v2-0-0",
     title: "Realm v2.0.0",
     date: "2026-10-06",

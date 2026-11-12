@@ -1,0 +1,67 @@
+import { h2, note, p, page, steps, table, ul } from "@/lib/docs-blocks"
+
+/** Realm for iPhone's public TestFlight link, once Apple's beta review approves it; until then the page says the
+ *  app is in TestFlight by invitation. This is the only place the link is written. */
+export const TESTFLIGHT_LINK: string | null = "https://testflight.apple.com/join/YJEqF6ZM"
+
+export default page({
+  slug: "mobile",
+  title: "Mobile",
+  summary:
+    "Realm runs on your Mac. This is how to pair an iPhone with it, how it reaches your phone, how to leave agents working while you're away, and how to build mobile apps with it.",
+  body: [
+    note(
+      TESTFLIGHT_LINK === null
+        ? "Realm for iPhone is in TestFlight, by invitation for now, and a public beta link is on its way. It needs iOS 26 and Realm 2.5 or later on your computer. It reaches your Mac through Realm's relay, so it works away from home, and only while Realm is open, or while [`realm serve`](/docs/run-on-a-server) is running."
+        : `Realm for iPhone is a public beta on TestFlight: open [the TestFlight link](${TESTFLIGHT_LINK}) on your iPhone to install it. It's free, and needs iOS 26 and Realm 2.5 or later on your computer. It reaches your Mac through Realm's relay, so it works away from home, and only while Realm is open, or while [\`realm serve\`](/docs/run-on-a-server) is running.`,
+    ),
+
+    h2("Pair an iPhone"),
+    steps(
+      "On your Mac, open **Settings ▸ Devices** and press **Pair an iPhone**. A code appears, good for five minutes.",
+      TESTFLIGHT_LINK === null
+        ? "On your iPhone, open Realm and press **Scan the code**."
+        : `On your iPhone, install Realm from [TestFlight](${TESTFLIGHT_LINK}), open it and press **Scan the code**.`,
+      "Your Mac asks **Pair <name>?**, saying it can read every session on this Mac and answer for you. Press **Pair**.",
+    ),
+    p(
+      "A paired iPhone shows what your Mac's sessions are doing, with **Needs you** at the top by the same rule as the sidebar, and each space's sessions under it. In a session you can read the transcript, send the next message, stop a turn, answer what it's waiting on, and look at the changes it made. You can also search the Mac's sessions, watch its browser and terminal panes, follow a session's goal and to-do list, delete, fork or move a session, and make, archive, lead and reorder teammates.",
+    ),
+    ul(
+      "What passes between the phone and the Mac is encrypted end to end, so the relay carries nothing it can read. With no iPhone paired and none being paired, the Mac doesn't connect to the relay at all.",
+      "While the Mac sleeps, the phone can't reach it. **Settings ▸ General ▸ Keep the Mac awake while agents work**, below, keeps it up.",
+      "**Settings ▸ Devices** lists each paired iPhone and when it was last seen. **Remove** unpairs one. On the phone, its Settings can forget the Mac.",
+      "If Realm's agent server restarts, a paired iPhone finds the Mac again on its own.",
+      "When an update moves your Mac to another relay, a paired iPhone follows it there the next time it connects, so nothing needs pairing again.",
+    ),
+
+    h2("Get told on your phone"),
+    p(
+      "**Settings ▸ Notifications** can send the moments you'd have to come back for to your phone:",
+    ),
+    table(
+      ["Setting", "What it sends"],
+      ["**Notify my iPhone**", "A notification in Realm on your paired iPhone. It's held while you're at this Mac, and sent if the moment is still waiting two minutes later. The row appears once an iPhone is paired, and starts on."],
+      ["**Text me when an agent needs me**", "An iMessage when a session is waiting on a permission, finishes, or fails. It's sent through Messages on this Mac, using the `mac` command-line tool, to the phone number or Apple ID you type, exactly as Messages knows it."],
+      ["**Post to Slack**", "The same moments, posted as one line to a Slack incoming-webhook URL you paste in"],
+    ),
+    ul(
+      "Only waiting permissions, finished or failed sessions, and unattended runs that stopped to ask for a person are sent, and each one once.",
+      "Texts and Slack posts go only when Realm isn't the app you're in.",
+      "**Notify me about** on the same page decides which kinds of moment count at all.",
+    ),
+
+    h2("Leave agents working while you're away"),
+    steps(
+      "Close the window, or press [[⌘Q]]. Realm stays in the menu bar and your sessions keep running.",
+      "Turn on **Settings ▸ General ▸ Keep the Mac awake while agents work**. The Mac stays awake only while a session is actually running (the display still sleeps). A session waiting on your answer counts only while an iPhone is paired, because you might answer from the phone.",
+      "Pair an iPhone, or set up a text or a Slack post, above, so you know when one needs you.",
+    ),
+
+    h2("Build mobile apps"),
+    ul(
+      "Run your iOS app in a simulator, an Android emulator or a real iPhone in the side panel, and let your agent tap through it. See [Simulators and devices](/docs/simulators).",
+      "Check a web page at a phone's width with the browser's **More ▸ Device size ▸ iPhone · 390px**. See [The browser](/docs/browser).",
+    ),
+  ],
+})
