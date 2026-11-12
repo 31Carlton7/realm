@@ -211,7 +211,7 @@ export function Film() {
         </div>
         <div className="absolute inset-x-0 top-[660px] flex justify-center">
           <Words id="tagline">
-            <h1 className="max-w-[1180px] text-center text-[64px] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">{site.tagline}</h1>
+            <h1 className="max-w-[1180px] text-center text-[64px] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">One workspace for every coding agent, on any computer.</h1>
           </Words>
         </div>
 
@@ -235,7 +235,7 @@ export function Film() {
         </div>
         <div className="absolute inset-x-0 top-[646px] flex justify-center">
           <Words id="download">
-            <p className="text-[40px] leading-none font-[450] tracking-[-0.01em] text-ink-2">Download for Mac · macOS on Apple silicon</p>
+            <p className="text-[40px] leading-none font-[450] tracking-[-0.01em] text-ink-2">Download for Mac, Windows and Linux</p>
           </Words>
         </div>
       </div>
