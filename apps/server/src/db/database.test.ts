@@ -6,6 +6,7 @@ import { openDatabase } from "./database";
 import { migrations } from "./migrations";
 import { ItemsStore } from "../store/items";
 import { SessionEventsStore } from "../store/sessions";
+import { encodePayload } from "../store/event-payload";
 
 /**
  * Checking a migration against a REAL home directory: never copy `realm.db` on its own. `openDatabase`
@@ -2363,6 +2364,127 @@ describe("the space_team_access migration — one Team access mode per space", (
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     expect(() => again.exec(migrations[TEAM_ACCESS_AT]!)).not.toThrow();
     expect(again.prepare("SELECT space_id, mode FROM space_team_access").all()).toEqual([{ space_id: "sp1", mode: "bypassPermissions" }]);
+    again.close();
+  });
+});
+
+/** The tables the schedule-mode migration reads, as they shipped before it, written out by hand. */
+const BEFORE_SCHEDULE_MODE = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  agent_kind TEXT NOT NULL, permission_mode TEXT NOT NULL DEFAULT 'default', created_at INTEGER NOT NULL);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, goal TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, constraints_json TEXT,
+  next_run_at INTEGER, last_run_at INTEGER, last_run_id TEXT, last_skipped_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  new_session_per_run INTEGER NOT NULL DEFAULT 1, archive_succeeded INTEGER NOT NULL DEFAULT 0, role_id TEXT);
+`;
+const SCHEDULE_MODE_AT = migrations.findIndex((m) => m.includes("ALTER TABLE schedules ADD COLUMN permission_mode"));
+
+describe("the schedule-mode migration — what an existing scheduled task runs in (SEC-08)", () => {
+  const MIN = 60_000;
+  /** The first `schedule_create` on this Mac was at T; the rows around it are what the rule sorts. */
+  const T = 1_790_000_000_000;
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_SCHEDULE_MODE);
+    for (let v = 1; v <= SCHEDULE_MODE_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.exec(`INSERT INTO spaces (id) VALUES ('sp1'), ('sp2');
+      INSERT INTO sessions (id, space_id, agent_kind, permission_mode, created_at) VALUES
+        ('asking', 'sp1', 'claude', 'default', 1), ('editing', 'sp1', 'codex', 'acceptEdits', 1),
+        ('full', 'sp1', 'claude', 'bypassPermissions', 1), ('odd', 'sp1', 'cursor', 'some-acp-mode', 1),
+        ('elsewhere', 'sp2', 'claude', 'bypassPermissions', 1);`);
+    const call = (session: string, ts: number, name: string, title: string, goal = "Do it.") =>
+      db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, 'tool_call', ?)")
+        .run(session, ts, encodePayload(JSON.stringify({ toolUseId: `t${ts}`, name, input: { title, goal, cron: "0 9 * * 1" }, parentToolUseId: null })));
+    call("full", T, "mcp__realm__realm-schedule__schedule_create", "Nightly cleanup");
+    call("asking", T + 60 * MIN, "mcp__realm__realm-schedule__schedule_create", "From asking");
+    // Codex names an MCP tool `<server>.<tool>`, and a long goal is stored compressed.
+    call("editing", T + 120 * MIN, "realm.realm-schedule__schedule_create", "From editing", "x".repeat(2_000));
+    call("odd", T + 180 * MIN, "schedule_create", "From odd");
+    call("elsewhere", T + 240 * MIN, "mcp__realm__realm-schedule__schedule_create", "Moved title");
+    // The same title asked for twice, from two sessions: the lower mode wins.
+    call("full", T + 300 * MIN, "mcp__realm__realm-schedule__schedule_create", "Twice");
+    call("asking", T + 301 * MIN, "mcp__realm__realm-schedule__schedule_create", "Twice");
+    // Something else with the title in it, which is no schedule_create.
+    call("full", T + 400 * MIN, "mcp__realm__realm-agent__agent_start", "Not a schedule");
+    const row = (id: string, title: string, created: number, roleId: string | null = null) =>
+      db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, created_at, updated_at, role_id) VALUES (?, 'sp1', ?, 'Do it.', '0 9 * * 1', ?, ?, ?)`)
+        .run(id, title, created, created, roleId);
+    row("nightly", "Nightly cleanup", T + 1_000);
+    row("asking", "From asking", T + 60 * MIN + 500);
+    row("editing", "From editing", T + 120 * MIN + 500);
+    row("odd", "From odd", T + 180 * MIN + 500);
+    row("other-space", "Moved title", T + 240 * MIN + 500);
+    row("twice", "Twice", T + 301 * MIN);
+    row("not-schedule", "Not a schedule", T + 400 * MIN);
+    row("by-hand-before", "Weekly review", T - 5 * MIN);
+    row("by-hand-after", "Status update", T + 500 * MIN);
+    row("late-match", "From asking", T + 2 * 24 * 60 * MIN);
+    row("clock", "Ops", T + 10 * MIN, "role-1");
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  const modes = (db: DatabaseSync) => Object.fromEntries(
+    (db.prepare("SELECT id, permission_mode AS m FROM schedules").all() as { id: string; m: string | null }[]).map((r) => [r.id, r.m]));
+
+  it("is appended at the end of the chain, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_MODE_AT).toBe(migrations.length - 1);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("gives an agent's task its session's mode, a pre-agent task Full access, and everything else `default`", () => {
+    const { db } = migrated();
+    expect(modes(db)).toEqual({
+      nightly: "bypassPermissions",
+      asking: "default",
+      editing: "acceptEdits",
+      // A harness's own mode string is ranked as delegation ranks it.
+      odd: "default",
+      // A call in another space is no evidence about this one, and the row is past the first call.
+      "other-space": "default",
+      twice: "default",
+      "not-schedule": "default",
+      // Made before any agent on this Mac had scheduled anything: the Scheduled page's, as it was.
+      "by-hand-before": "bypassPermissions",
+      // Made after, with no call to show who: never left in Full access.
+      "by-hand-after": "default",
+      // A call with its title, but days away from the row: not the call that made it.
+      "late-match": "default",
+      // A teammate's clock runs in its teammate's mode and holds none.
+      clock: null,
+    });
+    db.close();
+  });
+
+  it("keeps every task the person made in Full access on a home where no agent ever scheduled anything", () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const raw = new DatabaseSync(p);
+    raw.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    raw.exec(BEFORE_SCHEDULE_MODE);
+    for (let v = 1; v <= SCHEDULE_MODE_AT; v++) raw.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    raw.exec(`INSERT INTO spaces (id) VALUES ('sp1');
+      INSERT INTO schedules (id, space_id, title, goal, cron, created_at, updated_at) VALUES ('a', 'sp1', 'Weekly', 'Go.', '0 9 * * 1', ${T}, ${T});`);
+    raw.close();
+    const db = openDatabase(p);
+    expect(modes(db)).toEqual({ a: "bypassPermissions" });
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing and moves no row", () => {
+    const { p, db } = migrated();
+    db.prepare("UPDATE schedules SET permission_mode = 'acceptEdits' WHERE id = 'by-hand-after'").run();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(modes(again)["by-hand-after"]).toBe("acceptEdits");
     again.close();
   });
 });

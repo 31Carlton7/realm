@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type FakeScript, type StartOptions } from "@realm/adapters";
-import type { CreateScheduleInput } from "@realm/contracts";
+import type { CreateScheduleInput, Schedule } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -61,8 +61,23 @@ async function listen(port: number): Promise<{ events: { event: string; payload:
 
 const task = (spaceId: string, over: Partial<CreateScheduleInput> = {}): CreateScheduleInput => ({
   spaceId, title: "Migration", goal: GOAL, cron: "0 9 * * 1", enabled: true,
-  constraints: { agentKind: "fake", model: "fake-pro", effort: "high", fastMode: true }, newSessionPerRun: true, archiveSucceeded: false, ...over,
+  constraints: { agentKind: "fake", model: "fake-pro", effort: "high", fastMode: true }, newSessionPerRun: true, archiveSucceeded: false,
+  permissionMode: "bypassPermissions", ...over,
 });
+
+/** A window's RPC connection: what the Scheduled page calls. */
+async function rpcClient(port: number) {
+  const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
+  const pending = new Map<string, (v: { result?: Schedule; error?: unknown }) => void>();
+  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); });
+  let n = 0;
+  const call = (method: string, params: unknown) => new Promise<{ result?: Schedule; error?: unknown }>((res) => {
+    const id = String(++n);
+    pending.set(id, res);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+  return { call, close: () => ws.close() };
+}
 
 const runOf = (id: string) => app.runs.get(id)!.run;
 const settled = (id: string) => waitFor(() => ["succeeded", "failed", "cancelled", "expired"].includes(runOf(id).state));
@@ -215,5 +230,95 @@ describe("a task scheduled from a conversation", () => {
     const result = app.sessions.events(session.id, 0, 500).find((e) => e.event.type === "tool_result")!.event.payload as { content: string; isError: boolean };
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Scheduled \"Weekly review\"");
+  });
+});
+
+describe("the permission a scheduled task runs in (SEC-08)", () => {
+  /* An agent's `schedule_create` is one tool call, and what it schedules runs later with nobody
+     watching. It runs no higher than the session that made it, as that session stood when it made it.
+     A task the person makes on the Scheduled page (the `schedules.create` RPC) runs in the mode they
+     pick, Full access when they pick none.
+
+     THE MUTANTS: every scheduled run in Full access again (the old rule); the cap read from the
+     session when the task FIRES instead of when it was made; the cap dropped from the tool's call so
+     the row falls back to the person's default; a row with no stored mode run in Full access. */
+
+  /** The session that ran the schedule's last firing, once that run is over. */
+  async function firedSession(scheduleId: string): Promise<{ mode: string }> {
+    app.db.prepare("UPDATE schedules SET next_run_at = ? WHERE id = ?").run(Date.now() - 1_000, scheduleId);
+    app.schedules.tick();
+    const runId = (app.db.prepare("SELECT last_run_id AS id FROM schedules WHERE id = ?").get(scheduleId) as { id: string | null }).id;
+    expect(runId).not.toBeNull();
+    await settled(runId!);
+    return { mode: app.sessions.get(runOf(runId!).sessionId!).permissionMode };
+  }
+
+  async function scheduledFrom(mode: string) {
+    const { fake, spaceId } = await boot();
+    const { session } = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, environmentId: null, model: null, effort: null, permissionMode: mode, title: "Chat" });
+    await app.sessions.send(session.id, { text: "please schedule it", attachments: [] });
+    await waitFor(() => app.schedules.list(spaceId).length === 1);
+    return { fake, spaceId, session, made: app.schedules.list(spaceId)[0]! };
+  }
+
+  it("runs a task an agent scheduled from an asking session in that mode, not Full access", async () => {
+    const { fake, made } = await scheduledFrom("default");
+    expect(made.permissionMode).toBe("default");
+    expect((await firedSession(made.id)).mode).toBe("default");
+    expect(fake.seen.at(-1)).toMatchObject({ permissionMode: "default" });
+  });
+
+  it("runs one scheduled from Accept edits in Accept edits", async () => {
+    const { made } = await scheduledFrom("acceptEdits");
+    expect(made.permissionMode).toBe("acceptEdits");
+    expect((await firedSession(made.id)).mode).toBe("acceptEdits");
+  });
+
+  it("runs one scheduled from a Full access session in Full access", async () => {
+    const { made } = await scheduledFrom("bypassPermissions");
+    expect(made.permissionMode).toBe("bypassPermissions");
+    expect((await firedSession(made.id)).mode).toBe("bypassPermissions");
+  });
+
+  it("keeps the mode the session had when it made the task, not the one it has when the task fires", async () => {
+    const { session, made } = await scheduledFrom("default");
+    await app.sessions.setOptions(session.id, { permissionMode: "bypassPermissions" });
+    expect((await firedSession(made.id)).mode).toBe("default");
+  });
+
+  it("runs a task the person made in the mode they picked, and Full access when they picked none", async () => {
+    const { spaceId } = await boot();
+    const c = await rpcClient(app.port);
+    const picked = await c.call("schedules.create", { ...task(spaceId, { title: "Picked" }), permissionMode: "acceptEdits" });
+    const unpicked = await c.call("schedules.create", task(spaceId, { title: "Unpicked", permissionMode: undefined }));
+    c.close();
+    expect(picked.error).toBeUndefined();
+    expect(picked.result!.permissionMode).toBe("acceptEdits");
+    expect(unpicked.result!.permissionMode).toBe("bypassPermissions");
+    expect((await firedSession(picked.result!.id)).mode).toBe("acceptEdits");
+    expect((await firedSession(unpicked.result!.id)).mode).toBe("bypassPermissions");
+  });
+
+  it("runs a task whose row holds no mode in `default`, never Full access", async () => {
+    const { spaceId } = await boot();
+    const legacy = app.schedules.create(task(spaceId, { title: "Legacy" }));
+    app.db.prepare("UPDATE schedules SET permission_mode = NULL WHERE id = ?").run(legacy.id);
+    expect(app.schedules.list(spaceId).find((s) => s.id === legacy.id)!.permissionMode).toBeNull();
+    expect((await firedSession(legacy.id)).mode).toBe("default");
+  });
+
+  it("leaves a teammate's clock to fire in the teammate's own mode", async () => {
+    /* A teammate's check-in is a schedule too, but it makes no run: it is a turn in the teammate's chat,
+       sent in the teammate's mode. Its row holds no mode, and the `default` a run would read from that
+       must not reach it. */
+    const { spaceId } = await boot();
+    const ops = app.team.create({ spaceId, name: "Ops", brief: "Keeps the lights on.", agentKind: "fake", permissionMode: "bypassPermissions",
+      schedule: { cron: "0 8 * * 1", prompt: "Check in." } });
+    app.db.prepare("UPDATE schedules SET next_run_at = ? WHERE id = ?").run(Date.now() - 1_000, ops.schedule!.id);
+    app.schedules.tick();
+    await waitFor(() => userMessages(ops.homeSessionId!).some((t) => t.startsWith("Check in.")));
+    await waitFor(() => app.sessions.get(ops.homeSessionId!).status === "idle");
+    expect(app.sessions.get(ops.homeSessionId!).permissionMode).toBe("bypassPermissions");
+    expect(app.runs.list({ spaceId, states: [], cursor: null, limit: 10 }).runs).toEqual([]);
   });
 });

@@ -66,6 +66,10 @@ describe("capabilitiesContext", () => {
     expect(capabilitiesContext([DOCS_PROVIDER_NAME])).not.toContain("pane_show");
   });
 
+  it("says a scheduled task runs no higher than the session that schedules it", () => {
+    expect(capabilitiesContext([SCHEDULE_PROVIDER_NAME])).toContain("It runs in this session's permission mode as it is when you schedule it, never higher.");
+  });
+
   it("tells a session to finish the task itself, naming only the tools it has, and what stays the user's", () => {
     const text = capabilitiesContext([BROWSER_PROVIDER_NAME, TERMINAL_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME]);
     // THE MUTANT: drop the section. The agent knows every tool and still writes "please sign in and
