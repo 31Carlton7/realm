@@ -75,7 +75,10 @@ why that matters and how to verify the WebGPU hero shader headlessly.
 `apps/server/bin/realm` runs Realm's server and drives it from a shell, with no window. It talks to
 the server on a home (`--home`, else `$REALM_HOME`, else `~/Realm`) through the port and token in
 that home's `daemon.json`, so a running app and a script see the same spaces, worktrees and
-terminals: a command started with `realm run` shows up in the sidebar as a terminal.
+terminals: a command started with `realm run` shows up in the sidebar as a terminal. That token opens
+only the CLI's own commands (`apps/server/src/rpc/cli-methods.ts`). It cannot answer a permission
+card, change the sandbox or a setting, or type into a terminal: any agent with the sandbox off can
+read the file, and the app's own token is never written there.
 
 ```sh
 realm serve &                                   # the server alone, headless (ready in under a second)

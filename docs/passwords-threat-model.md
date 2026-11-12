@@ -64,9 +64,10 @@ build); without it a harness has no keychain at all.
 - **The page sees what it is given.** A filled password is in the page's DOM, as in any browser. A
   same-site page compromised by XSS can read it; the menu limits this to the site's own passwords
   and the unlock to moments the person chose.
-- **A shell can answer cards.** Anything that can read `daemon.json` can call
-  `sessions.respondPermission`. This predates passwords; the unlock (Touch ID) is the gate a shell
-  cannot pass, unless the profile is set to "Without asking".
+- **A shell cannot answer cards over the socket.** `daemon.json` carries only the `realm` CLI's
+  token, which the server refuses for `sessions.respondPermission`. A shell that can run code as the
+  Realm binary can still reach the app's token through `safeStorage`; the unlock (Touch ID) remains
+  the gate it cannot pass, unless the profile is set to "Without asking".
 - **Clipboard.** Clipboard managers may record a copied password before Realm clears it.
 - **Off macOS.** No Touch ID or keychain. Saved and imported passwords still work: the person's own
   menu pick or Settings press stands in for the presence check, and agent fills there are refused.
