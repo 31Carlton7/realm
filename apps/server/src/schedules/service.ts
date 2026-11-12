@@ -24,7 +24,8 @@ const dedupeKeyFor = (scheduleId: string, dueAt: number) => `schedule:${schedule
  *
  * **A firing creates a RUN and stops there.** Attempts, the human gate, worktrees, restart recovery
  * and starting the run in the schedule's `permissionMode` are all `RunService`'s, already built and
- * already tested. A scheduler that dispatched sessions itself would be a second, worse answer to every one of those.
+ * already tested. A scheduler that dispatched sessions itself would be a second, worse answer to
+ * every one of those.
  *
  * **A missed firing is either caught up or admitted.** A Mac sleeps. A daily schedule on a laptop
  * that woke five hours late runs once (inside `SCHEDULE_CATCHUP_MS`); one that woke five days late
