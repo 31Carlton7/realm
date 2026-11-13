@@ -21,8 +21,13 @@ function fakes(opts: { grant?: string; ready?: HelperStart } = {}) {
     start: async (cb: typeof frame) => { frame = cb; },
     stop: () => { life.micStopped = true; },
   } as unknown as VoiceAudio;
-  const seen = { partials: [] as string[], done: [] as string[], problems: [] as string[] };
-  const events: DictationEvents = { partial: (t) => seen.partials.push(t), done: (t) => seen.done.push(t), problem: (m) => seen.problems.push(m) };
+  const seen = { partials: [] as string[], settled: [] as number[], levels: [] as number[], done: [] as string[], problems: [] as string[] };
+  const events: DictationEvents = {
+    partial: (t, settled) => { seen.partials.push(t); seen.settled.push(settled); },
+    level: (l) => seen.levels.push(l),
+    done: (t) => seen.done.push(t),
+    problem: (m) => seen.problems.push(m),
+  };
   let now = 0;
   const d = new Dictation({ helper, audio, events, now: () => now });
   const frames = (level: number, ms: number) => { for (let t = 0; t < ms; t += 64) { now += 64; frame(level, new Int16Array(1024)); } };
@@ -75,4 +80,19 @@ describe("Dictation", () => {
     f.emit({ t: "final", turn: 1, text: "late" });
     expect(f.seen.done).toEqual([]);
   });
+
+  it("passes on how much of what was heard is final, and the microphone's level", async () => {
+    const f = fakes();
+    await f.d.start();
+    f.emit({ t: "partial", turn: 1, text: "fix the login", settled: 8 });
+    expect(f.seen.settled.at(-1)).toBe(8);
+    // A recogniser that says nothing of it: nothing is final until the end.
+    f.emit({ t: "partial", turn: 1, text: "fix the login test" });
+    expect(f.seen.settled.at(-1)).toBe(0);
+    f.emit({ t: "partial", turn: 1, text: "fix", settled: 40 });
+    expect(f.seen.settled.at(-1)).toBe(3);
+    f.frames(0.05, 64);
+    expect(f.seen.levels).toEqual([0.05]);
+  });
 });
+

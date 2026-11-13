@@ -29,8 +29,9 @@ import { WhatChanged, hasChanges } from "./WhatChanged";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
 import type { Todo } from "./rich/tool-view";
-import { useDictation, type DictationPort } from "../../voice/use-dictation";
-import { placeDictation, spliceRun } from "../../voice/dictation-draft";
+import { nextMicLevel, useDictation, type DictationPort } from "../../voice/use-dictation";
+import { heardPieces, paintRange, placeDictation, spliceRun } from "../../voice/dictation-draft";
+import { prefersReducedMotion } from "../../reduced-motion";
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
@@ -796,18 +797,47 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    *  text renders. A range, not a point: toggling a bullet over three selected lines must leave those
    *  three lines selected, or the next ⌘⇧8 would undo only the line the caret collapsed onto. */
   const pendingSel = useRef<{ start: number; end: number } | null>(null);
+  /** The ring inside the mic that follows the voice: its level is written straight onto it each
+   *  frame, never through state, so a frame of audio re-renders nothing. */
+  const micRing = useRef<HTMLSpanElement>(null);
+  const micShown = useRef(0);
   const dictate = useDictation({
     port: dictation, draft, onDraftChange,
     caret: () => { const at = ta.current?.selectionEnd ?? draft.length; return chipAround(chips, at)?.end ?? at; },
     select: (at) => { pendingSel.current = { start: at, end: at }; },
+    level: (rms) => {
+      // Under Reduce motion the ring holds still at its listening size.
+      if (!micRing.current || prefersReducedMotion()) return;
+      micShown.current = nextMicLevel(micShown.current, rms);
+      micRing.current.style.setProperty("--mic-level", micShown.current.toFixed(3));
+    },
   });
+  useEffect(() => {
+    if (dictate.live) return;
+    micShown.current = 0;
+    micRing.current?.style.removeProperty("--mic-level");
+  }, [dictate.live]);
   /* While dictating, the words heard so far sit at the caret in the box, drawn as not yet typed, and
-     the draft itself is untouched until they land. */
+     the draft itself is untouched until they land. Each word is a piece of its own, so a new one eases
+     in and a final one takes the typed ink; once they land, the ones that were not final yet settle. */
   const dictating = dictate.live ? placeDictation(draft, dictate.live.at, dictate.live.words) : null;
   const dictatedAt = dictate.live ? Math.min(dictate.live.at, draft.length) : 0;
-  const painted = dictating && dictating.text !== draft
-    ? spliceRun<Segment & { dictated?: true }>(segments, dictatedAt, { text: dictating.text.slice(dictatedAt, dictating.text.length - (draft.length - dictatedAt)), kind: null, dictated: true })
+  type Painted = Segment & { heard?: { settled: number }; settling?: true };
+  const landed = dictate.landed?.draft === draft ? dictate.landed : null;
+  const painted: readonly Painted[] = dictating && dictate.live && dictating.text !== draft
+    ? spliceRun<Painted>(segments, dictatedAt, { text: dictating.text.slice(dictatedAt, dictating.text.length - (draft.length - dictatedAt)), kind: null, heard: { settled: dictating.start - dictatedAt + dictate.live.settled } })
+    : landed ? paintRange<Painted>(segments, landed.start + landed.from, landed.end, { settling: true })
     : segments;
+  /* The caret rides the end of the words being heard, where it will be once they land, so landing
+     moves nothing. */
+  const heardEnd = dictating?.end ?? null;
+  const heardText = dictating?.text;
+  useLayoutEffect(() => {
+    if (heardEnd === null) return;
+    ta.current?.setSelectionRange(heardEnd, heardEnd);
+    setCaret(heardEnd);
+    setSelEnd(heardEnd);
+  }, [heardEnd, heardText]);
   const paintedStarts = painted === segments ? segStarts : painted.map((_, i) => painted.slice(0, i).reduce((n, r) => n + r.text.length, 0));
   const mentionToken = useMemo(
     () => (mentionSkills.length > 0 || mentions ? mentionQueryAt(draft, Math.min(caret, draft.length)) : null),
@@ -1314,7 +1344,16 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
         <div ref={editorRef} className="composer-editor">
           <div ref={hl} className="composer-highlight" aria-hidden="true" data-caret-mirror>
             {painted.map((s, i) => {
-              if ("dictated" in s && s.dictated) return <span key={i} className="ch-dictating">{s.text}</span>;
+              if (s.heard) {
+                return (
+                  <span key={i} className="ch-dictating">
+                    {heardPieces(s.text, s.heard.settled).map((p, k) => (p.word
+                      ? <span key={k} className="ch-heard" data-settled={p.settled || undefined}>{p.text}</span>
+                      : p.text))}
+                  </span>
+                );
+              }
+              if (s.settling) return <span key={i} className="ch-settling">{s.text}</span>;
               if (!s.kind) return s.text;
               const link = s.kind === "element" ? linkOf(s.text) : null;
               /* Every chip wears an icon over the sigil that opens its token — a skill mention's
@@ -1490,6 +1529,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
                 disabled={dictate.live?.cleaning}
                 onMouseDown={(e) => e.preventDefault() /* the box keeps its focus and its caret */}
                 onClick={() => (dictate.live ? dictate.stop() : dictate.start())}>
+                <span ref={micRing} className="composer-dictate-ring" aria-hidden="true" />
                 <Icon name="mic" size={16} />
               </button>
             )}

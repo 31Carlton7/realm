@@ -47,3 +47,43 @@ export function spliceRun<T extends { text: string }>(runs: readonly T[], at: nu
   if (!placed) out.push(run);
   return out;
 }
+
+/**
+ * The mirror's runs with the plain text between `start` and `end` given `patch`: the words of a
+ * dictation that has just landed, so they can be drawn apart until they settle. A chip inside the
+ * range is left as it is.
+ */
+export function paintRange<T extends { text: string; kind: unknown }>(runs: readonly T[], start: number, end: number, patch: Partial<T>): T[] {
+  if (end <= start) return [...runs];
+  const out: T[] = [];
+  let pos = 0;
+  for (const r of runs) {
+    const from = pos, to = pos + r.text.length;
+    pos = to;
+    if (r.kind || to <= start || from >= end) { out.push(r); continue; }
+    const a = Math.max(start, from) - from, b = Math.min(end, to) - from;
+    if (a > 0) out.push({ ...r, text: r.text.slice(0, a) });
+    out.push({ ...r, ...patch, text: r.text.slice(a, b) });
+    if (b < r.text.length) out.push({ ...r, text: r.text.slice(b) });
+  }
+  return out;
+}
+
+/** One piece of the words being heard: a word, or the space between two. */
+export type HeardPiece = { text: string; word: boolean; settled: boolean };
+
+/**
+ * The words being heard, as the mirror draws them: each word its own piece, so a new one can ease
+ * in on its own, and settled once it ends inside the first `settled` characters, which the
+ * recogniser will not change again.
+ */
+export function heardPieces(text: string, settled: number): HeardPiece[] {
+  const out: HeardPiece[] = [];
+  let pos = 0;
+  for (const part of text.split(/(\s+)/)) {
+    if (!part) continue;
+    pos += part.length;
+    out.push({ text: part, word: !/^\s/.test(part), settled: pos <= settled });
+  }
+  return out;
+}

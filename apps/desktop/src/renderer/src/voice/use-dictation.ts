@@ -14,8 +14,12 @@ export type DictationPort = {
   clean(raw: string): Promise<DictationCleanResult>;
 };
 
-/** Words being dictated: where they go, and what has been heard so far. */
-type LiveDictation = { at: number; words: string; cleaning: boolean };
+/** Words being dictated: where they go, what has been heard so far, and how much of it is final. */
+type LiveDictation = { at: number; words: string; settled: number; cleaning: boolean };
+
+/** Words that have just landed, `start`–`end` in `draft`, the first `from` of them already in the
+ *  typed ink. The prompter eases the rest into it. */
+export type LandedDictation = { draft: string; start: number; end: number; from: number };
 
 export type DictationNote =
   | { kind: "cleaned" }
@@ -32,7 +36,7 @@ const keptText = (reason: string | undefined) => reason === "drifted"
  * caret, and a clean-up can be taken back to exactly what was heard for as long as the draft is the
  * one it landed in: typing or sending ends that, and the note with it.
  */
-export function useDictation({ port, draft, onDraftChange, caret, select }: {
+export function useDictation({ port, draft, onDraftChange, caret, select, level }: {
   port: DictationPort | null;
   draft: string;
   onDraftChange(text: string): void;
@@ -40,10 +44,16 @@ export function useDictation({ port, draft, onDraftChange, caret, select }: {
   caret(): number;
   /** Put the caret here once the draft has been painted. */
   select(at: number): void;
+  /** The microphone's level each frame, 0–1 RMS. */
+  level?(rms: number): void;
 }) {
   const [live, setLive] = useState<LiveDictation | null>(null);
   const [cleaned, setCleaned] = useState<CleanedRecord | null>(null);
   const [note, setNote] = useState<DictationNote | null>(null);
+  const [landed, setLanded] = useState<LandedDictation | null>(null);
+  const settledNow = useRef(0);
+  const levelNow = useRef(level);
+  levelNow.current = level;
   const control = useRef<DictationControl | null>(null);
   const draftNow = useRef(draft);
   draftNow.current = draft;
@@ -53,6 +63,7 @@ export function useDictation({ port, draft, onDraftChange, caret, select }: {
   useEffect(() => () => control.current?.cancel(), []);
   useEffect(() => {
     if (noted.current !== null && draft !== noted.current) { noted.current = null; setNote(null); setCleaned(null); }
+    setLanded((l) => (l && l.draft !== draft ? null : l));
   }, [draft]);
 
   const show = (next: DictationNote, about: string) => { noted.current = about; setNote(next); };
@@ -61,10 +72,12 @@ export function useDictation({ port, draft, onDraftChange, caret, select }: {
   const finish = async (at: number, raw: string) => {
     control.current = null;
     if (!raw || !port) { setLive(null); return; }
-    setLive({ at, words: raw, cleaning: true });
+    setLive({ at, words: raw, settled: settledNow.current, cleaning: true });
     const result = await port.clean(raw).catch((): DictationCleanResult => ({ outcome: "failed", text: raw }));
     const placed = placeDictation(draftNow.current, at, result.text);
     setLive(null);
+    // Cleaned words are new words: all of them settle. Raw ones keep what was already final.
+    setLanded({ draft: placed.text, start: placed.start, end: placed.end, from: result.text === raw ? Math.min(settledNow.current, raw.length) : 0 });
     onDraftChange(placed.text);
     select(placed.end);
     if (result.outcome === "cleaned" && result.text !== raw) {
@@ -79,9 +92,15 @@ export function useDictation({ port, draft, onDraftChange, caret, select }: {
     if (!port || control.current) return;
     const at = caret();
     dismiss();
-    setLive({ at, words: "", cleaning: false });
+    setLanded(null);
+    settledNow.current = 0;
+    setLive({ at, words: "", settled: 0, cleaning: false });
     const c = port.open({
-      partial: (words) => setLive((l) => (l && !l.cleaning ? { ...l, words } : l)),
+      partial: (words, settled) => {
+        settledNow.current = settled;
+        setLive((l) => (l && !l.cleaning ? { ...l, words, settled } : l));
+      },
+      level: (rms) => levelNow.current?.(rms),
       done: (raw) => void finish(at, raw),
       problem: (message) => { control.current = null; setLive(null); show({ kind: "problem", text: message }, draftNow.current); },
     });
@@ -101,7 +120,7 @@ export function useDictation({ port, draft, onDraftChange, caret, select }: {
     return true;
   };
 
-  return { live, note, start, stop, undo, dismiss };
+  return { live, landed, note, start, stop, undo, dismiss };
 }
 
 /** Dictation through this Mac's own recogniser, where this build has it. */
@@ -109,4 +128,17 @@ export function desktopDictation(deps: { clean: DictationPort["clean"]; micropho
   const helper = desktopSpeechHelper();
   if (!helper) return null;
   return { open: (events) => new Dictation({ helper, audio: new WebVoiceAudio(deps.microphone()), events }), clean: deps.clean };
+}
+
+/** The RMS a voice close to the microphone reaches: the mic's ring is at its full size here. */
+const FULL_RMS = 0.2;
+
+/**
+ * The mic ring's size for this frame, 0–1, from the last one and the microphone's RMS: up at once
+ * when the voice rises, down over a few frames when it falls, so the ring follows syllables without
+ * flickering between them. The square root spreads a speaking voice's range across the ring.
+ */
+export function nextMicLevel(shown: number, rms: number): number {
+  const target = Math.min(1, Math.sqrt(Math.max(0, rms) / FULL_RMS));
+  return target >= shown ? target : shown + (target - shown) * 0.25;
 }

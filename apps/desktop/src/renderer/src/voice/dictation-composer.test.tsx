@@ -24,7 +24,7 @@ vi.mock("./use-dictation", async (actual) => {
     desktopDictation: (deps: { clean: DictationPort["clean"] }): DictationPort => ({
       open: (events) => {
         mic.events = events;
-        return { start: async () => events.partial(""), stop: () => { mic.stops += 1; }, cancel: () => {} };
+        return { start: async () => events.partial("", 0), stop: () => { mic.stops += 1; }, cancel: () => {} };
       },
       clean: (...args: [string]) => { mic.cleaned.push(args); return mic.clean ? mic.clean(args[0]) : deps.clean(...args); },
     }),
@@ -58,7 +58,8 @@ const typeAt = (value: string, at: number) => {
   box().setSelectionRange(at, at);
   fireEvent.select(box());
 };
-const heard = (text: string) => act(() => mic.events!.partial(text));
+const heard = (text: string, settled = 0) => act(() => mic.events!.partial(text, settled));
+const words = () => [...document.querySelectorAll(".composer-highlight .ch-heard")].map((w) => `${w.textContent}${w.hasAttribute("data-settled") ? "" : "?"}`);
 const finished = async (text: string) => { await act(async () => { mic.events!.done(text); await new Promise((res) => setTimeout(res, 0)); }); };
 
 describe("dictating into the prompter", () => {
@@ -201,5 +202,72 @@ describe("dictating into the prompter", () => {
     await finished("um fix it");
     expect(store.getState().sessions["se1"]?.model).toBe("claude-opus-5-5");
     expect(api.calls.some((c) => /setOptions|setAgent|setModel/.test(c))).toBe(false);
+  });
+
+  it("draws each word on its own, quiet until the recogniser has it final, and settles the rest as they land", async () => {
+    const { store } = await mount();
+    typeAt("Then ", 5);
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    heard("run the", 0);
+    expect(words()).toEqual(["run?", "the?"]);
+    // THE MUTANT: every word drawn in one ink, final or not.
+    heard("run the build", "run ".length);
+    expect(words()).toEqual(["run", "the?", "build?"]);
+    expect(dictating()).toBe("run the build");
+
+    await finished("run the build");
+    expect(store.getState().drafts["se1"]).toBe("Then run the build");
+    expect(words()).toEqual([]);
+    // What was final already is typed text; the rest eases into the typed ink.
+    expect(document.querySelector(".composer-highlight .ch-settling")?.textContent).toBe("the build");
+    fireEvent.change(box(), { target: { value: "Then run the build now" } });
+    expect(document.querySelector(".composer-highlight .ch-settling")).toBeNull();
+  });
+
+  it("keeps the caret at the end of the words being heard, where they land", async () => {
+    const { store } = await mount();
+    typeAt("Fix  please", 4);
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    heard("the login");
+    expect(box().selectionStart).toBe("Fix the login".length);
+    expect(box().selectionEnd).toBe("Fix the login".length);
+    heard("the login test");
+    expect(box().selectionStart).toBe("Fix the login test".length);
+    await finished("the login test");
+    expect(store.getState().drafts["se1"]).toBe("Fix the login test please");
+    expect(box().selectionStart).toBe("Fix the login test".length);
+  });
+
+  it("swells the mic's ring with the voice, and holds it still under Reduce motion", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const ring = () => document.querySelector<HTMLElement>(".composer-dictate .composer-dictate-ring")!;
+    act(() => mic.events!.level(0.2));
+    expect(ring().style.getPropertyValue("--mic-level")).toBe("1.000");
+    act(() => mic.events!.level(0));
+    expect(Number(ring().style.getPropertyValue("--mic-level"))).toBeLessThan(1);
+    await finished("");
+    expect(ring().style.getPropertyValue("--mic-level")).toBe("");
+
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q }) as MediaQueryList);
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+      // THE MUTANT: the level written whatever the preference, so the ring keeps moving.
+      act(() => mic.events!.level(0.2));
+      expect(ring().style.getPropertyValue("--mic-level")).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("offers the mic and nothing that opens a conversation", async () => {
+    const { store } = await mount();
+    const actions = [...document.querySelectorAll(".composer button")].map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(actions).toContain("Dictate");
+    // THE MUTANT: the wave button back beside the mic.
+    expect(actions.filter((a) => a && /voice|talk|conversation/i.test(a))).toEqual([]);
+    expect(document.querySelector(".composer-voice, .voice-view")).toBeNull();
+    const state = store.getState() as unknown as Record<string, unknown>;
+    for (const key of ["voice", "openVoice", "closeVoice", "sendSpoken"]) expect(state[key], key).toBeUndefined();
   });
 });

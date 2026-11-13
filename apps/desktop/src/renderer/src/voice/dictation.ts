@@ -10,8 +10,10 @@ const BATCH_SAMPLES = 1_600;
 const TURN = 1;
 
 export type DictationEvents = {
-  /** Everything heard so far, as the recogniser has it now. */
-  partial(text: string): void;
+  /** Everything heard so far, as the recogniser has it now. Its first `settled` characters are final. */
+  partial(text: string, settled: number): void;
+  /** The microphone's level, 0–1 RMS, once per frame while listening. */
+  level(rms: number): void;
   /** What was said, once dictation has stopped. Empty when nothing was. */
   done(text: string): void;
   /** Dictation could not start, or broke. */
@@ -60,7 +62,7 @@ export class Dictation {
       return;
     }
     if (this.finished) audio.stop();
-    else events.partial("");
+    else events.partial("", 0);
   }
 
   /** Stop listening and finish what was heard: `done` follows once the recogniser has the last word. */
@@ -82,6 +84,7 @@ export class Dictation {
 
   private onFrame(level: number, samples: Int16Array): void {
     if (this.ending || this.finished) return;
+    this.deps.events.level(level);
     this.outgoing.push(samples);
     this.outgoingSize += samples.length;
     if (this.outgoingSize >= BATCH_SAMPLES) this.flush();
@@ -107,7 +110,7 @@ export class Dictation {
     if (e.t === "error") { this.fail(e.message); return; }
     if ((e.t !== "partial" && e.t !== "final") || e.turn !== TURN) return;
     this.heard = e.text;
-    if (e.t === "partial") { this.deps.events.partial(e.text); return; }
+    if (e.t === "partial") { this.deps.events.partial(e.text, Math.min(e.settled ?? 0, e.text.length)); return; }
     this.finish(e.text);
   }
 
