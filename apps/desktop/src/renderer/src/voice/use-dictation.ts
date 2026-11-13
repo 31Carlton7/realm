@@ -19,7 +19,7 @@ type LiveDictation = { at: number; words: string; settled: number; cleaning: boo
 
 /** Words that have just landed, `start`–`end` in `draft`, the first `from` of them already in the
  *  typed ink. The prompter eases the rest into it. */
-export type LandedDictation = { draft: string; start: number; end: number; from: number };
+type LandedDictation = { draft: string; start: number; end: number; from: number };
 
 export type DictationNote =
   | { kind: "cleaned" }

@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-export const VOICE_CHANNEL = "realm:voice";
+const VOICE_CHANNEL = "realm:voice";
 
 /** What the renderer may tell the helper. Audio travels on its own channel, as bytes. */
 const COMMANDS = new Set(["listen", "end", "cancel"]);

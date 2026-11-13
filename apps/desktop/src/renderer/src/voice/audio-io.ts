@@ -3,14 +3,14 @@
  * samples, the helper's rate.
  */
 
-export const SPEECH_RATE = 16_000;
+const SPEECH_RATE = 16_000;
 
 export interface VoiceAudio {
   start(onFrame: (level: number, samples: Int16Array) => void): Promise<void>;
   stop(): void;
 }
 
-export function downsample(input: Float32Array, fromRate: number, toRate = SPEECH_RATE): Int16Array {
+function downsample(input: Float32Array, fromRate: number, toRate = SPEECH_RATE): Int16Array {
   const ratio = fromRate / toRate;
   const out = new Int16Array(Math.floor(input.length / ratio));
   for (let i = 0; i < out.length; i++) {

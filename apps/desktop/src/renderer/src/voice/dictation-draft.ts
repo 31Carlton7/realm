@@ -70,7 +70,7 @@ export function paintRange<T extends { text: string; kind: unknown }>(runs: read
 }
 
 /** One piece of the words being heard: a word, or the space between two. */
-export type HeardPiece = { text: string; word: boolean; settled: boolean };
+type HeardPiece = { text: string; word: boolean; settled: boolean };
 
 /**
  * The words being heard, as the mirror draws them: each word its own piece, so a new one can ease

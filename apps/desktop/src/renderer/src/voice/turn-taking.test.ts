@@ -25,7 +25,7 @@ describe("TurnTaker", () => {
     expect(events).toEqual([]);
     ({ t, events } = run(tt, t, 200, VOICE));
     expect(events).toEqual([]);
-    // THE MUTANT: end the turn on the first quiet frame. Every breath would send half a sentence.
+    // THE MUTANT: end the turn on the first quiet frame. Every breath would end the dictation.
     ({ events } = run(tt, t, DEFAULT_TURN.endOfTurnMs + FRAME * 2, QUIET));
     expect(events).toEqual([{ type: "end" }]);
   });
