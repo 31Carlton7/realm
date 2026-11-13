@@ -1,11 +1,12 @@
 # Starts the Swift helpers on the oldest macOS GitHub runs, so a helper the app ships cannot need a
 # newer macOS than the app does without this failing (#411: 2.11.1's were built for 27.2, the OS of the
-# Mac that built them, while the app says it runs on 13.0).
+# Mac that built them, while the app says it runs on 13.0). GitHub no longer runs macos-14, so the
+# oldest is macos-15.
 #
 #   - Built: compiles the helpers on the newest runner, as a release Mac on a newer macOS would, and
-#     starts them on macOS 14. Fails when one does not start.
+#     starts them on macOS 15. Fails when one does not start.
 #   - Published (run by hand, with a release tag): starts the helpers inside that release's dmg on
-#     macOS 14 and 15, to see what a shipped build does.
+#     macOS 15, to see what a shipped build does.
 name: Native helpers
 
 on:
@@ -13,6 +14,7 @@ on:
     paths:
       - apps/desktop/native/**
       - apps/desktop/scripts/build-native.mjs
+      - apps/desktop/scripts/lib/macos-minimum.mjs
       - apps/desktop/scripts/native-helpers.mjs
       - apps/desktop/scripts/start-native-helpers.mjs
       - .github/workflows/native-helpers.yml
@@ -44,13 +46,9 @@ jobs:
           if-no-files-found: error
 
   start-built:
-    name: Start built (${{ matrix.runner }})
+    name: Start built (macos-15)
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [macos-14, macos-15]
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -66,17 +64,13 @@ jobs:
       - run: node apps/desktop/scripts/start-native-helpers.mjs helpers
 
   start-published:
-    name: Start ${{ inputs.release || 'v2.12.0' }} (${{ matrix.runner }})
-    if: inputs.release != '' || github.event_name == 'pull_request'
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [macos-14, macos-15]
-    runs-on: ${{ matrix.runner }}
+    name: Start ${{ inputs.release }} (macos-15)
+    if: inputs.release != ''
+    runs-on: macos-15
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE: ${{ inputs.release || 'v2.12.0' }}
+      RELEASE: ${{ inputs.release }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
