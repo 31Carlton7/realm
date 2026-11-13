@@ -84,8 +84,8 @@ export function SandboxPanel({ spaceId }: { spaceId: string }) {
 
       {prefs.posture !== "off" && (
         <div className="field"><span>Network</span>
-          <label className="checkbox">
-            <input type="checkbox" checked={prefs.network} onChange={(e) => write({ ...prefs, network: e.target.checked })} />
+          <label className="sandbox-network">
+            <input type="checkbox" className="checkbox" checked={prefs.network} onChange={(e) => write({ ...prefs, network: e.target.checked })} />
             Allow network access
           </label>
           <p className="muted">

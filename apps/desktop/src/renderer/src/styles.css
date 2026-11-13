@@ -7708,6 +7708,8 @@ select { appearance: none; padding-right: 22px;
    radio keeps its own size and sits on the middle of the name's line. */
 .field .sandbox-choice .sandbox-posture input[type="radio"] { height: auto; align-self: center; }
 .sandbox-posture-name { grid-row: 1; font-size: 13px; }
+/* The app's checkbox is the input's own skin (`.checkbox`); its words sit beside it on one line. */
+.sandbox-network { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 /* Under the name, not under the radio: the sentence belongs to the choice, and indenting it past the
    control is what keeps three of them from reading as one paragraph. */
 .sandbox-posture-detail { grid-column: 2; font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
