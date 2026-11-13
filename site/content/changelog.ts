@@ -21,6 +21,39 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-12-0",
+    title: "Realm v2.12.0",
+    date: "2026-11-12",
+    version: "v2.12.0",
+    area: "Release",
+    summary:
+      "Ask an agent to make a space, pick Gemini's models from the installed CLI, and a tidier Realm for iPhone.",
+    short: "Ask an agent to make a space, and Gemini's models",
+    body: [
+      { kind: "h", text: "Spaces" },
+      { kind: "ul", items: [
+        "**Ask an agent to make a space.** \"Make me a space for taxes\" makes it, in a turn you started, with a line in the chat and an Open button. \"Take me there\" lands on a new session in it.",
+      ] },
+      { kind: "h", text: "Gemini" },
+      { kind: "ul", items: [
+        "**Gemini's models are in the picker,** read from the installed CLI, with Auto as the default.",
+        "**A signed-out Gemini says how to sign in.** Log in with Google no longer works on a personal account, so the hint says to pick an API key, Vertex AI or a gateway with /auth.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**Side-panel tabs give up their titles before the strip scrolls,** so six fit.",
+        "**Settings ▸ Sandbox:** each radio sits on its name's line, and Allow network access is a proper checkbox.",
+      ] },
+      { kind: "h", text: "Realm for iPhone" },
+      { kind: "ul", items: [
+        "**Confirm and rename ask on Realm's own sheets,** not iOS glass dialogs.",
+        "**The soft edges end at the bar and the composer.**",
+        "**The queued card is tidied** to one inset and one left edge.",
+        "**A new branch is pushed and its pull request opened in one confirm.**",
+      ] },
+    ],
+  },
+  {
     slug: "v2-11-1",
     title: "Realm v2.11.1",
     date: "2026-11-12",
