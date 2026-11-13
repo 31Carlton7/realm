@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.13.1 - 2026-11-13
+
+- An agent can no longer approve its own permission cards or switch off the sandbox through Realm's local socket. The token in `~/Realm/daemon.json` used to open every method Realm's server has, and an agent running with the sandbox off could read that file. That token now opens only what the `realm` command line itself needs, and the app keeps the full one to itself, in no file, command line or environment. There is nothing to do after updating.
+- `realm pair` on a Mac now shows the code in the terminal, and you accept the phone in Realm's window. On a server started with `realm serve`, where there is no window, it still asks in the terminal.
+- What this does not close: with the sandbox off, an agent running as you can still edit Realm's database file directly, and on Linux without a keyring the app's token is not really sealed between launches. The sandbox is what protects those files, so leave it on for agents you do not fully trust.
+- Swipe phases and the live iPhone picture work on Macs older than the one that built Realm. Every native helper was built for the build Mac's macOS (27.2), so on macOS 15 two of them, the one that reads swipe phases and the one behind the live iPhone picture, would not start. All of them are now built for macOS 13 and later, except dictation's, which needs macOS 26. A helper built for a newer macOS than it should be now fails the package before it can ship.
+
 ## v2.13.0 - 2026-11-13
 
 - Dictation in the prompter. Click the mic and speak: your words appear in the prompter as you say them, in quiet ink until the recogniser is sure, then settle into normal text you can edit before sending. A second click, Esc or a 2.5 second pause stops it. Recognition is this Mac's own, so the audio never leaves the Mac. It needs macOS 26 or later, and on an older Mac there is no mic. Abdul came up with talking to Realm, and this is the part of his ask that ships first.
