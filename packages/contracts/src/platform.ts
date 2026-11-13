@@ -52,12 +52,14 @@ export type PlatformCapabilities = {
  *  built for this (scripts/build-native.mjs, held to it by scripts/build-native.test.ts). */
 export const DICTATION_MACOS = "26.0";
 
-/** Whether macOS `version` ("26.1", "27.2.0") is `minimum` or later. macOS 26 reports itself as 16
- *  to a binary built against an older SDK, as Big Sur reported 10.16, so 16 reads as 26. */
+/** Whether macOS `version` ("26.1", "27.2.0") is `minimum` or later. macOS 26 and later report
+ *  themselves ten lower to a binary built against an older SDK (26 as 16, 27 as 17), as Big Sur
+ *  reported 10.16. No real macOS is numbered 16 to 25, so any of those reads as ten higher. */
 export function macosAtLeast(version: string, minimum: string): boolean {
   const parts = (v: string) => v.split(".").map((n) => Number.parseInt(n, 10) || 0);
   const have = parts(version);
-  if (have[0] === 16) have[0] = 26;
+  const major = have[0] ?? 0;
+  if (major >= 16 && major <= 25) have[0] = major + 10;
   const need = parts(minimum);
   for (let i = 0; i < Math.max(have.length, need.length); i++) {
     const a = have[i] ?? 0, b = need[i] ?? 0;

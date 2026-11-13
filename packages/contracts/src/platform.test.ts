@@ -26,8 +26,8 @@ describe("platformCapabilities", () => {
 describe("dictation's macOS", () => {
   it("is offered from macOS 26, where SpeechAnalyzer starts, and not below", () => {
     expect(DICTATION_MACOS).toBe("26.0");
-    for (const v of ["26.0", "26.0.0", "26.1", "27.2.0", "16.0"]) expect(platformCapabilities("darwin", v).dictation, v).toBe(true);
-    for (const v of ["15.7.2", "15.0", "14.6", "25.9"]) expect(platformCapabilities("darwin", v).dictation, v).toBe(false);
+    for (const v of ["26.0", "26.0.0", "26.1", "27.2.0", "16.0", "17.2", "25.9"]) expect(platformCapabilities("darwin", v).dictation, v).toBe(true);
+    for (const v of ["15.7.2", "15.0", "14.6"]) expect(platformCapabilities("darwin", v).dictation, v).toBe(false);
     expect(platformCapabilities("win32", "27.0").dictation).toBe(false);
   });
 
@@ -36,6 +36,13 @@ describe("dictation's macOS", () => {
     expect(macosAtLeast("26", "26.0")).toBe(true);
     expect(macosAtLeast("26.0", "26.1")).toBe(false);
     expect(macosAtLeast("100.0", "26.0")).toBe(true);
+  });
+
+  it("reads a major from 16 to 25 as the macOS ten higher that reported it", () => {
+    expect(macosAtLeast("17.2", "27.0")).toBe(true);
+    expect(macosAtLeast("17.0", "27.1")).toBe(false);
+    expect(macosAtLeast("16.1", "26.1")).toBe(true);
+    expect(macosAtLeast("15.7", "26.0")).toBe(false);
   });
 });
 
