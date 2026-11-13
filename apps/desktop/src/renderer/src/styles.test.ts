@@ -3058,11 +3058,29 @@ describe("a side pane's tab strip", () => {
        end over. The reach may be no more than the gap between the close and its tab's edges. */
     const close = bodiesFor(".pane-tab .pane-tab-close").join(" ");
     const tab = bodiesFor(".pane-tab").join(" ");
-    const room = Math.min(Number(/margin-right: (\d+)px/.exec(close)?.[1]),
-      (Number(/height: (\d+)px/.exec(tab)?.[1]) - Number(/--btn-h: (\d+)px/.exec(close)?.[1])) / 2);
-    const reach = -Number(/inset: (-?\d+)px/.exec(bodiesFor(".pane-tab > .icon-btn::after").join(" "))?.[1]);
-    expect(room).toBe(3);
-    expect(reach).toBeLessThanOrEqual(room);
+    const size = Number(/--tab-close: (\d+)px/.exec(tab)?.[1]);
+    const inset = Number(/--tab-close-in: (\d+)px/.exec(tab)?.[1]);
+    expect(inset).toBe(3);
+    expect(close).toContain("top: var(--tab-close-in); right: var(--tab-close-in)");
+    expect(close).toContain("--btn-h: var(--tab-close)");
+    expect((Number(/height: (\d+)px/.exec(tab)?.[1]) - size) / 2).toBe(inset);
+    expect(bodiesFor(".pane-tab > .icon-btn::after").join(" ")).toContain("inset: calc(var(--tab-close-in) * -1)");
+  });
+
+  it("gives up the bar's meta first, then a tab's title, and never a tab's glyph", () => {
+    /* The order a crowded strip yields in. Four tabs sat at an 88px floor while "● not connected"
+       kept 93px of the bar, and a strip past the bar's width scrolled its first tab under the
+       dissolve as a bare "…". THE MUTANTS: the meta shrinking at the tabs' rate; a tab's floor above
+       its glyph; a hidden tab's close taking width in the row, which is the title's. */
+    const shrink = (sel: string) => Number(/flex: \d+ (\d+) /.exec(bodiesFor(sel).join(" "))?.[1]);
+    expect(shrink(".pane-strip ~ .panel-meta")).toBeGreaterThan(shrink(".pane-tab") * 100);
+    // The floor is the label's padding either side of its 14px glyph, and nothing else.
+    expect(bodiesFor(".pane-tab").join(" ")).toContain("min-width: calc(var(--tab-pad) * 2 + 14px)");
+    expect(bodiesFor(".pane-tab-label").join(" ")).toContain("padding: 0 var(--tab-pad)");
+    expect(bodiesFor(".pane-tab .pane-tab-close").join(" ")).toContain("position: absolute");
+    // The tab showing keeps its close and the start of its name, so it reserves both.
+    expect(bodiesFor(".pane-tab[data-active]").join(" ")).toContain("min-width: 88px");
+    expect(bodiesFor(".pane-tab[data-active] .pane-tab-label").join(" ")).toContain("padding-right: calc(var(--tab-close) + var(--tab-close-in) * 2)");
   });
 
   it("draws a focused tab's ring inside the tab, where the strip's clip cannot cut it", () => {
