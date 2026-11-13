@@ -251,7 +251,7 @@ async function main() {
 
   /* ── R2: a new server, and the window finds it ───────────────────────────────────────────── */
   const second = await until(async () => { const s = ourDaemon(); return s && s.bootId !== first.bootId ? s : null; }, 40_000, "the respawned daemon");
-  check("R2 the respawned server is somewhere new", second.port !== first.port && second.token !== first.token, { before: first.port, after: second.port });
+  check("R2 the respawned server is somewhere new", second.port !== first.port && second.cliToken !== first.cliToken, { before: first.port, after: second.port });
   await until(async () => (await bannerText(c)) === null, 40_000, "the window to reconnect");
   const backAfterMs = Date.now() - killedAt;
   check("R2 the window reconnected by itself", true, { secondsAfterTheKill: Math.round(backAfterMs / 100) / 10 });

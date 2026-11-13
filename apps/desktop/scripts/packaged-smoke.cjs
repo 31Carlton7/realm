@@ -22,6 +22,7 @@ const { join } = require("node:path");
 const os = require("node:os");
 
 const PORT = Number(process.env.REALM_SMOKE_PORT ?? 8790);
+const CDP_PORT = PORT + 1;
 const appDir = process.argv[2] ?? join(__dirname, "..", "release", "mac-arm64", "Realm.app");
 const bin = join(appDir, "Contents", "MacOS", "Realm");
 if (!existsSync(bin)) { console.error(`no packaged binary at ${bin} — run \`pnpm dist:dir\` first`); process.exit(1); }
@@ -37,6 +38,8 @@ const env = {
   // outlives the smoke test — a scratch home with a server still holding it open, left behind on
   // every run. The child shape is also what the exit assertions below already assume.
   REALM_DAEMON: "0",
+  // For the app's RPC token, which only main and its windows hold (see appToken below).
+  REALM_DEVTOOLS_PORT: String(CDP_PORT),
 };
 
 const results = [];
@@ -44,12 +47,19 @@ const check = (name, ok, detail) => { results.push({ name, ok, detail }); consol
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 
-/** The RPC token realm-server minted at boot. It lives only in the 0600 `<home>/daemon.json` — never
- *  on stdout — and the socket refuses a handshake that does not offer it as a subprotocol. */
-function daemonToken(home) {
+/** The app's RPC token, read from the window over CDP. `daemon.json` holds only the `realm` CLI's,
+ *  which cannot open a terminal's input, and a packaged build writes the app's nowhere. */
+async function appToken() {
   try {
-    const raw = JSON.parse(readFileSync(join(home, "daemon.json"), "utf8"));
-    return typeof raw.token === "string" && raw.token ? raw.token : null;
+    const page = (await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()).find((t) => t.type === "page" && t.url.startsWith("file://"));
+    if (!page) return null;
+    const cdp = new WebSocket(page.webSocketDebuggerUrl);
+    await new Promise((res, rej) => { cdp.onopen = res; cdp.onerror = () => rej(new Error("cdp")); });
+    const reply = new Promise((res) => { cdp.onmessage = (m) => res(JSON.parse(m.data.toString())); });
+    cdp.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression: "window.realm?.token || null", returnByValue: true } }));
+    const token = (await reply).result?.result?.value ?? null;
+    cdp.close();
+    return token;
   } catch { return null; }
 }
 
@@ -59,7 +69,7 @@ async function connect() {
   for (;;) {
     if (Date.now() > deadline) throw new Error("server socket never opened");
     try {
-      const token = daemonToken(home);
+      const token = await appToken();
       if (!token) { await sleep(500); continue; }
       const ws = new WebSocket(`ws://127.0.0.1:${PORT}`, [`realm.${token}`]);
       await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error("connect failed")); });

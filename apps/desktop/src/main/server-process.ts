@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { app } from "electron";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { APP_TOKEN_STDIN_ENV } from "@realm/contracts";
 import { phoneScreenEnv } from "./phone-screen";
 
 export type ServerInfo = { port: number; home: string };
@@ -64,6 +65,14 @@ export function serverEntry(): string {
   return entry;
 }
 
+/** Write the app's token as the first line of the server's stdin, and close it. A pipe is the one
+ *  channel to the child that another process running as this user cannot read: `ps -axww` shows a
+ *  command line, and `ps -E` an environment. */
+function handOver(child: ChildProcess, appToken: string): void {
+  child.stdin?.on("error", () => { /* a server that died at once says so on its own */ });
+  child.stdin?.end(`${appToken}\n`);
+}
+
 /**
  * Start realm-server as a DETACHED daemon: its own session and process group, output on a log file,
  * and unreferenced so this process can exit without waiting for it.
@@ -77,21 +86,22 @@ export function serverEntry(): string {
  * caller learns the daemon is up the same way a launcher that did not spawn it does — by watching for
  * the state file and probing the port. One readiness path instead of two.
  */
-export function spawnDaemon(d: { home: string; logFd: number }): ChildProcess {
+export function spawnDaemon(d: { home: string; logFd: number; appToken: string }): ChildProcess {
   const entry = serverEntry();
-  const env = { ...process.env, ...phoneScreenEnv(), REALM_HOME: d.home };
-  const stdio: ["ignore", number, number] = ["ignore", d.logFd, d.logFd];
+  const env = { ...process.env, ...phoneScreenEnv(), REALM_HOME: d.home, [APP_TOKEN_STDIN_ENV]: "1" };
+  const stdio: ["pipe", number, number] = ["pipe", d.logFd, d.logFd];
   const nodeBin = process.env.REALM_NODE;
   const child = nodeBin
     ? spawn(nodeBin, [entry], { env, stdio, detached: true, windowsHide: true })
     : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio, detached: true, windowsHide: true });
+  handOver(child, d.appToken);
   // Without this, Electron's event loop is held open by a child it no longer wants to own, and quit
   // waits on a process that is meant to outlive it.
   child.unref();
   return child;
 }
 
-export function startServer(opts: { home?: string } = {}): { child: ChildProcess; ready: Promise<ServerInfo> } {
+export function startServer(opts: { home?: string; appToken: string }): { child: ChildProcess; ready: Promise<ServerInfo> } {
   const entry = serverEntry();
   // Electron's own binary IS a Node runtime under ELECTRON_RUN_AS_NODE — the packaged app depends on
   // no system node at all (a Finder launch has launchd's minimal PATH: no node, no Homebrew).
@@ -99,10 +109,11 @@ export function startServer(opts: { home?: string } = {}): { child: ChildProcess
   // agent CLIs spawned downstream never inherit it. REALM_NODE stays as an escape hatch: point it at
   // a specific node binary and the old spawn shape is used unchanged.
   const nodeBin = process.env.REALM_NODE;
-  const env = { ...process.env, ...phoneScreenEnv(), ...(opts.home ? { REALM_HOME: opts.home } : {}) };
+  const env = { ...process.env, ...phoneScreenEnv(), ...(opts.home ? { REALM_HOME: opts.home } : {}), [APP_TOKEN_STDIN_ENV]: "1" };
   const child = nodeBin
-    ? spawn(nodeBin, [entry], { env, stdio: ["ignore", "pipe", "inherit"], windowsHide: true })
-    : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "inherit"], windowsHide: true });
+    ? spawn(nodeBin, [entry], { env, stdio: ["pipe", "pipe", "inherit"], windowsHide: true })
+    : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["pipe", "pipe", "inherit"], windowsHide: true });
+  handOver(child, opts.appToken);
   const ready = new Promise<ServerInfo>((resolve, reject) => {
     const parser = new ReadyLineParser();
     const stdout = child.stdout!;

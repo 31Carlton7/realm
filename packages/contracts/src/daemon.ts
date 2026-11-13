@@ -20,8 +20,14 @@ export const DaemonStateSchema = z.object({
    *  entirely; an id the launcher can ask the socket for and compare cannot be either. */
   bootId: z.string().min(1),
   port: z.number().int().min(1).max(65535),
-  /** The RPC token, which is why the file is written 0600. */
+  /** The `realm` CLI's token, which is why the file is written 0600. An agent with the sandbox off
+   *  can read this file, so the token opens only the CLI's own methods (`rpc/cli-methods.ts`). The
+   *  app's own token, which opens everything, is never written here: main hands it to the server
+   *  over the spawn pipe and keeps a `safeStorage`-sealed copy in `DAEMON_SEALED_TOKEN_FILE`. */
   token: z.string().min(1),
+  /** SHA-256 (hex) of the app's token, so an app reattaching to a running server can tell whether
+   *  its sealed copy is this server's. Absent on a server from before the split. */
+  appTokenSha256: z.string().optional(),
   home: z.string().min(1),
   protocol: z.number().int().positive(),
   /** Which CODE the daemon is running, for the update case — see `bundleIdOf`. */
@@ -34,6 +40,12 @@ export type DaemonState = z.infer<typeof DaemonStateSchema>;
 
 export const DAEMON_STATE_FILE = "daemon.json";
 export const DAEMON_LOCK_FILE = "daemon.lock";
+/** The app's token, sealed by Electron's `safeStorage`, for an app reattaching to a daemon that
+ *  outlived the one that started it. */
+export const DAEMON_SEALED_TOKEN_FILE = "daemon.sealed";
+/** Set in the server's environment when its parent writes the app's token as the first line of its
+ *  stdin. The value is only a flag; the token never travels in an environment. */
+export const APP_TOKEN_STDIN_ENV = "REALM_APP_TOKEN_STDIN";
 
 /**
  * How a handoff is taken when the running daemon is not this build's.

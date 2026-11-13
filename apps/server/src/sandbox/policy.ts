@@ -4,6 +4,7 @@ import {
   AGENT_EXECUTABLE_CONFIG,
   AGENT_STATE_DIRS,
   CREDENTIAL_DIRS,
+  DAEMON_SEALED_TOKEN_FILE,
   DAEMON_STATE_FILE,
   TOOLCHAIN_CACHE_DIRS,
   type ExecutionSandboxPolicy,
@@ -213,6 +214,6 @@ function protectedPaths(o: ResolveInput, resolve: RootResolver): string[] {
   const homes = [o.home, resolve(o.home)].filter((h): h is string => h !== null);
   const realmHomes = [o.realmHome, resolve(o.realmHome)].filter((h): h is string => h !== null);
   for (const home of homes) for (const rel of CREDENTIAL_DIRS) add(join(home, rel));
-  for (const rh of realmHomes) for (const name of ["realm.db", "realm.db-wal", "realm.db-shm", DAEMON_STATE_FILE]) add(join(rh, name));
+  for (const rh of realmHomes) for (const name of ["realm.db", "realm.db-wal", "realm.db-shm", DAEMON_STATE_FILE, DAEMON_SEALED_TOKEN_FILE]) add(join(rh, name));
   return [...out].sort();
 }

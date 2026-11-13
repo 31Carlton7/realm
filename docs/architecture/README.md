@@ -105,8 +105,8 @@ between an agent and its model.
 
 | From | To | Over | Where |
 |---|---|---|---|
-| Electron main | realm-server | `spawn(process.execPath, [entry])` with `ELECTRON_RUN_AS_NODE=1`, detached, so it outlives the app | `apps/desktop/src/main/server-process.ts:spawnDaemon` |
-| realm-server | Electron main | port and token written to `~/Realm/daemon.json` (mode 0600), read back by main | `apps/server/src/daemon/state.ts:writeState`, `apps/desktop/src/main/daemon-state.ts:readDaemonState` |
+| Electron main | realm-server | `spawn(process.execPath, [entry])` with `ELECTRON_RUN_AS_NODE=1`, detached, so it outlives the app; the app's token is the first line of its stdin | `apps/desktop/src/main/server-process.ts:spawnDaemon` |
+| realm-server | Electron main | port, the CLI-only token and a hash of the app's written to `~/Realm/daemon.json` (mode 0600), read back by main; a reattaching app opens its token from `daemon.sealed` (`safeStorage`) | `apps/server/src/daemon/state.ts:writeState`, `apps/desktop/src/main/app-token.ts` |
 | Electron main | renderer | `--realm-port` argument and the token over sync IPC (`daemon:token`), exposed as `window.realm` | `apps/desktop/src/preload/index.ts` |
 | renderer | realm-server | WebSocket on `127.0.0.1`, subprotocol `realm.<token>`; calls one way, `RpcServer.broadcast` events back | `apps/desktop/src/renderer/src/rpc/client.ts:RpcClient`, `apps/server/src/rpc/server.ts:RpcServer` |
 | renderer | Electron main | `ipcRenderer.invoke` through the preload, for windows, browser panes, files, passwords and updates | `apps/desktop/src/preload/index.ts` |
@@ -134,7 +134,8 @@ Everything Realm keeps is under `~/Realm` (or `REALM_HOME`), except your code, w
 | Path | What it is |
 |---|---|
 | `realm.db` | every profile, space, session, event, schedule, run and setting |
-| `daemon.json`, `daemon.lock` | the running server's port, token and pid, and the lock that keeps it to one |
+| `daemon.json`, `daemon.lock` | the running server's port, the `realm` CLI's token and pid, and the lock that keeps it to one |
+| `daemon.sealed` | the app's token, sealed by `safeStorage`, for an app reattaching to a server that outlived the last one |
 | `secrets.json` | saved passwords and passkeys, and the keys that seal OAuth tokens in `realm.db`; its keyring is sealed by `safeStorage`, and only Electron main opens it |
 | `logs/server.log`, `logs/credential-audit.log` | the daemon's output, and one line per password fill (never the value) |
 | `skills/`, `.cache/skills/` | the skill library, and the per-space stage of symlinks a session is handed |

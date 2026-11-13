@@ -9,6 +9,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, forgetDeadServer, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
+import { appTokenSha256, liveAppTokenFile, mintAppToken, sealAppToken, unsealAppToken } from "./app-token";
 import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type DaemonEndpoint, type HandoffResult, type HandoffWhy } from "./daemon";
 import { SERVER_ENTRY_SUFFIX, STOP_WAIT_MS, realProcessOps, runsServer, stopServerProcess, stopStrayServers, waitForExit } from "./daemon-stop";
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
@@ -2094,7 +2095,10 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
  * requeued by `recoverOnBoot`, and terminals come back with what they printed. A turn that happens
  * to be mid-flight is the exception, and it is the one the dialog exists for.
  */
-async function handOff(running: DaemonState, why: HandoffWhy): Promise<HandoffResult> {
+async function handOff(state: DaemonState, why: HandoffWhy): Promise<HandoffResult> {
+  // A server from before the token split has its only token in its state file; one since takes the
+  // app's, and refuses `daemon.drain` and `settings.get` from the CLI's.
+  const running = { ...state, token: appTokenFor(state.home, state) ?? state.token };
   // Asked together: each waits out its own timeout on a server that will not answer, and one after
   // another they were seconds of an update's relaunch with nothing on screen.
   const [work, mode] = await Promise.all([daemonWork(running), handoffMode(running)]);
@@ -2139,7 +2143,7 @@ const DRAIN_WAIT_MS = 120_000;
  * no longer realm-server is somebody else's now, and is never signalled — the file and the lock it
  * left are, instead, forgotten, or the lock would turn the next server away.
  */
-async function replaceServer(state: DaemonState, why?: "unresponsive" | "draining"): Promise<void> {
+async function replaceServer(state: DaemonState, why?: "unresponsive" | "draining" | "unowned"): Promise<void> {
   if (!runsServer(state.pid, state.entry, realProcessOps)) { forgetDeadServer(state); return; }
   console.error(`[daemon] stopping realm-server pid ${state.pid}`);
   // One that has not answered a probe in ten seconds will not run its own shutdown in ten more, and
@@ -2168,11 +2172,37 @@ async function daemonWork(running: DaemonState): Promise<DaemonWork> {
   } catch { return null; }
 }
 
+/** The app's RPC token (app-token.ts): handed to every server this launch starts, or the sealed copy
+ *  it reattached with. Only in memory, and in the renderer, which asks for it over IPC. */
+let appToken: string | null = null;
+
+function useAppToken(home: string, token: string): string {
+  appToken = token;
+  const live = liveAppTokenFile({ packaged: app.isPackaged, env: process.env.REALM_LIVE_APP_TOKEN, home });
+  if (live) {
+    mkdirSync(home, { recursive: true });
+    writeFileSync(live, token, { mode: 0o600 });
+  }
+  return token;
+}
+
+const ourAppToken = (home: string): string => appToken ?? useAppToken(home, mintAppToken());
+
+/** The app's token for the server `state` describes: ours, or the sealed copy a previous launch left
+ *  for it. Null for a server nobody here can drive. */
+function appTokenFor(home: string, state: DaemonState): string | null {
+  if (appToken && state.appTokenSha256 === appTokenSha256(appToken)) return appToken;
+  return unsealAppToken(home, state, safeStorage);
+}
+
 /** Start a detached realm-server on `home`. One path, used by the launcher and by the supervisor —
  *  a respawn must be identical to a first spawn or the second one is a different daemon. */
 function startDaemonProcess(home: string): void {
+  const token = ourAppToken(home);
+  // Sealed for the next launch, which finds this daemon still running and has no other way to it.
+  if (!sealAppToken(home, token, safeStorage)) console.error("[daemon] no Keychain to seal the app's token with; the next launch will restart the server");
   const fd = openDaemonLog(home);
-  try { daemonChild = spawnDaemon({ home, logFd: fd }); } finally { closeDaemonLog(fd); }
+  try { daemonChild = spawnDaemon({ home, logFd: fd, appToken: token }); } finally { closeDaemonLog(fd); }
 }
 
 /**
@@ -2192,6 +2222,7 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
       readState: readDaemonState,
       probe: (port, token) => probeDaemon({ port, token }),
       spawn: startDaemonProcess,
+      ownToken: (state) => appTokenFor(home, state),
       onHandoff: (running, why) => handOff(running, why),
       replace: replaceServer,
       bundleOnDisk: (entry) => { try { return bundleIdOf(statSync(entry)); } catch { return "missing"; } },
@@ -2199,18 +2230,16 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
       log: (line) => console.error(line),
     });
     staleDaemon = handle.stale;
-    return { port: handle.port, home, token: handle.token };
+    return { port: handle.port, home, token: useAppToken(home, handle.token) };
   }
-  const { child, ready } = startServer({ home });
+  const { child, ready } = startServer({ home, appToken: ourAppToken(home) });
   serverChild = child;
   child.on("exit", () => { if (serverChild === child) serverChild = null; });
   const started = await ready;
-  // The token realm-server minted at boot. It is never on stdout, so the state file is the only place
-  // it exists — and without it neither the renderer nor the bridge can get onto the socket at all, so
-  // a missing file is a hard failure rather than a degraded start.
-  const state = readStateForPort(started.home, started.port);
-  if (!state) throw new Error(`realm-server started on port ${started.port} but wrote no matching ${daemonStatePath(started.home)}`);
-  return { port: started.port, home: started.home, token: state.token };
+  // The server writes its state file before its ready line. One that did not is not one the bridge's
+  // redials or the CLI could find, so a missing file is a hard failure rather than a degraded start.
+  if (!readStateForPort(started.home, started.port)) throw new Error(`realm-server started on port ${started.port} but wrote no matching ${daemonStatePath(started.home)}`);
+  return { port: started.port, home: started.home, token: ourAppToken(started.home) };
 }
 
 /**
@@ -2457,7 +2486,7 @@ async function restartRealmServer(): Promise<void> {
   // The server is this process's own child here, and nothing brings it back but this.
   const old = serverChild;
   if (old?.pid) await stopServerProcess(old.pid);
-  const { child, ready } = startServer({ home: realmHome });
+  const { child, ready } = startServer({ home: realmHome, appToken: ourAppToken(realmHome) });
   serverChild = child;
   child.on("exit", () => { if (serverChild === child) serverChild = null; });
   await ready;

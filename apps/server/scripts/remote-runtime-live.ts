@@ -10,7 +10,7 @@
  * a listener on every address or a private one without TLS, a revoked token (and the connection it
  * held), and the address that keeps failing.
  *
- * Last, `realm pair` on the server, in a pseudo-terminal: a stand-in phone pairs through a relay on
+ * Last, `realm pair --server` with the owner's access token, in a pseudo-terminal: a stand-in phone pairs through a relay on
  * loopback with the code the terminal printed, the owner's yes is typed at the prompt, and the server
  * is restarted with no window to show its phone still reaches it. The terminal's bytes are saved for
  * rendering. Needs `pnpm --filter @realm/server build` first. Touches only scratch homes, kills only
@@ -26,7 +26,7 @@ import { REMOTE_RELAY_KEY } from "@realm/contracts";
 import { startLocalRelay } from "@realm/relay/src/node";
 import { finish, ok, sleep } from "./harness";
 import { refuseRealHome, repoRoot } from "./lib/mobile-rig";
-import { loopbackRpc } from "../src/remote/rpc-port";
+import { connect } from "../src/ctl/client";
 import { TestPhone } from "../src/remote/test-phone";
 
 const REALM_JS = join(repoRoot, "apps/server/dist/realm.js");
@@ -193,13 +193,14 @@ try {
   const limited = await handshake(clientUrl, [`realm.${clientToken}`]);
   ok("ten refused handshakes, then the right token from the same address: 429", statuses.every((s) => s === 401) && limited.status === 429, `then ${limited.status}`);
 
-  note("\n== realm pair on a server with no Realm window ==");
+  note("\n== realm pair, over an access token, on a server with no Realm window ==");
   relay = await startLocalRelay({ port: 0 });
   // Its relay, as a self-hoster would set it; the default is Realm's own, which a live check never dials.
-  const mac = await loopbackRpc({ port: PORTS.server, token: daemonToken });
+  // Over the owner's access token: daemon.json's token can change no setting and accept no phone.
+  const mac = await connect({ kind: "url", url, token, ca: readFileSync(cert, "utf8"), allowPlaintext: false });
   await mac.call("settings.set", { key: REMOTE_RELAY_KEY, value: relay.url });
   mac.close();
-  const term = pty.spawn(process.execPath, [REALM_JS, "pair", "--home", serverHome], {
+  const term = pty.spawn(process.execPath, [REALM_JS, "--server", url, "--ca", cert, "--token", token, "pair"], {
     name: "xterm-256color", cols: 100, rows: 72, cwd: scratch, env: { PATH: process.env.PATH!, HOME: process.env.HOME!, TERM: "xterm-256color" },
   });
   let screen = "";

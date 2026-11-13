@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { homedir, tmpdir } from "node:os";
@@ -45,9 +46,13 @@ export async function bootServer(o: { home?: string } = {}): Promise<Server> {
   const home = o.home ?? mkdtempSync(join(tmpdir(), "realm-mobile-home-"));
   refuseRealHome(home);
   const child = spawn(process.execPath, [join(repoRoot, "apps/server/dist/main.js")], {
-    env: { ...process.env, REALM_HOME: home, REALM_PORT: "0", REALM_ENABLE_FAKE_AGENT: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, REALM_HOME: home, REALM_PORT: "0", REALM_ENABLE_FAKE_AGENT: "1", REALM_APP_TOKEN_STDIN: "1" },
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  // The app's token, handed over as main does: `daemon.json` carries only the CLI's, and the gateway
+  // answers permission cards for the phone.
+  const token = randomBytes(32).toString("base64url");
+  child.stdin!.end(`${token}\n`);
   child.stderr!.on("data", () => {});
   const port = await new Promise<number>((ok, bad) => {
     const timer = setTimeout(() => bad(new Error("server did not report ready")), 30_000);
@@ -62,9 +67,8 @@ export async function bootServer(o: { home?: string } = {}): Promise<Server> {
       }
     });
   });
-  const state = JSON.parse(readFileSync(join(home, "daemon.json"), "utf8")) as { token: string };
   return {
-    home, port, token: state.token,
+    home, port, token,
     stop: () => new Promise<void>((done) => {
       if (child.exitCode !== null || child.signalCode !== null) return done();
       const hard = setTimeout(() => child.kill("SIGKILL"), 3_000);

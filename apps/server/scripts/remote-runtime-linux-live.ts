@@ -6,8 +6,8 @@
  * of the container, published to this Mac's loopback only. From this Mac, the built `realm` drives it
  * over `wss://` with a token made inside it: a worktree, a command, its exit and its Linux output.
  *
- * Then a phone pairs with that headless Linux server: `realm pair` runs in the container under a real
- * pseudo-terminal, a relay on this Mac's loopback carries the handshake (the container reaches it as
+ * Then a phone pairs with that headless Linux server: `realm pair --server`, with the owner's access
+ * token, runs on this Mac under a real pseudo-terminal, a relay on this Mac's loopback carries the handshake (the container reaches it as
  * host.docker.internal; the stand-in phone, on this Mac, dials the same relay at 127.0.0.1), the yes is
  * typed at the prompt, and the server is restarted with nobody to hand it a key to show the phone
  * still reaches it. Last, `realm service install` writes its systemd unit there, and systemd's own
@@ -111,7 +111,9 @@ try {
   const c = await connect({ kind: "url", url: `wss://127.0.0.1:${PORT}`, token, ca: readFileSync(join(certs, "cert.pem"), "utf8"), allowPlaintext: false });
   await c.call("settings.set", { key: REMOTE_RELAY_KEY, value: `ws://host.docker.internal:${relayPort}` });
   c.close();
-  const term = pty.spawn("docker", ["exec", "-it", NAME, "realm", "pair", "--home", "/root/Realm"], { name: "xterm-256color", cols: 100, rows: 72, env: { PATH: process.env.PATH!, HOME: process.env.HOME! } });
+  // From this Mac, over the owner's access token: the token in the container's daemon.json opens a
+  // pairing window but cannot accept a phone into it.
+  const term = pty.spawn(process.execPath, [REALM_JS, "--server", `wss://127.0.0.1:${PORT}`, "--ca", join(certs, "cert.pem"), "--token", token, "pair"], { name: "xterm-256color", cols: 100, rows: 72, env: { PATH: process.env.PATH!, HOME: process.env.HOME! } });
   let screen = "";
   const phone = new TestPhone();
   let paired: Promise<{ ok: boolean }> | null = null;
@@ -128,7 +130,7 @@ try {
   });
   const code = await Promise.race([exit, sleep(90_000).then(() => -1)]);
   writeFileSync(join(evidence, "linux-pair-terminal.ansi"), screen);
-  ok("realm pair on Linux drew the code, asked, and paired on a yes", code === 0 && answered && (await paired!)?.ok === true, `exit ${code}`);
+  ok("realm pair --server on the Linux server drew the code, asked, and paired on a yes", code === 0 && answered && (await paired!)?.ok === true, `exit ${code}`);
   ok("…with a key of its own, 0600, in the home", inside("stat -c '%a %n' /root/Realm/keys/remote.key").out.startsWith("600 "));
   ok("realm phones, from this Mac, lists it", realm(["phones"], { token }).out.includes("Linux iPhone"));
   inside("pkill -TERM -f 'realm.js serve' ; sleep 2; pgrep -f 'realm.js serve' || echo stopped");

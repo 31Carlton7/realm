@@ -248,7 +248,7 @@ async function main() {
 
   /* ── P3: the new daemon is handed the `remote` key and dials the relay by itself ─────────────── */
   const second = await until(async () => { const s = ourDaemon(); return s && s.pid !== first.pid ? s : null; }, 60_000, "a new daemon");
-  check("P3 a new daemon: new pid, port and token", second.port !== first.port && second.token !== first.token, { pid: [first.pid, second.pid], port: [first.port, second.port] });
+  check("P3 a new daemon: new pid, port and token", second.port !== first.port && second.cliToken !== first.cliToken, { pid: [first.pid, second.pid], port: [first.port, second.port] });
   const api2 = await until(async () => { const a = rpc(second.port, second.token); await a.ready; return a; }, 30_000, "the new daemon's socket");
   // Every state it passes through: `locked` until main's key arrives is expected, and nothing else.
   const states = [];

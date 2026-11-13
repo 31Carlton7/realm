@@ -20,6 +20,7 @@
  * Ports: LIVE_SERVER_PORT (8815).
  */
 import { execSync, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -55,9 +56,12 @@ chmodSync(gh, 0o755);
 const ghCalls = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
 
 const server = spawn(ELECTRON, [ENTRY], {
-  env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", REALM_HOME: home, REALM_PORT: String(PORT), REALM_GH_BIN: gh, REALM_ENABLE_FAKE_AGENT: "1" },
-  stdio: ["ignore", "pipe", "pipe"],
+  env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", REALM_HOME: home, REALM_PORT: String(PORT), REALM_GH_BIN: gh, REALM_ENABLE_FAKE_AGENT: "1", REALM_APP_TOKEN_STDIN: "1" },
+  stdio: ["pipe", "pipe", "pipe"],
 });
+// The app's token, handed over as main does: `daemon.json` carries only the CLI's.
+const token = randomBytes(32).toString("base64url");
+server.stdin.end(`${token}\n`);
 let errText = "";
 server.stderr.on("data", (d) => { errText += d; });
 
@@ -67,7 +71,6 @@ async function main() {
     server.stdout.on("data", (d) => { out += d; if (/"type":"ready"/.test(out)) res(); if (/"type":"error"/.test(out)) rej(new Error(out)); });
     server.once("exit", (code) => rej(new Error(`server exited ${code}: ${errText.slice(-2000)}`)));
   });
-  const { token } = JSON.parse(readFileSync(join(home, "daemon.json"), "utf8"));
   const ws = await new Promise((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${PORT}`, [`realm.${token}`]); w.once("open", () => res(w)); w.once("error", rej); });
   const pending = new Map(); const events = [];
   ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); else events.push(m); });

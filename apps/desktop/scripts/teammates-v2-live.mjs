@@ -24,7 +24,7 @@ import { connect } from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonState, daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { daemonState, daemonToken, handOverAppToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -115,9 +115,11 @@ async function main() {
       REALM_ENABLE_FAKE_AGENT: "1",
       REALM_FAKE_SCRIPT: scriptFile,
       REALM_MEMORY_FALLBACK_DIR: path.join(scratch, "memory"),
+      REALM_APP_TOKEN_STDIN: "1",
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  handOverAppToken(server, home);
   const log = fs.createWriteStream(path.join(scratch, "server.log"));
   server.stdout.pipe(log); server.stderr.pipe(log);
 

@@ -75,7 +75,10 @@ why that matters and how to verify the WebGPU hero shader headlessly.
 `apps/server/bin/realm` runs Realm's server and drives it from a shell, with no window. It talks to
 the server on a home (`--home`, else `$REALM_HOME`, else `~/Realm`) through the port and token in
 that home's `daemon.json`, so a running app and a script see the same spaces, worktrees and
-terminals: a command started with `realm run` shows up in the sidebar as a terminal.
+terminals: a command started with `realm run` shows up in the sidebar as a terminal. That token opens
+only the CLI's own commands (`apps/server/src/rpc/cli-methods.ts`). It cannot answer a permission
+card, change the sandbox or a setting, or type into a terminal: any agent with the sandbox off can
+read the file, and the app's own token is never written there.
 
 ```sh
 realm serve &                                   # the server alone, headless (ready in under a second)
@@ -159,11 +162,15 @@ there once, over SSH.
 ### Pairing an iPhone with a server that has no window
 
 ```sh
-realm pair                           # draws the pairing code in the terminal, then asks before pairing
+realm pair                           # draws the pairing code, then asks before pairing
+realm --server <name> pair           # from another machine: the same, over an access token
 realm phones; realm phones remove <id|name>
 ```
 
-`realm pair` works on the server or with `--server`. A server started by `realm serve` has no Realm app
+On a server `realm serve` started, `realm pair` asks in the terminal, the only place there is to say yes.
+On one Realm's window started, it only opens the pairing window and you accept the phone in Realm: the
+token it reads from `daemon.json` can be read by any agent with the sandbox off, so there it cannot
+accept a phone. A server started by `realm serve` has no Realm app
 to unlock the Keychain, so it keeps its phone identity sealed with its own key, in `<home>/keys/remote.key`
 (0600), or in the file `$REALM_REMOTE_KEY_FILE` names, such as a systemd credential. Anyone who can
 read that home can read the key. The app opens what a headless server paired. A headless server never

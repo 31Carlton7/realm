@@ -1580,7 +1580,10 @@ export const Methods = {
     detachedSince: z.number().nullable(),
     /** Where clients on other machines reach this server (`realm serve --listen`); null when it listens
      *  on loopback only. Optional: a server from before the listener existed does not say. */
-    remoteUrl: z.string().nullable().optional() }) },
+    remoteUrl: z.string().nullable().optional(),
+    /** Who started this server: `app` is Realm's window, `terminal` is `realm serve`. The CLI's token
+     *  may accept a phone only on a `terminal` one. Optional: a server from before does not say. */
+    owner: z.enum(["app", "terminal"]).optional() }) },
 
   /**
    * What the daemon is doing, for the app that is attached to it.

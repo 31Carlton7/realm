@@ -111,7 +111,7 @@ async function until<T>(read: () => T | null | undefined | false, ms = 5_000): P
  *  seconds rather than tens of them. */
 function launch(s: ReturnType<typeof scratch>, asked: string[] = []) {
   const t0 = performance.now();
-  const replace = async (state: DaemonState, _why?: "unresponsive" | "draining"): Promise<void> => {
+  const replace = async (state: DaemonState, _why?: "unresponsive" | "draining" | "unowned"): Promise<void> => {
     if (!runsServer(state.pid, state.entry, realProcessOps)) { forgetDeadServer(state); return; }
     await stopServerProcess(state.pid, realProcessOps, 500);
   };
@@ -121,6 +121,7 @@ function launch(s: ReturnType<typeof scratch>, asked: string[] = []) {
     readState: readDaemonState,
     probe: (port, token) => probeDaemon({ port, token, timeoutMs: 300 }),
     spawn: () => { s.start(); },
+    ownToken: (st) => st.token,
     onHandoff: async (running: DaemonState, why: HandoffWhy): Promise<HandoffResult> => {
       const info = await callDaemon(running, "daemon.info", {}).catch(() => null) as { working: number; activeRuns: number } | null;
       const decision = decideHandoff({ why, work: info });

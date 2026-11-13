@@ -15,7 +15,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { daemonToken, handOverAppToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -31,9 +31,10 @@ let server = null;
 
 async function boot() {
   server = spawnLiveElectron([path.join(repoRoot, "apps/server/dist/main.js")], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", REALM_HOME: home, REALM_PORT: String(PORT), REALM_ENABLE_FAKE_AGENT: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", REALM_HOME: home, REALM_PORT: String(PORT), REALM_ENABLE_FAKE_AGENT: "1", REALM_APP_TOKEN_STDIN: "1" },
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  handOverAppToken(server, home);
   let out = "";
   server.stdout.on("data", (b) => { out += b; });
   server.stderr.on("data", () => {});

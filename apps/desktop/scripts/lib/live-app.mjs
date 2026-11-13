@@ -71,8 +71,10 @@ export function quietElectronBinary() {
   return binary;
 }
 
+/** Quiet mode, and the app's RPC token written to `<home>/live-app-token` for the check to dial
+ *  with (`lib/daemon-token.mjs`). */
 export function quietEnv(env = process.env) {
-  return { ...env, REALM_QUIET_WINDOWS: "1" };
+  return { ...env, REALM_QUIET_WINDOWS: "1", REALM_LIVE_APP_TOKEN: "1" };
 }
 
 /* ── Teardown ─────────────────────────────────────────────────────────────────────────────── */

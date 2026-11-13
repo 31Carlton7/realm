@@ -2,6 +2,7 @@ import type { DictationCleaner } from "../dictation/clean";
 import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
 import type { CallContext, RpcServer } from "./server";
+import type { ServerOwner } from "./cli-methods";
 import { REMOTE_RELAY_KEY, TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
@@ -132,6 +133,8 @@ export type Deps = {
   presence: Presence;
   /** Where clients on other machines reach this server (`realm serve --listen`), once it listens. */
   access?: () => { url: string } | null;
+  /** Who started this server (`ServerOwner`), as `system.info` reports it to `realm pair`. */
+  owner: ServerOwner;
   /** Realm's own memory learning, where it is on: archiving a session is the moment it is read. */
   memoryLearning?: { sessionArchived(sessionId: string): void } | null;
 };
@@ -153,7 +156,7 @@ export function registerMethods(d: Deps): void {
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>, ctx: CallContext) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p, ctx) => fn(p as Params<M>, ctx));
 
-  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince, remoteUrl: d.access?.()?.url ?? null }));
+  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince, remoteUrl: d.access?.()?.url ?? null, owner: d.owner }));
 
   /* The daemon, as seen by the app attached to it. `daemon.stop` signals THIS process rather than
      reaching for a close handle, because that is the same path an external `pnpm daemon:stop`, the
@@ -1116,7 +1119,7 @@ export function registerMethods(d: Deps): void {
      that is a headless server's only way to do it from elsewhere. Only this machine's own app may
      say whether someone is sitting at it. */
   const fromTheOwner = (ctx: CallContext): void => {
-    if (ctx.principal !== "local" && !ctx.principal.startsWith("token:")) throw new RpcError("FORBIDDEN", "only this Mac can do that");
+    if (ctx.principal !== "local" && ctx.principal !== "cli" && !ctx.principal.startsWith("token:")) throw new RpcError("FORBIDDEN", "only this Mac can do that");
   };
   const fromTheMac = (ctx: CallContext): void => {
     if (ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only this Mac can do that");
