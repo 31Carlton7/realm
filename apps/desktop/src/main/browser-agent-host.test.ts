@@ -9,6 +9,11 @@ const SECRET = "correct horse battery staple";
  *  key events, and so a leak of either is a different failure. */
 const GENERATED = "mint3d-by-realm-!x7";
 
+/** Refs 7 and 8 and the code boxes the fakes describe as 100–107, all in the top document — where a
+ *  fill checks its field is. */
+const TOP_DOCUMENT = { root: { backendNodeId: 1, children: [7, 8, ...Array.from({ length: 8 }, (_, i) => 100 + i)].map((backendNodeId) => ({ backendNodeId })) } };
+const topFrame = (url: string) => ({ frameTree: { frame: { id: "main", securityOrigin: new URL(url).origin } } });
+
 /** A fake pane: one live view ("b1") whose CDP send is programmable, plus event injection. */
 function setup(opts: {
   responses?: Record<string, unknown>;
@@ -57,6 +62,11 @@ function setup(opts: {
       if (method === "Runtime.evaluate") return { result: { value: "page text here" } };
       if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
       if (method === "Page.getNavigationHistory") return opts.responses?.[method] ?? { currentIndex: 0, entries: [{ url: "https://example.com/x" }] };
+      if (method === "DOM.getDocument") return opts.responses?.[method] ?? TOP_DOCUMENT;
+      if (method === "Page.getFrameTree") {
+        const history = (opts.responses?.["Page.getNavigationHistory"] ?? { entries: [{ url: "https://example.com/x" }] }) as { entries: { url: string }[] };
+        return topFrame(history.entries[0]!.url);
+      }
       if (method === "DOM.getContentQuads") return opts.responses?.[method] ?? { quads: [[10, 10, 30, 10, 30, 20, 10, 20]] };
       // Plan 26: every node-scoped script (reading a file input's accept/multiple/files, finding the
       // hidden input behind a label) goes through resolveNode first, so the fake has to hand out an
@@ -1314,6 +1324,8 @@ describe("BrowserAgentHost — fillCode", () => {
       if (method === "DOM.resolveNode") return { object: { objectId: "ref-7" } };
       if (method === "DOM.describeNode") return { node: { backendNodeId: 100 + Number(String(params?.objectId).slice(4)) } };
       if (method === "Page.getNavigationHistory") return { currentIndex: 0, entries: [{ url: opts.page ?? "https://example.com/verify" }] };
+      if (method === "DOM.getDocument") return TOP_DOCUMENT;
+      if (method === "Page.getFrameTree") return topFrame(opts.page ?? "https://example.com/verify");
       return undefined;
     };
     const calls: { method: string; params?: Record<string, unknown> }[] = [];

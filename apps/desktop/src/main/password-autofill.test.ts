@@ -29,7 +29,8 @@ function harness(over: Partial<AutofillDeps> & { rows?: SiteCredential[]; choice
   const cdp = {
     send: async (method: string, params?: Record<string, unknown>) => {
       sent.push({ method, params });
-      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", securityOrigin: new URL(page.history).origin } } };
+      if (method === "DOM.getDocument") return { root: { backendNodeId: 1, children: [{ backendNodeId: 41 }, { backendNodeId: 42 }] } };
       if (method === "Page.getNavigationHistory") return { currentIndex: 0, entries: [{ url: page.history }] };
       if (method === "Runtime.evaluate") {
         const which = String(params?.expression).includes('"pass"') ? "pass" : "user";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UPLOAD_DROP_MAX_BYTES, type BrowserAction, type BrowserRefusal } from "@realm/contracts";
-import { buildSnapshot, CODE_HIDDEN, hideCodes, MAX_ELEMENTS, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
+import { buildSnapshot, CODE_HIDDEN, hideCodes, MAX_ELEMENTS, performAct, performAutofill, performCodeFill, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
 import { tickStylesFor } from "./browser-agent";
 
@@ -61,6 +61,9 @@ function fakeSend(opts: {
   /** What `Page.getNavigationHistory` reports — the BROWSER's record of the committed URL, which is
    *  what the credential fill's origin gate reads. `"throw"` is a history CDP will not give up. */
   history?: { url: string } | "throw";
+  /** An iframe on the page, from `origin`, holding these nodes. Nodes 7, 8 and 9 are otherwise in
+   *  the top document, whose origin is `history`'s. */
+  frame?: { origin: string; nodes: number[] };
   focus?: "throw";
   /** Plan 26. The fake mints object ids as `obj-<backendNodeId>`, so everything below is keyed by
    *  backendNodeId and the three upload scripts are told apart by a distinctive substring of their
@@ -84,7 +87,16 @@ function fakeSend(opts: {
       case "Accessibility.getFullAXTree":
         return { nodes: (opts.ax ?? []).map((a) => ({ backendDOMNodeId: a.backendDOMNodeId, role: { value: a.role }, name: { value: a.name }, value: a.value !== undefined ? { value: a.value } : undefined, properties: [...(a.protected ? [{ name: "protected", value: { value: true } }] : []), ...(a.focused ? [{ name: "focused", value: { value: true } }] : [])] })) };
       case "Page.getLayoutMetrics": return { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 } };
-      case "DOM.getDocument": return {};
+      case "DOM.getDocument": {
+        const inFrame = opts.frame?.nodes ?? [];
+        const top = [7, 8, 9].filter((n) => !inFrame.includes(n)).map((backendNodeId) => ({ backendNodeId }));
+        const iframe = { backendNodeId: 50, frameId: "child", contentDocument: { backendNodeId: 51, children: inFrame.map((backendNodeId) => ({ backendNodeId })) } };
+        return { root: { backendNodeId: 1, children: [...top, ...(opts.frame ? [iframe] : [])] } };
+      }
+      case "Page.getFrameTree": {
+        const top = { id: "main", securityOrigin: new URL(opts.history && opts.history !== "throw" ? opts.history.url : "https://example.com/login").origin };
+        return { frameTree: { frame: top, childFrames: opts.frame ? [{ frame: { id: "child", securityOrigin: opts.frame.origin } }] : [] } };
+      }
       case "DOM.resolveNode": return { object: { objectId: `obj-${params.backendNodeId}` } };
       case "DOMDebugger.getEventListeners": {
         const id = Number(String(params.objectId).replace("obj-", ""));
@@ -721,11 +733,10 @@ describe("performFillCredential", () => {
   it("a CDP failure MID-TYPING never surfaces the characters it was dispatching (mutant: error message leak)", async () => {
     // The realistic leak: a CDP error whose message quotes the params it failed on. Nothing about a
     // caught error may reach the result, so the executor replaces it wholesale.
-    const send: CdpSend = async (method) => {
-      if (method === "Page.getNavigationHistory") return { currentIndex: 0, entries: [{ url: "https://example.com/x" }] };
-      if (method === "DOM.focus") return {};
+    const page = fakeSend({ history: { url: "https://example.com/x" } });
+    const send: CdpSend = async (method, params) => {
       if (method === "Input.dispatchKeyEvent") throw new Error(`dispatch failed for text "${SECRET}"`);
-      return {};
+      return page.send(method, params);
     };
     const store = fakeStore();
     const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
@@ -789,6 +800,67 @@ describe("performFillCredential", () => {
     expect(!result.ok && result.refused).toBe("no_store");
     expect(!result.ok && result.error).toMatch(/will not generate a password it cannot store/);
     expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent")).toHaveLength(0);
+  });
+
+  it("REFUSES a ref inside an iframe from another origin of the same site, and never asks for presence (mutant: only the top frame checked)", async () => {
+    // A same-site iframe is in the page's process, so its fields are in the snapshot and `DOM.focus`
+    // reaches them; the top frame's origin says nothing about who reads what is typed there.
+    const { send, calls } = fakeSend({ history: { url: "https://example.com/login" }, frame: { origin: "https://ugc.example.com", nodes: [7] } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
+
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+    expect(store.state.revealed).toBe(false);
+    expect(calls.some((c) => c.method === "DOM.focus")).toBe(false);
+  });
+
+  it("fills a ref inside an iframe from the fill's own origin", async () => {
+    const { send } = fakeSend({ history: { url: "https://example.com/login" }, frame: { origin: "https://example.com", nodes: [7] } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
+    expect(result.ok).toBe(true);
+    expect(store.state.typed).toBe(true);
+  });
+
+  it("REFUSES a ref the browser cannot place in any frame", async () => {
+    const { send } = fakeSend({ history: { url: "https://example.com/login" } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 99, { ...saved, reveal: store.reveal });
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+    expect(store.state.revealed).toBe(false);
+  });
+});
+
+describe("the menu's fills check the frame their fields are in", () => {
+  const reveal = async (type: (v: string) => Promise<void>) => { await type("pw"); return { ok: true as const }; };
+  const typedKeys = (calls: { method: string }[]) => calls.filter((c) => c.method === "Input.dispatchKeyEvent").length;
+
+  it("autofill fills fields in the top frame", async () => {
+    const { send, calls } = fakeSend({});
+    const result = await performAutofill(send, { user: "obj-8", pass: "obj-9" }, { origin: "https://example.com", username: "ada", reveal });
+    expect(result.ok).toBe(true);
+    expect(typedKeys(calls)).toBeGreaterThan(0);
+  });
+
+  it("autofill REFUSES a field inside a same-site iframe from another origin, and types nothing", async () => {
+    const { send, calls } = fakeSend({ frame: { origin: "https://ugc.example.com", nodes: [9] } });
+    const result = await performAutofill(send, { user: "obj-8", pass: "obj-9" }, { origin: "https://example.com", username: "ada", reveal });
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+    expect(typedKeys(calls)).toBe(0);
+  });
+
+  it("a code fill REFUSES boxes inside an iframe from another origin, and types nothing", async () => {
+    const { send, calls } = fakeSend({ frame: { origin: "https://ugc.example.com", nodes: [8, 9] } });
+    const result = await performCodeFill(send, ["obj-8", "obj-9"], { origin: "https://example.com", code: "48" });
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+    expect(typedKeys(calls)).toBe(0);
+  });
+
+  it("a code fill types into boxes in the top frame", async () => {
+    const { send, calls } = fakeSend({});
+    const result = await performCodeFill(send, ["obj-8", "obj-9"], { origin: "https://example.com", code: "48" });
+    expect(result.ok).toBe(true);
+    expect(typedKeys(calls)).toBe(4);
   });
 });
 
