@@ -745,10 +745,9 @@ describe("Ara refresh §3/§4 geometry", () => {
     const PAINT = ["color", "background", "background-color", "border-radius", "box-shadow", "text-decoration", "text-underline-offset",
       "text-decoration-color", "-webkit-box-decoration-break", "box-decoration-break"];
     const MARK = ["opacity", "transition-duration"];
-    /* A word being dictated eases in: an animation of its opacity and a relative `top`, which paints
-       the run off its place without moving the line box (the keyframes are held to that in
+    /* A word being dictated fades in: an animation of its opacity (the keyframes are held to that in
        "dictation in the prompter" below), and a transition of its ink. */
-    const HEARD = ["position: relative", "animation", "transition"];
+    const HEARD = ["animation", "transition"];
     for (const rule of chips) {
       const onMark = rule.selectors.filter((sel) => /\.ch-[a-z-]+/.test(sel)).every((sel) => / \.chip-mark$/.test(sel));
       const heard = rule.selectors.every((sel) => /^\.ch-(heard|settling)$/.test(sel));
@@ -5606,15 +5605,13 @@ it("gives your own message a tone in light, and leaves dark's bubble alone", () 
 });
 
 describe("dictation in the prompter", () => {
-  it("eases each word in without moving a glyph's box, and settles it into the typed ink", () => {
+  it("fades each word in, and nothing else, and settles it into the typed ink", () => {
     const heard = bodiesFor(".ch-heard").join(" ");
-    expect(heard).toContain("animation: rl-heard-in");
-    expect(heard).toContain("position: relative");
-    const rise = /@keyframes rl-heard-in \{([^}]*)\}/.exec(css)![1]!;
-    // THE MUTANT: a transform, a margin or a size in the entrance — none applies to an inline run
-    // without moving the line under the caret.
-    expect(rise).toMatch(/opacity: 0; top: 3px;/);
-    expect(rise).not.toMatch(/transform|translate|margin|padding|font|width|height|display/);
+    expect(heard).toContain("animation: rl-heard-in var(--dur-enter)");
+    // The entrance is the fade alone: no rise, and nothing that would move the line under the caret.
+    const entrance = /@keyframes rl-heard-in \{([^}]*\})\s*\}/.exec(css)![1]!;
+    expect(entrance.trim()).toBe("from { opacity: 0; }");
+    expect(heard).not.toContain("position");
     expect(bodiesFor(".ch-dictating").join(" ")).toContain("color: var(--rl-text-dim)");
     expect(bodiesFor(".ch-heard[data-settled]").join(" ")).toContain("color: var(--rl-text-bright)");
     expect(css).toMatch(/@keyframes rl-heard-settle \{\s*from \{ color: var\(--rl-text-dim\); \}\s*\}/);

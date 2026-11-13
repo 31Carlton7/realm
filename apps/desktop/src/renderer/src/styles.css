@@ -5777,7 +5777,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* EVERY metric here must equal .composer-input's below — font, size, line-height, padding, wrapping —
    or the painted glyphs slide off the caret sitting above them. `pre-wrap` + `break-word` is exactly
    the UA's own textarea wrapping. Runs may change colour, background and underline, and nothing else
-   (a word being dictated also fades and rises in, painted off its place: see `.ch-heard`). */
+   (a word being dictated also fades in: see `.ch-heard`). */
 .composer-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
   font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px;
   white-space: pre-wrap; overflow-wrap: break-word; color: var(--rl-text-bright); }
@@ -5805,17 +5805,16 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    here that is a THING (a skill that will be handed over) rather than formatting. */
 /* Colour only: weight would change the glyph widths under the caret, which the mirror may not do. */
 .ch-link { color: var(--rl-accent); }
-/* Words being dictated, in the box at the caret. Each word eases in as it is heard, a 3px rise and a
-   fade that move no glyph's box: `top` on a relative inline paints it off its place and leaves the
-   line, the wrap and the caret where the textarea has them. A word the recogniser may still change
-   is in the quiet ink, which stays readable (`--ink-2`); a final one takes the typed ink. Once the
-   words land, any not yet final settle into it. Under Reduce motion the global kill leaves each in
-   its ink with no fade, rise or ease. */
+/* Words being dictated, in the box at the caret. Each word fades in as it is heard, which moves no
+   glyph's box, so the line, the wrap and the caret stay where the textarea has them. A word the
+   recogniser may still change is in the quiet ink, which stays readable (`--ink-2`); a final one
+   takes the typed ink. Once the words land, any not yet final settle into it. Under Reduce motion the
+   global kill leaves each in its ink with no fade or ease. */
 .ch-dictating { color: var(--rl-text-dim); }
-.ch-heard { position: relative; animation: rl-heard-in var(--dur-enter) var(--ease-out-strong) both;
+.ch-heard { animation: rl-heard-in var(--dur-enter) var(--ease-out-strong) both;
   transition: color var(--dur-base) var(--ease-fade); }
 .ch-heard[data-settled] { color: var(--rl-text-bright); }
-@keyframes rl-heard-in { from { opacity: 0; top: 3px; } }
+@keyframes rl-heard-in { from { opacity: 0; } }
 .ch-settling { animation: rl-heard-settle var(--dur-base) var(--ease-fade); }
 @keyframes rl-heard-settle { from { color: var(--rl-text-dim); } }
 /* ── The prompter's chips: one family ─────────────────────────────────────
