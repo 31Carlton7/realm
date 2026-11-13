@@ -307,11 +307,11 @@ describe("the tooltip layer", () => {
     expect(parseFloat(tip().style.top)).toBe(8 + 28 + 6);
   });
 
-  it("lends a cut-short tab its name for the system's tooltip when a web page fills the space under the strip", () => {
-    // A web page's view lies right under the strip, and over it is off the window: no spot is clear,
-    // and a clipped tab has no title of its own, so it showed nothing at all (the 2.12.0 dry run, six
-    // page tabs). THE MUTANTS: nothing lent, so the system has nothing to show; the loan kept after
-    // the pointer leaves, so the tab carries a title it never had.
+  it("lends a cut-short tab its name for the system's tooltip when a native view lies right under the strip and there is no room above", () => {
+    // A native view right under the strip, and over it off the window: no spot is clear, and a clipped
+    // tab has no title of its own, so it would show nothing at all. THE MUTANTS: nothing lent, so the
+    // system has nothing to show; the loan kept after the pointer leaves, so the tab carries a title
+    // it never had.
     setup('<div role="tablist"><button id="tab" role="tab" data-tip="clipped"><span id="name" data-tip-text>Docs · realm.computer</span></button></div><button id="away">Away</button>');
     const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
     Object.defineProperty($("#name"), "scrollWidth", { configurable: true, get: () => 160 });
