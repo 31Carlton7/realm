@@ -7885,7 +7885,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async applySpaceSwitchRequested({ spaceId }, typing) {
         if (typing || api.boundProfileId() !== null) return;
-        if (!get().spaces.some((sp) => sp.id === spaceId && sp.profileId === get().activeProfileId)) return;
+        const mine = () => get().spaces.some((sp) => sp.id === spaceId && sp.profileId === get().activeProfileId);
+        // A space `space_create` just made is asked for right behind its `spaces.changed`, before this
+        // window has read the list again.
+        if (!mine()) await get().refreshSpaces();
+        if (!mine()) return;
         await get().selectSpace(spaceId);
       },
       applySettingChanged({ key, value }) {

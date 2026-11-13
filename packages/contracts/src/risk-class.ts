@@ -79,7 +79,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *
  * NEVER class `read` (without `asksFirst`) a tool that changes state, sends something, moves the
  * user's screen or reveals a secret value: such a name runs with no prompt from either engine. Classed
- * otherwise on purpose: `docs_open`, `docs_reveal`, `pane_show`, `session_open`, `space_switch` (each changes what is
+ * otherwise on purpose: `docs_open`, `docs_reveal`, `pane_show`, `session_open`, `space_switch`, `space_create` (each changes what is
  * on screen); `team_message` (puts a turn in a teammate's chat); `team_set_access` (changes a teammate's mode).
  */
 export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
@@ -176,6 +176,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__pane_show": internal,
   "realm-workspace__session_open": internal,
   "realm-workspace__space_switch": internal,
+  "realm-workspace__space_create": internal,
   "realm-workspace__settings_set": internal,
 
   "realm-schedule__schedule_create": internal,

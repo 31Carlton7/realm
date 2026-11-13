@@ -80,6 +80,15 @@ describe("an agent's space_switch, as the window carries it out", () => {
     expect(store.getState().activeSpaceId).toBe("s2");
   });
 
+  it("moves to a space made a moment ago, before the window has read the list again", async () => {
+    const fake = twoSpaces();
+    const store = await withA(fake);
+    const made = await fake.createSpace({ profileId: "p1", name: "Taxes", icon: "folder" });
+    expect(store.getState().spaces.some((sp) => sp.id === made.id)).toBe(false);
+    await store.getState().applySpaceSwitchRequested({ spaceId: made.id }, false);
+    expect(store.getState().activeSpaceId).toBe(made.id);
+  });
+
   it("stays put while the user is typing", async () => {
     const store = await withA(twoSpaces());
     await store.getState().applySpaceSwitchRequested({ spaceId: "s2" }, true);

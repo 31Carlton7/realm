@@ -1323,7 +1323,7 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
     const allowed = claudeAllowedTools([gatewayEntry]);
     // `pane_show` changes what is on the user's screen: it keeps Claude's prompt where the mode has one.
     for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential",
-      "pane_show", "session_open", "space_switch", "settings_set",
+      "pane_show", "session_open", "space_switch", "space_create", "settings_set",
       "agent_run", "agent_start", "agent_ask", "schedule_create", "docs_open", "update_goal",
       "team_message", "memory_save", "memory_write_file"]) {
       expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);

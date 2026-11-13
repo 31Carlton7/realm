@@ -836,7 +836,7 @@ export class TeammatesService {
   }
 
   /** Who wrote the last message into the session, in words: why `personStartedTurn` said no. */
-  private turnOrigin(sessionId: string): string {
+  turnOrigin(sessionId: string): string {
     let last: SessionEvent | undefined;
     try {
       const s = this.d.sessions.get(sessionId);

@@ -1629,6 +1629,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* `realm-workspace`: what is in the space, what is on screen, what the other sessions here said, and
      the one tool that brings a closed pane back. Read from the stores and the saved view rather than
      the DOM — the app-ui provider's own argument for why clicking is the fragile route. */
+  const turnOf = (id: string) => sessionEvents.listOfTypes(id, ["user_message"], { limit: 1 })[0]?.seq ?? null;
   mcpGateway.registerProvider(createWorkspaceProvider({
     mcp, sessions: sessionsStore, events: sessionEvents, items, spaces, profiles, settings, documents, bridge: browserBridge, rpc,
   }, [
@@ -1637,9 +1638,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
       placeModel: (caller, model) => agentRunsFinal.placeModel(caller, model),
       delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
-      turnOf: (id) => sessionEvents.listOfTypes(id, ["user_message"], { limit: 1 })[0]?.seq ?? null,
+      turnOf,
     }),
-    createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
+    createSpacesTools({
+      spaces, projects, sessions, settings, broker: browserBroker, rpc, userHome, realmHome: opts.home,
+      turnOrigin: (id) => team?.turnOrigin(id) ?? "something other than the person",
+      turnOf,
+    }),
     createSettingsTools({ settings, broker: browserBroker, rpc }),
     // `machine_status`: the Mac's memory and what of Realm's is heavy, read before heavy work.
     createMachineStatusTools({
