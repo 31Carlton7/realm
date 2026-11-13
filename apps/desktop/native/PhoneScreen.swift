@@ -81,9 +81,12 @@ var allow: UInt32 = 1
 CMIOObjectSetPropertyData(CMIOObjectID(kCMIOObjectSystemObject), &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &allow)
 
 /// The phone's SCREEN is a muxed device (picture and sound) named as the phone is; its camera, which
-/// Continuity Camera also offers, is a video-only device named "<phone> Camera".
+/// Continuity Camera also offers, is a video-only device named "<phone> Camera". macOS 13 calls the
+/// type `.externalUnknown`, which 14 renamed.
 func screenDevice() -> AVCaptureDevice? {
-    AVCaptureDevice.DiscoverySession(deviceTypes: [.external], mediaType: nil, position: .unspecified).devices
+    let external: AVCaptureDevice.DeviceType
+    if #available(macOS 14.0, *) { external = .external } else { external = .externalUnknown }
+    return AVCaptureDevice.DiscoverySession(deviceTypes: [external], mediaType: nil, position: .unspecified).devices
         .first { $0.hasMediaType(.muxed) && $0.localizedName == name }
 }
 
