@@ -34,7 +34,7 @@ const shot = (name: string, alt: string, phone?: string, cut = false): Shot => (
 })
 
 /**
- * The landing page, round three: deep navy space with one opening onto a world, and past it, each
+ * The landing page, round three: deep navy space over a new session in the app, and past it, each
  * section in one of the worlds Realm itself opens new sessions onto, with one component from the app
  * in it. The worlds are the app's own pictures (scripts/copy-worlds.mjs), credited at the foot.
  */
@@ -45,10 +45,9 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
         downloads={downloads}
         version={version}
         changelog={changelog}
-        world={world("webb")}
         session={shot(
           "session",
-          `A new, empty session in Realm on the Cosmic Cliffs picture, asking "What's next in Realm?" over the prompter, set to Opus 5.5.`,
+          `A new, empty session in Realm on the Aurora picture, green curtains of light over a dark treeline, asking "What's next in Realm?" over the prompter, set to Opus 5.5.`,
           "session-phone",
         )}
       />

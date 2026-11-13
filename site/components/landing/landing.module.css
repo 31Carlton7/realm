@@ -92,40 +92,22 @@
   color: var(--ink);
 }
 
-/* The opening's box. The shader draws the ring round it and the world fills it, so CSS alone places
-   the opening at every width. */
-.ring {
-  position: absolute;
-  z-index: 0;
-  left: 70%;
-  top: calc(92px + (max(100svh, 760px) - 382px) / 2);
-  width: min(34vw, 470px);
-  aspect-ratio: 1;
-  translate: -50% -50%;
-  pointer-events: none;
-}
-
-.ringWorld {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  overflow: hidden;
-}
-
 .heroCopy {
   position: relative;
   z-index: 2;
   max-width: 1240px;
   margin: 0 auto;
-  padding: 0 28px;
+  padding: 0 28px 48px;
   min-height: calc(max(100svh, 760px) - 92px - 290px);
   display: flex;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
+  text-align: center;
 }
 
 .h1 {
-  max-width: 11ch;
+  max-width: 14ch;
   font-size: 72px;
   line-height: 1;
   font-weight: 500;
@@ -134,7 +116,7 @@
 }
 
 .lede {
-  max-width: 31rem;
+  max-width: 36rem;
   margin-top: 28px;
   font-size: 18px;
   line-height: 1.6;
@@ -145,6 +127,7 @@
 .actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 12px;
   margin-top: 36px;
 }
@@ -154,6 +137,7 @@
   font-size: 13px;
   line-height: 20px;
   color: var(--ink-2);
+  text-wrap: balance;
 }
 
 .release {
@@ -608,16 +592,10 @@
     padding: 18px 20px;
   }
 
-  .ring {
-    left: 50%;
-    top: 166px;
-    width: min(56vw, 210px);
-  }
-
   .heroCopy {
     min-height: 0;
     justify-content: flex-start;
-    padding: 228px 20px 0;
+    padding: 40px 20px 0;
   }
 
   .h1 {
@@ -630,7 +608,6 @@
     margin-top: 16px;
     font-size: 16px;
     line-height: 1.55;
-    text-wrap: pretty;
   }
 
   .actions {

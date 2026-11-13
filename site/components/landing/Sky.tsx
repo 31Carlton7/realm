@@ -5,20 +5,11 @@ import { useEffect, useRef } from "react"
 import { CLEAR_FEATHER, MAX_CLEAR, STAR_GROWTH, STAR_SIZE, clearBoxes, toShader } from "./star-mask"
 
 /**
- * The hero's space and its one opening, drawn by a WebGL2 fragment shader over the world it opens
- * onto (a `World` laid in the ring's box underneath).
+ * The landing page's deep navy space, drawn once by a WebGL2 fragment shader: a little dust and sparse,
+ * still stars. The hero is drawn on it, and so is the band under a subpage's header. It draws again
+ * only when its box changes size, so it is the same under reduced motion.
  *
- * The ring's centre and radius are read from the `ring` element, so CSS places the opening at every
- * width. Outside it the shader draws deep navy space, opaque; inside it draws nothing but the ring's
- * light and a darkening toward the rim, so the world shows through.
- *
- * It moves once: on load the opening widens from a point of light to the ring, about a second and a
- * half, and then the loop stops. After that it draws only when its box changes size. Under reduced
- * motion it is drawn open, once.
- *
- * Without a `ring` it is the same space with no opening (the band under a subpage's header), drawn once.
- *
- * No star sits under text. Every element in the hero marked `data-clear` (the nav, the copy, the
+ * No star sits under text. Every element beside it marked `data-clear` (the nav, the copy, the
  * caption) is read as the rect round its contents, grown by CLEAR_MARGIN, and the shader drops any
  * star whose centre falls inside one, fading over CLEAR_FEATHER beyond it (star-mask.ts, whose tests
  * hold it to that). The rects are read again whenever the canvas or any of those elements changes
@@ -34,9 +25,7 @@ void main() { gl_Position = vec4(p, 0.0, 1.0); }`
 const FRAG = `#version 300 es
 precision highp float;
 uniform vec2 uRes;
-uniform vec3 uRing;
 uniform float uDpr;
-uniform float uOpen;
 #define MAX_CLEAR ${MAX_CLEAR}
 uniform vec4 uClear[MAX_CLEAR];
 uniform int uClearN;
@@ -86,50 +75,25 @@ float stars(vec2 px, float cell, float keep, float seed) {
   return s;
 }
 
-vec3 space(vec2 px, vec2 uv) {
+void main() {
+  vec2 px = gl_FragCoord.xy;
+  vec2 uv = px / uRes;
   vec3 col = mix(vec3(0.008, 0.013, 0.036), vec3(0.022, 0.036, 0.082), smoothstep(0.0, 1.1, uv.y));
   float dust = fbm(px / (520.0 * uDpr));
   col += vec3(0.016, 0.024, 0.05) * smoothstep(0.5, 0.95, dust);
   float s = stars(px, 30.0 * uDpr, 0.09, 1.0) + 1.3 * stars(px, 84.0 * uDpr, 0.2, 7.0);
-  return col + vec3(0.72, 0.8, 1.0) * s * 0.75;
-}
-
-void main() {
-  vec2 px = gl_FragCoord.xy;
-  vec2 uv = px / uRes;
-  vec2 q = (px - uRing.xy) / uRing.z;
-  float R = uRing.z * uOpen;
-  float d = length(px - uRing.xy) - R;
-  // The edge, a little soft, so the opening never stair-steps.
-  float inside = smoothstep(1.2 * uDpr, -1.2 * uDpr, d);
-  // Lit from the upper left, where the world's brightest sky is.
-  float ang = atan(q.y, q.x);
-  float lit = pow(max(0.5 + 0.5 * cos(ang - 2.3), 0.0), 1.6);
-  vec3 tint = mix(vec3(0.72, 0.83, 1.0), vec3(1.0, 0.9, 0.8), lit * 0.5);
-  float w0 = 0.8 * uDpr;
-  float core = exp(-d * d / (w0 * w0));
-  float glow = exp(-abs(d) / (12.0 * uDpr));
-  // While it opens the ring is a point of light that spends itself as it widens.
-  float burst = 1.0 + 2.5 * (1.0 - uOpen) * (1.0 - uOpen);
-  vec3 light = tint * (core * (0.18 + 0.95 * lit) + glow * (0.02 + 0.2 * lit)) * burst;
-  // Inside, the world shows through, darkened toward the rim so the opening has depth.
-  float rim = 1.0 - smoothstep(0.0, 0.16 * max(R, 1.0), -d);
-  float shade = inside * 0.45 * rim;
-  vec3 outside = space(px, uv) + light;
-  float a = mix(1.0, shade, inside);
-  vec3 c = mix(outside, light, inside);
-  c += (h21(px) - 0.5) / 255.0 * 2.0 * (1.0 - inside) * clearOf(px);
-  outColor = vec4(c, a);
+  col += vec3(0.72, 0.8, 1.0) * s * 0.75;
+  // A level of noise so the gradient never bands, kept off the text like the stars.
+  col += (h21(px) - 0.5) / 255.0 * 2.0 * clearOf(px);
+  outColor = vec4(col, 1.0);
 }`
 
-const OPEN_MS = 1500
-
-export function Aperture({ ring, className }: { ring?: React.RefObject<HTMLElement | null>; className?: string }) {
+export function Sky({ className }: { className?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const el = canvas.current
-    const gl = el?.getContext("webgl2", { antialias: false, premultipliedAlpha: true, alpha: true })
+    const gl = el?.getContext("webgl2", { antialias: false, alpha: false })
     if (!el || !gl) return
     const shader = (type: number, src: string) => {
       const sh = gl.createShader(type)!
@@ -150,12 +114,9 @@ export function Aperture({ ring, className }: { ring?: React.RefObject<HTMLEleme
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
     const u = (name: string) => gl.getUniformLocation(prog, name)
 
-    let open = 0
+    const range = document.createRange()
+    const clear = Array.from(el.parentElement?.querySelectorAll<HTMLElement>("[data-clear]") ?? [])
     const draw = () => {
-      gl.uniform1f(u("uOpen"), open)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-    }
-    const size = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       const box = el.getBoundingClientRect()
       el.width = Math.round(box.width * dpr)
@@ -163,15 +124,6 @@ export function Aperture({ ring, className }: { ring?: React.RefObject<HTMLEleme
       gl.viewport(0, 0, el.width, el.height)
       gl.uniform2f(u("uRes"), el.width, el.height)
       gl.uniform1f(u("uDpr"), dpr)
-      const slot = ring?.current?.getBoundingClientRect()
-      if (slot) {
-        const cx = (slot.left - box.left + slot.width / 2) * dpr
-        const cy = (box.bottom - (slot.top + slot.height / 2)) * dpr
-        gl.uniform3f(u("uRing"), cx, cy, (slot.width / 2) * dpr)
-      } else {
-        // No opening: a ring a pixel wide (the shader divides by it), so far off the canvas none of its light reaches it.
-        gl.uniform3f(u("uRing"), -1e6, -1e6, 1)
-      }
       // The contents' box, not the element's: a block stretched across the column would clear a band
       // of sky far wider than its words.
       const text = clear.map((node) => {
@@ -183,38 +135,16 @@ export function Aperture({ ring, className }: { ring?: React.RefObject<HTMLEleme
       gl.uniform4fv(u("uClear"), rects)
       gl.uniform1i(u("uClearN"), Math.min(clear.length, MAX_CLEAR))
       gl.uniform1f(u("uFeather"), CLEAR_FEATHER * dpr)
-      draw()
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
     }
-    const range = document.createRange()
-    const clear = Array.from(el.parentElement?.querySelectorAll<HTMLElement>("[data-clear]") ?? [])
-    size()
-    const observer = new ResizeObserver(size)
+    draw()
+    const observer = new ResizeObserver(draw)
     observer.observe(el)
     clear.forEach((node) => observer.observe(node))
-    void document.fonts.ready.then(size)
-
-    let frame = 0
-    if (!ring || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      open = 1
-      draw()
-    } else {
-      const t0 = performance.now()
-      const step = (now: number) => {
-        const t = Math.min((now - t0) / OPEN_MS, 1)
-        // A critically damped spring from rest, settled at t = 1.
-        const k = 7
-        open = t >= 1 ? 1 : 1 - (1 + k * t) * Math.exp(-k * t)
-        draw()
-        frame = t < 1 ? requestAnimationFrame(step) : 0
-      }
-      frame = requestAnimationFrame(step)
-    }
+    void document.fonts.ready.then(draw)
     el.dataset.ready = "1"
-    return () => {
-      cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [ring])
+    return () => observer.disconnect()
+  }, [])
 
   return <canvas ref={canvas} aria-hidden className={className} />
 }
