@@ -32,7 +32,7 @@ export const entries: Entry[] = [
     body: [
       { kind: "h", text: "Security" },
       { kind: "ul", items: [
-        "**An agent can no longer approve its own permission cards or switch off the sandbox through Realm's local socket.** The token in `~/Realm/daemon.json` used to open every method Realm's server has, and an agent running with the sandbox off could read that file. That token now opens only what the `realm` command line itself needs, and the app keeps the full one to itself, in no file, command line or environment. There is nothing to do after updating.",
+        "**An agent can no longer approve its own permission cards or switch off the sandbox through Realm's local socket.** The token in `~/Realm/daemon.json` used to open every method Realm's server has, and an agent running with the sandbox off could read that file. That token now opens only what the `realm` command line itself needs, and the app keeps the full one to itself: it is never on a command line or in an environment, and the only copy on disk is sealed with a key from your Keychain. There is nothing to do after updating.",
         "**`realm pair` on a Mac now shows the code in the terminal, and you accept the phone in Realm's window.** On a server started with `realm serve`, where there is no window, it still asks in the terminal.",
         "**What this does not close:** with the sandbox off, an agent running as you can still edit Realm's database file directly, and on Linux without a keyring the app's token is not really sealed between launches. The sandbox is what protects those files, so leave it on for agents you do not fully trust.",
       ] },
