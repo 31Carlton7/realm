@@ -9,6 +9,7 @@ import { site } from "@/lib/site"
 
 import { Crop, type Picture, type Shot } from "./Crop"
 import { Download } from "./Download"
+import { Footer } from "./Footer"
 import { Hero } from "./Hero"
 import { World } from "./World"
 import s from "./landing.module.css"
@@ -185,29 +186,7 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
 
       <Download downloads={downloads} version={version} changelog={changelog} />
 
-      <footer className={s.foot}>
-        <div className={s.footColumn}>
-          <p className={s.credits}>
-            The pictures are the ones Realm shows behind a new session.{" "}
-            {worlds.map((w) => (
-              <span key={w.id} className={s.credit}>
-                {w.name}: {w.credit}
-              </span>
-            ))}
-          </p>
-          <div className={s.footSide}>
-            <nav className={s.footLinks} aria-label="More">
-              <a href="/docs">Docs</a>
-              <a href="/changelog">Changelog</a>
-              <a href={site.repo}>Source</a>
-            </nav>
-            <p className={s.madeBy}>
-              Made by <a href={site.author.site.href}>{site.author.name}</a>.{" "}
-              <a href={site.author.x.href}>{site.author.x.handle}</a>
-            </p>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </main>
   )
 }
