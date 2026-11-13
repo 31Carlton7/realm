@@ -13,9 +13,9 @@
  *   public/og/sky-<name>.jpg: /share/sky/<name>, for each sky lib/og/layout.ts names, the backgrounds
  *     the changelog's cards (lib/og/card.tsx) are drawn over at build. Run `next build` again after.
  *
- * Headless Chrome rather than Playwright, because the skies' field is WebGPU and the hero's ring is
+ * Headless Chrome rather than Playwright, because the skies' field is WebGPU and the hero's sky is
  * WebGL2, and Chrome is what renders them here, driven over the DevTools protocol so one browser takes
- * every picture. Each is a still frame (reduced motion), the same every run; a page whose field or ring
+ * every picture. Each is a still frame (reduced motion), the same every run; a page whose field or sky
  * did not draw is refused rather than photographed as its CSS fallback. A port that already answers is
  * refused too: a leftover browser there would be photographed instead of this one.
  */
@@ -105,9 +105,9 @@ async function connect() {
 
 /** The skies are drawn by the changelog's WebGPU field, which marks the page once it has started. */
 const FIELD = { ready: "document.documentElement.dataset.field ?? null", settle: 1600 }
-/** The card is drawn by the hero's ring (Aperture) over its world, printed into the ring's canvas. */
-const RING = {
-  ready: `document.querySelector("canvas[data-ready]") && document.querySelector("canvas[data-printed]") ? "on" : null`,
+/** The card is drawn over the hero's sky (Sky), which marks its canvas once it has drawn. */
+const SKY = {
+  ready: `document.querySelector("canvas[data-ready]") ? "on" : null`,
   settle: 300,
 }
 
@@ -136,7 +136,7 @@ try {
   page = await connect()
   await page.send("Page.enable")
 
-  const card = await photograph(page, `${base}/share`, RING)
+  const card = await photograph(page, `${base}/share`, SKY)
   for (const name of ["opengraph-image", "twitter-image"]) {
     fs.writeFileSync(path.join(siteRoot, "app", `${name}.png`), card)
     fs.writeFileSync(path.join(siteRoot, "app", `${name}.alt.txt`), ALT)
