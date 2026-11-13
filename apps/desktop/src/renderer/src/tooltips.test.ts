@@ -307,6 +307,26 @@ describe("the tooltip layer", () => {
     expect(parseFloat(tip().style.top)).toBe(8 + 28 + 6);
   });
 
+  it("lends a cut-short tab its name for the system's tooltip when a native view lies right under the strip and there is no room above", () => {
+    // A native view right under the strip, and over it off the window: no spot is clear, and a clipped
+    // tab has no title of its own, so it would show nothing at all. THE MUTANTS: nothing lent, so the
+    // system has nothing to show; the loan kept after the pointer leaves, so the tab carries a title
+    // it never had.
+    setup('<div role="tablist"><button id="tab" role="tab" data-tip="clipped"><span id="name" data-tip-text>Docs · realm.computer</span></button></div><button id="away">Away</button>');
+    const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    Object.defineProperty($("#name"), "scrollWidth", { configurable: true, get: () => 160 });
+    Object.defineProperty($("#name"), "clientWidth", { configurable: true, get: () => 0 });
+    $("#tab").getBoundingClientRect = rect(500, 0, 31, 28);
+    tip().getBoundingClientRect = rect(0, 0, 160, 24);
+    views = [{ x: 0, y: 34, width: window.innerWidth, height: window.innerHeight - 34 }];
+    hover($("#name"));
+    vi.advanceTimersByTime(TIP_DELAY_MS);
+    expect(open()).toBe(false);
+    expect($("#tab").getAttribute("title")).toBe("Docs · realm.computer");
+    hover($("#away"));
+    expect($("#tab").hasAttribute("title")).toBe(false);
+  });
+
   it("leaves the page as it found it when uninstalled", () => {
     setup('<button id="b" title="Reload"></button>');
     hover($("#b"));
