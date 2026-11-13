@@ -156,9 +156,8 @@ describe("SELECTABLE_AGENT_KINDS", () => {
     // fake session must keep working.
     expect(SELECTABLE_AGENT_KINDS).not.toContain("fake");
     expect(AGENT_META.fake).toBeDefined();
-    // Gemini WAS withheld as a dead end. Measured 2026-09-01 against gemini-cli 0.56.0: only the free
-    // personal tier is dead; an API key, Vertex AI, and a custom gateway all still open a session. So
-    // withholding it is no longer the honest call — offering it with the live routes named is.
+    // Gemini WAS withheld as a dead end. Measured 2026-11-12 against gemini-cli 0.66.0 and 0.68.0:
+    // only `oauth-personal` is refused; an API key, Vertex AI and a custom gateway are still offered.
     expect(SELECTABLE_AGENT_KINDS).toContain("acp:gemini");
     expect(AGENT_LOGIN_HINTS["acp:gemini"]).toMatch(/Vertex AI/);
   });
@@ -484,5 +483,51 @@ describe("fullAccessAllows", () => {
     const command = `node x.mjs '$$(".a")' ${"y".repeat(400)} TAIL`;
     const line = fullAccessLogLine({ command }, "the CLI asked");
     expect(line).toBe(`Full access ran a command without asking (the CLI asked): ${command.slice(0, 200)}`);
+  });
+});
+
+describe("gemini-cli's session/new answer (0.66.0 and 0.68.0, 2026-11-12)", () => {
+  // Captured 2026-11-12 from both versions on a scratch home with a placeholder API key (no prompt
+  // sent): the legacy `modes` and `models` fields, no `configOptions`.
+  const GEMINI = {
+    sessionId: "s1",
+    modes: {
+      availableModes: [
+        { id: "default", name: "Default", description: "Prompts for approval" },
+        { id: "autoEdit", name: "Auto Edit", description: "Auto-approves edit tools" },
+        { id: "yolo", name: "YOLO", description: "Auto-approves all tools" },
+        { id: "plan", name: "Plan", description: "Read-only mode" },
+      ],
+      currentModeId: "default",
+    },
+    models: {
+      availableModels: [
+        { modelId: "auto", name: "Auto", description: "Let Gemini CLI decide the best model for the task: gemini-3.1-pro-preview, gemini-3.8-flash" },
+        { modelId: "gemini-3.1-pro-preview", name: "gemini-3.1-pro-preview" },
+        { modelId: "gemini-3-flash-preview", name: "gemini-3-flash-preview" },
+        { modelId: "gemini-2.5-pro", name: "gemini-2.5-pro" },
+        { modelId: "gemini-3.8-flash", name: "gemini-3.8-flash" },
+        { modelId: "gemini-3.5-flash-lite", name: "gemini-3.5-flash-lite" },
+      ],
+      currentModelId: "auto",
+    },
+  };
+
+  it("reads modes and models off the legacy fields, so a model is written with session/set_model", () => {
+    const cfg = acpSessionConfig(GEMINI);
+    expect(cfg.modes.map((m) => m.id)).toEqual(["default", "autoEdit", "yolo", "plan"]);
+    expect(cfg.currentModeId).toBe("default");
+    expect(cfg.models.map((m) => m.id)).toEqual(["auto", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-3.8-flash", "gemini-3.5-flash-lite"]);
+    expect(cfg.currentModelId).toBe("auto");
+    expect(cfg.modelConfigId).toBeNull();
+    expect(cfg.modeConfigId).toBeNull();
+  });
+
+  it("maps Plan to `plan`, Build back to `default`, and offers no Ask", () => {
+    const { modes } = acpSessionConfig(GEMINI);
+    expect(acpPlanMode(modes)?.id).toBe("plan");
+    expect(acpBuildMode(modes, "default")?.id).toBe("default");
+    expect(acpAskMode(modes)).toBeNull();
+    expect(acpPlanMode(modes.filter((m) => m.id !== "plan"))).toBeNull();
   });
 });

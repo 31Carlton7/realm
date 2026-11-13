@@ -220,9 +220,10 @@ export function defaultAdapters(): AdapterRegistry {
       bin: agentBin("acp:gemini"),
       args: ["--acp"],
       label: "Gemini",
-      // Measured 2026-09-01 (gemini-cli 0.56.0): `initialize` advertises oauth-personal, gemini-api-key,
-      // vertex-ai and a custom AI gateway. Only the first is dead — `session/new` under it fails
-      // IneligibleTierError — so the hint names the three that work.
+      // Measured 2026-11-12 (gemini-cli 0.66.0 and 0.68.0): `initialize` advertises oauth-personal,
+      // gemini-api-key, vertex-ai and a custom AI gateway, plus loadSession and image prompts.
+      // Only the first is dead — `session/new` under it fails -32000 "This client is no longer
+      // supported for Gemini Code Assist for individuals" — so the hint names the other three.
       loginHint: "Gemini's free personal tier was discontinued — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
     }),
     // ── Plan 18: agents that speak ACP natively ────────────────────────────────────────────────
