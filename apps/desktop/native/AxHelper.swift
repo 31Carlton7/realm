@@ -379,7 +379,9 @@ private func walk(app: AXUIElement, limit: Int) -> (elements: [Element], truncat
 /// ScreenCaptureKit rather than `CGWindowListCreateImage`: the latter is deprecated and, since
 /// macOS 15, returns a black or desktop-only image when Screen Recording is not granted instead of
 /// failing — a silent wrong answer, which is worse than none.
+/// SCScreenshotManager is macOS 14's, so on 13 a snapshot is the tree alone.
 private func captureApp(pid: pid_t) -> String? {
+  guard #available(macOS 14.0, *) else { return nil }
   let contentSemaphore = DispatchSemaphore(value: 0)
   var content: SCShareableContent?
   SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { fetched, _ in
