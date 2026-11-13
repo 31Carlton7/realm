@@ -146,6 +146,7 @@ export function SettingsPage(_props: PaneProps) {
               {tab === "appearance" && <AppearanceTab />}
               {tab === "keys" && <KeybindingsPanel />}
               {tab === "notifications" && <NotificationsTab />}
+              {tab === "dictation" && <DictationTab />}
               {tab === "devices" && <DevicesPanel onOpenSetting={openSetting} />}
               {tab === "engines" && <EnginesTab />}
               {tab === "usage" && <UsagePanel />}
@@ -1504,6 +1505,46 @@ function AboutLinks() {
         ))}
       </ul>
     </>
+  );
+}
+
+/** Dictation's settings: which microphone it hears, and whether what it heard is tidied first. */
+function DictationTab() {
+  const prefs = useApp((s) => s.voicePrefs);
+  const loadVoicePrefs = useApp((s) => s.loadVoicePrefs);
+  const setVoicePrefs = useApp((s) => s.setVoicePrefs);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => loadVoicePrefs()); }, [run, loadVoicePrefs]);
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  useEffect(() => {
+    const media = navigator.mediaDevices;
+    if (!media?.enumerateDevices) return;
+    const list = () => void media.enumerateDevices().then((all) => setMicrophones(all.filter((d) => d.kind === "audioinput" && d.deviceId !== "default" && d.deviceId !== "communications")));
+    list();
+    media.addEventListener?.("devicechange", list);
+    return () => media.removeEventListener?.("devicechange", list);
+  }, []);
+  return (
+    <div className="form">
+      <ul className="settings-list">
+        <li className="settings-row" data-setting="dictation-microphone">
+          <div className="settings-row-main"><span className="settings-row-name">Microphone</span></div>
+          <select aria-label="Microphone" value={prefs.microphone ?? ""}
+            onChange={(e) => run(() => setVoicePrefs({ microphone: e.target.value || null }))}>
+            <option value="">System default</option>
+            {microphones.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${i + 1}`}</option>)}
+          </select>
+        </li>
+        <li className="settings-row" data-setting="dictation-clean-up">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Clean up dictation</span>
+            <span className="settings-row-desc">Takes out filler words and false starts, and fixes punctuation, before dictated words land in the prompter. Only the words go to Claude Haiku, on your Claude account. Off, dictation stays on this Mac.</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Clean up dictation" checked={prefs.cleanUp}
+            onChange={(e) => run(() => setVoicePrefs({ cleanUp: e.target.checked }))} />
+        </li>
+      </ul>
+    </div>
   );
 }
 

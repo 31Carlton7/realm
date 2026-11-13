@@ -57,7 +57,8 @@ import { usableModel } from "../panes/session/model-catalog";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
-import type { AskAnswers } from "@realm/contracts";
+import { DEFAULT_VOICE_PREFS, VOICE_PREFS_KEY, readVoicePrefs, type VoicePrefs } from "../voice/voice-prefs";
+import type { AskAnswers, DictationCleanResult } from "@realm/contracts";
 import { NOTIFICATIONS_IPHONE_KEY, type PairRequest, type PairingWindow, type RemoteStatus } from "@realm/contracts";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
@@ -415,6 +416,8 @@ export type Api = TeammatesApi & {
   /** `mentions.files` — the session's checkout ranked for the `@` list, secrets left out server-side. */
   mentionFiles(sessionId: string, query: string, limit?: number): Promise<ProjectFilesResult>;
   interruptSession(id: string): Promise<void>;
+  /** `dictation.clean` — the words only. */
+  cleanDictation(text: string): Promise<DictationCleanResult>;
   /** `sessions.dequeue` — drop a queued message before its turn comes. */
   dequeuePrompt(id: string, queuedId: string): Promise<void>;
   /** `sessions.releaseQueued` — send one queued message now. Server-side by id, so the mentions and
@@ -1711,6 +1714,8 @@ export type AppState = TeammatesSlice & {
   /** The media viewer, when a file is open in it — see `state/viewer.ts`. Transient: a file is looked
    *  at, not kept, so it is never written into the saved view and a profile switch takes it away. */
   viewer: ViewerState | null;
+  /** Dictation's settings (`voice/voice-prefs.ts`), read when dictation or its settings page opens. */
+  voicePrefs: VoicePrefs;
   /**
    * A session looked at without being opened (W11b): a tab of the focused session's side pane, from
    * any space, beside `owner` (the session item it was opened beside). TRANSIENT, which is the whole of
@@ -2620,6 +2625,11 @@ export type AppState = TeammatesSlice & {
    *  transcript when it is not held yet, so the exchange can be drawn as it arrives. */
   openViewer(input: OpenViewerInput): void;
   closeViewer(): void;
+  loadVoicePrefs(): Promise<void>;
+  setVoicePrefs(patch: Partial<VoicePrefs>): Promise<void>;
+  /** Dictated words, cleaned when Settings ▸ Dictation ▸ Clean up dictation is on. Off, they are handed
+   *  straight back and nothing is sent. */
+  cleanDictation(text: string): Promise<DictationCleanResult>;
   /** The next or previous sibling. Stops at the ends: the list is the one the eye just walked. */
   stepViewer(delta: 1 | -1): void;
   /** Files the viewer's exchange produced: added after the one on show, which `show` moves to — a
@@ -4636,7 +4646,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
-      sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
+      sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null, voicePrefs: DEFAULT_VOICE_PREFS,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, memoryLearning: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
@@ -7459,6 +7469,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         holdViewerSession();
       },
       closeViewer() { if (get().viewer) set({ viewer: null }); },
+      async loadVoicePrefs() { set({ voicePrefs: readVoicePrefs(await api.getSetting(VOICE_PREFS_KEY)) }); },
+      async setVoicePrefs(patch) {
+        const next = readVoicePrefs({ ...get().voicePrefs, ...patch });
+        set({ voicePrefs: next });
+        await api.setSetting(VOICE_PREFS_KEY, next);
+      },
+      async cleanDictation(text) {
+        await get().loadVoicePrefs();
+        if (!get().voicePrefs.cleanUp) return { outcome: "off", text };
+        return api.cleanDictation(text);
+      },
       stepViewer(delta) {
         const v = get().viewer; if (!v) return;
         const index = Math.max(0, Math.min(v.index + delta, v.files.length - 1));

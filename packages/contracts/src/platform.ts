@@ -39,6 +39,8 @@ export type PlatformCapabilities = {
   shareMenu: boolean;
   /** Seatbelt (`sandbox-exec`), the execution sandbox's enforcement. */
   executionSandbox: boolean;
+  /** Dictation, whose speech recognition is the Mac's own (native/RealmVoice.swift). */
+  dictation: boolean;
   /** What the OS calls the app that "Show in …" opens. */
   fileManager: string;
   /** What copy calls the machine itself: "on your Mac", "on your computer". */
@@ -62,6 +64,7 @@ export function platformCapabilities(platform: string): PlatformCapabilities {
     quickLook: mac,
     shareMenu: mac,
     executionSandbox: mac,
+    dictation: mac,
     fileManager: mac ? "Finder" : os === "windows" ? "File Explorer" : "Files",
     machine: mac ? "Mac" : "computer",
   };

@@ -7,7 +7,7 @@ import { capabilities } from "../../platform";
 
 /** One page of Settings, as the rail lists it. */
 export type SettingsTab =
-  | "general" | "appearance" | "keys" | "notifications" | "devices"
+  | "general" | "appearance" | "keys" | "notifications" | "dictation" | "devices"
   | "engines" | "usage" | "ram"
   | "signins"
   | "permissions" | "computer-use"
@@ -27,6 +27,7 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
     { id: "keys", label: "Keys", icon: "command" }, { id: "notifications", label: "Notifications", icon: "bell" },
     // The pack's smartphone, which the set holds under the device pane's name.
     { id: "devices", label: "Devices", icon: "simulator" },
+    { id: "dictation", label: "Dictation", icon: "mic" },
   ] },
   { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }, { id: "ram", label: "RAM", icon: "ram" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Passwords", icon: "key" }] },
@@ -43,6 +44,7 @@ export function tabAvailable(tab: SettingsTab): boolean {
   const caps = capabilities();
   if (tab === "permissions") return caps.macCli || caps.accessibility;
   if (tab === "computer-use") return caps.accessibility;
+  if (tab === "dictation") return caps.dictation;
   return true;
 }
 
@@ -171,6 +173,10 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "relay-iphone", tab: "notifications", label: "Notify my iPhone", terms: "phone push mobile relay",
     available: (facts) => facts.phonesPaired },
   ...NOTIFICATION_CATEGORIES.map((c): SettingEntry => ({ id: `notify:${c}`, tab: "notifications", section: "Notify me about", label: CATEGORY_COPY[c].label })),
+
+  // Dictation
+  { id: "dictation-microphone", tab: "dictation", label: "Microphone", terms: "input device mic airpods headset voice" },
+  { id: "dictation-clean-up", tab: "dictation", label: "Clean up dictation", terms: "dictate speech to text transcript filler punctuation tidy polish voice" },
 
   // Devices
   { id: "pair-iphone", tab: "devices", label: "Pair an iPhone", terms: "phone mobile qr code scan" },

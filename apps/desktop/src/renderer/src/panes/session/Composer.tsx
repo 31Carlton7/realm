@@ -19,7 +19,7 @@ import { ActiveAgents, useRowAgents } from "./ActiveAgents";
 import { AddSubAgent } from "./AddSubAgent";
 import { CHILD_ORIGINS } from "../session-labels";
 import { heroGreeting } from "./greeting";
-import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
+import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit, type Segment } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 import { DraftTabRow } from "./TabCards";
 import { ComposerQueue, type QueueActions } from "./ComposerQueue";
@@ -29,6 +29,8 @@ import { WhatChanged, hasChanges } from "./WhatChanged";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
 import type { Todo } from "./rich/tool-view";
+import { useDictation, type DictationPort } from "../../voice/use-dictation";
+import { placeDictation, spliceRun } from "../../voice/dictation-draft";
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
@@ -409,7 +411,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything", dictation = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -450,6 +452,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (path: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
+  /** Dictation into this draft, where this prompter offers it (`voice/use-dictation.ts`). */
+  dictation?: DictationPort | null;
   /** The other sessions this draft points at, and the two ways they change. */
   sessionRefs?: readonly SessionRef[]; onRemoveSessionRef?: (sessionId: string) => void;
   /** One of Realm's own sidebar items was dropped on the prompter. The pane decides what it means. */
@@ -792,6 +796,19 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    *  text renders. A range, not a point: toggling a bullet over three selected lines must leave those
    *  three lines selected, or the next ⌘⇧8 would undo only the line the caret collapsed onto. */
   const pendingSel = useRef<{ start: number; end: number } | null>(null);
+  const dictate = useDictation({
+    port: dictation, draft, onDraftChange,
+    caret: () => { const at = ta.current?.selectionEnd ?? draft.length; return chipAround(chips, at)?.end ?? at; },
+    select: (at) => { pendingSel.current = { start: at, end: at }; },
+  });
+  /* While dictating, the words heard so far sit at the caret in the box, drawn as not yet typed, and
+     the draft itself is untouched until they land. */
+  const dictating = dictate.live ? placeDictation(draft, dictate.live.at, dictate.live.words) : null;
+  const dictatedAt = dictate.live ? Math.min(dictate.live.at, draft.length) : 0;
+  const painted = dictating && dictating.text !== draft
+    ? spliceRun<Segment & { dictated?: true }>(segments, dictatedAt, { text: dictating.text.slice(dictatedAt, dictating.text.length - (draft.length - dictatedAt)), kind: null, dictated: true })
+    : segments;
+  const paintedStarts = painted === segments ? segStarts : painted.map((_, i) => painted.slice(0, i).reduce((n, r) => n + r.text.length, 0));
   const mentionToken = useMemo(
     () => (mentionSkills.length > 0 || mentions ? mentionQueryAt(draft, Math.min(caret, draft.length)) : null),
     [mentionSkills.length, mentions, draft, caret],
@@ -1044,6 +1061,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (dictate.live && e.key === "Escape") { e.preventDefault(); e.stopPropagation(); dictate.stop(); return; }
+    // ⌘Z right after a clean-up takes it back to exactly what was heard; after that it is the box's own undo.
+    if (e.key === "z" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && dictate.undo()) { e.preventDefault(); return; }
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
     // window level in the keymap (keys/) — consuming it here would turn dispatch into a plain send.
@@ -1293,7 +1313,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             for glyph like the textarea, a Range over the character beside the caret IS the caret. */}
         <div ref={editorRef} className="composer-editor">
           <div ref={hl} className="composer-highlight" aria-hidden="true" data-caret-mirror>
-            {segments.map((s, i) => {
+            {painted.map((s, i) => {
+              if ("dictated" in s && s.dictated) return <span key={i} className="ch-dictating">{s.text}</span>;
               if (!s.kind) return s.text;
               const link = s.kind === "element" ? linkOf(s.text) : null;
               /* Every chip wears an icon over the sigil that opens its token — a skill mention's
@@ -1314,7 +1335,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
                 : s.kind === "mention" || s.kind === "mention-stale" ? (s.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles") : null;
               const bracketed = s.kind === "element"; // `@[…]`, where a mention is a bare `@`
               const open = bracketed ? 2 : 1;
-              const at = segStarts[i]!;
+              const at = paintedStarts[i]!;
               const chip = isChipKind(s.kind);
               return (
                 <span key={i} className={`ch-${s.kind}`} data-service={link?.service} data-ref={ref?.kind}
@@ -1351,7 +1372,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             </div>
           )}
           <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : placeholder} rows={1}
-            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setSelEnd(e.target.selectionEnd ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
+            value={dictating?.text ?? draft} readOnly={dictate.live !== null} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setSelEnd(e.target.selectionEnd ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
             onSelect={(e) => { setCaret(e.currentTarget.selectionStart ?? 0); setSelEnd(e.currentTarget.selectionEnd ?? 0); }}
             onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={leaveChip}
             onKeyDown={onKeyDown} onPaste={onPaste} onScroll={() => { syncScroll(); setHotChip(null); }}
@@ -1373,6 +1394,21 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             </button>
           )}
         </div>
+        {dictate.live?.cleaning && <p className="composer-attach-note composer-dictation-note" role="status">Cleaning up…</p>}
+        {dictate.note && (
+          <p className="composer-attach-note composer-dictation-note" data-kind={dictate.note.kind} role="status">
+            {dictate.note.kind === "cleaned" ? (
+              <>
+                <span>Cleaned</span>
+                <span aria-hidden="true">·</span>
+                <button type="button" className="btn-quiet composer-dictation-undo" title="Put back exactly what was heard (⌘Z)" onClick={() => dictate.undo()}>Undo</button>
+              </>
+            ) : <span>{dictate.note.text}</span>}
+            <button type="button" className="composer-ref-remove composer-dictation-dismiss" aria-label="Dismiss" title="Dismiss" onClick={dictate.dismiss}>
+              <Icon name="close" size={12} />
+            </button>
+          </p>
+        )}
         {slashOpen && (
           <SlashPicker commands={slashMatches} activeIndex={slashCur} anchorRef={ta}
             onPick={pickSlash} onHover={setSlashActive} onClose={() => setSlashDismissed(true)} />
@@ -1448,6 +1484,15 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
               onToggleFavorite={onToggleModelFavorite}
               onPick={onPickModel} fast={fast} eggs={eggs} account={account}
               switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />
+            {dictation && (
+              <button type="button" className="icon-btn composer-attach composer-dictate" aria-pressed={dictate.live !== null}
+                aria-label={dictate.live ? "Stop dictating" : "Dictate"} title={dictate.live ? "Stop dictating (Esc)" : "Dictate"}
+                disabled={dictate.live?.cleaning}
+                onMouseDown={(e) => e.preventDefault() /* the box keeps its focus and its caret */}
+                onClick={() => (dictate.live ? dictate.stop() : dictate.start())}>
+                <Icon name="mic" size={16} />
+              </button>
+            )}
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

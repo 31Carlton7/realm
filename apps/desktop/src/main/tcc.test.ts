@@ -6,6 +6,7 @@ import { FULL_DISK_PROBE_PATH, TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, t
 const deps = (over: Partial<TccProbeDeps> = {}): TccProbeDeps => ({
   screenStatus: () => "granted",
   cameraStatus: () => "granted",
+  microphoneStatus: () => "granted",
   accessibilityTrusted: () => true,
   openForRead: () => {},
   ...over,
@@ -51,6 +52,18 @@ describe("probeTcc (Plan 12 W6 — TCC honesty)", () => {
     expect(row(probeTcc(deps({ cameraStatus: () => { throw new Error("no Electron"); } })), "camera").state).toBe("unknown");
     expect(TCC_SETTINGS_URLS.camera).toBe("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera");
     expect(isTccPermissionId("camera")).toBe(true);
+  });
+
+  it("Microphone maps its own status read — never the camera's — and says dictation hears through it", () => {
+    // THE MUTANT: read the camera's status for the microphone row.
+    const mixed = probeTcc(deps({ cameraStatus: () => "denied", microphoneStatus: () => "granted" }));
+    expect(row(mixed, "microphone").state).toBe("granted");
+    expect(row(mixed, "microphone").detail).toMatch(/Dictation hears you/);
+    expect(row(probeTcc(deps({ microphoneStatus: () => "denied" })), "microphone").state).toBe("denied");
+    const notAsked = row(probeTcc(deps({ microphoneStatus: () => "not-determined" })), "microphone");
+    expect(notAsked.state).toBe("unknown");
+    expect(notAsked.detail).toMatch(/first time you dictate/);
+    expect(TCC_SETTINGS_URLS.microphone).toBe("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone");
   });
 
   it("Accessibility: trusted → granted; untrusted → denied, with the denied-vs-never-asked caveat stated", () => {

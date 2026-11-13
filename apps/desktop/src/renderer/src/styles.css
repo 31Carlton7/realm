@@ -5745,6 +5745,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    path to type, and mono beside the sentence read as two kinds of text on one line. */
 .composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* After a clean-up, the one way back to exactly what was heard, on the note's own quiet line:
+   "Cleaned · Undo", and a × to put it away. It goes the moment the draft is edited or sent. */
+.composer-dictation-note { align-items: center; gap: 4px; padding: 0 16px; }
+.composer-dictation-note .composer-dictation-undo { --btn-h: 20px; padding: 0 5px; font-size: 11px; }
+.composer-dictation-note .composer-dictation-dismiss { width: 16px; height: 16px; margin-left: 2px; }
 
 /* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
    (§2), grows to ~7 lines and then scrolls (matches MAX_ROWS_PX in Composer.tsx). Ten lines was a
@@ -5799,6 +5804,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    here that is a THING (a skill that will be handed over) rather than formatting. */
 /* Colour only: weight would change the glyph widths under the caret, which the mirror may not do. */
 .ch-link { color: var(--rl-accent); }
+/* Words still being dictated: in the box at the caret, in the quiet ink, until they land as typed text. */
+.ch-dictating { color: var(--rl-text-faint); }
 /* ── The prompter's chips: one family ─────────────────────────────────────
    Everything a chip names lands in the draft as a token, and every token is drawn the same way: a
    pill on the app's chip rung, a quiet tint of its kind's tone, a mark and a name. A picked element

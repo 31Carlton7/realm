@@ -1221,6 +1221,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`previewTab:${tab.itemId}`);
       return data.tabCards[tab.itemId] ?? { ...tab, bytes: 0, truncated: false, closed: true };
     },
+    cleanDictation: async (text) => {
+      calls.push(`cleanDictation:${text}`);
+      return { outcome: "cleaned", text };
+    },
     mentionFiles: async (sessionId, query, limit) => {
       calls.push(`mentionFiles:${sessionId}:${query}`);
       return { hits: rankPaths(data.workspaceFiles[sessionId] ?? [], query, limit ?? 8), truncated: false, source: "git" };
