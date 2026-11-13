@@ -14,8 +14,10 @@
 
      `device.camera` is what lets a hardened-runtime binary open a capture device at all — and macOS
      reaches a connected iPhone's SCREEN as one. Without it the `phonescreen` helper is refused before
-     any prompt, and a real phone's picture stays a screenshot a second. It is the only thing Realm
-     captures: nothing in it opens this Mac's own camera. -->
+     any prompt, and a real phone's picture stays a screenshot a second. It is the only camera Realm
+     opens: nothing in it opens this Mac's own camera.
+
+     `device.audio-input` is the same for the microphone, which dictation listens through. -->
 <plist version="1.0">
   <dict>
     <key>com.apple.security.cs.allow-jit</key>
@@ -27,6 +29,8 @@
     <key>com.apple.security.automation.apple-events</key>
     <true/>
     <key>com.apple.security.device.camera</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
     <true/>
   </dict>
 </plist>

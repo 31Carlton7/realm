@@ -5745,6 +5745,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    path to type, and mono beside the sentence read as two kinds of text on one line. */
 .composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* After a clean-up, the one way back to exactly what was heard, on the note's own quiet line:
+   "Cleaned · Undo", and a × to put it away. It goes the moment the draft is edited or sent. */
+.composer-dictation-note { align-items: center; gap: 4px; padding: 0 16px; }
+.composer-dictation-note .composer-dictation-undo { --btn-h: 20px; padding: 0 5px; font-size: 11px; }
+.composer-dictation-note .composer-dictation-dismiss { width: 16px; height: 16px; margin-left: 2px; }
 
 /* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
    (§2), grows to ~7 lines and then scrolls (matches MAX_ROWS_PX in Composer.tsx). Ten lines was a
@@ -5771,7 +5776,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font-weight: var(--fw-medium); }
 /* EVERY metric here must equal .composer-input's below — font, size, line-height, padding, wrapping —
    or the painted glyphs slide off the caret sitting above them. `pre-wrap` + `break-word` is exactly
-   the UA's own textarea wrapping. Runs may change colour, background and underline, and nothing else. */
+   the UA's own textarea wrapping. Runs may change colour, background and underline, and nothing else
+   (a word being dictated also fades in: see `.ch-heard`). */
 .composer-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
   font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px;
   white-space: pre-wrap; overflow-wrap: break-word; color: var(--rl-text-bright); }
@@ -5799,6 +5805,18 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    here that is a THING (a skill that will be handed over) rather than formatting. */
 /* Colour only: weight would change the glyph widths under the caret, which the mirror may not do. */
 .ch-link { color: var(--rl-accent); }
+/* Words being dictated, in the box at the caret. Each word fades in as it is heard, which moves no
+   glyph's box, so the line, the wrap and the caret stay where the textarea has them. A word the
+   recogniser may still change is in the quiet ink, which stays readable (`--ink-2`); a final one
+   takes the typed ink. Once the words land, any not yet final settle into it. Under Reduce motion the
+   global kill leaves each in its ink with no fade or ease. */
+.ch-dictating { color: var(--rl-text-dim); }
+.ch-heard { animation: rl-heard-in var(--dur-enter) var(--ease-out-strong) both;
+  transition: color var(--dur-base) var(--ease-fade); }
+.ch-heard[data-settled] { color: var(--rl-text-bright); }
+@keyframes rl-heard-in { from { opacity: 0; } }
+.ch-settling { animation: rl-heard-settle var(--dur-base) var(--ease-fade); }
+@keyframes rl-heard-settle { from { color: var(--rl-text-dim); } }
 /* ── The prompter's chips: one family ─────────────────────────────────────
    Everything a chip names lands in the draft as a token, and every token is drawn the same way: a
    pill on the app's chip rung, a quiet tint of its kind's tone, a mark and a name. A picked element
@@ -5942,6 +5960,12 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    the context chips and the effort/permission chips on the LEFT; plain-text model chip and the
    circular send on the RIGHT. */
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px 8px; }
+/* While this Mac's speech model downloads, one quiet line in the room between the row's two groups,
+   against the mic. It takes only that free room: its margins give back the two gaps it adds, so
+   neither group moves when it comes or goes, and a narrow row ellipsizes it. */
+.composer-dictation-fetching { flex: 1 1 0; min-width: 0; margin: 0 -8px; padding: 0 8px; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-faint); }
+.composer-dictation-progress { margin-left: 6px; font-variant-numeric: tabular-nums; }
 /* The left group never wraps and never yields: it is the "+" and the permission mode, and the mode is
    the one chip on the row that says how much the session may do unasked — it used to fold into the
    model menu when the row ran short, which hid "Full access" in exactly the narrow panes where a
@@ -6003,6 +6027,19 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 @container (max-width: 380px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
+/* Listening: the mic in the accent, over a tinted disc that swells with the voice (`--mic-level`,
+   0–1, written each frame) inside the button's own box, never past it. At rest in a silent room it
+   is the disc at its smallest, which already says the mic is open. Under Reduce motion nothing
+   writes the level and the disc stands at its full size. */
+.composer-dictate { position: relative; }
+.composer-dictate > svg { position: relative; }
+.composer-dictate-ring { position: absolute; inset: 2px; border-radius: 999px; background: var(--accent-tint);
+  opacity: 0; scale: .7; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-fade), scale var(--dur-drag) linear; }
+.composer-dictate[aria-pressed="true"], .composer-dictate[aria-pressed="true"]:hover { background: none; color: var(--rl-accent); }
+.composer-dictate[aria-pressed="true"] .composer-dictate-ring { opacity: 1; scale: calc(.7 + var(--mic-level, 0) * .3); }
+@media (prefers-reduced-motion: reduce) {
+  .composer-dictate[aria-pressed="true"] .composer-dictate-ring { scale: 1; }
+}
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
    §6 forbids animating during an active drag, so this is a static swap — no transition here, and the
    card declares none. The hint is a label, not a scrim: pointer-events off, so the drop still lands. */

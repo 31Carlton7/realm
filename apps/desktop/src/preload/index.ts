@@ -41,7 +41,7 @@ contextBridge.exposeInMainWorld("realm", {
   platform: process.platform,
   /** What this OS can do for Realm — the Mac-only features (computer use, simulators, Laya, Dock
    *  icons, Quick Look…) are hidden where this says they do not exist (renderer/src/platform.ts). */
-  capabilities: platformCapabilities(process.platform),
+  capabilities: platformCapabilities(process.platform, process.platform === "darwin" ? process.getSystemVersion() : undefined),
   /** A menu the OS draws (main/native-menu.ts): rows described here, answered with the chosen row's
    *  id, or null. The one surface that can open over a browser pane's page, and how the app's own
    *  menus are drawn on a Mac. `closeMenu` takes down the one that is up when its owner goes first. */
@@ -219,6 +219,21 @@ contextBridge.exposeInMainWorld("realm", {
     const handler = (_e: IpcRendererEvent, m: ScrollPhaseMessage) => cb(m);
     ipcRenderer.on("realm:scroll-phase", handler);
     return () => ipcRenderer.removeListener("realm:scroll-phase", handler);
+  },
+  /** Dictation's speech helper (main/voice-helper.ts). `microphone` may raise macOS's prompt, and is
+   *  only called from the click that starts dictating; `start` answers once the helper is ready, or
+   *  why it cannot be. */
+  voice: {
+    microphone: (): Promise<string> => ipcRenderer.invoke("voice:microphone"),
+    start: (): Promise<unknown> => ipcRenderer.invoke("voice:start"),
+    command: (command: Record<string, unknown>): void => ipcRenderer.send("voice:command", command),
+    audio: (pcm: Uint8Array): void => ipcRenderer.send("voice:audio", pcm),
+    stop: (): void => ipcRenderer.send("voice:stop"),
+    onEvent: (cb: (event: unknown) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, event: unknown) => cb(event);
+      ipcRenderer.on("realm:voice", handler);
+      return () => ipcRenderer.removeListener("realm:voice", handler);
+    },
   },
   /** Settings page's macOS Permissions tab (Plan 12 W6). `probe` never triggers a TCC prompt —
    *  tcc.ts's governing rule; `openSettings` takes a ROW id (validated in main against a closed

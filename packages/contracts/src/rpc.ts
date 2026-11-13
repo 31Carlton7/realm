@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PairRequestSchema, PairingWindowSchema, RemoteStatusSchema } from "./remote";
 import type { CliJobStart, CliStatus } from "./cli";
+import { DICTATION_MAX } from "./voice";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
@@ -1136,6 +1137,12 @@ export const Methods = {
   "accounts.remove": { params: z.object({ id: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
+  /** Tidy a dictated prompt (Settings ▸ Dictation ▸ Clean up dictation). Only the words: `.strict()`, so
+   *  nothing else, audio least of all, can ride along. Off, the server answers `off` and asks no model.
+   *  `kept` when the model's answer was not the same words tidied, `failed` when it did not answer;
+   *  both hand back the raw words. */
+  "dictation.clean": { params: z.object({ text: z.string().min(1).max(DICTATION_MAX) }).strict(),
+    result: z.object({ outcome: z.enum(["off", "cleaned", "kept", "failed"]), text: z.string(), reason: z.string().optional() }) },
 
   /* The execution sandbox: what an agent CLI or a shell in this space is allowed to touch.
      Deliberately NOT `settings.get`/`settings.set` on a raw key, even though that is where the rows

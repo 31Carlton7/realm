@@ -745,11 +745,16 @@ describe("Ara refresh §3/§4 geometry", () => {
     const PAINT = ["color", "background", "background-color", "border-radius", "box-shadow", "text-decoration", "text-underline-offset",
       "text-decoration-color", "-webkit-box-decoration-break", "box-decoration-break"];
     const MARK = ["opacity", "transition-duration"];
+    /* A word being dictated fades in: an animation of its opacity (the keyframes are held to that in
+       "dictation in the prompter" below), and a transition of its ink. */
+    const HEARD = ["animation", "transition"];
     for (const rule of chips) {
       const onMark = rule.selectors.filter((sel) => /\.ch-[a-z-]+/.test(sel)).every((sel) => / \.chip-mark$/.test(sel));
+      const heard = rule.selectors.every((sel) => /^\.ch-(heard|settling)$/.test(sel));
       for (const decl of rule.body.split(";").map((d) => d.trim()).filter(Boolean)) {
         const prop = decl.split(":")[0]!.trim();
         if (prop.startsWith("--")) continue;
+        if (heard && HEARD.some((h) => decl === h || prop === h)) continue;
         expect(onMark ? [...PAINT, ...MARK] : PAINT, `${rule.selectors.join(",")} { ${decl} }`).toContain(prop);
       }
     }
@@ -1355,6 +1360,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // the room it leaves under the last row (`slack`): both read off the laid-out list at the pick.
       // Used with 0px fallbacks, so a held picker that never receives them is merely unpadded.
       "--mp-floor", "--mp-slack",
+      // The microphone's level while dictating (Composer.tsx), 0–1, written on the mic's ring each
+      // frame; 0 without it.
+      "--mic-level",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -5594,4 +5602,27 @@ it("gives your own message a tone in light, and leaves dark's bubble alone", () 
   const unscoped = RULES.filter((r) => partsOf(r).some((p) => /(^|\s)\.msg-user$/.test(p) && !p.includes("light") && !p.includes("quick-chat"))
     && /--rl-hover/.test(r.body));
   expect(unscoped).toEqual([]);
+});
+
+describe("dictation in the prompter", () => {
+  it("fades each word in, and nothing else, and settles it into the typed ink", () => {
+    const heard = bodiesFor(".ch-heard").join(" ");
+    expect(heard).toContain("animation: rl-heard-in var(--dur-enter)");
+    // The entrance is the fade alone: no rise, and nothing that would move the line under the caret.
+    const entrance = /@keyframes rl-heard-in \{([^}]*\})\s*\}/.exec(css)![1]!;
+    expect(entrance.trim()).toBe("from { opacity: 0; }");
+    expect(heard).not.toContain("position");
+    expect(bodiesFor(".ch-dictating").join(" ")).toContain("color: var(--rl-text-dim)");
+    expect(bodiesFor(".ch-heard[data-settled]").join(" ")).toContain("color: var(--rl-text-bright)");
+    expect(css).toMatch(/@keyframes rl-heard-settle \{\s*from \{ color: var\(--rl-text-dim\); \}\s*\}/);
+  });
+
+  it("swells the mic's ring inside its box, and stands it still under Reduce motion", () => {
+    const ring = bodiesFor(".composer-dictate-ring").join(" ");
+    expect(ring).toContain("position: absolute");
+    expect(ring).toContain("inset: 2px");
+    expect(bodiesFor('.composer-dictate[aria-pressed="true"] .composer-dictate-ring').join(" ")).toContain("scale: calc(.7 + var(--mic-level, 0) * .3)");
+    expect(blocksAfter("@media (prefers-reduced-motion: reduce)").join(" ").replace(/\s+/g, " "))
+      .toContain('.composer-dictate[aria-pressed="true"] .composer-dictate-ring { scale: 1; }');
+  });
 });

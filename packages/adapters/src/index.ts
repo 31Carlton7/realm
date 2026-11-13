@@ -6,6 +6,7 @@ export { ClaudeAdapter, runsInFullAccess } from "./claude/claude-adapter";
 export { bundledClaude, claudeExecutable, probeClaude, probeClaudeBinary } from "./claude/probe";
 export { generateSvgIcon } from "./claude/generate-svg-icon";
 export { generateSessionTitle } from "./claude/generate-session-title";
+export { cleanDictation, DICTATION_MODEL, type CleanedDictation } from "./claude/clean-dictation";
 export { cleanSummary, SUMMARY_MAX } from "./claude/generate-session-summary";
 export { cleanHint, HINT_MAX } from "./claude/generate-prompt-hint";
 export { generateSessionRecap, splitRecap, type Recap, type RecapInput } from "./claude/generate-session-recap";

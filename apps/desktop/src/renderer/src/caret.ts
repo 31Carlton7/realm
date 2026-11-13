@@ -444,6 +444,12 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
   const onStill = () => apply();
   const quietWatch = new win.MutationObserver(onStill);
   quietWatch.observe(root, { attributes: true, attributeFilter: ["data-quiet"] });
+  /* The focused field locked or unlocked under the caret — the prompter is read-only while it takes
+     dictation — moves no selection and fires nothing else, so nothing would bring the caret back. */
+  const lockWatch = new win.MutationObserver((records) => {
+    if (records.some((r) => r.target === doc.activeElement)) onFocus();
+  });
+  lockWatch.observe(doc, { subtree: true, attributes: true, attributeFilter: ["readonly", "disabled"] });
 
   const capture = { capture: true, passive: true } as const;
   doc.addEventListener("selectionchange", onMove);
@@ -474,6 +480,7 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
       nudge = null;
       ro?.disconnect();
       quietWatch.disconnect();
+      lockWatch.disconnect();
       doc.removeEventListener("selectionchange", onMove);
       doc.removeEventListener("input", onMove, capture);
       doc.removeEventListener("keydown", onKey, capture);
