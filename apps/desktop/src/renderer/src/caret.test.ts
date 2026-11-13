@@ -240,6 +240,27 @@ describe("where it is drawn", () => {
     expect(drawn()).toMatchObject({ shown: true, left: 123, top: 20, width: 2, height: 18 });
   });
 
+  it("leaves a field while it is read-only, and comes back the moment it is not, with the caret unmoved", async () => {
+    stubGeometry();
+    install({ shape: "line" });
+    const editor = field('<div><div data-caret-mirror><span>abcde</span></div><textarea></textarea></div>');
+    const ta = boxed(editor.querySelector("textarea")!) as HTMLTextAreaElement;
+    ta.value = "abcde";
+    ta.focus();
+    ta.setSelectionRange(3, 3);
+    flush();
+    expect(drawn().shown).toBe(true);
+    ta.readOnly = true;
+    await Promise.resolve();
+    flush();
+    expect(drawn().shown).toBe(false);
+    // THE MUTANT: nothing watches the lock, so the caret stays gone until the next key or click.
+    ta.readOnly = false;
+    await Promise.resolve();
+    flush();
+    expect(drawn()).toMatchObject({ shown: true, left: 123 });
+  });
+
   it("follows its field when content above it grows, which neither resizes the field nor scrolls", () => {
     /* OB-01: on first run, opening "11 more agents" moved the Name field from y 637 to 712 and the
        caret stayed in the heading above it. Nothing about the field itself changed; the box it sits
