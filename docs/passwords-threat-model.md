@@ -68,6 +68,16 @@ build); without it a harness has no keychain at all.
   token, which the server refuses for `sessions.respondPermission`. A shell that can run code as the
   Realm binary can still reach the app's token through `safeStorage`; the unlock (Touch ID) remains
   the gate it cannot pass, unless the profile is set to "Without asking".
+- **With the sandbox off, the socket was only the easy route.** An agent running as the person can
+  still edit `realm.db` directly (sandbox rows, a session's permission mode, a paired-phone row), or
+  stop the app's server and start `realm serve` on the same home. That server's owner is `terminal`,
+  so its CLI token may accept a phone, which then stays paired. The token split closes the one-call
+  route over the socket; the sandbox is what protects the files. With it on, an agent can read
+  neither `daemon.json`, `daemon.sealed` nor `realm.db`.
+- **Linux without a keyring.** There Electron's `safeStorage` falls back to its `basic_text`
+  backend, whose key is fixed, so `daemon.sealed` is not really sealed and the split does not hold.
+  [#413](https://github.com/31Carlton7/realm/issues/413) tracks refusing to write it on that
+  backend, so the next launch replaces the server instead of reattaching.
 - **Clipboard.** Clipboard managers may record a copied password before Realm clears it.
 - **Off macOS.** No Touch ID or keychain. Saved and imported passwords still work: the person's own
   menu pick or Settings press stands in for the presence check, and agent fills there are refused.
