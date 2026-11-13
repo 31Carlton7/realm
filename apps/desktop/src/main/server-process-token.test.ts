@@ -6,6 +6,9 @@ import { tempDir } from "@realm/test-utils";
 import { spawnDaemon, startServer } from "./server-process";
 
 vi.mock("electron", () => ({ app: { isPackaged: false, getAppPath: () => "/nowhere" } }));
+// Off Electron there is no `process.resourcesPath` to look for the helper in, and the shell a test
+// runs from may or may not name one: neither has anything to do with the token.
+vi.mock("./phone-screen", () => ({ phoneScreenEnv: () => ({}) }));
 
 /**
  * The app's token reaches realm-server over the spawn pipe and nowhere else. A command line is in
