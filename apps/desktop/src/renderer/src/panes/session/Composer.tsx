@@ -1515,6 +1515,13 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
               </button>
             )}
           </div>
+          {/* The first dictation on a Mac waits for its speech model to come from Apple. */}
+          {dictate.live?.fetching && (
+            <p className="composer-dictation-fetching" role="status">
+              Getting this Mac's speech model…
+              {dictate.live.fetching.progress !== null && <span className="composer-dictation-progress">{Math.round(dictate.live.fetching.progress * 100)}%</span>}
+            </p>
+          )}
           <div className="composer-actions">
             {/* ONE chip, not two. A harness is only ever chosen FOR a model, so that choice lives on
                 the model's own row in the picker, where there is one. The chip still wears the

@@ -7,8 +7,8 @@ const VOICE_CHANNEL = "realm:voice";
 /** What the renderer may tell the helper. Audio travels on its own channel, as bytes. */
 const COMMANDS = new Set(["listen", "end", "cancel"]);
 
-/** The helper's first line: which recogniser it found. */
-export type VoiceReady = { t: "ready"; stt: "analyzer" | "recognizer" | "none" };
+/** The line the helper sends once it can listen: whether this Mac has a recogniser for its language. */
+export type VoiceReady = { t: "ready"; stt: "analyzer" | "none" };
 export type VoiceStart = VoiceReady | { t: "unavailable"; reason: string };
 
 /** Where the window that is dictating hears from the helper. */

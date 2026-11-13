@@ -12,6 +12,9 @@ const TURN = 1;
 export type DictationEvents = {
   /** Everything heard so far, as the recogniser has it now. Its first `settled` characters are final. */
   partial(text: string, settled: number): void;
+  /** This Mac's speech model is being downloaded before its first use, `progress` 0–1 once Apple
+   *  reports one. Listening starts once it is in, with a `partial` of nothing. */
+  fetching(progress: number | null): void;
   /** The microphone's level, 0–1 RMS, once per frame while listening. */
   level(rms: number): void;
   /** What was said, once dictation has stopped. Empty when nothing was. */
@@ -108,6 +111,7 @@ export class Dictation {
   private onHelper(e: HelperEvent): void {
     if (this.finished) return;
     if (e.t === "error") { this.fail(e.message); return; }
+    if (e.t === "fetching") { this.deps.events.fetching(e.progress ?? null); return; }
     if ((e.t !== "partial" && e.t !== "final") || e.turn !== TURN) return;
     this.heard = e.text;
     if (e.t === "partial") { this.deps.events.partial(e.text, Math.min(e.settled ?? 0, e.text.length)); return; }

@@ -14,8 +14,9 @@ export type DictationPort = {
   clean(raw: string): Promise<DictationCleanResult>;
 };
 
-/** Words being dictated: where they go, what has been heard so far, and how much of it is final. */
-type LiveDictation = { at: number; words: string; settled: number; cleaning: boolean };
+/** Words being dictated: where they go, what has been heard so far, and how much of it is final.
+ *  `fetching` while this Mac's speech model is still being downloaded, before anything is heard. */
+type LiveDictation = { at: number; words: string; settled: number; cleaning: boolean; fetching?: { progress: number | null } };
 
 /** Words that have just landed, `start`–`end` in `draft`, the first `from` of them already in the
  *  typed ink. The prompter eases the rest into it. */
@@ -98,8 +99,9 @@ export function useDictation({ port, draft, onDraftChange, caret, select, level 
     const c = port.open({
       partial: (words, settled) => {
         settledNow.current = settled;
-        setLive((l) => (l && !l.cleaning ? { ...l, words, settled } : l));
+        setLive((l) => (l && !l.cleaning ? { at: l.at, words, settled, cleaning: false } : l));
       },
+      fetching: (progress) => setLive((l) => (l && !l.cleaning ? { ...l, fetching: { progress } } : l)),
       level: (rms) => levelNow.current?.(rms),
       done: (raw) => void finish(at, raw),
       problem: (message) => { control.current = null; setLive(null); show({ kind: "problem", text: message }, draftNow.current); },

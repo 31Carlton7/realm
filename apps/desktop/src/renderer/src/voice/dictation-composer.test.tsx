@@ -6,6 +6,8 @@ import { fakeApi, item, session } from "../state/store.test-fakes";
 import { SessionPane } from "../panes/session/SessionPane";
 import { reduceAll } from "../panes/session/transcript-model";
 import type { DictationEvents } from "./dictation";
+import type { VoiceAudio } from "./audio-io";
+import type { HelperEvent, HelperStart, SpeechHelper } from "./protocol";
 import type { DictationPort } from "./use-dictation";
 import { DEFAULT_VOICE_PREFS, VOICE_PREFS_KEY, readVoicePrefs } from "./voice-prefs";
 
@@ -15,15 +17,19 @@ const mic = vi.hoisted(() => ({
   stops: 0,
   cleaned: [] as unknown[][],
   clean: null as null | ((raw: string) => Promise<DictationCleanResult>),
+  /** When set, dictation is the real `Dictation` over this helper, so its first-use download runs. */
+  helper: null as null | SpeechHelper,
 }));
 
 vi.mock("./use-dictation", async (actual) => {
   const real = await actual<typeof import("./use-dictation")>();
+  const { Dictation } = await import("./dictation");
   return {
     ...real,
     desktopDictation: (deps: { clean: DictationPort["clean"] }): DictationPort => ({
       open: (events) => {
         mic.events = events;
+        if (mic.helper) return new Dictation({ helper: mic.helper, audio: { start: async () => {}, stop: () => {} } as unknown as VoiceAudio, events });
         return { start: async () => events.partial("", 0), stop: () => { mic.stops += 1; }, cancel: () => {} };
       },
       clean: (...args: [string]) => { mic.cleaned.push(args); return mic.clean ? mic.clean(args[0]) : deps.clean(...args); },
@@ -31,7 +37,23 @@ vi.mock("./use-dictation", async (actual) => {
   };
 });
 
-afterEach(() => { cleanup(); mic.events = null; mic.stops = 0; mic.cleaned = []; mic.clean = null; });
+afterEach(() => { cleanup(); mic.events = null; mic.stops = 0; mic.cleaned = []; mic.clean = null; mic.helper = null; });
+
+/** A helper still getting this Mac's speech model from Apple: ready only once `ready` is called. */
+function downloadingHelper() {
+  let emit: (e: HelperEvent) => void = () => {};
+  let ready: (r: HelperStart) => void = () => {};
+  const life = { stopped: false };
+  const helper: SpeechHelper = {
+    microphone: async () => "granted",
+    start: () => new Promise<HelperStart>((res) => { ready = res; }),
+    command: () => {},
+    audio: () => {},
+    stop: () => { life.stopped = true; },
+    onEvent: (cb) => { emit = cb; return () => { emit = () => {}; }; },
+  };
+  return { helper, life, emit: (e: HelperEvent) => act(() => emit(e)), ready: (r: HelperStart) => act(async () => { ready(r); await new Promise((res) => setTimeout(res, 0)); }) };
+}
 
 async function mount(cleanUp = false) {
   const api = fakeApi({
@@ -90,6 +112,41 @@ describe("dictating into the prompter", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
     await finished("the");
     expect(store.getState().drafts["se1"]).toBe("Run the tests");
+  });
+
+  it("says it is getting this Mac's speech model while Apple sends it, and clears once listening", async () => {
+    await mount();
+    const download = downloadingHelper();
+    mic.helper = download.helper;
+    const model = () => document.querySelector(".composer-dictation-fetching")?.textContent ?? null;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dictate" })); await new Promise((res) => setTimeout(res, 0)); });
+    expect(model()).toBeNull();
+    download.emit({ t: "fetching" });
+    expect(model()).toBe("Getting this Mac's speech model…");
+    download.emit({ t: "fetching", progress: 0.42 });
+    expect(model()).toBe("Getting this Mac's speech model…42%");
+    await download.ready({ t: "ready", stt: "analyzer" });
+    expect(model()).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop dictating" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("stops on Esc while the speech model is still coming, and lands nothing", async () => {
+    const { store } = await mount();
+    typeAt("Fix  please", 4);
+    const download = downloadingHelper();
+    mic.helper = download.helper;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dictate" })); await new Promise((res) => setTimeout(res, 0)); });
+    download.emit({ t: "fetching", progress: 0.1 });
+    expect(document.querySelector(".composer-dictation-fetching")).not.toBeNull();
+    await act(async () => { fireEvent.keyDown(box(), { key: "Escape" }); await new Promise((res) => setTimeout(res, 0)); });
+    expect(document.querySelector(".composer-dictation-fetching")).toBeNull();
+    expect(download.life.stopped).toBe(true);
+    expect(screen.getByRole("button", { name: "Dictate" }).getAttribute("aria-pressed")).toBe("false");
+    expect(box().readOnly).toBe(false);
+    // The model arriving after Esc starts nothing.
+    await download.ready({ t: "ready", stt: "analyzer" });
+    expect(screen.getByRole("button", { name: "Dictate" }).getAttribute("aria-pressed")).toBe("false");
+    expect(store.getState().drafts["se1"]).toBe("Fix  please");
   });
 
   it("stops on Esc and on a second click", async () => {

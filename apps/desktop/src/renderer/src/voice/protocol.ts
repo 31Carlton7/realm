@@ -1,10 +1,13 @@
 /** The `realmvoice` helper's wire (apps/desktop/native/RealmVoice.swift), as the renderer sees it. */
 
 export type HelperStart =
-  | { t: "ready"; stt: "analyzer" | "recognizer" | "none" }
+  | { t: "ready"; stt: "analyzer" | "none" }
   | { t: "unavailable"; reason: string };
 
 export type HelperEvent =
+  /** This Mac's speech model is being downloaded from Apple, before its first use. `progress` is
+   *  0–1, missing until Apple reports one. */
+  | { t: "fetching"; progress?: number }
   /** Everything heard so far. The first `settled` characters are final: the recogniser will not
    *  change them. The rest it may still revise. */
   | { t: "partial"; turn: number; text: string; settled?: number }

@@ -2,7 +2,7 @@
 //
 // The renderer owns the microphone: it captures with Chromium's echo cancellation on and sends
 // 16 kHz mono PCM here. This helper never opens an audio device. It turns that PCM into words with
-// SpeechAnalyzer (SFSpeechRecognizer on-device where the analyzer is unavailable).
+// SpeechAnalyzer, which macOS 26 brought; there is no older recogniser to fall back to.
 //
 // Protocol: one JSON object per line. Commands on stdin:
 //   {"t":"listen","turn":N}                start transcribing a new utterance
@@ -10,7 +10,9 @@
 //   {"t":"end"}                            the utterance is over: finalise it
 //   {"t":"cancel"}                         drop the utterance
 // Events on stdout:
-//   {"t":"ready","stt":"analyzer"|"recognizer"|"none"}
+//   {"t":"fetching","progress":0–1}       this Mac's speech model is being downloaded from Apple,
+//                                          before its first use; no progress while it is unknown
+//   {"t":"ready","stt":"analyzer"|"none"}
 //   {"t":"partial","turn":N,"text":"…","settled":K}   the first K UTF-16 units of text are final
 //   {"t":"final","turn":N,"text":"…"}
 //   {"t":"error","message":"…"}
@@ -47,16 +49,9 @@ func pcmBuffer(_ data: Data) -> AVAudioPCMBuffer? {
 
 // MARK: - Speech to text
 
-protocol Listener: AnyObject {
-  func begin(turn: Int)
-  func feed(_ buffer: AVAudioPCMBuffer)
-  func end()
-  func cancel()
-}
-
 /// SpeechAnalyzer with a SpeechTranscriber, one analyzer per utterance. Partials carry every final
 /// segment so far plus the volatile one, so the renderer only ever replaces its text.
-final class AnalyzerListener: Listener {
+final class Listener {
   private let locale: Locale
   private var input: AsyncStream<AnalyzerInput>.Continuation?
   private var analyzer: SpeechAnalyzer?
@@ -69,6 +64,11 @@ final class AnalyzerListener: Listener {
     let transcriber = makeTranscriber()
     do {
       if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+        emit(["t": "fetching"])
+        let watch = request.progress.observe(\.fractionCompleted) { progress, _ in
+          emit(["t": "fetching", "progress": progress.fractionCompleted])
+        }
+        defer { watch.invalidate() }
         try await request.downloadAndInstall()
       }
     } catch {
@@ -145,43 +145,6 @@ final class AnalyzerListener: Listener {
   }
 }
 
-/// The fallback: SFSpeechRecognizer, held on-device. It asks for the Speech Recognition grant the
-/// first time it is used, which SpeechAnalyzer does not.
-final class RecognizerListener: Listener {
-  private let recognizer: SFSpeechRecognizer
-  private var request: SFSpeechAudioBufferRecognitionRequest?
-  private var task: SFSpeechRecognitionTask?
-
-  init?(locale: Locale) {
-    guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.supportsOnDeviceRecognition else { return nil }
-    self.recognizer = recognizer
-  }
-
-  func begin(turn: Int) {
-    cancel()
-    if SFSpeechRecognizer.authorizationStatus() == .notDetermined { SFSpeechRecognizer.requestAuthorization { _ in } }
-    let request = SFSpeechAudioBufferRecognitionRequest()
-    request.requiresOnDeviceRecognition = true
-    request.shouldReportPartialResults = true
-    self.request = request
-    var sentFinal = false
-    task = recognizer.recognitionTask(with: request) { result, error in
-      if let result {
-        let text = result.bestTranscription.formattedString
-        emit(["t": result.isFinal ? "final" : "partial", "turn": turn, "text": text])
-        if result.isFinal { sentFinal = true }
-      }
-      if error != nil, !sentFinal { sentFinal = true; emit(["t": "final", "turn": turn, "text": result?.bestTranscription.formattedString ?? ""]) }
-    }
-  }
-
-  func feed(_ buffer: AVAudioPCMBuffer) { request?.append(buffer) }
-
-  func end() { request?.endAudio(); request = nil }
-
-  func cancel() { task?.cancel(); task = nil; request = nil }
-}
-
 // MARK: - Main
 
 func transcriptionLocale() async -> Locale {
@@ -197,17 +160,12 @@ var listener: Listener?
 let setup = DispatchSemaphore(value: 0)
 Task {
   let locale = await transcriptionLocale()
-  var kind = "none"
   if SpeechTranscriber.isAvailable {
-    let analyzer = AnalyzerListener(locale: locale)
+    let analyzer = Listener(locale: locale)
     await analyzer.prepare()
     listener = analyzer
-    kind = "analyzer"
-  } else if let recognizer = RecognizerListener(locale: locale) {
-    listener = recognizer
-    kind = "recognizer"
   }
-  emit(["t": "ready", "stt": kind])
+  emit(["t": "ready", "stt": listener == nil ? "none" : "analyzer"])
   setup.signal()
 }
 

@@ -24,6 +24,7 @@ function fakes(opts: { grant?: string; ready?: HelperStart } = {}) {
   const seen = { partials: [] as string[], settled: [] as number[], levels: [] as number[], done: [] as string[], problems: [] as string[] };
   const events: DictationEvents = {
     partial: (t, settled) => { seen.partials.push(t); seen.settled.push(settled); },
+    fetching: () => {},
     level: (l) => seen.levels.push(l),
     done: (t) => seen.done.push(t),
     problem: (m) => seen.problems.push(m),

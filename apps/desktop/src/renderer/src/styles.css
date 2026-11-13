@@ -5960,6 +5960,12 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    the context chips and the effort/permission chips on the LEFT; plain-text model chip and the
    circular send on the RIGHT. */
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px 8px; }
+/* While this Mac's speech model downloads, one quiet line in the room between the row's two groups,
+   against the mic. It takes only that free room: its margins give back the two gaps it adds, so
+   neither group moves when it comes or goes, and a narrow row ellipsizes it. */
+.composer-dictation-fetching { flex: 1 1 0; min-width: 0; margin: 0 -8px; padding: 0 8px; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-faint); }
+.composer-dictation-progress { margin-left: 6px; font-variant-numeric: tabular-nums; }
 /* The left group never wraps and never yields: it is the "+" and the permission mode, and the mode is
    the one chip on the row that says how much the session may do unasked — it used to fold into the
    model menu when the row ran short, which hid "Full access" in exactly the narrow panes where a
