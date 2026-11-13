@@ -28,15 +28,17 @@
 
 /* ---- A world, printed ---- */
 
-.world {
-  background-size: cover;
-  background-position: center;
-}
-
+.worldPicture,
 .worldPrint {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.worldPicture {
+  object-fit: cover;
 }
 
 /* ---- Hero ---- */

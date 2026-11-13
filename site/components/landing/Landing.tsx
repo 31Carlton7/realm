@@ -215,6 +215,9 @@ type RealmProps = {
   spans?: { row: number; column: number; phone: number }
 }
 
+/** A frame's width, the column's less its padding (landing.module.css .column), for the world's srcset. */
+const FRAME_SIZES = "(max-width: 720px) calc(100vw - 40px), min(1184px, 100vw - 56px)"
+
 /** One section: its claim, and one component from the app set in one of the app's worlds. */
 function Realm({ id, world, quiet, claim, body, main, aside, caption, focus = [0.5, 0.5], stage, spans }: RealmProps) {
   const style = spans
@@ -231,7 +234,7 @@ function Realm({ id, world, quiet, claim, body, main, aside, caption, focus = [0
         </div>
         <figure>
           <div className={s.frame}>
-            <World file={world.file} x={focus[0]} y={focus[1]} className={s.frameWorld} />
+            <World file={world.file} x={focus[0]} y={focus[1]} sizes={FRAME_SIZES} className={s.frameWorld} />
             <div className={s.stage}>
               {aside && <Crop shot={aside} />}
               <Crop shot={main} />

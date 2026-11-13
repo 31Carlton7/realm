@@ -12,6 +12,9 @@ import { Header } from "./Header"
 import { World } from "./World"
 import s from "./landing.module.css"
 
+/** The ring's width (landing.module.css .ring), for the world's srcset. */
+export const RING_SIZES = "(max-width: 720px) min(56vw, 210px), min(34vw, 470px)"
+
 type Props = {
   downloads: Downloads
   version: string
@@ -25,7 +28,7 @@ export function Hero({ downloads, version, changelog, world, session }: Props) {
   return (
     <section className={s.hero}>
       <div className={s.ring} ref={ring}>
-        <World file={world.file} x={0.4} y={0.4} className={s.ringWorld} />
+        <World file={world.file} x={0.4} y={0.4} sizes={RING_SIZES} className={s.ringWorld} />
       </div>
       <Aperture ring={ring} className={s.sky} />
       <Header />
