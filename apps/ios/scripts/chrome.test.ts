@@ -36,6 +36,16 @@ describe("the iPhone's chrome", () => {
     expect(lists.filter(({ text }) => !text.includes(".softEdges(")).map(({ path }) => path)).toEqual([]);
   });
 
+  it("fades a session's foot from its card, not from over the chips", () => {
+    // The foot's bar holds the chips and the dock over the composer; an edge taken from the bar's whole
+    // height dimmed and blurred the transcript above them, and with the keyboard up all of it.
+    const session = sources.find(({ path }) => path.endsWith("SessionView.swift"))!.text;
+    expect(session).toContain(".softEdges(.top, ground: Ground.transcript)");
+    const foot = session.match(/private struct SessionFoot: View \{[\s\S]*?\n}\n/)![0];
+    expect(foot).toMatch(/ComposerView\(sessionId: sessionId, focused: composing\)\s*\.softFoot\(/);
+    expect(foot).toMatch(/WaitingDock\([^\n]*\)\n(\s*\.[^\n]*\n)*?\s*\.softFoot\(/);
+  });
+
   it("keeps what is pinned over the list on the ground, so no row reads through it", () => {
     const text = (name: string) => sources.find(({ path }) => path.endsWith(name))!.text;
     expect(text("HomeChips.swift")).toMatch(/\.background\(Ground\.transcript\)/);

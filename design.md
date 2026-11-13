@@ -1201,6 +1201,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   card lifted as the composer is (the owner, 11-04, of the glass bar and the blur behind the
   composer: "I want it to revert back to the old blur that we had before… similar to the Apple
   Photos").
+- The edge covers what the bar covers and stops there. It ends within a short feather (8 pt) of the bar's
+  edge, so a line that has cleared the bar reads whole. A pinned head stands on its own ground and dims
+  nothing past its edge. A foot whose bar is a card — a session's composer, or a request in its place —
+  fades from the card's top down, not from the top of the chips and the dock floating over it: an
+  edge taken from the whole bar's safe area climbed over the chips, and with the keyboard up dimmed the
+  entire transcript (the owner, 11-12: "Fix the blurs on both of these parts").
 - A phone's row never takes more width than it is offered. One work line set at its own width — a
   connector's full name, `mcp__realm__realm-agent__agent_start` — widened the column, and every row
   and the composer under them slid off the screen's left edge. The verb yields last but can still be

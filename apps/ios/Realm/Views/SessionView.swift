@@ -159,7 +159,9 @@ struct SessionView: View {
             if live && atBottom { model.markSeen(sessionId) }
         }
         .background(Ground.transcript)
-        .softEdges(ground: Ground.transcript)
+        // The foot's edge is its card's own: the chips and the dock over the composer float on a
+        // transcript that stays crisp around them.
+        .softEdges(.top, ground: Ground.transcript)
         .safeAreaBar(edge: .bottom) {
             // A find is the foot's one bar while it is open: the composer, and the press for the newest
             // row, come back when it is done.
@@ -175,6 +177,7 @@ struct SessionView: View {
                 } done: {
                     find.close()
                 }
+                .softFoot(ground: Ground.transcript)
             }
         }
         .onChange(of: find.query) {
@@ -517,6 +520,7 @@ private struct SessionFoot: View {
                 WaitingDock(pending: pending, sessionId: sessionId, fold: { folded = pending.request.requestId })
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
+                    .softFoot(ground: Ground.transcript)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             } else {
                 if let pending {
@@ -533,6 +537,7 @@ private struct SessionFoot: View {
                 QueueStrip(sessionId: sessionId)
                     .padding(.horizontal, 12)
                 ComposerView(sessionId: sessionId, focused: composing)
+                    .softFoot(ground: Ground.transcript)
                     .transition(.opacity)
             }
         }

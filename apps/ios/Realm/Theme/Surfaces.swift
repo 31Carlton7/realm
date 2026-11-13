@@ -115,28 +115,29 @@ extension View {
     /// A bar over scrolling content, as Photos draws its own: what passes under it blurs softly and
     /// fades into the ground toward the screen's edge, so the bar's words stay legible with no band of
     /// glass or material behind them and no line where the content stops. Applied to the scroll view,
-    /// inside any `safeAreaBar`, so the fade covers the bars' whole height.
+    /// inside any `safeAreaBar`, so the fade covers the bars' whole height. An edge left out shows
+    /// neither: a foot whose bar is a card takes `softFoot` on the card instead.
     func softEdges(_ edges: Edge.Set = [.top, .bottom], ground: Color) -> some View {
         modifier(SoftEdges(edges: edges, ground: ground))
     }
 
-    /// A list's pinned section head: Realm's ground behind it from edge to edge, and under it a fade
-    /// deep enough that the line passing beneath has gone before it reaches the head's words. The
-    /// 12-point fade it had let the top half of that line read through.
-    func pinnedOnGround() -> some View {
-        background(Ground.transcript)
-            .background(alignment: .bottom) {
-                LinearGradient(stops: [
-                    .init(color: Ground.transcript, location: 0),
-                    .init(color: Ground.transcript.opacity(0.97), location: 0.5),
-                    .init(color: Ground.transcript.opacity(0.7), location: 0.8),
-                    .init(color: Ground.transcript.opacity(0), location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-                .frame(height: 28)
-                .offset(y: 28)
+    /// The foot of a screen whose bottom bar is a card over the content, the composer or a request in
+    /// its place: the ground deepens under the card to the screen's edge, keyboard and all, and starts
+    /// at the card's top edge. The chips and the dock over the card float on the content, which stays
+    /// crisp around them.
+    func softFoot(ground: Color) -> some View {
+        background {
+            EdgeFade(edge: .bottom, ground: ground)
+                .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-            }
+        }
+    }
+
+    /// A list's pinned section head: Realm's ground behind it from edge to edge and nothing past it,
+    /// so the row passing beneath goes under the head's edge and the row below it is never dimmed.
+    func pinnedOnGround() -> some View {
+        background(Ground.transcript)
     }
 
     /// The way back from a pushed screen: the chevron on the bar's own ground, where iOS would draw it
@@ -154,22 +155,19 @@ private struct SoftEdges: ViewModifier {
     let ground: Color
     @State private var bars = EdgeInsets()
 
-    /// How far past a bar the fade runs out, so the line just under the bar's words has already
-    /// softened rather than reading through them.
-    private static let overrun: CGFloat = 24
-
     func body(content: Content) -> some View {
         content
             .scrollEdgeEffectStyle(.soft, for: edges)
+            .scrollEdgeEffectHidden(true, for: Edge.Set([.top, .bottom]).subtracting(edges))
             .onGeometryChange(for: EdgeInsets.self, of: \.safeAreaInsets) { bars = $0 }
             .overlay {
                 VStack(spacing: 0) {
                     if edges.contains(.top) {
-                        fade(.top).frame(height: bars.top + Self.overrun)
+                        EdgeFade(edge: .top, ground: ground).frame(height: EdgeFade.depth(bar: bars.top))
                     }
                     Spacer(minLength: 0)
                     if edges.contains(.bottom) {
-                        fade(.bottom).frame(height: bars.bottom + Self.overrun)
+                        EdgeFade(edge: .bottom, ground: ground).frame(height: EdgeFade.depth(bar: bars.bottom))
                     }
                 }
                 .ignoresSafeArea()
@@ -177,14 +175,37 @@ private struct SoftEdges: ViewModifier {
                 .accessibilityHidden(true)
             }
     }
+}
 
-    private func fade(_ edge: VerticalEdge) -> LinearGradient {
-        LinearGradient(stops: [
-            .init(color: ground.opacity(0.95), location: 0),
-            .init(color: ground.opacity(0.85), location: 0.6),
-            .init(color: ground.opacity(0.55), location: 0.82),
-            .init(color: ground.opacity(0), location: 1),
-        ], startPoint: edge == .top ? .top : .bottom, endPoint: edge == .top ? .bottom : .top)
+/// The ground deepening toward a screen's edge: nearly solid at the edge, about half at the bar's inner
+/// edge, and run out to nothing `feather` points past it, so a line that has cleared the bar reads
+/// whole.
+struct EdgeFade: View {
+    let edge: VerticalEdge
+    let ground: Color
+
+    /// How far past a bar the fade runs out. Any further and it dims the line that has just cleared
+    /// the bar.
+    static let feather: CGFloat = 8
+
+    /// The fade's height over a bar `bar` points deep.
+    static func depth(bar: CGFloat) -> CGFloat {
+        bar > 0 ? bar + feather : 0
+    }
+
+    /// Each stop's opacity and where it falls, from the screen's edge (0) to the fade's end (1), in a
+    /// fade `height` points tall.
+    static func stops(height: CGFloat) -> [(opacity: Double, location: CGFloat)] {
+        let bar = height > feather ? (height - feather) / height : 0
+        return [(0.95, 0), (0.85, bar * 0.6), (0.55, bar), (0, 1)]
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            LinearGradient(stops: Self.stops(height: proxy.size.height).map {
+                .init(color: ground.opacity($0.opacity), location: $0.location)
+            }, startPoint: edge == .top ? .top : .bottom, endPoint: edge == .top ? .bottom : .top)
+        }
     }
 }
 
