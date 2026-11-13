@@ -2,6 +2,7 @@ import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, moveFailedSentence, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Asker, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AccessLine } from "./AccessLine";
+import { SpaceMadeLine } from "./SpaceMadeLine";
 import { AttachmentTile } from "./AttachmentTile";
 import { UserTabs } from "./TabCards";
 import { fileMark } from "./mention-sources";
@@ -854,6 +855,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             // built server-side so every surface tells it identically — this renders it, never
             // rewrites it.
             case "access_changed": return <AccessLine key={key} block={b} enter={enter} />;
+            case "space_made": return <SpaceMadeLine key={key} block={b} enter={enter} />;
             case "context_reset": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
               <span>{b.note}</span>
             </div>;

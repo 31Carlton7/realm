@@ -86,6 +86,8 @@ export type Block =
    * so Undo is offered only where it takes back that change and nothing after it.
    */
   | { kind: "access_changed"; teammateId: string; handle: string; by: string | null; from: string; to: string; note: string; latest: boolean; ts: number }
+  /** An agent's `space_create` made a space (`space_made`), with an Open that moves the window there. */
+  | { kind: "space_made"; spaceId: string; name: string; note: string; ts: number }
   /**
    * The session moved to another checkout, and runs there from here on. The fourth seam: everything
    * above it ran at `from`, and its paths are under that root.
@@ -462,6 +464,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       const earlier = blocks.map((b) => (b.kind === "access_changed" && b.teammateId === p.teammateId && b.latest ? { ...b, latest: false } : b));
       return { ...t, blocks: [...earlier, { kind: "access_changed", teammateId: p.teammateId, handle: p.handle, by: p.by, from: p.from, to: p.to, note: p.note, latest: true, ts: e.ts }] };
     }
+    case "space_made":
+      return { ...t, blocks: [...blocks, { kind: "space_made", spaceId: e.payload.spaceId, name: e.payload.name, note: e.payload.note, ts: e.ts }] };
     case "retrying": {
       // Replace rather than stack: attempt 2 says what attempt 1 said, one number later, and a
       // transcript that keeps both is a transcript reporting the wait instead of the work.

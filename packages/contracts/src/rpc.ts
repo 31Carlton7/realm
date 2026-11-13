@@ -2445,8 +2445,11 @@ export const Events = {
   "settings.changed": z.object({ key: z.string(), value: z.unknown() }),
   /** An agent's `space_switch`, approved: the window moves to this space as the user's own click would
    *  move it — unless the user is typing, when it stays put. The first window answers it; one opened
-   *  for a single profile leaves it alone. The server learns the outcome from `ui.activeSpaceId`. */
-  "space.switchRequested": z.object({ spaceId: IdSchema, requestedBy: IdSchema }),
+   *  for a single profile leaves it alone. The server learns the outcome from `ui.activeSpaceId`.
+   *  `firstSession` comes from `space_create`'s `switchTo`: the window lands where the New space
+   *  sheet leaves it, on a new session in the space (in `projectId` when the space was made on a
+   *  folder), rather than on the empty space's Overview. */
+  "space.switchRequested": z.object({ spaceId: IdSchema, requestedBy: IdSchema, firstSession: z.object({ projectId: IdSchema.nullable() }).optional() }),
   /** An agent's `session_open` made a session for the user, and it goes on screen BESIDE that agent's
    *  pane — to the right or below (`edge`), as the user's own split would put it. Not
    *  `session.agentOpened`: that one is a delegated child, which gets no pane. Quiet, like every

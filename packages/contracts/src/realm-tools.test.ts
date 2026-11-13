@@ -23,7 +23,7 @@ describe("REALM_READ_ONLY_TOOLS", () => {
       "realm-agent__agent_answer", "realm-agent__agent_review", "realm-agent__browser_agent_run",
       "realm-schedule__schedule_create", "realm-docs__docs_open", "realm-docs__docs_list", "realm-docs__docs_progress",
       "realm-goal__update_goal", "realm-browser__browser_fill_credential", "realm-terminal__terminal_write", "realm-ui__ui_ask",
-      "realm-workspace__pane_show", "realm-workspace__session_open", "realm-workspace__space_switch", "realm-workspace__settings_set",
+      "realm-workspace__pane_show", "realm-workspace__session_open", "realm-workspace__space_switch", "realm-workspace__space_create", "realm-workspace__settings_set",
       "realm-team__team_message", "realm-team__team_set_access",
       "realm-memory__memory_save", "realm-memory__memory_remove", "realm-memory__memory_write_file",
     ]) expect(REALM_READ_ONLY_TOOLS).not.toContain(changes);

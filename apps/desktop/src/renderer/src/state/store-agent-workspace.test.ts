@@ -80,6 +80,29 @@ describe("an agent's space_switch, as the window carries it out", () => {
     expect(store.getState().activeSpaceId).toBe("s2");
   });
 
+  it("moves to a space made a moment ago, before the window has read the list again", async () => {
+    const fake = twoSpaces();
+    const store = await withA(fake);
+    const made = await fake.createSpace({ profileId: "p1", name: "Taxes", icon: "folder" });
+    expect(store.getState().spaces.some((sp) => sp.id === made.id)).toBe(false);
+    await store.getState().applySpaceSwitchRequested({ spaceId: made.id }, false);
+    expect(store.getState().activeSpaceId).toBe(made.id);
+  });
+
+  it("lands a space space_create made on a new session there, as the New space sheet does — not its Overview", async () => {
+    const fake = twoSpaces();
+    const store = await withA(fake);
+    const made = await fake.createSpace({ profileId: "p1", name: "Errands", icon: "folder" });
+    await store.getState().applySpaceSwitchRequested({ spaceId: made.id, firstSession: { projectId: null } }, false);
+    const st = store.getState();
+    expect(st.activeSpaceId).toBe(made.id);
+    expect(st.pageOverlay).toBeNull();
+    const opened = Object.values(st.sessions).filter((x) => x.spaceId === made.id);
+    expect(opened).toHaveLength(1);
+    expect(primaryLeaves(st.layout!).some((l) => st.items.find((i) => i.id === l.itemId)?.refId === opened[0]!.id)).toBe(true);
+    expect(st.keyboardFor?.sessionId).toBe(opened[0]!.id);
+  });
+
   it("stays put while the user is typing", async () => {
     const store = await withA(twoSpaces());
     await store.getState().applySpaceSwitchRequested({ spaceId: "s2" }, true);
