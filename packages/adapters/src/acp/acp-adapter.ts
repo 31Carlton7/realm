@@ -33,6 +33,13 @@ export type AcpAgentSpec = {
    * reports nothing would cost a probe-time session spawn to learn nothing.
    */
   modelCatalog?: boolean;
+  /**
+   * True where `session/new`'s `currentModelId` is the model an un-pinned session runs, so the probe
+   * marks that row as the default instead of the picker adding a Default row above the list. Gemini's
+   * is `config.getModel() || "auto"`, read off gemini-cli 0.68.0's `newSession`. Not set for Cursor,
+   * whose catalog was never checked for this.
+   */
+  catalogNamesDefault?: boolean;
 };
 
 /** Copies ClaudeAdapter: app quit awaits every dispose(), so no dispose may depend on a healthy child. */
@@ -266,7 +273,9 @@ export class AcpAdapter implements AgentAdapter {
     const catalog = base.available && this.spec.modelCatalog === true
       ? await fetchAcpCatalog({ bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })
       : null;
-    return { kind: this.kind, ...base, models: catalog?.models ?? null,
+    const current = this.spec.catalogNamesDefault ? catalog?.currentModelId : null;
+    const models = catalog?.models?.map((m) => (current && m.id === current ? { ...m, isDefault: true } : m)) ?? null;
+    return { kind: this.kind, ...base, models,
       ...(catalog && catalog.efforts.length > 0 ? { efforts: catalog.efforts, defaultEffort: catalog.defaultEffort } : {}) };
   }
 
