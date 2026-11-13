@@ -43,7 +43,7 @@ function setup(o: Opts = {}) {
         return made;
       },
     },
-    projects: { create: (input) => { calls.projects.push({ spaceId: input.spaceId, name: input.name, rootPath: input.rootPath }); return {}; } },
+    projects: { create: (input) => { calls.projects.push({ spaceId: input.spaceId, name: input.name, rootPath: input.rootPath }); return { id: `proj${calls.projects.length}` }; } },
     sessions: {
       personStartedTurn: () => o.personTurn !== false,
       publishServerEvent: (sessionId, ev) => { calls.notices.push({ sessionId, ev }); },
@@ -133,12 +133,12 @@ describe("space_create", () => {
     expect(s.settings.get(SETTING_ACTIVE_SPACE)).toBe("s1");
   });
 
-  it("moves the window there when asked, as space_switch does", async () => {
+  it("moves the window there when asked, asking for the first session the sheet would open", async () => {
     const s = setup();
     const r = await s.call("space_create", { name: "Taxes", switchTo: true });
     expect(r.isError).toBe(false);
     expect(s.calls.gates[0]!.title).toBe(`Make a space "Taxes", and move the window there`);
-    expect(s.calls.broadcasts).toEqual([{ event: "spaces.changed", payload: {} }, { event: "space.switchRequested", payload: { spaceId: "new1", requestedBy: "me" } }]);
+    expect(s.calls.broadcasts).toEqual([{ event: "spaces.changed", payload: {} }, { event: "space.switchRequested", payload: { spaceId: "new1", requestedBy: "me", firstSession: { projectId: null } } }]);
     expect(s.settings.get(SETTING_ACTIVE_SPACE)).toBe("new1");
     expect(text(r)).toContain(`The window is in "Taxes" now.`);
   });
@@ -197,6 +197,13 @@ describe("space_create", () => {
     expect(text(r)).toContain(`It works in ${root} (its first project)`);
   });
 
+  it("asks for that first session in the folder's project when the space is made on one", async () => {
+    const s = setup();
+    mkdirSync(join(s.userHome, "taxes"));
+    expect((await s.call("space_create", { name: "Taxes", folder: "~/taxes", switchTo: true })).isError).toBe(false);
+    expect(s.calls.broadcasts.find((b) => b.event === "space.switchRequested")!.payload.firstSession).toEqual({ projectId: "proj1" });
+  });
+
   it("refuses a folder that is not there, or is a file, without making it", async () => {
     const s = setup();
     writeFileSync(join(s.userHome, "notes.txt"), "x");
@@ -209,7 +216,7 @@ describe("space_create", () => {
 
   it("refuses system and secrets locations, through a link or a .. too, and Realm's own home", async () => {
     const s = setup();
-    for (const d of [".ssh/keys", ".config", ".claude", ".codex", ".cursor", "Library/Caches", "work"]) mkdirSync(join(s.userHome, d), { recursive: true });
+    for (const d of [".ssh/keys", ".config", ".aws", ".gnupg", ".kube", ".docker", ".claude", ".codex", ".cursor", "Library/Caches", "work"]) mkdirSync(join(s.userHome, d), { recursive: true });
     symlinkSync(join(s.userHome, ".ssh", "keys"), join(s.userHome, "work", "keys"));
     const refused = async (folder: string, why: string) => {
       const r = await s.call("space_create", { name: "A", folder });
@@ -223,6 +230,7 @@ describe("space_create", () => {
     await refused("~/.ssh", "holds keys and credentials");
     await refused("~/work/keys", `${join(s.userHome, "work", "keys")} is ${join(s.userHome, ".ssh", "keys")}, which is inside ~/.ssh`);
     await refused("~/work/../.config", "holds keys and credentials");
+    for (const d of [".aws", ".gnupg", ".kube", ".docker"]) await refused(`~/${d}`, `is inside ~/${d}, which holds keys and credentials`);
     for (const d of [".claude", ".codex", ".cursor"]) await refused(`~/${d}`, `inside ~/${d}, an agent's own settings`);
     await refused(s.realmHome, "is Realm's own home");
     expect(s.calls.created).toEqual([]);

@@ -596,10 +596,11 @@ colour along, a folder allocated under `~/Realm/<profile>/<space>`) and the same
 broadcast, so the space shows in every window and on the phone at once. A `folder` it is given
 becomes the space's first project, as the sheet's folder row does; it must already exist, and a
 folder in a system or secrets location (`/`, `/System`, `/Library`, `~/Library`, `~/.ssh`,
-`~/.config`, `~/.claude`, `~/.codex`, `~/.cursor`, Realm's own home) is refused after links and `..`
+`~/.config`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.claude`, `~/.codex`, `~/.cursor`, Realm's own home) is refused after links and `..`
 are resolved. It is refused outside a turn the person started, past three in one turn, and for a
 name the profile already has (trimmed, any case), which the sheet allows; the agent gets that
-space's id instead. It asks on Ask each time, as `space_switch` does, and leaves a "Made the space X
+space's id instead. With `switchTo` the window lands where the sheet leaves it, on a new session
+in the space (`openFirstSession`, the sheet's own path), not on the empty space's Overview. It asks on Ask each time, as `space_switch` does, and leaves a "Made the space X
 · Open" line in the chat that asked. Agents cannot rename, delete or archive a space.
 
 **Key files**

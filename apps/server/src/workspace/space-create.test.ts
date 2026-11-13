@@ -20,6 +20,8 @@ afterEach(async () => { await app?.close(); app = undefined!; });
 
 const SCRIPT: FakeScript = [
   { on: "make a space called Taxes", emit: [{ kind: "call", tool: "realm-workspace__space_create", input: { name: "Taxes" } }, { kind: "text", text: "Done." }] },
+  { on: "make spaces A to D", emit: [..."ABCD"].map((n) => ({ kind: "call" as const, tool: "realm-workspace__space_create", input: { name: n } })) },
+  { on: "make spaces E and F", emit: [..."EF"].map((n) => ({ kind: "call" as const, tool: "realm-workspace__space_create", input: { name: n } })) },
 ];
 
 async function boot() {
@@ -61,6 +63,19 @@ describe("space_create, end to end", () => {
     const lines = events(captain.homeSessionId!).flatMap((e) => (e.type === "space_made" ? [e.payload] : []));
     expect(lines).toEqual([{ spaceId: made.id, name: "Taxes", note: "Made the space Taxes" }]);
     expect(changed).toContain("spaces.changed");
+  });
+
+  it("counts the cap per turn of the person's: a new message makes more, the same turn makes no fourth", async () => {
+    const { profile, captain } = await boot();
+    const sid = captain.homeSessionId!;
+    await app.team.message(captain.id, "please make spaces A to D");
+    await waitFor(() => results(sid).length >= 4 && app.sessions.get(sid).status === "idle");
+    expect(results(sid).map((r) => r.isError)).toEqual([false, false, false, true]);
+    expect(results(sid)[3]!.content).toContain("this turn has already made 3 spaces");
+    await app.team.message(captain.id, "please make spaces E and F");
+    await waitFor(() => results(sid).length >= 6 && app.sessions.get(sid).status === "idle");
+    expect(results(sid).slice(4).map((r) => r.isError)).toEqual([false, false]);
+    expect(spacesIn(profile.id).map((s) => s.name).sort()).toEqual(["A", "B", "C", "E", "F", "Realm"]);
   });
 
   it("makes nothing in a turn a teammate's message started, and says so", async () => {

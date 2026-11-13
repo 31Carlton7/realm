@@ -6,7 +6,7 @@
  *
  * The person asks the Lead for a space: it shows on the rail, with a line in the Lead's chat, and on
  * the phone's Home. Asked again for the same name, nothing new is made. Asked for one with
- * `switchTo`, the window moves there. Each step is pictured, dark and light, to LIVE_OUT_DIR as
+ * `switchTo`, the window moves there, onto a new session as the New space sheet leaves it. Each step is pictured, dark and light, to LIVE_OUT_DIR as
  * `<step>-<mode>.png`, and the phone's list is written beside them as `phone-home.json`.
  */
 import { spawn } from "node:child_process";
@@ -212,6 +212,10 @@ try {
   check("space_create with switchTo moved the window", moved.isError === false && moved.content.includes(`The window is in "Errands" now.`), moved.content);
   check("the window says it shows Errands", errands && (await shown()) === errands.id);
   await until(async () => (await railNames()).some((n) => n.includes("Errands")), 10_000, "Errands on the rail");
+  const landed = await until(async () => (await api.call("sessions.listAll", {})).find((x) => x.spaceId === errands.id) ?? null, 10_000, "a session in Errands");
+  await until(() => ev(`!!document.querySelector('.hero-greeting') && !!document.querySelector('.composer')`), 10_000, "the new session's greeting and prompter");
+  check("it lands on a new session in Errands, as the New space sheet does, not on the space's Overview",
+    landed && await ev(`!document.body.textContent.includes("Delete space")`), landed);
   check("the rail marks Errands as the current space", await ev(`[...document.querySelectorAll('.rail-spaces .rail-space')].find((b) => b.getAttribute('aria-label').includes("Errands"))?.getAttribute('aria-pressed') === "true"`));
   await sleep(500);
   await shots("2-switched-to-errands");

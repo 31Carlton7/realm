@@ -2786,8 +2786,9 @@ export type AppState = TeammatesSlice & {
   applyAgentOpened(payload: { spaceId: string; sessionId: string; itemId: string }): Promise<void>;
   /** The `space.switchRequested` handler: an agent's approved `space_switch`, carried out as the
    *  user's own `selectSpace` — except while they are `typing`, and in a window bound to one profile
-   *  (the first window is the one whose space the server reads back). */
-  applySpaceSwitchRequested(payload: { spaceId: string }, typing: boolean): Promise<void>;
+   *  (the first window is the one whose space the server reads back). With `firstSession` (a space
+   *  `space_create` just made) it lands where the New space sheet does, on a new session there. */
+  applySpaceSwitchRequested(payload: { spaceId: string; firstSession?: { projectId: string | null } }, typing: boolean): Promise<void>;
   /** The `settings.changed` handler: an agent's `settings_set`, taken as if this window's own Settings
    *  had made it — for the keys on `AGENT_SETTINGS` and no other, and only a value the app offers. */
   applySettingChanged(payload: { key: string; value?: unknown }): void;
@@ -4432,15 +4433,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().refreshProjects(space.id);
       }
       if (stopped()) return;
-      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, model: input.model ?? null, projectId });
-      rememberAgent(input.agentKind);
-      if (inProfile(space.id)) mergeSession(session);
-      if (stopped()) return;
-      /* The sheet that asked closes now, BEFORE the session is opened: closing unwinds the snap a
-         wide browser pane was given for it (W2.4), and unwound after the landing it would lay the old
-         arrangement back over the session. `fork` closes its sheet first for the same reason. */
-      if (get().sheet?.kind === "new-space") get().closeSheet();
-      await adoptItem(space.id, itemId, null);
+      /* The sheet that asked closes once the session is made and BEFORE it is opened: closing unwinds
+         the snap a wide browser pane was given for it (W2.4), and unwound after the landing it would
+         lay the old arrangement back over the session. `fork` closes its sheet first for the same reason. */
+      await openFirstSession(space.id, projectId, input, { stopped, beforeOpen: () => { if (get().sheet?.kind === "new-space") get().closeSheet(); } });
+    };
+    /** A new space's first session, opened with the keyboard: where the New space sheet lands, and
+     *  where an agent's `space_create` with `switchTo` lands too. */
+    const openFirstSession = async (spaceId: string, projectId: string | null, pick: { agentKind: AgentKind; model?: string | null },
+      opts: { stopped?: () => boolean; beforeOpen?: () => void } = {}) => {
+      const { session, itemId } = await api.createSession({ spaceId, agentKind: pick.agentKind, model: pick.model ?? null, projectId });
+      rememberAgent(pick.agentKind);
+      if (inProfile(spaceId)) mergeSession(session);
+      if (opts.stopped?.()) return;
+      opts.beforeOpen?.();
+      await adoptItem(spaceId, itemId, null);
       await get().openSession(session.id);
       set({ keyboardFor: { sessionId: session.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
     };
@@ -7883,14 +7890,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // lead's running-agents control, and a click there previews it as a tab of the lead's side pane.
         delegatedChildren.set(sessionId, {});
       },
-      async applySpaceSwitchRequested({ spaceId }, typing) {
+      async applySpaceSwitchRequested({ spaceId, firstSession }, typing) {
         if (typing || api.boundProfileId() !== null) return;
         const mine = () => get().spaces.some((sp) => sp.id === spaceId && sp.profileId === get().activeProfileId);
         // A space `space_create` just made is asked for right behind its `spaces.changed`, before this
         // window has read the list again.
         if (!mine()) await get().refreshSpaces();
         if (!mine()) return;
-        await get().selectSpace(spaceId);
+        if (!firstSession) { await get().selectSpace(spaceId); return; }
+        // A space an agent just made, the person asked to be taken to: the session the sheet would open.
+        if (firstSession.projectId) await get().refreshProjects(spaceId);
+        await openFirstSession(spaceId, firstSession.projectId, instantPick());
       },
       applySettingChanged({ key, value }) {
         switch (key) {

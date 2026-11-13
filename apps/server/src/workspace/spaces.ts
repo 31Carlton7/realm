@@ -24,12 +24,12 @@ import type { WorkspaceToolGroup } from "./agent-tools";
  *
  * A space is made the way the New space sheet makes one: `SpacesStore.create` with the sheet's
  * defaults, so it gets the folder Realm allocates under its home, and a folder of the user's becomes
- * the space's first project, as the sheet's folder row does. Unlike the sheet it opens no session in
- * it and moves no window unless asked.
+ * the space's first project, as the sheet's folder row does. Unlike the sheet it moves no window
+ * unless asked; asked (`switchTo`), the window lands where the sheet leaves it, on a new session there.
  */
 export type SpacesDeps = {
   spaces: { get(id: string): Space | null; list(profileId: string): Space[]; create(input: { profileId: string; name: string; icon: string; color?: string }): Space };
-  projects: { create(input: { spaceId: string; name: string; rootPath: string; defaultBranch: string }): unknown };
+  projects: { create(input: { spaceId: string; name: string; rootPath: string; defaultBranch: string }): { id: string } };
   sessions: {
     personStartedTurn(sessionId: string): boolean;
     publishServerEvent(sessionId: string, ev: SessionEvent): void;
@@ -91,7 +91,7 @@ const TOOLS: Tool[] = [
   {
     name: "space_create",
     description:
-      `Make a new space in this Realm profile, as the user's own New space sheet would — only when the user asked for one. It gets its own folder under Realm's home; give \`folder\` (an existing folder, \`~\` allowed) to make that folder the space's first project, as the sheet's folder row does. \`switchTo: true\` also moves the window there. Limits: only in a turn the user started (not a teammate's message or a schedule); at most ${SPACE_CREATE_PER_TURN} per turn; a name the profile already has makes nothing and gives that space's id; a folder in a system or secrets location (/, /System, /Library, ~/Library, ~/.ssh, ~/.config, ~/.claude, ~/.codex, ~/.cursor, Realm's home) is refused. It cannot rename, delete or archive a space. Asks the user for permission unless you are in Full access.`,
+      `Make a new space in this Realm profile, as the user's own New space sheet would — only when the user asked for one. It gets its own folder under Realm's home; give \`folder\` (an existing folder, \`~\` allowed) to make that folder the space's first project, as the sheet's folder row does. \`switchTo: true\` also moves the window there, onto a new session in it, as the sheet's Create does. Limits: only in a turn the user started (not a teammate's message or a schedule); at most ${SPACE_CREATE_PER_TURN} per turn; a name the profile already has makes nothing and gives that space's id; a folder in a system or secrets location (/, /System, /Library, ~/Library, ~/.ssh, ~/.config, ~/.aws, ~/.gnupg, ~/.kube, ~/.docker, ~/.claude, ~/.codex, ~/.cursor, Realm's home) is refused. It cannot rename, delete or archive a space. Asks the user for permission unless you are in Full access.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -99,7 +99,7 @@ const TOOLS: Tool[] = [
         folder: { type: "string", description: "an existing folder to work in, absolute or ~/…; omit and Realm makes one" },
         icon: { type: "string", description: `one of: ${SPACE_ICONS.join(", ")}; or emoji:<emoji>. Default folder` },
         color: { type: "string", description: "#rrggbb; default the next colour along, as the sheet picks" },
-        switchTo: { type: "boolean", description: "move the window to the new space (default false)" },
+        switchTo: { type: "boolean", description: "move the window to the new space, onto a new session in it (default false)" },
       },
       required: ["name"],
       additionalProperties: false,
@@ -150,8 +150,8 @@ async function switchTo(d: SpacesDeps, ctx: ProviderCallContext, raw: unknown): 
   return moveWindow(d, ctx, target);
 }
 
-async function moveWindow(d: SpacesDeps, ctx: ProviderCallContext, target: Space): Promise<CallToolResult> {
-  d.rpc.broadcast("space.switchRequested", { spaceId: target.id, requestedBy: ctx.sessionId });
+async function moveWindow(d: SpacesDeps, ctx: ProviderCallContext, target: Space, firstSession?: { projectId: string | null }): Promise<CallToolResult> {
+  d.rpc.broadcast("space.switchRequested", { spaceId: target.id, requestedBy: ctx.sessionId, ...(firstSession ? { firstSession } : {}) });
   const sleep = d.clock?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (let waited = 0; waited < SWITCH_WAIT_MS; waited += SWITCH_POLL_MS) {
     await sleep(SWITCH_POLL_MS);
@@ -191,8 +191,9 @@ async function create(d: SpacesDeps, ctx: ProviderCallContext, raw: unknown, mad
 
   const space = d.spaces.create({ profileId: mine.profileId, name, icon: icon ?? "folder", color });
   made.set(ctx.sessionId, { turn, count: used + 1 });
+  let projectId: string | null = null;
   if (root) {
-    d.projects.create({ spaceId: space.id, name: basename(root) || root, rootPath: root, defaultBranch: "main" });
+    projectId = d.projects.create({ spaceId: space.id, name: basename(root) || root, rootPath: root, defaultBranch: "main" }).id;
     d.rpc.broadcast("items.changed", { spaceId: space.id });
   }
   d.rpc.broadcast("spaces.changed", {});
@@ -201,7 +202,7 @@ async function create(d: SpacesDeps, ctx: ProviderCallContext, raw: unknown, mad
   const where = root ? `It works in ${root} (its first project); its own folder is ${space.folderPath}.` : `Its folder is ${space.folderPath}.`;
   const summary = `Made the space "${space.name}" — spaceId ${space.id}. ${where}`;
   if (!move) return ok(`${summary} The window stays where it is: space_switch moves it there, and team_message can tell a teammate about it.`);
-  const moved = await moveWindow(d, ctx, space);
+  const moved = await moveWindow(d, ctx, space, { projectId });
   const said = moved.content.map((c) => (c as { text: string }).text).join("\n");
   return moved.isError ? err(`${summary} But ${said}`) : ok(`${summary} ${said} team_message can tell a teammate about it.`);
 }
@@ -230,7 +231,7 @@ function refusedFolder(d: SpacesDeps, real: string): string | null {
   if (real === canon("/")) return "is the root of the disk, which is not a project.";
   if (real === canon(d.realmHome)) return "is Realm's own home, which holds every space's folder and its database.";
   for (const root of ["/System", "/Library", join(d.userHome, "Library")]) if (within(root)) return `is inside ${root}, which belongs to macOS and its apps.`;
-  for (const dir of [".ssh", ".config"]) if (within(join(d.userHome, dir))) return `is inside ~/${dir}, which holds keys and credentials.`;
+  for (const dir of [".ssh", ".config", ".aws", ".gnupg", ".kube", ".docker"]) if (within(join(d.userHome, dir))) return `is inside ~/${dir}, which holds keys and credentials.`;
   for (const dir of [".claude", ".codex", ".cursor"]) if (within(join(d.userHome, dir))) return `is inside ~/${dir}, an agent's own settings, which Realm never works in.`;
   return null;
 }
