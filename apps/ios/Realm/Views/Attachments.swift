@@ -468,20 +468,21 @@ struct TrailingFlow: Layout {
 
 extension View {
     /// A picture as a tile: its corner, and an edge one pixel wide so a dark one does not bleed into the
-    /// ground, as a made file's tile has.
-    func pictureTile() -> some View {
-        modifier(PictureTile())
+    /// ground, as a made file's tile has. A small tile takes a smaller corner.
+    func pictureTile(radius: CGFloat = Radius.thumbnail) -> some View {
+        modifier(PictureTile(radius: radius))
     }
 }
 
 private struct PictureTile: ViewModifier {
+    let radius: CGFloat
     @Environment(\.displayScale) private var displayScale
 
     func body(content: Content) -> some View {
         content
-            .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .strokeBorder(Palette.line, lineWidth: 1 / displayScale)
             }
     }

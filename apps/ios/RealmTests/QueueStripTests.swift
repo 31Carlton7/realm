@@ -58,6 +58,14 @@ struct QueueStripTests {
         #expect(QueueWords.held(editingHere: true) == "Held while you edit")
     }
 
+    /// A row's files line names two, each beside its picture, and counts the rest.
+    @Test func theFilesLineNamesTwoAndCountsTheRest() {
+        #expect(QueueWords.more([]) == nil)
+        #expect(QueueWords.more([Self.photo, Self.brief]) == nil)
+        #expect(QueueWords.more([Self.photo, Self.brief, Self.photo]) == "1 more")
+        #expect(QueueWords.more(Array(repeating: Self.photo, count: 5)) == "3 more")
+    }
+
     /// A message this iPhone sent that the Mac queued is drawn once, in the queue: its outgoing row goes
     /// from the transcript's foot even while its answer is still on the way.
     @Test func aMessageTheMacQueuedIsDrawnOnceInTheQueue() {
@@ -78,6 +86,7 @@ struct QueueStripTests {
         #expect(words.contains("2 queued on your Mac"), "\(words)")
         #expect(words.contains("Then check the toolbar") && words.contains("Then run the tests"), "\(words)")
         #expect(words.contains("Photo.jpg"), "\(words)")
+        #expect(words.contains("Send now"), "\(words)")
     }
 
     /// After Stop it says they wait for the next turn, and from three it folds to the next one.

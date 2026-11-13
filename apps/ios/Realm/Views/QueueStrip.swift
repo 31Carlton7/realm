@@ -51,6 +51,14 @@ enum QueueWords {
         }
     }
 
+    /// How many of a row's files it shows by name: two keep to one line beside its actions.
+    static let filesShown = 2
+
+    /// The rest past those, "1 more", "3 more"; nil when every file is shown.
+    static func more(_ files: [SentFile]) -> String? {
+        files.count > filesShown ? "\(files.count - filesShown) more" : nil
+    }
+
     /// What VoiceOver says for a row: which of how many it is, its words, its files, and its hold.
     static func spoken(_ message: QueuedMessage, at index: Int, of count: Int, editingHere: Bool) -> String {
         var parts = ["Queued message \(index + 1) of \(count)"]
@@ -88,7 +96,7 @@ struct QueueStrip: View {
                     let status = transcript.status ?? transcript.session?.status
                     // A row being edited here is never folded out from under its sheet.
                     let folded = QueueWords.folds(queued.count, accessibilitySize: dynamicTypeSize.isAccessibilitySize) && editing == nil
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: QueueLayout.gap) {
                         QueueHead(queued: queued, working: status == .running || status == .waiting, next: folded ? next : nil) {
                             sheetShown = true
                         }
@@ -96,9 +104,7 @@ struct QueueStrip: View {
                             QueueRows(queued: queued, sessionId: sessionId, editing: $editing)
                         }
                     }
-                    .padding(.leading, 14)
-                    .padding(.trailing, 6)
-                    .padding(.vertical, 8)
+                    .padding(QueueLayout.inset)
                     .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
                     .animation(Motion.animation(reduceMotion), value: queued.map(\.id))
                     .animation(Motion.animation(reduceMotion), value: folded)
@@ -120,6 +126,17 @@ struct QueueStrip: View {
     }
 }
 
+/// The card's spacing, on the composer's steps: one inset on all four sides, and one gap between the
+/// head, each hairline and each row, so every part sits as far from the next as from the edge.
+enum QueueLayout {
+    static let inset: CGFloat = 16
+    static let gap: CGFloat = 12
+    /// What a control draws, where its 44-point target reaches past it into the gap and the inset: a
+    /// row is as tall as what it shows, and the controls' ink keeps to the card's edges.
+    static let control: CGFloat = 30
+    static let overhang = (ComposerLayout.button - control) / 2
+}
+
 /// The strip's head: how many wait and when they go, then, folded, the next one and the way to the rest.
 private struct QueueHead: View {
     let queued: [QueuedMessage]
@@ -134,34 +151,38 @@ private struct QueueHead: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
             : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
         layout {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "list.number")
-                    .font(.footnote.weight(.semibold))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(QueueWords.title(queued.count))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Text(QueueWords.line(count: queued.count, working: working, held: queued.contains(where: \.held)))
+                    .font(.footnote)
                     .foregroundStyle(Palette.ink2)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(QueueWords.title(queued.count))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Palette.ink)
-                        .accessibilityAddTraits(.isHeader)
-                    Text(QueueWords.line(count: queued.count, working: working, held: queued.contains(where: \.held)))
+                if let next {
+                    Text("Next: \(QueueWords.text(next))")
                         .font(.footnote)
                         .foregroundStyle(Palette.ink2)
-                    if let next {
-                        Text("Next: \(QueueWords.text(next))")
-                            .font(.footnote)
-                            .foregroundStyle(Palette.ink2)
-                            .lineLimit(1)
-                    }
+                        .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if next != nil {
-                Button(QueueWords.show(queued.count), action: show)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.accentInk)
-                    .touchTarget()
-                    .accessibilityIdentifier("queue-show")
+                Button(action: show) {
+                    Text(QueueWords.show(queued.count))
+                        .padding(.horizontal, 8)
+                        .frame(minHeight: ComposerLayout.button)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.accentInk)
+                // Its words on the card's edge, and beside the title as tall as their line, so the head
+                // is as tall as its words; its target reaches out into the inset. At the accessibility
+                // sizes, on a line of its own under them, its words are taller than that line.
+                .padding(.horizontal, -8)
+                .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 0 : -2 * QueueLayout.overhang)
+                .accessibilityIdentifier("queue-show")
             }
         }
     }
@@ -179,7 +200,6 @@ private struct QueueRows: View {
         ForEach(Array(queued.enumerated()), id: \.element.id) { index, message in
             Divider()
                 .overlay(Palette.divider)
-                .padding(.vertical, 2)
             QueuedRow(message: message, index: index, count: queued.count, sessionId: sessionId, editingHere: editing?.id == message.id) {
                 Task { if await model.holdQueued(message, in: sessionId) { editing = message } }
             }
@@ -202,17 +222,14 @@ private struct QueueSheet: View {
         let status = transcript.status ?? transcript.session?.status
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: QueueLayout.gap) {
                     Text(QueueWords.line(count: queued.count, working: status == .running || status == .waiting,
                                          held: queued.contains(where: \.held)))
                         .font(.subheadline)
                         .foregroundStyle(Palette.ink2)
-                        .padding(.bottom, 8)
                     QueueRows(queued: queued, sessionId: sessionId, editing: $editing)
                 }
-                .padding(.leading, 16)
-                .padding(.trailing, 8)
-                .padding(.vertical, 12)
+                .padding(QueueLayout.inset)
                 .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 .padding(16)
             }
@@ -238,9 +255,11 @@ private struct QueueSheet: View {
     }
 }
 
-/// One queued message: its words in two lines (more at the accessibility sizes), its files, the mark of
-/// an edit under way, and its three actions — Edit, Remove, and Send now, which the agent's own note
-/// explains. While a call for it is on its way the actions give their place to a spinner.
+/// One queued message: its words across the row, in two lines (more at the accessibility sizes), the
+/// mark of an edit under way, a line of its files, and its three actions in the Mac's order — Edit,
+/// Send now, which the agent's own note explains, and Remove. The actions end the words' line or the
+/// files' where they fit beside them, and take a line of their own where they do not. While a call for
+/// it is on its way the actions give their place to a spinner.
 private struct QueuedRow: View {
     let message: QueuedMessage
     let index: Int
@@ -252,75 +271,103 @@ private struct QueuedRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let busy = model.queueCalls[sessionId]?.contains(message.id) == true
-        let away = !model.isConnected
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 4))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 4))
-        layout {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(QueueWords.text(message))
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.ink)
-                    // Two lines over the composer; at the accessibility sizes a row is only ever in the
-                    // queue's sheet, which scrolls.
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 8 : 2)
-                if !message.attachments.isEmpty {
-                    QueuedFiles(files: message.attachments, sessionId: sessionId)
+        if message.attachments.isEmpty {
+            // Its actions on its line where the words fit beside them, under them where they do not.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    words
+                    actions
                 }
-                if message.held {
-                    Label(QueueWords.held(editingHere: editingHere), systemImage: "pencil")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
+                VStack(alignment: .leading, spacing: 8) {
+                    words
+                    actions.frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(QueueWords.spoken(message, at: index, of: count, editingHere: editingHere))
-            // On the words alone: held anywhere else the menu would gather the buttons into one element.
-            .contentShape(Rectangle())
-            .contextMenu {
-                Button { Task { await model.sendQueuedNow(message, in: sessionId) } } label: {
-                    Label("Send now", systemImage: "arrow.up")
-                    Text(sendNowLine)
-                }
-                .disabled(away || message.held)
-                Button("Edit", systemImage: "pencil", action: edit)
-                    .disabled(away || message.held)
-                Button("Remove", systemImage: "xmark", role: .destructive) { Task { await model.removeQueued(message, in: sessionId) } }
-                    .disabled(away)
-            }
-            HStack(spacing: 0) {
-                if busy {
-                    ProgressView()
-                        .frame(width: ComposerLayout.button * 3, height: ComposerLayout.button)
-                } else {
-                    QueueButton(title: "Edit", symbol: "pencil", action: edit)
-                        .disabled(away || message.held)
-                        .accessibilityIdentifier("queue-edit")
-                    QueueButton(title: "Remove", symbol: "xmark") { Task { await model.removeQueued(message, in: sessionId) } }
-                        .disabled(away)
-                        .accessibilityIdentifier("queue-remove")
-                    Button { Task { await model.sendQueuedNow(message, in: sessionId) } } label: {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(Fill.onPrimary)
-                            .frame(width: 28, height: 28)
-                            .background(Fill.primary, in: Circle())
-                            .frame(width: ComposerLayout.button, height: ComposerLayout.button)
-                            .contentShape(Rectangle())
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                words
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        QueuedFiles(files: message.attachments, sessionId: sessionId)
+                        Spacer(minLength: 0)
+                        actions
                     }
-                    .buttonStyle(.plain)
-                    .disabled(away || message.held)
-                    .opacity(away || message.held ? 0.45 : 1)
-                    .accessibilityLabel("Send now")
-                    .accessibilityHint(sendNowLine)
-                    .accessibilityShowsLargeContentViewer { Label("Send now", systemImage: "arrow.up") }
-                    .accessibilityIdentifier("queue-send-now")
+                    VStack(alignment: .leading, spacing: QueueLayout.gap) {
+                        QueuedFiles(files: message.attachments, sessionId: sessionId)
+                        actions.frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                 }
             }
         }
-        .padding(.vertical, 2)
+    }
+
+    private var words: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(QueueWords.text(message))
+                .font(.subheadline)
+                .foregroundStyle(Palette.ink)
+                // Two lines over the composer; at the accessibility sizes a row is only ever in the
+                // queue's sheet, which scrolls.
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 8 : 2)
+            if message.held {
+                Label(QueueWords.held(editingHere: editingHere), systemImage: "pencil")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Palette.ink2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(QueueWords.spoken(message, at: index, of: count, editingHere: editingHere))
+        // On the words alone: held anywhere else the menu would gather the buttons into one element.
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button { Task { await model.sendQueuedNow(message, in: sessionId) } } label: {
+                Label("Send now", systemImage: "arrow.up")
+                Text(sendNowLine)
+            }
+            .disabled(away || message.held)
+            Button("Edit", systemImage: "pencil", action: edit)
+                .disabled(away || message.held)
+            Button("Remove", systemImage: "xmark", role: .destructive) { Task { await model.removeQueued(message, in: sessionId) } }
+                .disabled(away)
+        }
+    }
+
+    private var away: Bool { !model.isConnected }
+
+    @ViewBuilder
+    private var actions: some View {
+        if model.queueCalls[sessionId]?.contains(message.id) == true {
+            ProgressView()
+                .frame(height: QueueLayout.control)
+        } else {
+            HStack(spacing: 0) {
+                QueueButton(title: "Edit", symbol: "pencil", action: edit)
+                    .disabled(away || message.held)
+                    .accessibilityIdentifier("queue-edit")
+                Button { Task { await model.sendQueuedNow(message, in: sessionId) } } label: {
+                    Text("Send now")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.ink)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: QueueLayout.control)
+                        .background(Fill.pill, in: Capsule())
+                        .frame(minHeight: ComposerLayout.button)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(away || message.held)
+                .opacity(away || message.held ? 0.45 : 1)
+                .accessibilityHint(sendNowLine)
+                .accessibilityIdentifier("queue-send-now")
+                QueueButton(title: "Remove", symbol: "xmark") { Task { await model.removeQueued(message, in: sessionId) } }
+                    .disabled(away)
+                    .accessibilityIdentifier("queue-remove")
+            }
+            // The last glyph's ink on the card's edge, and every target out into the gap and the inset.
+            .padding(.vertical, -QueueLayout.overhang)
+            .padding(.trailing, -(ComposerLayout.button - QueueButton.glyph) / 2)
+        }
     }
 
     /// What Send now does: the agent's own note while a turn runs, since it stops some agents' turns
@@ -337,6 +384,8 @@ private struct QueuedRow: View {
 
 /// A row's quiet glyph button, 44 points to touch, its name for VoiceOver and the large content viewer.
 private struct QueueButton: View {
+    static let glyph: CGFloat = 15
+
     let title: String
     let symbol: String
     let action: () -> Void
@@ -345,7 +394,7 @@ private struct QueueButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: Self.glyph, weight: .semibold))
                 .foregroundStyle(Palette.ink2)
                 .frame(width: ComposerLayout.button, height: ComposerLayout.button)
                 .contentShape(Rectangle())
@@ -357,23 +406,37 @@ private struct QueueButton: View {
     }
 }
 
-/// A queued message's files in one line: small copies of its pictures, which the Mac sends as it does
-/// a sent message's, then their names.
+/// A queued message's files in one line, each a small copy of it beside its name — the Mac sends the
+/// pictures' copies as it does a sent message's — and past two, how many more. At the accessibility
+/// sizes, one to a line: side by side there the names are cut to their first and last letters.
 private struct QueuedFiles: View {
     let files: [SentFile]
     let sessionId: String
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(files.filter(\.isImage).prefix(3)) { file in
-                QueuedPicture(file: file, sessionId: sessionId)
+        let shown = files.prefix(QueueWords.filesShown)
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: QueueLayout.gap))
+        layout {
+            ForEach(shown) { file in
+                HStack(spacing: 6) {
+                    QueuedPicture(file: file, sessionId: sessionId)
+                    Text(file.name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
-            Text(QueueWords.files(files) ?? "")
-                .font(.caption)
-                .foregroundStyle(Palette.ink2)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            if let more = QueueWords.more(files) {
+                Text(more)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
+        .font(.footnote)
+        .foregroundStyle(Palette.ink2)
+        .accessibilityHidden(true)
     }
 }
 
@@ -382,26 +445,27 @@ private struct QueuedPicture: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.displayScale) private var displayScale
-    @ScaledMetric(relativeTo: .caption) private var side: CGFloat = 24
+    @ScaledMetric(relativeTo: .footnote) private var side: CGFloat = 28
 
     var body: some View {
         ZStack {
             Rectangle().fill(Fill.bubble)
-            if let thumbnail = model.thumbnail(file.path, in: sessionId) {
+            if file.isImage, let thumbnail = model.thumbnail(file.path, in: sessionId) {
                 Image(uiImage: thumbnail)
                     .resizable()
                     .scaledToFill()
             } else {
-                Image(systemName: "photo")
-                    .font(.caption2)
+                Image(systemName: FileKind.symbol(file.name))
+                    .font(.caption)
                     .foregroundStyle(Palette.ink3)
             }
         }
         .frame(width: side, height: side)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .accessibilityHidden(true)
+        .pictureTile(radius: Radius.well)
         // Made at the size the sent message's tile draws it: the same path is that tile's once it goes.
-        .task(id: model.isConnected) { await model.loadThumbnail(file.path, in: sessionId, side: SentPicture.side * displayScale) }
+        .task(id: model.isConnected) {
+            if file.isImage { await model.loadThumbnail(file.path, in: sessionId, side: SentPicture.side * displayScale) }
+        }
     }
 }
 
