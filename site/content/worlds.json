@@ -1,0 +1,20 @@
+[
+  {
+    "id": "webb",
+    "name": "Cosmic Cliffs",
+    "file": "space-webb.jpg",
+    "credit": "\"Cosmic Cliffs\" in the Carina Nebula (NIRCam image), James Webb Space Telescope, 2022. Image: NASA, ESA, CSA, STScI"
+  },
+  {
+    "id": "church",
+    "name": "Twilight",
+    "file": "painting-church.jpg",
+    "credit": "Frederic Edwin Church, Twilight in the Wilderness, 1860. The Cleveland Museum of Art, public domain (CC0)."
+  },
+  {
+    "id": "hubble",
+    "name": "Mystic Mountain",
+    "file": "space-hubble.jpg",
+    "credit": "Hubble Captures View of \"Mystic Mountain\" (Carina Nebula), Hubble Space Telescope, 2010. NASA/ESA/STScI"
+  }
+]

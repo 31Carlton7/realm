@@ -1,0 +1,424 @@
+/* The landing page, round three. Type keeps to Synara's discipline in Realm's faces: weight 500 at
+   most, tight tracking only on the large sizes, greys drawn from the navy. No outline on any picture
+   and no glass: a component stands off its world by a surface step and a soft shadow. */
+
+.page {
+  --ink: oklch(0.965 0.006 255);
+  --ink-2: oklch(0.79 0.02 258);
+  --ink-3: oklch(0.66 0.022 260);
+  --navy: #03060f;
+  --lift:
+    0 1px 2px oklch(0 0 0 / 0.3),
+    0 18px 40px -14px oklch(0.04 0.03 265 / 0.7),
+    0 60px 120px -40px oklch(0.04 0.04 265 / 0.85);
+  background: var(--navy);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+}
+
+.sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+/* ---- A world, printed ---- */
+
+.world {
+  background-size: cover;
+  background-position: center;
+}
+
+.worldPrint {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Hero ---- */
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--navy);
+}
+
+.nav {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 26px 28px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.brandMark {
+  height: 22px;
+  width: auto;
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.links a {
+  padding: 10px 0;
+}
+
+.links a:hover {
+  color: var(--ink);
+}
+
+/* The opening's box. The shader draws the ring round it and the world fills it, so CSS alone places
+   the opening at every width. */
+.ring {
+  position: absolute;
+  z-index: 0;
+  left: 70%;
+  top: calc(92px + (max(100svh, 760px) - 242px) / 2);
+  width: min(40vw, 560px);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+
+.ringWorld {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.heroCopy {
+  position: relative;
+  z-index: 2;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 28px;
+  min-height: calc(max(100svh, 760px) - 92px - 150px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.h1 {
+  max-width: 11ch;
+  font-size: 72px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.lede {
+  max-width: 31rem;
+  margin-top: 28px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 36px;
+}
+
+.micro {
+  margin-top: 22px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+
+.release {
+  color: var(--ink);
+}
+
+.release:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* The product, under the fold's edge: the first screen shows the top of a new session. */
+.heroShot {
+  position: relative;
+  z-index: 2;
+  width: min(100% - 56px, 960px);
+  margin: 0 auto;
+  padding-bottom: 120px;
+}
+
+.heroShot .crop img {
+  width: 100%;
+}
+
+.crop {
+  display: block;
+}
+
+.crop img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 14px;
+  box-shadow: var(--lift);
+}
+
+.caption {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ink-2);
+  text-wrap: balance;
+}
+
+/* ---- A section, in one of the worlds ---- */
+
+.realm {
+  position: relative;
+  padding: 120px 0;
+}
+
+.column {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  gap: 64px;
+}
+
+.realm[data-flip] .column {
+  flex-direction: row-reverse;
+}
+
+.claim {
+  flex: 0 0 360px;
+  min-width: 0;
+}
+
+.h2 {
+  font-size: 40px;
+  line-height: 1.08;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.h2Quiet {
+  color: var(--ink-3);
+}
+
+.body {
+  margin-top: 24px;
+  font-size: 17px;
+  line-height: 28px;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.figure {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* The world is the frame: the app's own picture, dimmed so the component on it reads first. */
+.frame {
+  position: relative;
+  isolation: isolate;
+}
+
+.frameWorld {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.frameWorld::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(oklch(0.12 0.03 262 / 0.28), oklch(0.12 0.03 262 / 0.5));
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 64px 56px;
+}
+
+.lifted img {
+  border-radius: 14px;
+}
+
+.aside {
+  position: absolute;
+  left: -40px;
+  bottom: -36px;
+  width: min(300px, 46%);
+}
+
+.aside img {
+  width: 100%;
+}
+
+.realm .caption {
+  margin-top: 28px;
+}
+
+.realm:has(.aside) .caption {
+  margin-top: 56px;
+}
+
+/* ---- Foot ---- */
+
+.foot {
+  padding: 96px 0 72px;
+}
+
+.footColumn {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 48px;
+}
+
+.credits {
+  max-width: 44rem;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.footLinks {
+  display: flex;
+  gap: 24px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.footLinks a:hover {
+  color: var(--ink);
+}
+
+/* ---- Phone ---- */
+
+@media (max-width: 720px) {
+  .links a:not(:last-child) {
+    display: none;
+  }
+
+  .nav {
+    padding: 18px 20px;
+  }
+
+  .ring {
+    left: 50%;
+    top: 220px;
+    width: min(76vw, 300px);
+  }
+
+  .heroCopy {
+    min-height: 0;
+    justify-content: flex-start;
+    padding: 330px 20px 0;
+  }
+
+  .h1 {
+    font-size: 40px;
+    line-height: 1.04;
+    letter-spacing: -0.04em;
+  }
+
+  .lede {
+    margin-top: 20px;
+    font-size: 17px;
+  }
+
+  .actions {
+    margin-top: 28px;
+  }
+
+  .heroShot {
+    width: calc(100% - 40px);
+    margin-top: 56px;
+    padding-bottom: 72px;
+  }
+
+  .realm {
+    padding: 72px 0;
+  }
+
+  .column,
+  .realm[data-flip] .column {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 36px;
+    padding: 0 20px;
+  }
+
+  .claim {
+    flex: none;
+  }
+
+  .h2 {
+    font-size: 30px;
+  }
+
+  .stage {
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 28px 16px;
+  }
+
+  .frameWorld {
+    border-radius: 20px;
+  }
+
+  .aside {
+    position: static;
+    width: 100%;
+  }
+
+  .realm:has(.aside) .caption {
+    margin-top: 20px;
+  }
+
+  .footColumn {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 0 20px;
+  }
+}
