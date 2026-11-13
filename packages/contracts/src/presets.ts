@@ -115,10 +115,8 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 /**
  * Agent kinds a user can pick — the palette's one-shot entries and the prompter's agent chip.
  *
- * `acp:gemini` is out because Google discontinued the free personal tier (see AGENT_LOGIN_HINTS): the
- * kind stays registered so existing sessions keep working, but offering it is offering a dead end.
- * `fake` is the scripted dev adapter. Callers that must show a session's *current* kind prepend it when
- * it is missing here rather than hiding the agent the session actually runs.
+ * `fake` is the scripted dev adapter, withheld. Callers that must show a session's *current* kind
+ * prepend it when it is missing here rather than hiding the agent the session actually runs.
  */
 export const SELECTABLE_AGENT_KINDS = [
   "claude", "codex", "acp:cursor", "acp:gemini",
@@ -916,9 +914,9 @@ export const AGENT_LOGIN_HINTS = {
   claude: "Uses your `claude` login — run `claude auth login` if sessions fail to authenticate.",
   codex: "Uses your `codex` login — run `codex login` if sessions fail to authenticate.",
   "acp:cursor": "Uses your Cursor login — run `cursor-agent login` if sessions fail to authenticate.",
-  // Measured 2026-09-01 against gemini-cli 0.56.0: `initialize` succeeds and advertises four auth
-  // methods; only `oauth-personal` is dead (session/new fails IneligibleTierError). The other three
-  // work, so the kind is offered again with the live routes named instead of the dead one.
+  // Measured 2026-11-12 against gemini-cli 0.66.0 and 0.68.0: `initialize` succeeds and advertises
+  // four auth methods; only `oauth-personal` is dead (session/new fails -32000, "no longer supported
+  // for Gemini Code Assist for individuals"), so the hint names the other three.
   "acp:gemini": "Google discontinued the Gemini CLI's free personal tier — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
   "acp:opencode": "Uses your OpenCode login — run `opencode auth login` if sessions fail to authenticate.",
   "acp:copilot": "Uses your GitHub Copilot login — run `copilot login` if sessions fail to authenticate.",
