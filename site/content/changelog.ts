@@ -32,24 +32,24 @@ export const entries: Entry[] = [
     body: [
       { kind: "h", text: "Spaces" },
       { kind: "ul", items: [
-        "**Ask an agent to make a space.** \"Make me a space for taxes\" makes it, in a turn you started, with a line in the chat and an Open button. \"Take me there\" lands on a new session in it.",
+        "**Ask an agent to make a space.** \"Make me a space for taxes\" makes it, in a turn you started, with a line in the chat that names the space and an Open button. Add \"and take me there\" and the window lands on a new session in it. An agent cannot make one in a turn a teammate's message started.",
       ] },
       { kind: "h", text: "Gemini" },
       { kind: "ul", items: [
-        "**Gemini's models are in the picker,** read from the installed CLI, with Auto as the default.",
-        "**A signed-out Gemini says how to sign in.** Log in with Google no longer works on a personal account, so the hint says to pick an API key, Vertex AI or a gateway with /auth.",
+        "**Gemini's models are in the model picker,** read from the Gemini CLI you have installed, with Auto marked as the default.",
+        "**A signed-out Gemini says what works now.** Log in with Google no longer works on a personal account, so the hint tells you to pick an API key, Vertex AI or a gateway with /auth.",
       ] },
       { kind: "h", text: "Smaller fixes" },
       { kind: "ul", items: [
-        "**Side-panel tabs give up their titles before the strip scrolls,** so six fit.",
-        "**Settings ▸ Sandbox:** each radio sits on its name's line, and Allow network access is a proper checkbox.",
+        "**Side-panel tabs give up their titles before the strip scrolls,** so six tabs fit where one used to fall off the end. The tab that is showing keeps its name and its close button, and the others show their full title on hover.",
+        "**Settings ▸ Sandbox:** each posture's radio sits on its name's line, and \"Allow network access\" is a checkbox with its words beside it.",
       ] },
       { kind: "h", text: "Realm for iPhone" },
       { kind: "ul", items: [
-        "**Confirm and rename ask on Realm's own sheets,** not iOS glass dialogs.",
-        "**The soft edges end at the bar and the composer.**",
-        "**The queued card is tidied** to one inset and one left edge.",
-        "**A new branch is pushed and its pull request opened in one confirm.**",
+        "**Confirms and rename are on Realm's own sheets,** not glass dialogs.",
+        "**The blur under the bar and above the composer ends where they do.**",
+        "**The queued message card has one inset and one left edge,** and the message uses the row's width.",
+        "**A new branch pushes and opens its pull request in one confirm.**",
       ] },
     ],
   },
