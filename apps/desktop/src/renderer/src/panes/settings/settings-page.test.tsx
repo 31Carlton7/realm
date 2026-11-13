@@ -157,8 +157,8 @@ describe("Engines tab", () => {
 
   it("Gemini is offered again, ONCE, with the auth routes that still work named", async () => {
     await engines();
-    // Plan 18: measured against gemini-cli 0.56.0, only oauth-personal is dead — an API key, Vertex,
-    // or a gateway all still open a session. So it is no longer withheld, and the note must name the
+    // Measured against gemini-cli 0.68.0, only oauth-personal is dead — an API key, Vertex AI or a
+    // gateway are still offered. So it is no longer withheld, and the note must name the
     // live routes rather than only the dead one.
     const rows = await screen.findAllByRole("listitem", { name: /Gemini: Not installed/ });
     // Kills the regression this change actually caused: ENGINE_ORDER used to append Gemini by hand
@@ -168,8 +168,8 @@ describe("Engines tab", () => {
     // Gemini has NO login command, so the hint is the only thing that can tell the user what to do.
     // Kills the regression re-offering it caused: the hint used to hang off `!offered`, so an offered
     // Gemini would have shown "Not installed" and nothing else.
-    expect(within(rows[0]!).getByText(/free personal tier/)).toBeInTheDocument();
-    expect(within(rows[0]!).getByText(/Vertex AI credentials/)).toBeInTheDocument();
+    expect(within(rows[0]!).getByText(/no longer works on a personal account/)).toBeInTheDocument();
+    expect(within(rows[0]!).getByText(/Vertex AI/)).toBeInTheDocument();
   });
 
   it("a ready agent carries no how-to-fix sentence — the hint is for blocked rows only", async () => {

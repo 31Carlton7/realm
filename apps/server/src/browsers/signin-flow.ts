@@ -94,9 +94,9 @@ export class SignInFlow {
   async start(spaceId: string, kind: AgentKind): Promise<SignInStart> {
     const command = AGENT_CLI_COMMANDS[kind]?.login;
     if (!command) {
-      // Gemini is the one with no login command: Google discontinued its free personal tier, so the
-      // route is an API key or Vertex credentials — a sentence rather than a line to run. (goose
-      // looks like a sibling and is not: `goose configure` is a real command and runs here fine.)
+      // Gemini is the one with no login command: its Google login no longer works on a personal
+      // account, so the route is an API key or Vertex credentials — a sentence rather than a line to
+      // run. (goose looks like a sibling and is not: `goose configure` is a real command and runs here fine.)
       // The hint is the whole answer, and `authFix` already gives the same one.
       return { ok: false, reason: `${agentLabel(kind)} has no sign-in command Realm can run. ${AGENT_LOGIN_HINTS[kind]}` };
     }

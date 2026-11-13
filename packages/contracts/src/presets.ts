@@ -792,9 +792,9 @@ export const AGENT_NOTES = {
     limits: "Realm cannot set permission modes here — Cursor's modes are its own.",
   },
   "acp:gemini": {
-    good: "Google's own CLI, for Gemini models with a Google account or Vertex credentials.",
+    good: "Google's own CLI, for Gemini models through an API key, Vertex AI or a gateway.",
     billing: "Bills through a Gemini API key or Vertex AI project.",
-    limits: "The free personal tier is discontinued, so a plain Google sign-in no longer works.",
+    limits: "Log in with Google no longer works on a personal account.",
   },
   "acp:opencode": {
     good: "The widest model list of any harness here — dozens of providers through keys you already hold.",
@@ -916,8 +916,10 @@ export const AGENT_LOGIN_HINTS = {
   "acp:cursor": "Uses your Cursor login — run `cursor-agent login` if sessions fail to authenticate.",
   // Measured 2026-11-12 against gemini-cli 0.66.0 and 0.68.0: `initialize` succeeds and advertises
   // four auth methods; only `oauth-personal` is dead (session/new fails -32000, "no longer supported
-  // for Gemini Code Assist for individuals"), so the hint names the other three.
-  "acp:gemini": "Google discontinued the Gemini CLI's free personal tier — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
+  // for Gemini Code Assist for individuals"), so the hint names the other three. It names `/auth`
+  // because the CLI uses the method saved in ~/.gemini/settings.json before it looks at
+  // GEMINI_API_KEY: with Log in with Google saved, exporting a key alone still fails.
+  "acp:gemini": "Log in with Google no longer works on a personal account — run `gemini` and pick a Gemini API key, Vertex AI or a custom AI gateway with `/auth`.",
   "acp:opencode": "Uses your OpenCode login — run `opencode auth login` if sessions fail to authenticate.",
   "acp:copilot": "Uses your GitHub Copilot login — run `copilot login` if sessions fail to authenticate.",
   "acp:goose": "Run `goose configure` to pick a provider and set its API key; goose has no login of its own.",

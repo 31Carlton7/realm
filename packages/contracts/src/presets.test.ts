@@ -160,6 +160,10 @@ describe("SELECTABLE_AGENT_KINDS", () => {
     // only `oauth-personal` is refused; an API key, Vertex AI and a custom gateway are still offered.
     expect(SELECTABLE_AGENT_KINDS).toContain("acp:gemini");
     expect(AGENT_LOGIN_HINTS["acp:gemini"]).toMatch(/Vertex AI/);
+    // The CLI uses the method saved in its settings before GEMINI_API_KEY, so with Log in with Google
+    // saved, the way out is switching it in the CLI, not exporting a key.
+    expect(AGENT_LOGIN_HINTS["acp:gemini"]).toContain("`/auth`");
+    expect(AGENT_LOGIN_HINTS["acp:gemini"]).not.toMatch(/free personal tier/);
   });
 
   it("offers every ACP agent whose handshake was verified, and each is on the generic ACP adapter", () => {

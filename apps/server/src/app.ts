@@ -46,7 +46,7 @@ import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { DEFAULT_PERMISSION_MODE_KEY, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
+import { AGENT_LOGIN_HINTS, DEFAULT_PERMISSION_MODE_KEY, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
@@ -224,7 +224,7 @@ export function defaultAdapters(): AdapterRegistry {
       // gemini-api-key, vertex-ai and a custom AI gateway, plus loadSession and image prompts.
       // Only the first is dead — `session/new` under it fails -32000 "This client is no longer
       // supported for Gemini Code Assist for individuals" — so the hint names the other three.
-      loginHint: "Gemini's free personal tier was discontinued — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
+      loginHint: AGENT_LOGIN_HINTS["acp:gemini"],
     }),
     // ── Plan 18: agents that speak ACP natively ────────────────────────────────────────────────
     // Every `args` below was confirmed by a live `initialize` on 2026-09-01.
