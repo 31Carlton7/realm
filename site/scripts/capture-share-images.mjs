@@ -4,17 +4,20 @@
  *   pnpm build && pnpm start -p 3111      # a production server: the dev server draws its badge into the shot
  *   node scripts/capture-share-images.mjs # or: pnpm capture:share, with REALM_SITE_URL to point elsewhere
  *
+ * REALM_SHARE_ONLY=card takes the card alone and leaves the skies as they are.
+ *
  * Writes:
  *   app/opengraph-image.png, app/twitter-image.png and the alt text beside each: /share at 1200 × 630,
- *     which Next serves as the og:image and twitter:image of every page without a card of its own.
+ *     the landing page's hero at a card's size, which Next serves as the og:image and twitter:image of
+ *     every page without a card of its own.
  *   public/og/sky-<name>.jpg: /share/sky/<name>, for each sky lib/og/layout.ts names, the backgrounds
  *     the changelog's cards (lib/og/card.tsx) are drawn over at build. Run `next build` again after.
  *
- * Headless Chrome rather than Playwright, because the field is WebGPU and Chrome is what renders it
- * here, driven over the DevTools protocol so one browser takes every picture. Each is the field's still
- * frame (reduced motion), the same every run; a page whose field did not start (no WebGPU) is refused
- * rather than photographed as its CSS fallback. A port that already answers is refused too: a leftover
- * browser there would be photographed instead of this one.
+ * Headless Chrome rather than Playwright, because the skies' field is WebGPU and the hero's sky is
+ * WebGL2, and Chrome is what renders them here, driven over the DevTools protocol so one browser takes
+ * every picture. Each is a still frame (reduced motion), the same every run; a page whose field or sky
+ * did not draw is refused rather than photographed as its CSS fallback. A port that already answers is
+ * refused too: a leftover browser there would be photographed instead of this one.
  */
 import { spawn } from "node:child_process"
 import fs from "node:fs"
@@ -36,8 +39,7 @@ if (!fs.existsSync(chrome)) throw new Error(`No Chrome at ${chrome}; point REALM
 const fromSite = createRequire(path.join(siteRoot, "package.json"))
 const sharp = createRequire(fs.realpathSync(fromSite.resolve("next/package.json")))("sharp")
 
-const ALT =
-  "Realm. Give your agents a world to work in. One workspace for every coding agent, on your computer. Beside the words, one of Realm's realms, a cube lying on its side with its doorway lit, hangs in a blue nebula, with more realms going away behind it."
+const ALT = fs.readFileSync(path.join(siteRoot, "scripts/share-image.alt.txt"), "utf8").trim()
 
 if (await fetch(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false)) {
   throw new Error(`Something already answers on port ${port}; set REALM_CHROME_PORT to a free one`)
@@ -101,8 +103,16 @@ async function connect() {
   return { send, evaluate, events, close: () => socket.close() }
 }
 
-/** The still frame of a page at the card's size, once its field has drawn and faded in. */
-async function photograph({ send, evaluate, events }, url) {
+/** The skies are drawn by the changelog's WebGPU field, which marks the page once it has started. */
+const FIELD = { ready: "document.documentElement.dataset.field ?? null", settle: 1600 }
+/** The card is drawn over the hero's sky (Sky), which marks its canvas once it has drawn. */
+const SKY = {
+  ready: `document.querySelector("canvas[data-ready]") ? "on" : null`,
+  settle: 300,
+}
+
+/** The still frame of a page at the card's size, once what draws it is up and has settled. */
+async function photograph({ send, evaluate, events }, url, { ready, settle }) {
   await send("Emulation.setDeviceMetricsOverride", { width: CARD.width, height: CARD.height, deviceScaleFactor: 1, mobile: false })
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] })
   events.length = 0
@@ -111,12 +121,12 @@ async function photograph({ send, evaluate, events }, url) {
   let field = null
   for (let i = 0; i < 300 && field !== "on" && field !== "off"; i++) {
     await sleep(100)
-    field = await evaluate("document.documentElement.dataset.field ?? null")
+    field = await evaluate(ready)
   }
-  if (field !== "on") throw new Error(`The field at ${url} did not start (data-field=${field}); is WebGPU available to this Chrome?`)
+  if (field !== "on") throw new Error(`${url} did not draw (${field}); is WebGPU or WebGL2 available to this Chrome?`)
   await evaluate("document.fonts.ready.then(() => Promise.all([...document.images].map((image) => image.decode().catch(() => {}))))")
-  // The canvas fades in over a second once it has drawn (FieldCanvas), reduced motion or not.
-  await sleep(1600)
+  // The field's canvas fades in over a second once it has drawn (FieldCanvas), reduced motion or not.
+  await sleep(settle)
   const shot = await send("Page.captureScreenshot", { format: "png" })
   return Buffer.from(shot.data, "base64")
 }
@@ -126,15 +136,15 @@ try {
   page = await connect()
   await page.send("Page.enable")
 
-  const card = await photograph(page, `${base}/share`)
+  const card = await photograph(page, `${base}/share`, SKY)
   for (const name of ["opengraph-image", "twitter-image"]) {
     fs.writeFileSync(path.join(siteRoot, "app", `${name}.png`), card)
     fs.writeFileSync(path.join(siteRoot, "app", `${name}.alt.txt`), ALT)
   }
   console.log(`wrote app/opengraph-image.png and app/twitter-image.png (${CARD.width}×${CARD.height}) from ${base}/share`)
 
-  for (const name of Object.keys(SKIES)) {
-    const sky = await photograph(page, `${base}/share/sky/${name}`)
+  for (const name of process.env.REALM_SHARE_ONLY === "card" ? [] : Object.keys(SKIES)) {
+    const sky = await photograph(page, `${base}/share/sky/${name}`, FIELD)
     fs.mkdirSync(path.join(siteRoot, "public/og"), { recursive: true })
     await sharp(sky).jpeg({ quality: 92, chromaSubsampling: "4:4:4", mozjpeg: true }).toFile(path.join(siteRoot, "public/og", skyFile(name)))
     console.log(`wrote public/og/${skyFile(name)} from ${base}/share/sky/${name}`)

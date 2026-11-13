@@ -1,6 +1,6 @@
 /**
  * Which of the hero's stars the sky keeps, as plain functions of CSS-px boxes, so a test can check the
- * decision Aperture's shader makes. `clearOf` in the shader is `distanceTo` over every clear box, and a
+ * decision Sky's shader makes. `clearOf` in the shader is `distanceTo` over every clear box, and a
  * star is drawn only where that distance is above 0 (it then fades in over CLEAR_FEATHER).
  */
 

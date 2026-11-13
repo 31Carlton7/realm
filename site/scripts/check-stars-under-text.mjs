@@ -156,8 +156,7 @@ async function settle() {
       if (sky?.dataset.ready && worlds.every((c) => c.dataset.printed)) break
       await new Promise((r) => setTimeout(r, 100))
     }
-    // The opening's spring runs 1.5 s.
-    await new Promise((r) => setTimeout(r, 2000))
+    await new Promise((r) => setTimeout(r, 1000))
   })
 }
 

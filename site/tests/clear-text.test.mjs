@@ -1,5 +1,5 @@
 // Reads the site's components as source and finds every field that draws detail behind its siblings:
-// the hero's sky (an <Aperture>, which masks its stars from its parent's `data-clear` blocks) and the
+// the hero's sky (a <Sky>, which masks its stars from its parent's `data-clear` blocks) and the
 // worlds (a <World>, a dithered picture nothing masks). Text inside a sky must sit in a `data-clear`
 // block, at most as many as the shader can hold; text inside a world's box is not allowed at all. A
 // component the site defines (the shared <Header>) is read through to the JSX it returns, so a sky is
@@ -18,7 +18,7 @@ import { MAX_CLEAR } from "../components/landing/star-mask.ts"
 const site = fileURLToPath(new URL("..", import.meta.url))
 
 /** Components that draw no words of their own. */
-const WORDLESS = new Set(["Aperture", "World", "Crop", "Mark"])
+const WORDLESS = new Set(["Sky", "World", "Crop", "Mark"])
 
 function sources(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -95,7 +95,7 @@ function fields() {
     const visit = (n) => {
       if (ts.isJsxElement(n)) {
         for (const child of n.children) {
-          if (isElement(child) && (tagOf(child) === "Aperture" || tagOf(child) === "World")) {
+          if (isElement(child) && (tagOf(child) === "Sky" || tagOf(child) === "World")) {
             found.push({ file: relative(site, file), src, region: n, kind: tagOf(child) })
           }
         }
@@ -114,10 +114,10 @@ const where = (_field, node) => {
 const shown = (node) => node.getText().replace(/\s+/g, " ").slice(0, 60)
 
 test("every word over a sky sits in a data-clear block", () => {
-  const skies = fields().filter((f) => f.kind === "Aperture")
+  const skies = fields().filter((f) => f.kind === "Sky")
   const files = new Set(skies.map((sky) => sky.file))
   for (const file of ["components/landing/Hero.tsx", "components/landing/Subpage.tsx"]) {
-    assert.ok(files.has(file), `found no <Aperture> in ${file}: this test does not read that sky`)
+    assert.ok(files.has(file), `found no <Sky> in ${file}: this test does not read that sky`)
   }
   for (const sky of skies) {
     const text = textUnder(sky.region, false, [])

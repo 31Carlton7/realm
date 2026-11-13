@@ -1,33 +1,23 @@
-"use client"
-
-import { useRef } from "react"
-
 import { DownloadButton, QuietButton } from "@/components/Buttons"
 import type { Downloads } from "@/lib/release"
 import { site } from "@/lib/site"
 
-import { Aperture } from "./Aperture"
 import { Crop, type Shot } from "./Crop"
 import { Header } from "./Header"
-import { World } from "./World"
+import { Sky } from "./Sky"
 import s from "./landing.module.css"
 
 type Props = {
   downloads: Downloads
   version: string
   changelog: string
-  world: { file: string }
   session: Shot
 }
 
-export function Hero({ downloads, version, changelog, world, session }: Props) {
-  const ring = useRef<HTMLDivElement>(null)
+export function Hero({ downloads, version, changelog, session }: Props) {
   return (
     <section className={s.hero}>
-      <div className={s.ring} ref={ring}>
-        <World file={world.file} x={0.4} y={0.4} className={s.ringWorld} />
-      </div>
-      <Aperture ring={ring} className={s.sky} />
+      <Sky className={s.sky} />
       <Header />
       <div className={s.heroCopy}>
         <h1 className={s.h1} data-clear>One workspace for every coding agent.</h1>
@@ -48,7 +38,7 @@ export function Hero({ downloads, version, changelog, world, session }: Props) {
       </div>
       <figure className={s.heroShot}>
         <Crop shot={session} sizes={{ wide: "min(960px, 100vw - 56px)", phone: "calc(100vw - 40px)" }} />
-        <figcaption className={s.caption} data-clear>A new session in Realm, opened onto Cosmic Cliffs.</figcaption>
+        <figcaption className={s.caption} data-clear>A new session in Realm, opened onto Aurora.</figcaption>
       </figure>
     </section>
   )

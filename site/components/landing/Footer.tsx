@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import backdrops from "@/content/backdrops.json"
 import worlds from "@/content/worlds.json"
 import { site } from "@/lib/site"
 
@@ -16,7 +17,7 @@ export function Footer({ credits = false }: { credits?: boolean }) {
         {credits ? (
           <p className={s.credits}>
             The pictures are the ones Realm shows behind a new session.{" "}
-            {worlds.map((w) => (
+            {[...backdrops, ...worlds].map((w) => (
               <span key={w.id} className={s.credit}>
                 {w.name}: {w.credit}
               </span>

@@ -34,7 +34,7 @@ const shot = (name: string, alt: string, phone?: string, cut = false): Shot => (
 })
 
 /**
- * The landing page, round three: deep navy space with one opening onto a world, and past it, each
+ * The landing page, round three: deep navy space over a new session in the app, and past it, each
  * section in one of the worlds Realm itself opens new sessions onto, with one component from the app
  * in it. The worlds are the app's own pictures (scripts/copy-worlds.mjs), credited at the foot.
  */
@@ -45,10 +45,9 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
         downloads={downloads}
         version={version}
         changelog={changelog}
-        world={world("webb")}
         session={shot(
           "session",
-          `A new, empty session in Realm on the Cosmic Cliffs picture, asking "What's next in Realm?" over the prompter, set to Opus 5.5.`,
+          `A new, empty session in Realm on the Aurora picture, green curtains of light over a dark treeline, asking "What's next in Realm?" over the prompter, set to Opus 5.5.`,
           "session-phone",
         )}
       />
@@ -215,6 +214,9 @@ type RealmProps = {
   spans?: { row: number; column: number; phone: number }
 }
 
+/** A frame's width, the column's less its padding (landing.module.css .column), for the world's srcset. */
+const FRAME_SIZES = "(max-width: 720px) calc(100vw - 40px), min(1184px, 100vw - 56px)"
+
 /** One section: its claim, and one component from the app set in one of the app's worlds. */
 function Realm({ id, world, quiet, claim, body, main, aside, caption, focus = [0.5, 0.5], stage, spans }: RealmProps) {
   const style = spans
@@ -231,7 +233,7 @@ function Realm({ id, world, quiet, claim, body, main, aside, caption, focus = [0
         </div>
         <figure>
           <div className={s.frame}>
-            <World file={world.file} x={focus[0]} y={focus[1]} className={s.frameWorld} />
+            <World file={world.file} x={focus[0]} y={focus[1]} sizes={FRAME_SIZES} className={s.frameWorld} />
             <div className={s.stage}>
               {aside && <Crop shot={aside} />}
               <Crop shot={main} />

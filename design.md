@@ -79,9 +79,10 @@ Inspect the existing implementation before designing.
   A picture with no source can only be regenerated, never adjusted, which is why the colourings are
   data. A running Mac app can change only its own Dock tile — the Finder keeps the bundle's icon — and
   Settings says so rather than implying more.
-- The landing page's aperture: `site/components/landing/` — one WebGL2 pass for the hero's space and
-  the thin ring of light, opening onto the app's own pictures (`scripts/copy-worlds.mjs` copies them
-  from the desktop gallery, with its credit lines), printed through the app's colour-kept dither
+- The landing page's field: `site/components/landing/` — one still WebGL2 pass for the hero's deep
+  navy space behind centred copy and a new session from the app, then the sections set in the app's own
+  pictures (`scripts/copy-worlds.mjs` copies them from the desktop gallery, with its credit lines),
+  printed through the app's colour-kept dither
 
 When the landing mark is presented as glass, derive its surface field from the approved vector rather
 than inventing geometry around it. Refraction and edge highlights must respond to that field, and

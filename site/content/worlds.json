@@ -1,11 +1,5 @@
 [
   {
-    "id": "webb",
-    "name": "Cosmic Cliffs",
-    "file": "space-webb.jpg",
-    "credit": "\"Cosmic Cliffs\" in the Carina Nebula (NIRCam image), James Webb Space Telescope, 2022. Image: NASA, ESA, CSA, STScI"
-  },
-  {
     "id": "church",
     "name": "Twilight",
     "file": "painting-church.jpg",
