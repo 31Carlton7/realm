@@ -5,6 +5,7 @@ import RealmKit
 /// the retries a push leads to.
 enum ShipStep: Hashable, Identifiable {
     case commit
+    /// Sets the upstream of a branch that has never been pushed, so its one confirm is the only ask.
     case commitAndPublish
     case push
     /// The branch has never been pushed and the person said to push it anyway; `openPr` carries on what
@@ -25,7 +26,7 @@ enum ShipStep: Hashable, Identifiable {
     var call: Call {
         switch self {
         case .commit: Call(commit: true, push: false, setUpstream: false, openPr: false)
-        case .commitAndPublish: Call(commit: true, push: true, setUpstream: false, openPr: true)
+        case .commitAndPublish: Call(commit: true, push: true, setUpstream: true, openPr: true)
         case .push: Call(commit: false, push: true, setUpstream: false, openPr: false)
         case .setUpstream(let openPr): Call(commit: false, push: true, setUpstream: true, openPr: openPr)
         case .openPullRequest: Call(commit: false, push: true, setUpstream: false, openPr: true)

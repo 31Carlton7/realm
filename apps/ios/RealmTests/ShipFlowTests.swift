@@ -54,7 +54,8 @@ struct ShipFlowTests {
 
     @Test func eachStepSendsWhatTheDesktopsButtonsSend() {
         #expect(ShipStep.commit.call == .init(commit: true, push: false, setUpstream: false, openPr: false))
-        #expect(ShipStep.commitAndPublish.call == .init(commit: true, push: true, setUpstream: false, openPr: true))
+        // THE MUTANT: setUpstream false here stops a new branch after its commit and asks a second time.
+        #expect(ShipStep.commitAndPublish.call == .init(commit: true, push: true, setUpstream: true, openPr: true))
         #expect(ShipStep.push.call == .init(commit: false, push: true, setUpstream: false, openPr: false))
         #expect(ShipStep.setUpstream(openPr: true).call == .init(commit: false, push: true, setUpstream: true, openPr: true))
         #expect(ShipStep.openPullRequest.call == .init(commit: false, push: true, setUpstream: false, openPr: true))
@@ -118,6 +119,20 @@ struct ShipFlowTests {
         let nothingStaged = WorkingTree(branch: "x", ahead: 0, behind: 0, files: [Self.file("a", false, true)], totalFiles: 1, truncated: false)
         #expect(!flow.canCommit(nothingStaged))
         #expect(!flow.canCommit(nil))
+    }
+
+    @Test func aNewBranchIsCommittedPushedAndOpenedInOneConfirmedStep() throws {
+        var flow = ShipFlow()
+        flow.message = "Add the column"
+        flow.begin(.commitAndPublish)
+        let call = try #require(flow.working?.call)
+        #expect(call == .init(commit: true, push: true, setUpstream: true, openPr: true))
+        flow.finish(ShipResult(commit: .init(state: "committed", sha: "abc1234", subject: "Add the column"),
+                               push: .init(state: "pushed", remote: "origin", branch: "theme-column"),
+                               pr: .init(state: "created", url: "https://github.com/acme/realm/pull/42")))
+        #expect(flow.report.map(\.text) == ["Committed abc1234 — Add the column", "Pushed to origin/theme-column.", "Opened a pull request."])
+        // Nothing is left to confirm: no line offers a second step.
+        #expect(flow.report.allSatisfy { $0.retry == nil && !$0.bad })
     }
 
     @Test func aCommitEmptiesTheBoxAndItsRetryIsSentTheSameMessage() {
