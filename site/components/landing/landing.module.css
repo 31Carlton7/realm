@@ -510,6 +510,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 12px;
+  margin-left: auto;
 }
 
 .madeBy {
@@ -711,6 +712,7 @@
 
   .footSide {
     align-items: flex-start;
+    margin-left: 0;
   }
 
   .frameWorld {

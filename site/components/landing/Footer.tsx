@@ -5,19 +5,24 @@ import { site } from "@/lib/site"
 
 import s from "./landing.module.css"
 
-/** The site's foot on every page: the credits for the app's pictures, the links, and who makes Realm. */
-export function Footer() {
+/**
+ * The site's foot: the links and who makes Realm, on every page. Only the landing page shows the app's
+ * pictures, so only it passes `credits` for them.
+ */
+export function Footer({ credits = false }: { credits?: boolean }) {
   return (
     <footer className={s.foot}>
       <div className={s.footColumn}>
-        <p className={s.credits}>
-          The pictures are the ones Realm shows behind a new session.{" "}
-          {worlds.map((w) => (
-            <span key={w.id} className={s.credit}>
-              {w.name}: {w.credit}
-            </span>
-          ))}
-        </p>
+        {credits ? (
+          <p className={s.credits}>
+            The pictures are the ones Realm shows behind a new session.{" "}
+            {worlds.map((w) => (
+              <span key={w.id} className={s.credit}>
+                {w.name}: {w.credit}
+              </span>
+            ))}
+          </p>
+        ) : null}
         <div className={s.footSide}>
           <nav className={s.footLinks} aria-label="More">
             <Link href="/docs">Docs</Link>

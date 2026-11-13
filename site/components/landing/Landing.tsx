@@ -186,7 +186,7 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
 
       <Download downloads={downloads} version={version} changelog={changelog} />
 
-      <Footer />
+      <Footer credits />
     </main>
   )
 }
