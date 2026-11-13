@@ -16,5 +16,17 @@
     "name": "Mystic Mountain",
     "file": "space-hubble.jpg",
     "credit": "Hubble Captures View of \"Mystic Mountain\" (Carina Nebula), Hubble Space Telescope, 2010. NASA/ESA/STScI"
+  },
+  {
+    "id": "sky",
+    "name": "Sky",
+    "file": "sky-day.jpg",
+    "credit": "Made for Realm, from seeded noise."
+  },
+  {
+    "id": "heade",
+    "name": "Moonlight",
+    "file": "painting-heade.jpg",
+    "credit": "Martin Johnson Heade, Point Judith Moonlight, 1867–68. The Cleveland Museum of Art, public domain (CC0)."
   }
 ]
