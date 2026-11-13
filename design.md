@@ -79,8 +79,9 @@ Inspect the existing implementation before designing.
   A picture with no source can only be regenerated, never adjusted, which is why the colourings are
   data. A running Mac app can change only its own Dock tile — the Finder keeps the bundle's icon — and
   Settings says so rather than implying more.
-- The landing page's field: `site/lib/dimension/` — one WebGPU pass behind the whole page — with
-  the mark's six faces as geometry in `site/lib/mark.ts`
+- The landing page's aperture: `site/components/landing/` — one WebGL2 pass for the hero's space and
+  the thin ring of light, opening onto the app's own pictures (`scripts/copy-worlds.mjs` copies them
+  from the desktop gallery, with its credit lines), printed through the app's colour-kept dither
 
 When the landing mark is presented as glass, derive its surface field from the approved vector rather
 than inventing geometry around it. Refraction and edge highlights must respond to that field, and
@@ -183,6 +184,33 @@ staged with a scripted agent whose model chip reads "Fake", and a landing page a
 bring the agent you already use cannot show that word. A crop is only a crop if the frame is
 NARROWER than the source — a box set to the source's own aspect ratio crops nothing, and looks
 exactly like a crop in the markup.
+
+A picture ends where its subject does. A grid cut after one card alone on its last row, a heading
+against the frame's top edge, or the top of the next row at its foot reads as a picture cut short,
+however true it is (the owner, 10-13, on Connections' seven cards: "it looks cropped"). Compose the
+crop on a full row, keep the margin round it the same on every side, and hide what would only show
+as a sliver at its edge. The caption belongs to the picture: it hangs from the middle of the frame's
+foot, not under it as a card of its own. A phone gets a capture laid out at a phone's width, never
+the wide one drawn at a third of its size.
+
+Crops shown together share one scale. Two components from the same window are drawn at the same
+pixels per point, so their text reads at one size; when they do not fit side by side they stack or
+the frame narrows them together, and neither is ever enlarged to balance the other (11-12, Team
+access drawn half again larger than the Computer tab beside it). A component set in one of the
+worlds leaves that world readable: it takes a corner and the picture shows above and beside it,
+because a frame the component nearly fills shows only a coloured edge, not a place. The corner it
+takes is the one away from the world's brightest part: a painting's horizon glow is its subject, and
+a component over it leaves a dark picture with a lit rim (11-12, the Lead's chat over Twilight's
+sunset). When the component at its own size cannot clear the subject, the frame grows round it
+rather than the component shrinking.
+
+A popover or the prompter is cut on its own corners: start the crop one device pixel inside its rim,
+so no light edge comes with it, and carry its real corner (the picker's round 12, the prompter's
+squircle) as alpha, with a shadow cast from that shape rather than a box of ours. A crop that hides
+rows of a real list to fit says so in its caption.
+
+A paragraph never ends on a word or two alone. Balance a short lede's lines, or narrow its measure,
+and check it at every width it is laid out at; the words stay as written.
 
 ## Surfaces and depth
 
@@ -942,6 +970,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   element's rect each frame, so a rim can never drift off its image. And every effect argues a claim
   the copy also makes — the six faces are the six things a realm holds, the hive is spaces side by
   side. An effect with no claim under it is decoration and does not ship.
+- A field's detail (stars, grain) never sits under text; mask it from text blocks. One star above a
+  period read as a colon in the hero's lede, so the sky reads the rect of every block of text over it,
+  plus a margin, and draws no star there at any width.
 - A frame loop is outside every mechanism this app governs motion with, and has to re-implement all
   of them. Both of the controls above are CSS: reduced motion is an app-wide `* { animation: none }`,
   and the `data-quiet` pause the power audit measured is `animation-play-state`. A canvas driven by

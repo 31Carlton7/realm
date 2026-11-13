@@ -1,18 +1,18 @@
-import { RealmsHome } from "@/components/realms/RealmsHome"
-import { claims } from "@/content/home"
+import { Landing } from "@/components/landing/Landing"
+import { latestRelease } from "@/lib/changelog"
 import { downloads } from "@/lib/release"
-import captured from "@/public/product/manifest.json"
 
 /**
- * The landing page: one flight across a world built from Realm's mark, drawn live behind the page
- * (components/realms). The flight is scrubbed by the reader's scroll and nothing else.
- *
- * The capture manifest is the authority on what exists, never the copy: a claim whose capture failed
- * to record drops its picture rather than rendering a broken image or borrowing another section's.
+ * The landing page: deep navy space with one opening onto a world, then each section in one of the
+ * worlds Realm opens new sessions onto (components/landing). The version it names is the changelog's
+ * newest, which scripts/check-release-drift.mjs holds it to.
  */
 export default async function HomePage() {
-  const download = await downloads()
-  const taken = new Set(captured as string[])
-  const proven = claims.map((claim) => ({ ...claim, capture: claim.capture && taken.has(claim.capture) ? claim.capture : null }))
-  return <RealmsHome download={download} claims={proven} />
+  return (
+    <Landing
+      downloads={await downloads()}
+      version={latestRelease.version.replace(/^v/, "")}
+      changelog={latestRelease.slug}
+    />
+  )
 }
