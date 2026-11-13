@@ -52,6 +52,7 @@ export default async function ChangelogEntryPage({ params }: Params) {
   return (
     <Subpage
       current="changelog"
+      indent
       head={
         <>
           {/* Back to the release's own place in the list. */}

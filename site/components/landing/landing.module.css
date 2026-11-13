@@ -583,6 +583,13 @@
   max-width: 44rem;
 }
 
+/* Over the reading column, past a 10rem rail and its 5rem gap. */
+@media (min-width: 1280px) {
+  .subHead[data-indent] {
+    margin-left: 15rem;
+  }
+}
+
 .subpage .foot {
   margin-top: auto;
 }
@@ -718,5 +725,14 @@
 
   .subHeadColumn {
     padding: 28px 20px 24px;
+  }
+
+  /* A reader past the landing page is in a section, so the header keeps its way to the others. */
+  .subpage .links {
+    gap: 20px;
+  }
+
+  .subpage .links a:not(:last-child) {
+    display: inline;
   }
 }
