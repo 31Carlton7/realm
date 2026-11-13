@@ -204,6 +204,11 @@ a component over it leaves a dark picture with a lit rim (11-12, the Lead's chat
 sunset). When the component at its own size cannot clear the subject, the frame grows round it
 rather than the component shrinking.
 
+A popover or the prompter is cut on its own corners: start the crop one device pixel inside its rim,
+so no light edge comes with it, and carry its real corner (the picker's round 12, the prompter's
+squircle) as alpha, with a shadow cast from that shape rather than a box of ours. A crop that hides
+rows of a real list to fit says so in its caption.
+
 A paragraph never ends on a word or two alone. Balance a short lede's lines, or narrow its measure,
 and check it at every width it is laid out at; the words stay as written.
 
