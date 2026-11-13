@@ -9,7 +9,12 @@ export type Picture = { src: string; src1x: string; w: number; h: number }
  * One component from the app, as captured. A phone gets the same component laid out at a phone's
  * width, never the wide one shrunk (design.md).
  */
-export type Shot = Picture & { alt: string; phone?: Picture }
+export type Shot = Picture & {
+  alt: string
+  phone?: Picture
+  /** Cut out on the component's own corners, which the file carries as alpha: no frame radius of ours. */
+  cut?: boolean
+}
 
 const srcSet = (p: Picture) => `${p.src1x} ${p.w}w, ${p.src} ${p.w * 2}w`
 
@@ -22,7 +27,7 @@ export function Crop({ shot, sizes, className }: { shot: Shot; sizes?: { wide: s
   const { phone } = shot
   const style = { "--w": shot.w, "--wp": phone?.w ?? shot.w } as CSSProperties
   return (
-    <picture className={`${s.crop} ${className ?? ""}`} style={style}>
+    <picture className={`${s.crop} ${className ?? ""}`} style={style} data-cut={shot.cut || undefined}>
       {phone && (
         <source
           media="(max-width: 720px)"

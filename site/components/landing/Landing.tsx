@@ -1,11 +1,14 @@
-import type { ReactNode } from "react"
+import type { CSSProperties, ReactNode } from "react"
 
+import { TESTFLIGHT_LINK } from "@/content/docs/mobile"
 import early from "@/content/early.json"
+import { faq } from "@/content/home"
 import worlds from "@/content/worlds.json"
 import type { Downloads } from "@/lib/release"
 import { site } from "@/lib/site"
 
 import { Crop, type Picture, type Shot } from "./Crop"
+import { Download } from "./Download"
 import { Hero } from "./Hero"
 import { World } from "./World"
 import s from "./landing.module.css"
@@ -22,7 +25,12 @@ const picture = (name: string): Picture => {
   if (!size) throw new Error(`no capture "${name}" in content/early.json`)
   return { src: `/early/${name}.webp`, src1x: `/early/${name}-1x.webp`, ...size }
 }
-const shot = (name: string, alt: string, phone?: string): Shot => ({ ...picture(name), alt, ...(phone ? { phone: picture(phone) } : {}) })
+const shot = (name: string, alt: string, phone?: string, cut = false): Shot => ({
+  ...picture(name),
+  alt,
+  ...(phone ? { phone: picture(phone) } : {}),
+  ...(cut ? { cut } : {}),
+})
 
 /**
  * The landing page, round three: deep navy space with one opening onto a world, and past it, each
@@ -90,6 +98,93 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
         caption="The Release Captain's Computer tab, and Team access on Full access."
       />
 
+      <Realm
+        id="agents"
+        world={world("sky")}
+        focus={[0.6, 0.3]}
+        stage="pair"
+        spans={{ row: 956, column: 504, phone: 420 }}
+        quiet="Every agent in one place."
+        claim="Choose the agent and model for each session, and attach the tabs it should read."
+        body={
+          <>
+            The picker lists Claude&apos;s models and the other agents on your computer, like Codex, Cursor and Gemini,
+            and each one signs in the way it already does. Attach a browser tab or a terminal to a message and the agent
+            reads what it shows. If a page is too long to send whole, the card says so.
+          </>
+        }
+        main={shot(
+          "prompter",
+          `The prompter with two cards attached, a browser tab named "Find bar preview" and a terminal named realm, over the message "Does the build output match what this PR says it fixes?", set to Opus 5.5.`,
+          "prompter-phone",
+          true,
+        )}
+        aside={shot(
+          "picker",
+          "The model picker: Fable 5.2, Fable 5.1 and Opus 5.5, ticked, then under Other agents Codex on GPT-5.6, Cursor on Composer, and Gemini.",
+          undefined,
+          true,
+        )}
+        caption="The model picker, cut to three of Claude's models and three other agents, and a message with a tab and a terminal attached."
+      />
+
+      <Realm
+        id="phone"
+        world={world("heade")}
+        focus={[0.55, 0.25]}
+        stage="phone"
+        spans={{ row: 402, column: 402, phone: 402 }}
+        quiet="Realm on your iPhone."
+        claim="See what needs you, and answer it, away from your desk."
+        body={
+          <>
+            Pair your iPhone in Settings ▸ Devices. It reaches your computer through Realm&apos;s relay, encrypted end to
+            end. It shows what&apos;s waiting on you, and you can answer a permission or reply from the notification, or
+            message any teammate.{" "}
+            {TESTFLIGHT_LINK ? (
+              <>
+                It&apos;s a free beta on <a href={TESTFLIGHT_LINK} className={s.inline}>TestFlight</a>, for iOS 26.
+              </>
+            ) : null}
+          </>
+        }
+        main={shot(
+          "phone",
+          "Realm for iPhone's Home, connected to a MacBook Pro: one session needs you in Work, one scheduled result, and two sessions waiting on you, Staging migration and Sync service storage.",
+        )}
+        caption="Realm for iPhone's Home: what needs you, from every space."
+      />
+
+      <section className={s.open} aria-labelledby="open-title">
+        <div className={s.column}>
+          <h2 className={s.h2} id="open-title">
+            <span className={s.h2Quiet}>Open source, and yours.</span> MIT licensed. Your work stays on your computer,
+            under ~/Realm, and every agent runs on your own sign-in.
+          </h2>
+          <p className={s.openLink}>
+            <a href={site.repo}>Read the source on GitHub</a>
+          </p>
+        </div>
+      </section>
+
+      <section className={s.faq} aria-labelledby="faq-title">
+        <div className={s.column}>
+          <h2 className={s.h2} id="faq-title">
+            Questions
+          </h2>
+          <div className={s.faqList}>
+            {faq.map((item, i) => (
+              <details key={item.q} name="faq" open={i === 0} className={s.faqItem}>
+                <summary>{item.q}</summary>
+                <p>{item.a}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <Download downloads={downloads} version={version} changelog={changelog} />
+
       <footer className={s.foot}>
         <div className={s.footColumn}>
           <p className={s.credits}>
@@ -100,11 +195,17 @@ export function Landing({ downloads, version, changelog }: { downloads: Download
               </span>
             ))}
           </p>
-          <nav className={s.footLinks} aria-label="More">
-            <a href="/docs">Docs</a>
-            <a href="/changelog">Changelog</a>
-            <a href={site.repo}>Source</a>
-          </nav>
+          <div className={s.footSide}>
+            <nav className={s.footLinks} aria-label="More">
+              <a href="/docs">Docs</a>
+              <a href="/changelog">Changelog</a>
+              <a href={site.repo}>Source</a>
+            </nav>
+            <p className={s.madeBy}>
+              Made by <a href={site.author.site.href}>{site.author.name}</a>.{" "}
+              <a href={site.author.x.href}>{site.author.x.handle}</a>
+            </p>
+          </div>
         </div>
       </footer>
     </main>
@@ -127,13 +228,21 @@ type RealmProps = {
    * frame's upper right, so the world's horizon shows below and beside it. `pair`: two components side
    * by side, stacked when they do not fit. Every crop on a stage shares one scale, its size in the app.
    */
-  stage: "corner" | "pair"
+  stage: "corner" | "pair" | "phone"
+  /**
+   * The width in points of what a stage holds, side by side (`row`), stacked (`column`) and on a phone,
+   * which sets the scale it shares when the frame is narrower. A pair's defaults are the Computer tab's.
+   */
+  spans?: { row: number; column: number; phone: number }
 }
 
 /** One section: its claim, and one component from the app set in one of the app's worlds. */
-function Realm({ id, world, quiet, claim, body, main, aside, caption, focus = [0.5, 0.5], stage }: RealmProps) {
+function Realm({ id, world, quiet, claim, body, main, aside, caption, focus = [0.5, 0.5], stage, spans }: RealmProps) {
+  const style = spans
+    ? ({ "--span-row": spans.row, "--span-column": spans.column, "--span-phone": spans.phone } as CSSProperties)
+    : undefined
   return (
-    <section className={s.realm} aria-labelledby={`${id}-title`} data-stage={stage}>
+    <section className={s.realm} aria-labelledby={`${id}-title`} data-stage={stage} style={style}>
       <div className={s.column}>
         <div className={s.claim}>
           <h2 className={s.h2} id={`${id}-title`}>
