@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
@@ -172,6 +172,60 @@ describe("session.ship", () => {
     const retry = await attempt(rpc, "session.ship", { id: "s", commit: false, push: true, setUpstream: true, openPr: false });
     expect(retry).toMatchObject({ ok: true, result: { commit: { state: "skipped" }, push: { state: "pushed" } } });
     expect(git(bare, "log", "--format=%s", "feat/phone").split("\n")[0]).toBe("Change a from the phone");
+  });
+
+  /** A branch git has never pushed, its remote a bare repository, and a `gh` that records each call and
+   *  opens #42 on `pr create`. */
+  const newBranch = () => {
+    const repo = makeRepo();
+    const bare = tempDir("realm-phone-remote-");
+    execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare]);
+    git(repo, "remote", "add", "origin", bare);
+    git(repo, "push", "-q", "origin", "main");
+    git(repo, "checkout", "-qb", "feat/phone");
+    writeFileSync(join(repo, "a.txt"), "changed\n");
+    const dir = tempDir("realm-phone-gh-");
+    const gh = join(dir, "gh");
+    writeFileSync(gh, `#!/bin/sh\necho "$*" >> "${dir}/calls"\ncase "$1 $2" in\n  "pr create") echo https://github.com/acme/widgets/pull/42 ;;\n  *) exit 1 ;;\nesac\n`);
+    chmodSync(gh, 0o755);
+    return { repo, bare, gh, calls: () => readFileSync(join(dir, "calls"), "utf8") };
+  };
+  /** What the phone's Commit, push & PR sends after its one confirm (ShipStep.commitAndPublish). */
+  const commitPushAndPr = { id: "s", commit: true, message: "Change a from the phone\n\nOne confirm.", push: true, setUpstream: true, openPr: true };
+
+  it("commits a new branch, pushes it with its upstream set and opens the pull request in one ship", async () => {
+    const { repo, bare, gh, calls } = newBranch();
+    const { rpc, asked } = rig(repo, { gh });
+    await attempt(rpc, "session.stage", { id: "s", paths: ["a.txt"] });
+
+    const got = await attempt(rpc, "session.ship", commitPushAndPr);
+    if (!got.ok) throw new Error(got.message);
+    parses("session.ship", got.result);
+    expect(got.result).toMatchObject({ commit: { state: "committed", subject: "Change a from the phone" }, push: { state: "pushed", remote: "origin", branch: "feat/phone" },
+      pr: { state: "created", url: "https://github.com/acme/widgets/pull/42" } });
+    expect(asked.filter((a) => a.startsWith("ship"))).toHaveLength(1);
+    expect(git(bare, "log", "--format=%s", "-1", "feat/phone").trim()).toBe("Change a from the phone");
+    expect(git(repo, "rev-parse", "--abbrev-ref", "feat/phone@{upstream}").trim()).toBe("origin/feat/phone");
+    expect(calls()).toContain("pr create --head feat/phone --base main --title Change a from the phone --body One confirm.");
+  });
+
+  it("refuses in the desktop's words when the remote has moved, and opens no pull request", async () => {
+    const { repo, bare, gh, calls } = newBranch();
+    // Someone else already pushed a feat/phone this checkout does not have.
+    const other = tempDir("realm-phone-other-");
+    execFileSync("git", ["clone", "-q", bare, other]);
+    git(other, "checkout", "-qb", "feat/phone");
+    writeFileSync(join(other, "b.txt"), "theirs\n");
+    git(other, "commit", "-qam", "Theirs");
+    git(other, "push", "-q", "origin", "feat/phone");
+    const { rpc } = rig(repo, { gh });
+    await attempt(rpc, "session.stage", { id: "s", paths: ["a.txt"] });
+
+    const got = await attempt(rpc, "session.ship", commitPushAndPr);
+    expect(got).toMatchObject({ ok: true, result: { commit: { state: "committed" },
+      push: { state: "rejected", reason: "origin has commits feat/phone does not — pull or rebase, then ship again" }, pr: { state: "skipped" } } });
+    expect(git(bare, "log", "--format=%s", "-1", "feat/phone").trim()).toBe("Theirs");
+    expect(() => calls()).toThrow();
   });
 
   it("refuses a commit with no message before git is asked, and reports nothing staged as a state", async () => {
