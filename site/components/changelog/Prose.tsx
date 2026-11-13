@@ -14,7 +14,7 @@ export function inline(text: string): ReactNode[] {
       return <code key={index}>{part.slice(1, -1)}</code>
     }
     if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={index}>{part.slice(2, -2)}</strong>
+      return <strong key={index}>{inline(part.slice(2, -2))}</strong>
     }
     return part
   })
