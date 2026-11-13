@@ -21,6 +21,28 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-13-1",
+    title: "Realm v2.13.1",
+    date: "2026-11-13",
+    version: "v2.13.1",
+    area: "Release",
+    summary:
+      "An agent can no longer approve its own permission cards or switch off the sandbox through Realm's local socket, and two native helpers start on older Macs again.",
+    short: "Agents can't approve their own cards",
+    body: [
+      { kind: "h", text: "Security" },
+      { kind: "ul", items: [
+        "**An agent can no longer approve its own permission cards or switch off the sandbox through Realm's local socket.** The token in `~/Realm/daemon.json` used to open every method Realm's server has, and an agent running with the sandbox off could read that file. That token now opens only what the `realm` command line itself needs, and the app keeps the full one to itself: it is never on a command line or in an environment, and the only copy on disk is sealed with a key from your Keychain. There is nothing to do after updating.",
+        "**`realm pair` on a Mac now shows the code in the terminal, and you accept the phone in Realm's window.** On a server started with `realm serve`, where there is no window, it still asks in the terminal.",
+        "**What this does not close:** with the sandbox off, an agent running as you can still edit Realm's database file directly, and on Linux without a keyring the app's token is not really sealed between launches. The sandbox is what protects those files, so leave it on for agents you do not fully trust.",
+      ] },
+      { kind: "h", text: "Older Macs" },
+      { kind: "ul", items: [
+        "**Swipe phases and the live iPhone picture work on Macs older than the one that built Realm.** Every native helper was built for the build Mac's macOS (27.2), so on macOS 15 two of them, the one that reads swipe phases and the one behind the live iPhone picture, would not start. All of them are now built for macOS 13 and later, except dictation's, which needs macOS 26. A helper built for a newer macOS than it should be now fails the package before it can ship.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-13-0",
     title: "Realm v2.13.0",
     date: "2026-11-13",
