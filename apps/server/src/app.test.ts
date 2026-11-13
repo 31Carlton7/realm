@@ -11,6 +11,20 @@ import { ProfilesStore } from "./store/profiles";
 
 const FAKE_ACP = fileURLToPath(new URL("../../../packages/adapters/src/acp/fixtures/fake-acp-agent.mjs", import.meta.url));
 
+/** Runs `fn` with REALM_GEMINI_BIN pointing at a `gemini` that answers `--version` and is otherwise the fake ACP agent. */
+async function withGeminiStub<T>(fn: () => Promise<T>): Promise<T> {
+  const bin = join(tempDir("realm-gemini-"), "gemini");
+  writeFileSync(bin, `#!/bin/sh\n[ "$1" = --version ] && echo 0.68.0 && exit 0\nexec "${process.execPath}" "${FAKE_ACP}"\n`, { mode: 0o755 });
+  const before = process.env.REALM_GEMINI_BIN;
+  process.env.REALM_GEMINI_BIN = bin;
+  try {
+    return await fn();
+  } finally {
+    if (before === undefined) delete process.env.REALM_GEMINI_BIN;
+    else process.env.REALM_GEMINI_BIN = before;
+  }
+}
+
 describe("defaultAdapters", () => {
   it("registers claude and codex by default", () => {
     const reg = defaultAdapters();
@@ -37,20 +51,19 @@ describe("defaultAdapters", () => {
     expect(reg["acp:gemini"]?.kind).toBe("acp:gemini");
   });
 
+  it("probes Gemini's model list off session/new, its current model marked as the default", async () => {
+    const probe = await withGeminiStub(() => defaultAdapters()["acp:gemini"]!.probe());
+    expect(probe.models).toEqual([{ id: "fake-model-1", label: "Fake 1", isDefault: true }, { id: "fake-model-2", label: "Fake 2" }]);
+  });
+
   it("ends a signed-out Gemini session with the same hint the Engines tab shows", async () => {
-    const bin = join(tempDir("realm-gemini-"), "gemini");
-    writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${FAKE_ACP}"\n`, { mode: 0o755 });
-    const before = process.env.REALM_GEMINI_BIN;
-    process.env.REALM_GEMINI_BIN = bin;
-    try {
+    const errors = await withGeminiStub(async () => {
       const handle = defaultAdapters()["acp:gemini"]!.start({ cwd: process.cwd(), mcpServers: [], env: { FAKE_ACP_AUTHFAIL: "1" } });
-      const errors: string[] = [];
-      for await (const e of handle.events) if (e.type === "error") errors.push(e.payload.message);
-      expect(errors[0]).toContain(AGENT_LOGIN_HINTS["acp:gemini"]);
-    } finally {
-      if (before === undefined) delete process.env.REALM_GEMINI_BIN;
-      else process.env.REALM_GEMINI_BIN = before;
-    }
+      const out: string[] = [];
+      for await (const e of handle.events) if (e.type === "error") out.push(e.payload.message);
+      return out;
+    });
+    expect(errors[0]).toContain(AGENT_LOGIN_HINTS["acp:gemini"]);
   });
 });
 

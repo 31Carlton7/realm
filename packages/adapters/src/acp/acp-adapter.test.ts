@@ -1205,9 +1205,16 @@ describe("AcpAdapter model catalog and boot-time model", () => {
     const withCatalog = await newAdapter({ modelCatalog: true }).probe();
     expect(withCatalog.available).toBe(true);
     expect(withCatalog.models).toEqual([{ id: "fake-model-1", label: "Fake 1" }, { id: "fake-model-2", label: "Fake 2" }]);
-    // Gemini-shaped spec: no catalog claim, so no probe-time session spawn and nothing to show.
+    // No catalog claim: no probe-time session spawn and nothing to show.
     const without = await newAdapter().probe();
     expect(without.models).toBeNull();
+  });
+
+  it("probe() marks session/new's currentModelId as the default only where the spec says it is one", async () => {
+    const named = await newAdapter({ modelCatalog: true, catalogNamesDefault: true }).probe();
+    expect(named.models).toEqual([{ id: "fake-model-1", label: "Fake 1", isDefault: true }, { id: "fake-model-2", label: "Fake 2" }]);
+    const unnamed = await newAdapter({ modelCatalog: true }).probe();
+    expect(unnamed.models?.some((m) => m.isDefault)).toBe(false);
   });
 
   it("probe() reports models:null when the binary is missing, catalog claim or not", async () => {

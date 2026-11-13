@@ -82,7 +82,7 @@ export type AgentModel = {
  *    probe (Codex over app-server `model/list`, Cursor from ACP `session/new`'s `availableModels`), so
  *    a hardcoded list here would only ever be a stale copy that shadows the truth. Empty means the
  *    picker falls back to the single DEFAULT_MODEL_LABEL row until a probe has answered.
- *  - **acp:gemini** is empty because the kind is no longer offered (see SELECTABLE_AGENT_KINDS).
+ *  - **acp:gemini** is empty for the same reason: the probe reads its catalog off `session/new`.
  */
 export const AGENT_MODELS = {
   claude: [{ id: "claude-fable-5-2", label: "Claude Fable 5.2" }, { id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],

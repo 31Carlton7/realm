@@ -212,7 +212,7 @@ export function defaultAdapters(): AdapterRegistry {
       args: ["acp"],
       label: "Cursor",
       loginHint: "Run `cursor-agent login`.",
-      // Cursor's session/new reports availableModels (verified live); Gemini's does not get asked.
+      // Cursor's session/new reports availableModels (verified live).
       modelCatalog: true,
     }),
     "acp:gemini": new AcpAdapter({
@@ -225,6 +225,10 @@ export function defaultAdapters(): AdapterRegistry {
       // Only the first is dead — `session/new` under it fails -32000 "This client is no longer
       // supported for Gemini Code Assist for individuals" — so the hint names the other three.
       loginHint: AGENT_LOGIN_HINTS["acp:gemini"],
+      // session/new answers `models.availableModels` and `currentModelId` (measured 2026-11-12 on
+      // gemini-cli 0.66.0 and 0.68.0), so the picker lists what the installed CLI offers, default marked.
+      modelCatalog: true,
+      catalogNamesDefault: true,
     }),
     // ── Plan 18: agents that speak ACP natively ────────────────────────────────────────────────
     // Every `args` below was confirmed by a live `initialize` on 2026-09-01.
