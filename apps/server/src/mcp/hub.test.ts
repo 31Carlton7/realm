@@ -1,5 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { dirname, join } from "node:path";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -739,5 +741,38 @@ describe("stopping a stdio server nobody has called", () => {
     const { hub } = sleepyHub(makeStubServer(), { pid: null });
     await hub.tools(row.id);
     expect(hub.sleepIdle(0, Date.now() + 99 * 60_000)).toEqual([]);
+  });
+});
+
+describe("a remote server that redirects to another origin", () => {
+  /** Two real loopback servers on different ports, so different origins: the configured one answers
+   *  every request with a 307 to the other, which records the headers each request arrives with. */
+  async function redirectPair() {
+    const seen: Record<string, string | string[] | undefined>[] = [];
+    const elsewhere = createServer((req, res) => { seen.push(req.headers); res.writeHead(404).end(); });
+    await new Promise<void>((done) => elsewhere.listen(0, "127.0.0.1", done));
+    const target = `http://127.0.0.1:${(elsewhere.address() as AddressInfo).port}/mcp`;
+    const configured = createServer((_req, res) => res.writeHead(307, { Location: target }).end());
+    await new Promise<void>((done) => configured.listen(0, "127.0.0.1", done));
+    const url = `http://127.0.0.1:${(configured.address() as AddressInfo).port}/mcp`;
+    const close = () => { configured.close(); elsewhere.close(); };
+    return { url, seen, close };
+  }
+
+  it.each(["http", "sse"] as const)("never sends the row's headers to the other origin (%s)", async (transport) => {
+    const pair = await redirectPair();
+    try {
+      const row = servers.create({
+        name: `s-${transport}`, transport, command: "", args: [], url: pair.url,
+        secrets: { "X-Api-Key": "configured-key-value" },
+      });
+      const hub = new McpHub({ servers, onStatus: () => {}, authHeaders: async () => ({ Authorization: "Bearer oauth-token-value" }) });
+      await expect(hub.tools(row.id)).rejects.toThrow();
+      await hub.close();
+      const leaked = pair.seen.filter((h) => h["x-api-key"] !== undefined || h.authorization !== undefined);
+      expect(leaked).toEqual([]);
+    } finally {
+      pair.close();
+    }
   });
 });
