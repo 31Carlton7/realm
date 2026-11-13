@@ -112,6 +112,18 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
   let quiet: HTMLElement | null = null;
   /** Handed back to the system's tooltip (no clear spot beside it) until the pointer leaves it. */
   let handedBack: HTMLElement | null = null;
+  /** A clipped row handed back has no title of its own for the system to show, so it is lent its
+   *  cut-short name as one until the pointer leaves it. */
+  let lent: { el: HTMLElement; title: string } | null = null;
+  const giveBack = (el: HTMLElement) => {
+    handedBack = el;
+    const title = clips(el) ? clippedName(el) : "";
+    if (title.trim() && !el.hasAttribute("title")) { el.setAttribute("title", title); lent = { el, title }; }
+  };
+  const takeBackLoan = () => {
+    if (lent && lent.el.getAttribute("title") === lent.title) lent.el.removeAttribute("title");
+    lent = null;
+  };
   const pointer = { x: 0, y: 0 };
 
   /** The element whose title the pointer is under: the nearest with one, where an EMPTY title says
@@ -212,7 +224,7 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
   const handBack = (el: HTMLElement) => {
     hide(false);
     release();
-    handedBack = el;
+    giveBack(el);
   };
 
   const show = (instant: boolean) => {
@@ -234,7 +246,7 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
   const enter = (el: HTMLElement, via: Hold["via"]) => {
     // Asked before the title is taken, so an element that will go to the system's tooltip never has
     // its title held at all and the system's own wait starts at once.
-    if (!place(el, wordsOf(el), via)) { handedBack = el; return; }
+    if (!place(el, wordsOf(el), via)) { giveBack(el); return; }
     take(el, via);
     if (Date.now() < warmUntil) { show(true); return; }
     timer = setTimeout(() => { timer = null; show(false); }, TIP_DELAY_MS);
@@ -245,6 +257,7 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
     release();
     quiet = null;
     handedBack = null;
+    takeBackLoan();
   };
   /** Hide for something the person did — a press, a key, a scroll — and keep it away from this element
    *  until the pointer has left it. Not warm: what they did was not looking for the next tooltip. */
