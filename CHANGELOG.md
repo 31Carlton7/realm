@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.12.0 - 2026-11-12
+
+- Ask an agent to make a space. "Make me a space for taxes" makes it, in a turn you started, with a line in the chat that names the space and an Open button. Add "and take me there" and the window lands on a new session in it. An agent cannot make one in a turn a teammate's message started.
+- Gemini's models are in the model picker, read from the Gemini CLI you have installed, with Auto marked as the default.
+- A signed-out Gemini says what works now. Log in with Google no longer works on a personal account, so the hint tells you to pick an API key, Vertex AI or a gateway with /auth.
+- Side-panel tabs give up their titles before the strip scrolls, so six tabs fit where one used to fall off the end. The tab that is showing keeps its name and its close button, and the others show their full title on hover.
+- Settings ▸ Sandbox: each posture's radio sits on its name's line, and "Allow network access" is a checkbox with its words beside it.
+- Realm for iPhone: confirms and rename are on Realm's own sheets, not glass dialogs.
+- Realm for iPhone: the blur under the bar and above the composer ends where they do.
+- Realm for iPhone: the queued message card has one inset and one left edge, and the message uses the row's width.
+- Realm for iPhone: a new branch pushes and opens its pull request in one confirm.
+
 ## v2.11.1 - 2026-11-12
 
 - A task an agent schedules runs no higher than the session that made it. Scheduled from a session on Ask each time, it asks each time. Scheduled from Full access, it runs in Full access. A task you make yourself in Scheduled runs in the mode you pick there, and tasks that already exist keep running as they do today.
