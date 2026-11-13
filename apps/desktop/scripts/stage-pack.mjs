@@ -10,6 +10,7 @@ import { hoistModules } from "./lib/hoist-modules.mjs";
 import { pruneDevFiles } from "./lib/prune-dev-files.mjs";
 import { pruneMusl } from "./lib/prune-musl.mjs";
 import { unresolvedModules } from "./lib/unresolved-modules.mjs";
+import { helperProblems } from "./native-helpers.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The OS this package is for — electron-builder packs for the machine it runs on (CI builds each OS on
@@ -88,6 +89,11 @@ for (const [binary, missing] of mac ? [
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));
   else console.warn(`[stage-pack] native/bin/${binary} not built; ${missing}`);
+}
+const helperMinimums = mac ? helperProblems(stage) : [];
+if (helperMinimums.length) {
+  console.error(`[stage-pack] a helper needs a newer macOS than build-native.mjs targets:\n  ${helperMinimums.join("\n  ")}`);
+  process.exit(1);
 }
 
 // 3b. The menu-bar item's template image, both scales (main/tray-icon.ts reads <resources>/trayTemplate.png,
