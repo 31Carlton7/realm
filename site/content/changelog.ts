@@ -21,6 +21,31 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-13-0",
+    title: "Realm v2.13.0",
+    date: "2026-11-13",
+    version: "v2.13.0",
+    area: "Release",
+    summary:
+      "Dictate into the prompter: click the mic, talk, and watch your words arrive. The audio stays on your Mac.",
+    short: "Dictation in the prompter",
+    body: [
+      { kind: "h", text: "Dictation" },
+      { kind: "ul", items: [
+        "**Click the mic in the prompter and talk.** Your words arrive where the caret is, fading in as they are heard, and anything you typed before or after the caret stays put. Click the mic again or press Esc to stop. A pause of two and a half seconds also ends it.",
+        "**The audio stays on your Mac.** Recognition runs on macOS's own speech recogniser, so nothing you say is sent anywhere to be transcribed.",
+        "**It needs macOS 26 or later.** On an older Mac the prompter has no mic and Settings has no Dictation tab.",
+        "**The first time you dictate, your Mac downloads its speech model from Apple.** The prompter shows how far along it is, and Esc stops it.",
+        "**Clean up dictation is off by default.** Turn it on in Settings ▸ Dictation and only the words, never the audio, go to Claude Haiku on your Claude account to be tidied. Cleaned · Undo, or ⌘Z, puts back exactly what was heard.",
+        "Talking to Realm was Abdul's idea, and dictation is the first part of it to ship.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**A cut-short tab shows its full name on hover even when Realm's own tooltip has no room,** by handing its name to the system's tooltip.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-12-0",
     title: "Realm v2.12.0",
     date: "2026-11-12",
