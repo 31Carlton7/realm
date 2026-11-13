@@ -1,6 +1,7 @@
 // Starts each Swift helper in <dir> the way the app would, with a request that reads nothing and asks
-// for no permission, and prints whether it ran. A helper built for a newer macOS than this one never
-// reaches its own code: dyld stops it at launch and says why on stderr.
+// for no permission, and prints whether it ran. dyld does not refuse a binary for its minos alone, but
+// one that links a Swift library this macOS lacks never reaches its own code: dyld aborts it at launch
+// and says why on stderr, as v2.12.0's scrollphase and phonescreen did on macOS 15.
 //
 //   node scripts/start-native-helpers.mjs <dir>
 //
