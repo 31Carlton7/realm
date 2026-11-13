@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DictationCleanResult } from "@realm/contracts";
+import { platformCapabilities, type DictationCleanResult } from "@realm/contracts";
+import { searchSettings, visibleSettingsGroups } from "../panes/settings/settings-index";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 import { SessionPane } from "../panes/session/SessionPane";
@@ -83,6 +86,34 @@ const typeAt = (value: string, at: number) => {
 const heard = (text: string, settled = 0) => act(() => mic.events!.partial(text, settled));
 const words = () => [...document.querySelectorAll(".composer-highlight .ch-heard")].map((w) => `${w.textContent}${w.hasAttribute("data-settled") ? "" : "?"}`);
 const finished = async (text: string) => { await act(async () => { mic.events!.done(text); await new Promise((res) => setTimeout(res, 0)); }); };
+
+describe("on a Mac whose macOS the speech helper cannot run on", () => {
+  afterEach(() => { delete (window as { realm?: unknown }).realm; });
+  const onMacos = (version: string) => { (window as { realm?: unknown }).realm = { platform: "darwin", capabilities: platformCapabilities("darwin", version) }; };
+  const dictationTab = () => visibleSettingsGroups().flatMap((g) => g.tabs.map((t) => t.id)).includes("dictation");
+
+  it("below macOS 26 offers no mic in the prompter and no Dictation page", async () => {
+    onMacos("15.7.2");
+    await mount();
+    expect(screen.getByRole("textbox", { name: /message/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Dictate" })).toBeNull();
+    expect(dictationTab()).toBe(false);
+    expect(searchSettings("dictation")).toEqual([]);
+  });
+
+  it("is told the running Mac's version by the preload", () => {
+    const preload = readFileSync(join(__dirname, "../../../preload/index.ts"), "utf8");
+    expect(preload).toMatch(/capabilities: platformCapabilities\(process\.platform, process\.platform === "darwin" \? process\.getSystemVersion\(\) : undefined\)/);
+  });
+
+  it("from macOS 26 offers both", async () => {
+    onMacos("26.0");
+    await mount();
+    expect(screen.getByRole("button", { name: "Dictate" })).toBeTruthy();
+    expect(dictationTab()).toBe(true);
+    expect(searchSettings("clean up dictation").map((e) => e.id)).toContain("dictation-clean-up");
+  });
+});
 
 describe("dictating into the prompter", () => {
   it("draws what is heard at the caret, apart from the typed text, and lands it there without touching what was typed", async () => {

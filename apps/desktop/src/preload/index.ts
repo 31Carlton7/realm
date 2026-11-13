@@ -41,7 +41,7 @@ contextBridge.exposeInMainWorld("realm", {
   platform: process.platform,
   /** What this OS can do for Realm — the Mac-only features (computer use, simulators, Laya, Dock
    *  icons, Quick Look…) are hidden where this says they do not exist (renderer/src/platform.ts). */
-  capabilities: platformCapabilities(process.platform),
+  capabilities: platformCapabilities(process.platform, process.platform === "darwin" ? process.getSystemVersion() : undefined),
   /** A menu the OS draws (main/native-menu.ts): rows described here, answered with the chosen row's
    *  id, or null. The one surface that can open over a browser pane's page, and how the app's own
    *  menus are drawn on a Mac. `closeMenu` takes down the one that is up when its owner goes first. */

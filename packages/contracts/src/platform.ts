@@ -39,7 +39,8 @@ export type PlatformCapabilities = {
   shareMenu: boolean;
   /** Seatbelt (`sandbox-exec`), the execution sandbox's enforcement. */
   executionSandbox: boolean;
-  /** Dictation, whose speech recognition is the Mac's own (native/RealmVoice.swift). */
+  /** Dictation, whose speech recognition is the Mac's own (native/RealmVoice.swift): SpeechAnalyzer,
+   *  so macOS `DICTATION_MACOS` or later. */
   dictation: boolean;
   /** What the OS calls the app that "Show in …" opens. */
   fileManager: string;
@@ -47,7 +48,27 @@ export type PlatformCapabilities = {
   machine: string;
 };
 
-export function platformCapabilities(platform: string): PlatformCapabilities {
+/** The oldest macOS the `realmvoice` helper runs on: SpeechAnalyzer came with macOS 26. The helper is
+ *  built for this (scripts/build-native.mjs, held to it by scripts/build-native.test.ts). */
+export const DICTATION_MACOS = "26.0";
+
+/** Whether macOS `version` ("26.1", "27.2.0") is `minimum` or later. macOS 26 reports itself as 16
+ *  to a binary built against an older SDK, as Big Sur reported 10.16, so 16 reads as 26. */
+export function macosAtLeast(version: string, minimum: string): boolean {
+  const parts = (v: string) => v.split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const have = parts(version);
+  if (have[0] === 16) have[0] = 26;
+  const need = parts(minimum);
+  for (let i = 0; i < Math.max(have.length, need.length); i++) {
+    const a = have[i] ?? 0, b = need[i] ?? 0;
+    if (a !== b) return a > b;
+  }
+  return true;
+}
+
+/** `macosVersion` is the running Mac's, where it is known (the preload passes it): features whose
+ *  helper needs a newer macOS are off below it. */
+export function platformCapabilities(platform: string, macosVersion?: string): PlatformCapabilities {
   const mac = platform === "darwin";
   const os = mac ? "mac" : platform === "win32" ? "windows" : "linux";
   return {
@@ -64,7 +85,7 @@ export function platformCapabilities(platform: string): PlatformCapabilities {
     quickLook: mac,
     shareMenu: mac,
     executionSandbox: mac,
-    dictation: mac,
+    dictation: mac && (macosVersion === undefined || macosAtLeast(macosVersion, DICTATION_MACOS)),
     fileManager: mac ? "Finder" : os === "windows" ? "File Explorer" : "Files",
     machine: mac ? "Mac" : "computer",
   };

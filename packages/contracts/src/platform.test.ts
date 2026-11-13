@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultShell, executableNames, needsShell, pathDelimiter, platformCapabilities, shellArgs } from "./platform";
+import { DICTATION_MACOS, defaultShell, executableNames, macosAtLeast, needsShell, pathDelimiter, platformCapabilities, shellArgs } from "./platform";
 
 describe("platformCapabilities", () => {
   it("gives a Mac every Mac feature", () => {
@@ -20,6 +20,22 @@ describe("platformCapabilities", () => {
     const flags = Object.entries(caps).filter(([, v]) => typeof v === "boolean");
     expect(flags.length).toBeGreaterThan(0);
     for (const [k, v] of flags) expect(v, k).toBe(false);
+  });
+});
+
+describe("dictation's macOS", () => {
+  it("is offered from macOS 26, where SpeechAnalyzer starts, and not below", () => {
+    expect(DICTATION_MACOS).toBe("26.0");
+    for (const v of ["26.0", "26.0.0", "26.1", "27.2.0", "16.0"]) expect(platformCapabilities("darwin", v).dictation, v).toBe(true);
+    for (const v of ["15.7.2", "15.0", "14.6", "25.9"]) expect(platformCapabilities("darwin", v).dictation, v).toBe(false);
+    expect(platformCapabilities("win32", "27.0").dictation).toBe(false);
+  });
+
+  it("compares versions part by part", () => {
+    expect(macosAtLeast("26.0.1", "26.0")).toBe(true);
+    expect(macosAtLeast("26", "26.0")).toBe(true);
+    expect(macosAtLeast("26.0", "26.1")).toBe(false);
+    expect(macosAtLeast("100.0", "26.0")).toBe(true);
   });
 });
 

@@ -13,7 +13,12 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const native = join(here, "..", "native");
 
-/** source file → output binary name. */
+/**
+ * source file → output binary name, and the oldest macOS it is built for where one is set. Unset, swiftc
+ * builds for the macOS it runs on. realmvoice's is dictation's (`DICTATION_MACOS` in
+ * packages/contracts/src/platform.ts), which the app checks before offering it; build-native.test.ts
+ * holds the two together.
+ */
 const HELPERS = [
   ["ScrollPhase.swift", "scrollphase"],
   ["AxHelper.swift", "axhelper"],
@@ -21,17 +26,18 @@ const HELPERS = [
   ["DeviceOwner.swift", "deviceowner"],
   ["PolicyStamp.swift", "policystamp"],
   ["KeychainPasswords.swift", "realmkeychain"],
-  ["RealmVoice.swift", "realmvoice"],
+  ["RealmVoice.swift", "realmvoice", "26.0"],
 ];
 
 if (process.platform !== "darwin") process.exit(0);
 try { execFileSync("xcrun", ["-f", "swiftc"], { stdio: "ignore" }); } catch { console.warn("[build-native] swiftc not found; skipping Swift helpers"); process.exit(0); }
 
-for (const [source, binary] of HELPERS) {
+const arch = process.arch === "arm64" ? "arm64" : "x86_64";
+for (const [source, binary, macos] of HELPERS) {
   const src = join(native, source);
   const out = join(native, "bin", binary);
   if (existsSync(out) && statSync(out).mtimeMs >= statSync(src).mtimeMs) continue;
   mkdirSync(dirname(out), { recursive: true });
   console.log(`[build-native] compiling ${source}…`);
-  execFileSync("swiftc", ["-O", "-o", out, src], { stdio: "inherit" });
+  execFileSync("swiftc", ["-O", ...(macos ? ["-target", `${arch}-apple-macos${macos}`] : []), "-o", out, src], { stdio: "inherit" });
 }
