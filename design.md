@@ -998,7 +998,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   each opening a browser once filled a window with eight columns a fifth of it wide, every title an
   ellipsis and every page unreadable. In the panel's bar the tabs are the data of unbounded length,
   so they keep the width and the shown item's own actions go to its menu; its status gives way
-  before any tab does (four tabs once read "Do…" and "Ag…" beside a "● not connected" at full width). The agents still working
+  before any tab does (four tabs once read "Do…" and "Ag…" beside a "● not connected" at full width).
+  Then each tab gives up its title down to its glyph before the strip scrolls: a scrolled strip puts
+  its first tab under the dissolve as a bare "…". A hidden tab's close lies over its end and shows
+  only under the pointer, so it takes none of the title's width; the tab showing keeps its close and
+  the start of its name. The agents still working
   are chips over the session's prompter, and a click on one previews it; a tab dragged to an edge is
   how something becomes part of the user's own layout.
 - A split holds as many panes as the person makes, split right or down and nested as they were made

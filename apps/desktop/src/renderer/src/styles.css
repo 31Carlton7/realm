@@ -2283,19 +2283,31 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tabs-add[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* A width rather than a flex basis: the strip is sized from its tabs now that the "+" follows them, and
    a basis is not what a flex container's own size is measured from — every tab came out at the width
-   of its words, and a seven-letter name ran to an ellipsis in a pane with room for four of them. */
-.pane-tab { display: flex; align-items: center; flex: 0 1 auto; width: 180px; min-width: 88px; height: 28px; border-radius: var(--r-chip);
-  transition: background-color var(--dur-hover) var(--ease-out-strong); }
+   of its words, and a seven-letter name ran to an ellipsis in a pane with room for four of them.
+   The floor is the glyph: a tab gives up its title before the strip scrolls. At an 88px floor a
+   strip of tabs ran past the bar and scrolled its first one under the dissolve as a bare "…". The tab
+   showing keeps room for its close and the start of its name. */
+.pane-tab { --tab-pad: 8px; --tab-close: 22px; --tab-close-in: 3px; position: relative; container-type: inline-size;
+  display: flex; align-items: center; flex: 0 1 auto; width: 180px; min-width: calc(var(--tab-pad) * 2 + 14px); height: 28px;
+  border-radius: var(--r-chip); transition: background-color var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover { background: var(--rl-hover); }
-.pane-tab[data-active] { background: var(--hover-2); }
+.pane-tab[data-active] { min-width: 88px; background: var(--hover-2); }
 /* Where a dragged tab will land: before this one, or — the pointer on its far half — after it. */
 .pane-tab[data-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
 .pane-tab[data-over="after"] { box-shadow: inset -2px 0 0 var(--rl-accent); }
 /* Between one session's run of tabs and the next, while several share the strip: a hairline, the
    strip's own boundary, at the height of a tab's label rather than the bar's. */
 .pane-tab-run { flex: none; align-self: center; width: var(--hairline-w); height: 16px; margin: 0 4px; background: var(--rl-line-strong); }
-.pane-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; padding: 0 2px 0 8px;
+/* The close lies over the tab's end rather than beside the title (`.pane-tab-close`), so a tab that is
+   not showing spends no width on a control it shows only under the pointer. The tab showing keeps its
+   close, and its title stops short of it. */
+.pane-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; padding: 0 var(--tab-pad);
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); text-align: left; }
+.pane-tab[data-active] .pane-tab-label { padding-right: calc(var(--tab-close) + var(--tab-close-in) * 2); }
+/* Under the pointer, a hidden tab's close arrives over the end of its title, which fades out beneath
+   it rather than running under a button. */
+.pane-tab:not([data-active]):is(:hover, :focus-within) .pane-tab-label {
+  mask-image: linear-gradient(to left, transparent calc(var(--tab-close) + var(--tab-close-in)), #000 calc(var(--tab-close) + var(--tab-close-in) + 12px)); }
 /* Selection is the fill; focus is the ink, as a single pane's title brightens when its pane has the
    keyboard. The glyph follows the words: colour in a strip of tabs is an agent's, on its tile, and an
    accent glyph on the tab showing read as one more of them. */
@@ -2308,14 +2320,19 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* A peek (W11b): the one tab that goes when the space does. */
 .pane-tab[data-peek] .pane-tab-title { font-style: italic; }
-.pane-tab .pane-tab-close { width: 22px; --btn-h: 22px; flex: none; margin-right: 3px; opacity: 0;
-  transition: opacity var(--dur-hover) var(--ease-out-strong); }
+.pane-tab .pane-tab-close { position: absolute; top: var(--tab-close-in); right: var(--tab-close-in); width: var(--tab-close); --btn-h: var(--tab-close);
+  opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover .pane-tab-close, .pane-tab[data-active] .pane-tab-close, .pane-tab-close:focus-visible { opacity: 1; }
-.pane-tab-confirm { width: auto; padding: 0 8px; margin-right: 3px; font-size: 12px; white-space: nowrap; }
+/* Too narrow for a title, a tab is its glyph, and a close laid over that would be all of it. */
+@container (max-width: 56px) {
+  .pane-tab:not([data-active]) .pane-tab-close { display: none; }
+  .pane-tab:not([data-active]) .pane-tab-label { mask-image: none; }
+}
+.pane-tab-confirm { width: auto; padding: 0 8px; margin-right: var(--tab-close-in); font-size: 12px; white-space: nowrap; }
 /* The close's hit target stops at its tab's edge. The 6px every icon button reaches past itself went
    3px past the last tab, and a scroller counts that as more of itself: a strip of two tabs that fit
    measured 3px of slack, enough for its far end to dissolve over nothing. */
-.pane-tab > .icon-btn::after { inset: -3px; }
+.pane-tab > .icon-btn::after { inset: calc(var(--tab-close-in) * -1); }
 /* A tab's focus ring is drawn INSIDE it. The strip is a scroller exactly one tab tall, so the ring the
    label drew outside itself lost its top and bottom to the strip's clip and arrived as two accent bars
    either side of the title. On the tab rather than the label, so it follows the tab's corners. */

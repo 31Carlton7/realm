@@ -60,6 +60,16 @@ describe("a side pane's tab strip", () => {
     expect(screen.queryByRole("button", { name: "Rename Delta careers" })).toBeNull();
   });
 
+  it("keeps a tab's whole title in its name and its cut-short tooltip, however narrow the strip makes it", async () => {
+    // A crowded strip shrinks a hidden tab to its glyph, so its words show nowhere on screen. THE
+    // MUTANTS: the title taken out of the tab (no name for a screen reader), or the clipped tooltip
+    // dropped from a one-session strip (nothing for the pointer).
+    await mount();
+    const tab = strip().getByRole("tab", { name: "Agent: apply" });
+    expect(tab).toHaveAttribute("data-tip", "clipped");
+    expect(tab.querySelector("[data-tip-text]")?.textContent).toBe("Agent: apply");
+  });
+
   it("brings a tab forward on click", async () => {
     const { store } = await mount();
     fireEvent.click(strip().getByRole("tab", { name: "Agent: apply" }));
