@@ -1211,6 +1211,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   connector's full name, `mcp__realm__realm-agent__agent_start` — widened the column, and every row
   and the composer under them slid off the screen's left edge. The verb yields last but can still be
   cut, and the column holds each row to its width (`keepsToOfferedWidth`).
+- A phone card keeps one inset on all four sides and one gap between its head, each hairline and
+  each row, and everything in it starts on one left edge. A control keeps its 44-point target, but
+  the card is laid out by what the control draws, and the target reaches out into the gap and the
+  inset. Laid out by their targets, the queued card's buttons left 14 points of air beside their
+  glyphs and pushed its words into a third of the row (the owner, 11-12: "Fix padding here, make it
+  look cleaner"). A message gets the row's width, and its actions end its line only where the
+  words fit beside them.
 - A teammate is a permanent agent in a space that you message (the owner, 11-02: different teammates
   for different things, rather than a new session for everything). Its chat IS a session — its home
   session — so its page is that session's pane, headed by the teammate instead of a crumb: its icon,
