@@ -1,9 +1,15 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { AGENT_LOGIN_HINTS } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
 import { createApp, defaultAdapters, type App } from "./app";
 import { openDatabase } from "./db/database";
 import { dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
+
+const FAKE_ACP = fileURLToPath(new URL("../../../packages/adapters/src/acp/fixtures/fake-acp-agent.mjs", import.meta.url));
 
 describe("defaultAdapters", () => {
   it("registers claude and codex by default", () => {
@@ -29,6 +35,22 @@ describe("defaultAdapters", () => {
     const reg = defaultAdapters();
     expect(reg["acp:cursor"]?.kind).toBe("acp:cursor");
     expect(reg["acp:gemini"]?.kind).toBe("acp:gemini");
+  });
+
+  it("ends a signed-out Gemini session with the same hint the Engines tab shows", async () => {
+    const bin = join(tempDir("realm-gemini-"), "gemini");
+    writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${FAKE_ACP}"\n`, { mode: 0o755 });
+    const before = process.env.REALM_GEMINI_BIN;
+    process.env.REALM_GEMINI_BIN = bin;
+    try {
+      const handle = defaultAdapters()["acp:gemini"]!.start({ cwd: process.cwd(), mcpServers: [], env: { FAKE_ACP_AUTHFAIL: "1" } });
+      const errors: string[] = [];
+      for await (const e of handle.events) if (e.type === "error") errors.push(e.payload.message);
+      expect(errors[0]).toContain(AGENT_LOGIN_HINTS["acp:gemini"]);
+    } finally {
+      if (before === undefined) delete process.env.REALM_GEMINI_BIN;
+      else process.env.REALM_GEMINI_BIN = before;
+    }
   });
 });
 

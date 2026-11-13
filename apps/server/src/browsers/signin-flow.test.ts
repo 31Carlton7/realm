@@ -131,8 +131,8 @@ describe("starting a sign-in", () => {
   });
 
   it("refuses an agent with no sign-in command, and says what to do instead", async () => {
-    // Gemini is the one with `login: null` — Google discontinued the free personal tier, so the
-    // answer is an API key or Vertex credentials, which is a sentence rather than a line to run.
+    // Gemini is the one with `login: null` — its Google login no longer works on a personal account, so
+    // the answer is an API key or Vertex credentials, which is a sentence rather than a line to run.
     const { flow, calls } = setup({ output: ["$ "] });
     const r = await flow.start(SPACE, "acp:gemini");
     expect(r.ok).toBe(false);
