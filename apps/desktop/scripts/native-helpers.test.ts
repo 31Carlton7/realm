@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { HELPERS } from "./build-native.mjs";
 import { minimumMacos, plistMinimumMacos, versionNumber } from "./lib/macos-minimum.mjs";
 import { helperProblems } from "./native-helpers.mjs";
@@ -71,13 +71,9 @@ describe("helperProblems", () => {
   ];
 
   function withHelpers(built: Record<string, string>, check: (dir: string) => void) {
-    const dir = mkdtempSync(join(tmpdir(), "native-helpers-"));
-    try {
-      for (const [binary, version] of Object.entries(built)) writeFileSync(join(dir, binary), machO({ build: version }));
-      check(dir);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const dir = tempDir("native-helpers-");
+    for (const [binary, version] of Object.entries(built)) writeFileSync(join(dir, binary), machO({ build: version }));
+    check(dir);
   }
 
   it("names each helper built for a newer macOS than its entry, as 2.11.1's were", () => {
