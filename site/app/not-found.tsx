@@ -1,7 +1,14 @@
+import type { Metadata } from "next"
 import Link from "next/link"
 
 import { ArrowIcon } from "@/components/icons"
 import { Subpage } from "@/components/landing/Subpage"
+
+// The root layout's description is the home's; a missing page has none of its own.
+export const metadata: Metadata = {
+  title: "Not found",
+  description: null,
+}
 
 export default function NotFound() {
   return (
