@@ -364,6 +364,19 @@ describe("§6 motion table", () => {
     expect([inner[1], inner[3]], "the field's padding beside its text").toEqual([6, 6]);
   });
 
+  it("sits each sandbox posture's radio on the middle of its name's line, not on the field's text box", () => {
+    // THE MUTANTS: the rule gone, so the shared field rule's 30px box stands the radio above its
+    // name; the radio left on the row's baseline; a selector weaker than the shared rule's.
+    const radio = '.field .sandbox-choice .sandbox-posture input[type="radio"]';
+    const body = bodiesFor(radio).join(";");
+    expect(body).toContain("height: auto");
+    expect(body).toContain("align-self: center");
+    const shared = RULES.findIndex((r) => r.selectors.includes(".field input:not(.switch):not(.checkbox):not(.search-field)") && /height: 30px/.test(r.body));
+    const own = RULES.findIndex((r) => r.selectors.includes(radio));
+    expect(shared).toBeGreaterThanOrEqual(0);
+    expect(own, "declared after the shared field rule, which has the same specificity").toBeGreaterThan(shared);
+  });
+
   it("lights one menu row: the focused one, and none while a press-opened menu rests (MN-04)", () => {
     // THE MUTANTS: a hover fill of its own, a second lit row beside the focus; the focus fill
     // ungated, the first row lit under a pointer that has not moved.
