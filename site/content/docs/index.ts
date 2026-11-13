@@ -33,7 +33,7 @@ import troubleshooting from "./troubleshooting"
  * something that comes after 2.4, such as the command line in 2.5, says so at its top.
  */
 export const DOCS_SUMMARY =
-  "How Realm works, from the first install to a team of agents running on a clock. Written for Realm 2.4."
+  "Learn how Realm works, from the first install to a team of agents running on a clock."
 
 export const groups: DocGroup[] = [
   { title: "Start here", pages: [gettingStarted] },

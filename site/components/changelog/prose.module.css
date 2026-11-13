@@ -25,7 +25,7 @@
   scroll-margin-top: 7rem;
   color: var(--color-ink);
   font-size: 1.375rem;
-  font-weight: 560;
+  font-weight: 500;
   letter-spacing: -0.022em;
   line-height: 1.3;
   text-wrap: balance;
@@ -125,5 +125,5 @@
   margin-bottom: 0.2rem;
   color: var(--color-accent-ink);
   font-size: 13px;
-  font-weight: 560;
+  font-weight: 500;
 }

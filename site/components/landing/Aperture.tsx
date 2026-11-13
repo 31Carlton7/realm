@@ -16,6 +16,8 @@ import { CLEAR_FEATHER, MAX_CLEAR, STAR_GROWTH, STAR_SIZE, clearBoxes, toShader 
  * half, and then the loop stops. After that it draws only when its box changes size. Under reduced
  * motion it is drawn open, once.
  *
+ * Without a `ring` it is the same space with no opening (the band under a subpage's header), drawn once.
+ *
  * No star sits under text. Every element in the hero marked `data-clear` (the nav, the copy, the
  * caption) is read as the rect round its contents, grown by CLEAR_MARGIN, and the shader drops any
  * star whose centre falls inside one, fading over CLEAR_FEATHER beyond it (star-mask.ts, whose tests
@@ -122,7 +124,7 @@ void main() {
 
 const OPEN_MS = 1500
 
-export function Aperture({ ring, className }: { ring: React.RefObject<HTMLElement | null>; className?: string }) {
+export function Aperture({ ring, className }: { ring?: React.RefObject<HTMLElement | null>; className?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -161,11 +163,14 @@ export function Aperture({ ring, className }: { ring: React.RefObject<HTMLElemen
       gl.viewport(0, 0, el.width, el.height)
       gl.uniform2f(u("uRes"), el.width, el.height)
       gl.uniform1f(u("uDpr"), dpr)
-      const slot = ring.current?.getBoundingClientRect()
+      const slot = ring?.current?.getBoundingClientRect()
       if (slot) {
         const cx = (slot.left - box.left + slot.width / 2) * dpr
         const cy = (box.bottom - (slot.top + slot.height / 2)) * dpr
         gl.uniform3f(u("uRing"), cx, cy, (slot.width / 2) * dpr)
+      } else {
+        // No opening: a ring a pixel wide (the shader divides by it), so far off the canvas none of its light reaches it.
+        gl.uniform3f(u("uRing"), -1e6, -1e6, 1)
       }
       // The contents' box, not the element's: a block stretched across the column would clear a band
       // of sky far wider than its words.
@@ -189,7 +194,7 @@ export function Aperture({ ring, className }: { ring: React.RefObject<HTMLElemen
     void document.fonts.ready.then(size)
 
     let frame = 0
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (!ring || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       open = 1
       draw()
     } else {

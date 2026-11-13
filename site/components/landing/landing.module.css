@@ -85,7 +85,8 @@
   padding: 10px 0;
 }
 
-.links a:hover {
+.links a:hover,
+.links a[aria-current="page"] {
   color: var(--ink);
 }
 
@@ -509,6 +510,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 12px;
+  margin-left: auto;
 }
 
 .madeBy {
@@ -530,6 +532,67 @@
 
 .footLinks a:hover {
   color: var(--ink);
+}
+
+/* ---- A page past the landing one ----
+   The landing page's navy and type. The site's shared parts (the changelog's and the docs' lists,
+   rails and prose) are drawn in the product's tokens; here those tokens take the navy's steps, so they
+   sit on this ground rather than on the app's grey. */
+
+.subpage {
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-canvas: oklch(0.175 0.026 262);
+  --color-surface: oklch(0.21 0.03 262);
+  --color-raised: oklch(0.24 0.032 262);
+  --color-inset: oklch(0.15 0.024 262);
+  --color-line: oklch(0.3 0.03 262 / 0.6);
+  --color-line-strong: oklch(0.36 0.03 262 / 0.75);
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* The header and the page's title on a band of the landing page's space, fading into the navy. */
+.skyHead {
+  position: relative;
+  isolation: isolate;
+  padding-bottom: 32px;
+}
+
+.skyBand {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, #000 45%, transparent);
+}
+
+.subHeadColumn {
+  position: relative;
+  z-index: 2;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 56px 28px 40px;
+}
+
+.subHead {
+  max-width: 44rem;
+}
+
+/* Over the reading column, past a 10rem rail and its 5rem gap. */
+@media (min-width: 1280px) {
+  .subHead[data-indent] {
+    margin-left: 15rem;
+  }
+}
+
+.subpage .foot {
+  margin-top: auto;
 }
 
 /* ---- Phone ---- */
@@ -649,6 +712,7 @@
 
   .footSide {
     align-items: flex-start;
+    margin-left: 0;
   }
 
   .frameWorld {
@@ -659,5 +723,18 @@
     flex-direction: column;
     align-items: flex-start;
     padding: 0 20px;
+  }
+
+  .subHeadColumn {
+    padding: 28px 20px 24px;
+  }
+
+  /* A reader past the landing page is in a section, so the header keeps its way to the others. */
+  .subpage .links {
+    gap: 20px;
+  }
+
+  .subpage .links a:not(:last-child) {
+    display: inline;
   }
 }

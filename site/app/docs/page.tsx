@@ -36,12 +36,12 @@ export default function DocsHome() {
   return (
     <div className="max-w-[60rem]">
       <header>
-        <h1 className="text-[clamp(2.5rem,4.4vw,3.5rem)] leading-[1] font-[580] tracking-[-0.045em] text-ink">Docs</h1>
+        <h1 className="text-[clamp(2.5rem,4.4vw,3.5rem)] leading-[1] font-[500] tracking-[-0.045em] text-ink">Docs</h1>
         <p className="mt-5 max-w-[40rem] text-[18px] leading-[1.6] text-pretty text-ink-2">{DOCS_SUMMARY}</p>
         {first ? (
           <p className="mt-6 text-[16px] text-ink-2">
             New to Realm?{" "}
-            <Link href={`/docs/${first.slug}` as Route} className="group inline-flex min-h-11 items-center gap-2 font-[520] text-accent-ink">
+            <Link href={`/docs/${first.slug}` as Route} className="group inline-flex min-h-11 items-center gap-2 font-[500] text-accent-ink">
               <span className="link-line">{first.title}</span>
               <ArrowIcon className="nudge h-3.5 w-3.5" />
             </Link>
@@ -66,7 +66,7 @@ export default function DocsHome() {
         <dl className="mt-20 grid gap-x-10 gap-y-6 sm:grid-cols-2">
           {REGIONS.map((region) => (
             <div key={region.name}>
-              <dt className="text-[15px] font-[560] text-ink">{region.name}</dt>
+              <dt className="text-[15px] font-[500] text-ink">{region.name}</dt>
               <dd className="mt-1 text-[16px] leading-[1.55] text-ink-2">{region.text}</dd>
             </div>
           ))}
@@ -76,7 +76,7 @@ export default function DocsHome() {
       <div className="mt-20 space-y-14">
         {groups.map((group) => (
           <section key={group.title} aria-labelledby={`group-${group.pages[0]?.slug}`}>
-            <h2 id={`group-${group.pages[0]?.slug}`} className="text-[1.375rem] leading-[1.3] font-[560] tracking-[-0.022em] text-ink">
+            <h2 id={`group-${group.pages[0]?.slug}`} className="text-[1.375rem] leading-[1.3] font-[500] tracking-[-0.022em] text-ink">
               {group.title}
             </h2>
             <ul className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -86,7 +86,7 @@ export default function DocsHome() {
                     href={`/docs/${doc.slug}` as Route}
                     className="row-link group flex w-full flex-col rounded-[12px] bg-canvas p-5 [--row-hover:var(--color-surface)]"
                   >
-                    <span className="flex items-center gap-2 text-[17px] leading-[1.35] font-[560] text-ink">
+                    <span className="flex items-center gap-2 text-[17px] leading-[1.35] font-[500] text-ink">
                       {doc.title}
                       <ArrowIcon className="nudge h-3.5 w-3.5 text-ink-2" />
                     </span>
