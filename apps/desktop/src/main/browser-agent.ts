@@ -641,6 +641,7 @@ export type CredentialFill = {
  *      `describe` op reports, and specifically NOT page text, a snapshot, a title, or anything a
  *      page can author. It must normalize to exactly the origin the fill names: no subdomain match, no
  *      registrable-domain fallback (see `normalizeOrigin`). A lookalike host gets `origin_mismatch`.
+ *      So does a ref in an iframe from another origin: the frame the ref sits in must be on it too.
  *   2. **Presence, only after the origin matched.** Deliberately second. Prompting for Touch ID on a
  *      phishing page and then refusing would teach the user that the fingerprint prompt is noise to
  *      swat away; by the time a prompt appears, Realm has already established the page is the right
@@ -675,6 +676,10 @@ export async function performFillCredential(send: CdpSend, ref: number, fill: Cr
     // For a generated fill this is the navigation that happened between the approval and the typing:
     // the card named an origin, the pane is somewhere else now, and nothing is minted or typed.
     return { ok: false, refused: "origin_mismatch", error: `this pane is on ${pageOrigin}, but that ${noun} is for ${fill.origin} — nothing was filled` };
+  }
+  const fieldOrigin = await frameOriginOf(send, [ref]);
+  if (fieldOrigin !== fill.origin) {
+    return { ok: false, refused: "origin_mismatch", error: `ref=${ref} is in a frame from ${fieldOrigin ?? "an origin Realm could not establish"}, but that ${noun} is for ${fill.origin} — nothing was filled` };
   }
 
   // Focus BEFORE presence: a ref that is already gone should fail as a stale ref, not burn a Touch ID
@@ -724,6 +729,10 @@ export async function performAutofill(
   try { pageOrigin = await currentOrigin(send); } catch { pageOrigin = null; }
   if (pageOrigin === null || credentialSiteMatch(fill.origin, pageOrigin) === null) {
     return { ok: false, refused: "origin_mismatch", error: "the page is no longer on the site this password is for — nothing was filled" };
+  }
+  const fields = [targets.user, targets.pass].filter((t): t is string => t !== null);
+  if (await frameOriginOf(send, await backendNodeIds(send, fields)) !== pageOrigin) {
+    return { ok: false, refused: "origin_mismatch", error: "that field is in a frame from another origin than the page — nothing was filled" };
   }
   const select = async (objectId: string) => {
     await send("Runtime.callFunctionOn", { objectId, functionDeclaration: "function () { this.focus(); if (this.select) this.select(); }", silent: true });
@@ -861,6 +870,9 @@ export async function performCodeFill(send: CdpSend, targets: readonly string[],
   if (targets.length === 0 || (targets.length > 1 && targets.length !== fill.code.length)) {
     return { ok: false, error: "the code does not fit that field's boxes, so nothing was filled" };
   }
+  if (await frameOriginOf(send, await backendNodeIds(send, targets)) !== fill.origin) {
+    return { ok: false, refused: "origin_mismatch", error: "that field is in a frame from another origin than the page, so nothing was filled" };
+  }
   const select = (objectId: string) =>
     send("Runtime.callFunctionOn", { objectId, functionDeclaration: "function () { this.focus(); if (this.select) this.select(); }", silent: true });
   try {
@@ -901,6 +913,51 @@ async function currentOrigin(send: CdpSend): Promise<string | null> {
   if (!Array.isArray(entries) || typeof index !== "number") return null;
   const url = entries[index]?.url;
   return typeof url === "string" ? normalizeOrigin(url) : null;
+}
+
+type DomNode = { backendNodeId?: number; frameId?: string; children?: DomNode[]; shadowRoots?: DomNode[]; contentDocument?: DomNode };
+type FrameTree = { frame?: { id?: string; securityOrigin?: string }; childFrames?: FrameTree[] };
+
+/**
+ * The origin of the one frame that holds all of `nodes`, according to the BROWSER; null when they are
+ * in different frames, or one is not in the tree at all. `currentOrigin` names only the top frame, but
+ * a same-site iframe from another origin runs in the page's process: its fields are in a snapshot, and
+ * `DOM.focus` reaches them. So the frame comes from where the node sits in the pierced DOM tree, and
+ * its origin from `Page.getFrameTree`.
+ */
+async function frameOriginOf(send: CdpSend, nodes: readonly number[]): Promise<string | null> {
+  try {
+    const [doc, tree] = (await Promise.all([send("DOM.getDocument", { depth: -1, pierce: true }), send("Page.getFrameTree")])) as [{ root?: DomNode }, { frameTree?: FrameTree }];
+    const origins = new Map<string, string>();
+    const addFrames = (t: FrameTree) => {
+      if (t.frame?.id && t.frame.securityOrigin) origins.set(t.frame.id, t.frame.securityOrigin);
+      t.childFrames?.forEach(addFrames);
+    };
+    const frameOf = new Map<number, string>();
+    const walk = (node: DomNode, frameId: string) => {
+      if (node.backendNodeId !== undefined) frameOf.set(node.backendNodeId, frameId);
+      for (const child of [...(node.children ?? []), ...(node.shadowRoots ?? [])]) walk(child, frameId);
+      if (node.contentDocument) walk(node.contentDocument, node.frameId ?? "");
+    };
+    if (!doc.root || !tree.frameTree?.frame?.id) return null;
+    addFrames(tree.frameTree);
+    walk(doc.root, tree.frameTree.frame.id);
+    const frames = new Set(nodes.map((n) => frameOf.get(n)));
+    const [frameId] = frames;
+    if (frames.size !== 1 || frameId === undefined) return null;
+    return normalizeOrigin(origins.get(frameId) ?? "");
+  } catch {
+    return null;
+  }
+}
+
+/** The backendNodeIds of remote objects, for `frameOriginOf`. One that will not describe becomes -1,
+ *  which is in no frame, so the check fails on it rather than passing without it. */
+async function backendNodeIds(send: CdpSend, objectIds: readonly string[]): Promise<number[]> {
+  return Promise.all(objectIds.map(async (objectId) => {
+    const described = (await send("DOM.describeNode", { objectId }).catch(() => null)) as { node?: { backendNodeId?: number } } | null;
+    return described?.node?.backendNodeId ?? -1;
+  }));
 }
 
 /** Per-character key events — what React-style inputs need, and what a password field needs most of
