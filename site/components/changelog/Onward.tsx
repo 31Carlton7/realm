@@ -20,7 +20,7 @@ export function Onward({ entry }: { entry: Entry }) {
       <Shell label="More releases">
         {release.changes.length > 0 ? (
           <section aria-labelledby="shipped-title" className="mb-14">
-            <h2 id="shipped-title" className="text-[15px] font-[560] text-ink">
+            <h2 id="shipped-title" className="text-[15px] font-[500] text-ink">
               {release.changes.length} {release.changes.length === 1 ? "change" : "changes"} shipped in {release.version}
             </h2>
             <ul className="-mx-3 mt-3">
@@ -56,7 +56,7 @@ export function Onward({ entry }: { entry: Entry }) {
         className="row-link group mb-3 block rounded-[12px] bg-canvas p-5 [--row-hover:var(--color-surface)] sm:p-6"
       >
         <span className="text-[13px] text-ink-2">Shipped in</span>
-        <span className="mt-1.5 flex items-center gap-2 text-[17px] leading-[1.35] font-[560] text-ink">
+        <span className="mt-1.5 flex items-center gap-2 text-[17px] leading-[1.35] font-[500] text-ink">
           {shortTitle(release)}
           <ArrowIcon className="nudge h-3.5 w-3.5 text-ink-2" />
         </span>
@@ -73,7 +73,7 @@ export function Onward({ entry }: { entry: Entry }) {
 
 function Shell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <nav aria-label={label} className="mx-auto mt-24 grid w-full max-w-[92rem] grid-cols-1 px-6 sm:px-10 xl:grid-cols-[10rem_minmax(0,40rem)] xl:gap-x-16">
+    <nav aria-label={label} className="mx-auto mt-24 grid w-full max-w-[1240px] grid-cols-1 px-5 sm:px-7 xl:grid-cols-[10rem_minmax(0,44rem)] xl:gap-x-20">
       <div className="min-w-0 border-t border-line pt-12 xl:col-start-2">{children}</div>
     </nav>
   )
@@ -107,7 +107,7 @@ function Neighbour({ side, direction }: { side: Side; direction: "newer" | "olde
           <ArrowIcon className="nudge h-3.5 w-3.5" />
         ) : null}
       </span>
-      <span className="mt-2 text-[17px] leading-[1.35] font-[560] text-ink">{shortTitle(entry)}</span>
+      <span className="mt-2 text-[17px] leading-[1.35] font-[500] text-ink">{shortTitle(entry)}</span>
       <span className="mt-1 font-mono text-[13px] text-ink-2">{formatDate(entry.date)}</span>
     </Link>
   )

@@ -59,7 +59,7 @@ function Map({ groups, current }: { groups: NavGroup[]; current: string }) {
       {groups.map((group, index) => (
         <div key={group.title}>
           {/* Not a heading: the map comes before the page's h1, and its groups are labels for lists. */}
-          <p id={`docs-group-${index}`} className="mb-1 text-[13px] font-[520] text-ink">
+          <p id={`docs-group-${index}`} className="mb-1 text-[13px] font-[500] text-ink">
             {group.title}
           </p>
           <ol aria-labelledby={`docs-group-${index}`} className="relative border-l border-line">

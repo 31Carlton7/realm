@@ -40,7 +40,7 @@ function Side({ href, label, title, direction }: { href: string; label: string; 
         {label}
         {direction === "next" ? <ArrowIcon className="nudge h-3.5 w-3.5" /> : null}
       </span>
-      <span className="mt-2 text-[17px] leading-[1.35] font-[560] text-ink">{title}</span>
+      <span className="mt-2 text-[17px] leading-[1.35] font-[500] text-ink">{title}</span>
     </Link>
   )
 }

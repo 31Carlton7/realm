@@ -49,7 +49,7 @@ export default async function DocPage({ params }: Params) {
       <article aria-labelledby="doc-title" className="min-w-0 max-w-[44rem]">
         <header className="mb-12">
           {group ? <p className="text-[14px] text-ink-2">{group.title}</p> : null}
-          <h1 id="doc-title" className="mt-2 text-[clamp(2.1rem,3.4vw,2.75rem)] leading-[1.06] font-[580] tracking-[-0.042em] text-balance text-ink">
+          <h1 id="doc-title" className="mt-2 text-[clamp(2.1rem,3.4vw,2.75rem)] leading-[1.06] font-[500] tracking-[-0.042em] text-balance text-ink">
             {doc.title}
           </h1>
           <p className="mt-4 max-w-[62ch] text-[18px] leading-[1.6] text-pretty text-ink-2">{inline(doc.summary)}</p>
@@ -78,8 +78,8 @@ export default async function DocPage({ params }: Params) {
       </article>
       <div className="hidden xl:block">
         {sections.length >= 2 ? (
-          <div className="sticky top-24">
-            <p aria-hidden className="mb-2 text-[13px] font-[520] text-ink">
+          <div className="sticky top-10">
+            <p aria-hidden className="mb-2 text-[13px] font-[500] text-ink">
               On this page
             </p>
             <Rail label="On this page" items={sections.map((section) => ({ id: section.id, label: section.text }))} />
