@@ -19,7 +19,7 @@
  * Keychain call of its own.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DAEMON_SEALED_TOKEN_FILE, type DaemonState } from "@realm/contracts";
 import type { SafeStorageLike } from "./secret-store";
@@ -37,6 +37,8 @@ export function sealAppToken(home: string, token: string, safe: SafeStorageLike)
   if (!safe.isEncryptionAvailable()) return false;
   const target = sealedTokenPath(home);
   const tmp = `${target}.${process.pid}.tmp`;
+  // A first launch seals before anything else has made the home.
+  mkdirSync(home, { recursive: true });
   writeFileSync(tmp, safe.encryptString(token).toString("base64"), { mode: 0o600 });
   renameSync(tmp, target);
   return true;

@@ -2150,7 +2150,10 @@ let appToken: string | null = null;
 function useAppToken(home: string, token: string): string {
   appToken = token;
   const live = liveAppTokenFile({ packaged: app.isPackaged, env: process.env.REALM_LIVE_APP_TOKEN, home });
-  if (live) writeFileSync(live, token, { mode: 0o600 });
+  if (live) {
+    mkdirSync(home, { recursive: true });
+    writeFileSync(live, token, { mode: 0o600 });
+  }
   return token;
 }
 

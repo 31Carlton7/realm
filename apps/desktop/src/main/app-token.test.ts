@@ -37,6 +37,13 @@ describe("the sealed copy of the app's token", () => {
     expect(unsealAppToken(home, state({ appTokenSha256: appTokenSha256(token) }), sealer())).toBe(token);
   });
 
+  it("is sealed on a first launch too, before anything has made the home", () => {
+    const home = join(scratch(), "Realm");
+    const token = mintAppToken();
+    expect(sealAppToken(home, token, sealer())).toBe(true);
+    expect(unsealAppToken(home, state({ appTokenSha256: appTokenSha256(token) }), sealer())).toBe(token);
+  });
+
   it("is only handed back for the server whose state file names its hash", () => {
     const home = scratch();
     const token = mintAppToken();
