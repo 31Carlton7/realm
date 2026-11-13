@@ -27,21 +27,20 @@ export const entries: Entry[] = [
     version: "v2.13.0",
     area: "Release",
     summary:
-      "Dictate into the prompter: click the mic, talk, and watch your words arrive. The audio stays on your Mac.",
+      "Dictation in the prompter: click the mic and speak, and your words appear as you say them. The audio never leaves the Mac.",
     short: "Dictation in the prompter",
     body: [
       { kind: "h", text: "Dictation" },
       { kind: "ul", items: [
-        "**Click the mic in the prompter and talk.** Your words arrive where the caret is, fading in as they are heard, and anything you typed before or after the caret stays put. Click the mic again or press Esc to stop. A pause of two and a half seconds also ends it.",
-        "**The audio stays on your Mac.** Recognition runs on macOS's own speech recogniser, so nothing you say is sent anywhere to be transcribed.",
-        "**It needs macOS 26 or later.** On an older Mac the prompter has no mic and Settings has no Dictation tab.",
-        "**The first time you dictate, your Mac downloads its speech model from Apple.** The prompter shows how far along it is, and Esc stops it.",
-        "**Clean up dictation is off by default.** Turn it on in Settings ▸ Dictation and only the words, never the audio, go to Claude Haiku on your Claude account to be tidied. Cleaned · Undo, or ⌘Z, puts back exactly what was heard.",
-        "Talking to Realm was Abdul's idea, and dictation is the first part of it to ship.",
+        "**Dictation in the prompter.** Click the mic and speak: your words appear in the prompter as you say them, in quiet ink until the recogniser is sure, then settle into normal text you can edit before sending. A second click, Esc or a 2.5 second pause stops it.",
+        "**Recognition is this Mac's own, so the audio never leaves the Mac.** It needs macOS 26 or later, and on an older Mac there is no mic.",
+        "**The first time a Mac dictates, the speech model comes from Apple,** and the prompter says so while it downloads.",
+        "**Settings ▸ Dictation** has the microphone picker and \"Clean up dictation\", which is off by default. Turned on, it sends only the words to Claude Haiku on your Claude account to tidy what was heard, and Undo puts back exactly what you said.",
+        "Abdul came up with talking to Realm, and this is the part of his ask that ships first.",
       ] },
       { kind: "h", text: "Smaller fixes" },
       { kind: "ul", items: [
-        "**A cut-short tab shows its full name on hover even when Realm's own tooltip has no room,** by handing its name to the system's tooltip.",
+        "**A cut-short tab hands its name to the system's tooltip** when Realm's own has no room.",
       ] },
     ],
   },
