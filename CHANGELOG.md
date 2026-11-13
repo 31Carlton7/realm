@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.13.0 - 2026-11-13
+
+- Dictation in the prompter. Click the mic and speak: your words appear in the prompter as you say them, in quiet ink until the recogniser is sure, then settle into normal text you can edit before sending. A second click, Esc or a 2.5 second pause stops it. Recognition is this Mac's own, so the audio never leaves the Mac. It needs macOS 26 or later, and on an older Mac there is no mic. Abdul came up with talking to Realm, and this is the part of his ask that ships first.
+- The first time a Mac dictates, the speech model comes from Apple, and the prompter says so while it downloads.
+- Settings ▸ Dictation has the microphone picker and "Clean up dictation", which is off by default. Turned on, it tidies what was heard, and Undo puts back exactly what you said.
+- Smaller fixes: a cut-short tab hands its name to the system's tooltip when Realm's own has no room.
+
 ## v2.12.0 - 2026-11-12
 
 - Ask an agent to make a space. "Make me a space for taxes" makes it, in a turn you started, with a line in the chat that names the space and an Open button. Add "and take me there" and the window lands on a new session in it. An agent cannot make one in a turn a teammate's message started.
