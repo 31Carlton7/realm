@@ -41,6 +41,15 @@ describe("the sandbox panel", () => {
     await waitFor(() => expect(api.calls).toContain("setSandbox:s1:workspace-write/net"));
   });
 
+  it("draws Network's checkbox in the app's checkbox skin, on the box and not on the words beside it", async () => {
+    // THE MUTANT: `.checkbox` back on the label, which draws the whole label as a 16px square with
+    // "Allow network access" spilling out of it over the hint below.
+    await mount(state({ prefs: { posture: "workspace-write", network: true }, inherited: false }));
+    const box = screen.getByRole("checkbox", { name: /Allow network access/ });
+    expect(box).toHaveClass("checkbox");
+    expect(box.closest("label")).not.toHaveClass("checkbox");
+  });
+
   it("clears the override back to the default", async () => {
     const { api } = await mount(state({ prefs: { posture: "workspace-write", network: true }, inherited: false }));
     fireEvent.click(screen.getByRole("button", { name: /Use the default instead/ }));

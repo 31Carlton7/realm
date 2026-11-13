@@ -3322,14 +3322,16 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    30px rounded rectangle with the control radius on it — a text input wearing a knob. The search
    field came out as a bordered box inside the search field, which is the "search bar within a search
    bar" the Skills tab showed: the same failure, wearing the same rule. Every exclusion here names a
-   control that owns its own skin. */
+   control that owns its own skin, and a radio or a checkbox is one even with no class on it: in a
+   field it came out as a 30px box with the field's ring, and stood above the words beside it. The
+   last `:not()` holds a list so the rule keeps its 0,4,1, and nothing it used to lose to wins now. */
 /* `select` is deliberately NOT scoped to `.field`, unlike the input beside it. A `<select>` has no
    useful native skin to fall back to — left alone it draws Chromium's own control, complete with a
    SQUARE focus ring, inside a window where every other control is rounded. Five of the app's ten
    selects live outside a `.field` (the font pair, the code font, the usage scope, the schedule
    preset) and every one of them shipped as that raw control. Scoping the skin to a wrapper made
    forgetting the wrapper a silent visual regression; an element selector cannot be forgotten. */
-.field input:not(.switch):not(.checkbox):not(.search-field), select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
+.field input:not(.switch):not(.checkbox):not(.search-field, [type="radio"], [type="checkbox"]), select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 /* A multi-line field is the same control with room: same ring, same ground, same radius — only the
    height and the wrapping differ, so a form mixing the two reads as one form. */
 .field textarea { padding: 7px 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
@@ -3338,7 +3340,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 /* One focus ring for every text-entry surface (§3): the accent at 35%, 2px. Declared on the body, not the
    root, so it takes the accent an inactive window drains there. */
 body { --focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
-.field input:not(.switch):not(.checkbox):not(.search-field):focus, select:focus, .rename:focus, .hex:focus {
+.field input:not(.switch):not(.checkbox):not(.search-field, [type="radio"], [type="checkbox"]):focus, select:focus, .rename:focus, .hex:focus {
   box-shadow: var(--focus-ring-field); outline: none; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
@@ -7706,6 +7708,8 @@ select { appearance: none; padding-right: 22px;
    radio keeps its own size and sits on the middle of the name's line. */
 .field .sandbox-choice .sandbox-posture input[type="radio"] { height: auto; align-self: center; }
 .sandbox-posture-name { grid-row: 1; font-size: 13px; }
+/* The app's checkbox is the input's own skin (`.checkbox`); its words sit beside it on one line. */
+.sandbox-network { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 /* Under the name, not under the radio: the sentence belongs to the choice, and indenting it past the
    control is what keeps three of them from reading as one paragraph. */
 .sandbox-posture-detail { grid-column: 2; font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
