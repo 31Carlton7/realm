@@ -1,3 +1,4 @@
+import AVFoundation
 import CryptoKit
 import Observation
 import PhotosUI
@@ -128,6 +129,7 @@ final class AppModel {
     /// The videos among them being exported, by how far along each is.
     private(set) var videoExports: [String: [VideoExport]] = [:]
     @ObservationIgnored private var exportTasks: [UUID: Task<Void, any Error>] = [:]
+    @ObservationIgnored private var wholeFetches: [URL: Task<Void, any Error>] = [:]
     /// Each session's settings and what they could be, as its Mac last said: what the composer's chips
     /// show. Asked when the session opens, and again when its settings sheet does.
     private(set) var sessionOptions: [String: SessionOptions] = [:]
@@ -1163,15 +1165,21 @@ final class AppModel {
     }
 
     /// A video copied out of Photos, exported to a small MP4 while its tile shows how far along it is,
-    /// then kept as a photo is. One still too big to send is refused by its size after export, before
-    /// any of it is kept; taking its tile out stops the export. Either way `movie` goes, and so does
-    /// anything the export left.
+    /// then kept as a photo is. One too long is refused by its length before any export starts; one
+    /// still too big to send is refused by its size after export, before any of it is kept; taking its
+    /// tile out stops the export. Either way `movie` goes, and so does anything the export left.
     func attachVideo(at movie: URL, to sessionId: String, limits: SendLimits) async {
+        if let length = try? await AVURLAsset(url: movie).load(.duration),
+           let refusal = AttachmentLimits.refusal(videoLasting: .seconds(length.seconds.rounded())) {
+            try? FileManager.default.removeItem(at: movie)
+            show(toast: refusal)
+            return
+        }
         let id = UUID()
         let exported = VideoPrep.folder.appending(path: "\(id.uuidString).mp4")
         videoExports[sessionId, default: []].append(VideoExport(id: id, progress: 0))
         let export = Task.detached(priority: .userInitiated) { [weak self] in
-            try await VideoPrep.export(movie, to: exported) { share in
+            try await VideoPrep.export(movie, to: exported, fitting: limits.maxBytes) { share in
                 Task { @MainActor in self?.exportMoved(id, to: share, in: sessionId) }
             }
         }
@@ -1486,6 +1494,11 @@ final class AppModel {
         let destination = Self.wholeFile(path, name: name, in: source)
         let manager = FileManager.default
         if case .session = source, manager.fileExists(atPath: destination.path) { return destination }
+        // A sent video's tile and the gallery both ask for it; two fetches would write one partial file.
+        if let fetching = wholeFetches[destination] {
+            try await fetching.value
+            return destination
+        }
         guard let api, isConnected else { throw ChannelError.notConnected }
         var changed: Date?
         switch source {
@@ -1499,9 +1512,14 @@ final class AppModel {
             if let changed, let kept, abs(kept.timeIntervalSince(changed)) < 1 { return destination }
             try? manager.removeItem(at: destination)
         }
-        try await FileFetch.fetch(to: destination, progress: progress) { from in
-            try await api.fileData(source, path: path, from: from)
+        let fetch = Task {
+            try await FileFetch.fetch(to: destination, progress: progress) { from in
+                try await api.fileData(source, path: path, from: from)
+            }
         }
+        wholeFetches[destination] = fetch
+        defer { wholeFetches[destination] = nil }
+        try await withTaskCancellationHandler { try await fetch.value } onCancel: { fetch.cancel() }
         if let changed { try? manager.setAttributes([.modificationDate: changed], ofItemAtPath: destination.path) }
         return destination
     }

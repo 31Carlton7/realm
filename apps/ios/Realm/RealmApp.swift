@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        VideoPrep.sweep()
         // Unattended runs read `print` from a file (`simctl launch --stdout`); line-buffer it.
         setvbuf(stdout, nil, _IOLBF, 0)
         if !RealmType.isInstalled { model.log.error("JetBrains Mono did not register; the system's mono stands in.") }

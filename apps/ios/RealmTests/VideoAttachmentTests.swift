@@ -1,8 +1,10 @@
 import AVFoundation
 import CoreMedia
 import RealmKit
+import Synchronization
 import Testing
 import UIKit
+import UserNotifications
 @testable import Realm
 
 /// Films made on the spot, as a phone would have filmed them: where, and on what.
@@ -11,7 +13,7 @@ enum Films {
     static let phone = "iPhone 17 Pro"
 
     /// A 1920 by 1080 film of `seconds`, carrying `place` and `phone` in its metadata.
-    static func filmed(seconds: Int) async throws -> URL {
+    static func filmed(seconds: Int, framesPerSecond: Int = 30) async throws -> URL {
         let url = URL.temporaryDirectory.appending(path: "filmed-\(UUID().uuidString).mov")
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         writer.metadata = [
@@ -29,7 +31,7 @@ enum Films {
         writer.add(input)
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
-        for index in 0..<(seconds * 30) {
+        for index in 0..<(seconds * framesPerSecond) {
             while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
             var buffer: CVPixelBuffer?
             CVPixelBufferPoolCreatePixelBuffer(nil, frames.pixelBufferPool!, &buffer)
@@ -38,9 +40,10 @@ enum Films {
             // A different grey each frame, so the encoder has something to keep.
             memset(CVPixelBufferGetBaseAddress(frame), Int32(index % 256), CVPixelBufferGetDataSize(frame))
             CVPixelBufferUnlockBaseAddress(frame, [])
-            frames.append(frame, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: 30))
+            frames.append(frame, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: CMTimeScale(framesPerSecond)))
         }
         input.markAsFinished()
+        writer.endSession(atSourceTime: CMTime(value: CMTimeValue(seconds), timescale: 1))
         await writer.finishWriting()
         return url
     }
@@ -77,7 +80,7 @@ struct VideoPrepTests {
 
         let exported = URL.temporaryDirectory.appending(path: "exported-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: exported) }
-        try await VideoPrep.export(film, to: exported) { _ in }
+        try await VideoPrep.export(film, to: exported, fitting: Self.limits.maxBytes) { _ in }
 
         let asset = AVURLAsset(url: exported)
         let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
@@ -115,6 +118,58 @@ struct VideoPrepTests {
         #expect(Films.outbox(model) == outbox)
         #expect(Films.working().isEmpty, "\(Films.working())")
         #expect(!FileManager.default.fileExists(atPath: film.path))
+    }
+
+    /// The export is asked to come out under the Mac's limit, so the encoder lowers the bitrate to fit.
+    @Test func theExportIsAskedToFitTheLimit() async throws {
+        let film = try await Films.filmed(seconds: 1)
+        defer { try? FileManager.default.removeItem(at: film) }
+        let session = try #require(VideoPrep.session(for: film, fitting: Self.limits.maxBytes))
+        #expect(session.fileLengthLimit > 0 && session.fileLengthLimit < Int64(Self.limits.maxBytes), "\(session.fileLengthLimit)")
+    }
+
+    /// A video over a minute is refused by its length before any export starts: no export, nothing in
+    /// the folder exports are written in, nothing kept.
+    @Test func aVideoTooLongIsRefusedBeforeAnyExport() async throws {
+        let model = AppModel()
+        let film = try await Films.filmed(seconds: 61, framesPerSecond: 1)
+        let outbox = Films.outbox(model)
+        // An export makes the folder; none starting leaves it unmade.
+        VideoPrep.sweep()
+        let exportStarted = Mutex(false)
+        withObservationTracking { _ = model.videoExports } onChange: { exportStarted.withLock { $0 = true } }
+
+        await model.attachVideo(at: film, to: "video-tests", limits: Self.limits)
+
+        #expect(model.toast?.text == "This video is 1:01. Realm sends videos up to 1:00 from iPhone for now.")
+        #expect(!exportStarted.withLock { $0 })
+        #expect(!FileManager.default.fileExists(atPath: VideoPrep.folder.path), "\(Films.working())")
+        #expect(model.draftAttachments["video-tests"] == nil)
+        #expect(Films.outbox(model) == outbox)
+        #expect(!FileManager.default.fileExists(atPath: film.path))
+    }
+
+    /// Launch clears what an export killed with the app left in its folder, and nothing beside it: not
+    /// the rest of the temporary folder, not the outbox.
+    @Test func launchClearsWhatAKilledExportLeft() async throws {
+        let model = AppModel()
+        try FileManager.default.createDirectory(at: VideoPrep.folder, withIntermediateDirectories: true)
+        try Data("picked".utf8).write(to: VideoPrep.folder.appending(path: "\(UUID().uuidString).mov"))
+        let beside = URL.temporaryDirectory.appending(path: "beside-\(UUID().uuidString).txt")
+        try Data("kept".utf8).write(to: beside)
+        defer { try? FileManager.default.removeItem(at: beside) }
+        let queued = try model.store.files.keep(Data("queued".utf8), name: "Notes.txt", mime: "text/plain")
+        defer { model.store.files.remove([queued]) }
+
+        let center = UNUserNotificationCenter.current()
+        let answering = center.delegate
+        defer { center.delegate = answering }
+        _ = AppDelegate().application(UIApplication.shared, didFinishLaunchingWithOptions: nil)
+
+        #expect(!FileManager.default.fileExists(atPath: VideoPrep.folder.path), "\(Films.working())")
+        #expect(FileManager.default.fileExists(atPath: beside.path))
+        // Only its own file: suites running beside this one keep theirs in the same outbox.
+        #expect(FileManager.default.fileExists(atPath: model.store.files.url(of: queued).path))
     }
 
     /// One that fits goes into the draft as a photo would: an MP4 in the outbox, named for a video.
@@ -162,6 +217,8 @@ struct VideoPrepTests {
         #expect(AttachmentNames.video(besides: [video]) == "Video 2.mp4")
         #expect(AttachmentLimits.refusal(video: "Video.mp4", size: 23 * 1024 * 1024, joining: [], limits: Self.limits)
                 == "This video is 23 MB after export. Realm sends up to 8 MB a file from iPhone for now.")
+        #expect(AttachmentLimits.refusal(videoLasting: .seconds(102)) == "This video is 1:42. Realm sends videos up to 1:00 from iPhone for now.")
+        #expect(AttachmentLimits.refusal(videoLasting: .seconds(60)) == nil)
         #expect(AttachmentLimits.refusal(video: "Video.mp4", size: 3 * 1024 * 1024, joining: [AttachmentLimitTests.file(8)], limits: Self.limits)
                 == "Video.mp4 would take this message over 10 MB, the most your Mac takes in one.")
         #expect(AttachmentLimits.refusal(video: "Video.mp4", size: 3 * 1024 * 1024, joining: [], limits: Self.limits) == nil)
