@@ -221,6 +221,16 @@ struct APIFixtureTests {
         #expect(cleared.text == nil)
     }
 
+    /// A video sent ahead of its message: begun, its first chunk in, and how far it has come.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func theUploadAnswersDecode() throws {
+        let begun = try Self.decode(UploadProgress.self, "calls", "session.uploadBegin")
+        #expect(begun == UploadProgress(uploadId: "6b1f0c9e2d4a4f8e9a3c5d7e1f2a4b6c", size: 20, received: 0))
+        #expect(try Self.decode(UploadReceived.self, "calls", "session.uploadChunk") == UploadReceived(received: 16))
+        let status = try Self.decode(UploadProgress.self, "calls", "session.uploadStatus")
+        #expect(status.received == 16 && status.finished == false)
+    }
+
     /// A fork, a move to another space, a switch of agent or of login each answer with the row as it is
     /// now; the logins name the CLI's own; saved turns are their prompts' seqs.
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))

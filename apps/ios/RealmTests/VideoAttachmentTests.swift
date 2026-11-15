@@ -224,3 +224,67 @@ struct VideoPrepTests {
         #expect(AttachmentLimits.refusal(video: "Video.mp4", size: 3 * 1024 * 1024, joining: [], limits: Self.limits) == nil)
     }
 }
+
+@Suite("A video sent ahead of its message", .serialized)
+@MainActor
+struct VideoAheadTests {
+    /// To a Mac that takes videos ahead, one over 8:00 is refused by its length before any export
+    /// starts, in PR 1's words with the longer limit.
+    @Test func aVideoOverEightMinutesIsRefusedBeforeAnyExport() async throws {
+        let model = AppModel()
+        model.macTakesVideosAhead = true
+        let film = try await Films.filmed(seconds: 481, framesPerSecond: 1)
+        let outbox = Films.outbox(model)
+        VideoPrep.sweep()
+        let exportStarted = Mutex(false)
+        withObservationTracking { _ = model.videoExports } onChange: { exportStarted.withLock { $0 = true } }
+
+        await model.attachVideo(at: film, to: "video-tests", limits: VideoPrepTests.limits)
+
+        // THE MUTANT: check the length after the export, and an hour of film is exported to be refused.
+        #expect(model.toast?.text == "This video is 8:01. Realm sends videos up to 8:00 from iPhone.")
+        #expect(!exportStarted.withLock { $0 })
+        #expect(!FileManager.default.fileExists(atPath: VideoPrep.folder.path), "\(Films.working())")
+        #expect(model.draftAttachments["video-tests"] == nil)
+        #expect(Films.outbox(model) == outbox)
+        #expect(!FileManager.default.fileExists(atPath: film.path))
+    }
+
+    /// A new session's first message goes by `session.create`, which takes no uploads: a minute still holds.
+    @Test func aNewSessionsVideoKeepsToAMinute() async throws {
+        let model = AppModel()
+        model.macTakesVideosAhead = true
+        let film = try await Films.filmed(seconds: 61, framesPerSecond: 1)
+        await model.attachVideo(at: film, to: NewSessionDefaults.draft, limits: VideoPrepTests.limits)
+        #expect(model.toast?.text == "This video is 1:01. Realm sends videos up to 1:00 from iPhone for now.")
+        #expect(model.videoExports[NewSessionDefaults.draft] == nil)
+    }
+
+    @Test func theLengthAndSizeAheadAreEightMinutesAndAHundredMegabytes() {
+        #expect(AttachmentLimits.refusal(videoLasting: .seconds(480), ahead: true) == nil)
+        #expect(AttachmentLimits.refusal(videoLasting: .seconds(61), ahead: true) == nil)
+        #expect(AttachmentLimits.refusal(videoLasting: .seconds(552), ahead: true) == "This video is 9:12. Realm sends videos up to 8:00 from iPhone.")
+        #expect(AttachmentLimits.refusal(videoLasting: .seconds(61), ahead: false) == "This video is 1:01. Realm sends videos up to 1:00 from iPhone for now.")
+        let limits = VideoPrepTests.limits
+        #expect(AttachmentLimits.refusal(videoAhead: ChunkedUpload.maxBytes, joining: [], limits: limits) == nil)
+        #expect(AttachmentLimits.refusal(videoAhead: 104 * 1024 * 1024, joining: [], limits: limits)
+                == "This video is 104 MB after export. Realm sends up to 100 MB a file from iPhone.")
+        let full = (0..<limits.maxCount).map { _ in AttachmentLimitTests.file(1) }
+        #expect(AttachmentLimits.refusal(videoAhead: 20 * 1024 * 1024, joining: full, limits: limits) == "Up to 6 files in one message.")
+    }
+
+    /// THE MUTANTS: ask on Wi-Fi, ask at 25 MB, or never ask.
+    @Test func cellularAsksOnlyPastTwentyFiveMegabytesAndWiFiNever() {
+        let over = CostlyUpload.over
+        #expect(over == 25 * 1024 * 1024)
+        #expect(CostlyUpload.asks(size: over + 1, costly: true))
+        #expect(CostlyUpload.asks(size: ChunkedUpload.maxBytes, costly: true))
+        #expect(!CostlyUpload.asks(size: over, costly: true))
+        #expect(!CostlyUpload.asks(size: 9 * 1024 * 1024, costly: true))
+        #expect(!CostlyUpload.asks(size: over + 1, costly: false))
+        #expect(!CostlyUpload.asks(size: ChunkedUpload.maxBytes, costly: false))
+        let question = CostlyUpload(export: UUID(), sessionId: "s1", size: 48 * 1024 * 1024)
+        #expect(question.title == "Send 48 MB over cellular?")
+        #expect(question.message.contains("48 MB"))
+    }
+}

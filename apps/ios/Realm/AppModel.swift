@@ -1,5 +1,6 @@
 import AVFoundation
 import CryptoKit
+import Network
 import Observation
 import PhotosUI
 import RealmKit
@@ -129,6 +130,16 @@ final class AppModel {
     /// The videos among them being exported, by how far along each is.
     private(set) var videoExports: [String: [VideoExport]] = [:]
     @ObservationIgnored private var exportTasks: [UUID: Task<Void, any Error>] = [:]
+    @ObservationIgnored private var uploadTasks: [UUID: Task<String, any Error>] = [:]
+    @ObservationIgnored private var uploadsBegun: [UUID: String] = [:]
+    /// Whether the Mac takes a video ahead of its message, as it last said; nil until it is asked. A
+    /// Mac that has not said so is sent videos as it always was, under its `SendLimits`.
+    @ObservationIgnored var macTakesVideosAhead: Bool?
+    @ObservationIgnored private var videosAheadAsked: Int?
+    /// The question a big video waits on before it goes over cellular or Low Data Mode.
+    private(set) var costlyUpload: CostlyUpload?
+    @ObservationIgnored private let network = NWPathMonitor()
+    @ObservationIgnored private var costlyUploadAnswer: CheckedContinuation<Bool, Never>?
     @ObservationIgnored private var wholeFetches: [URL: Task<Void, any Error>] = [:]
     /// Each session's settings and what they could be, as its Mac last said: what the composer's chips
     /// show. Asked when the session opens, and again when its settings sheet does.
@@ -235,6 +246,7 @@ final class AppModel {
             if case .answer = item.payload { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         }
         work.api = { [weak self] in self?.isConnected == true ? self?.api : nil }
+        network.start(queue: .global(qos: .utility))
     }
 
     var api: MobileAPI? { connection.map(MobileAPI.init) }
@@ -1167,10 +1179,13 @@ final class AppModel {
     /// A video copied out of Photos, exported to a small MP4 while its tile shows how far along it is,
     /// then kept as a photo is. One too long is refused by its length before any export starts; one
     /// still too big to send is refused by its size after export, before any of it is kept; taking its
-    /// tile out stops the export. Either way `movie` goes, and so does anything the export left.
+    /// tile out stops the export. Either way `movie` goes, and so does anything the export left. To a
+    /// Mac that takes them, one too big to go with its message goes ahead of it (`sendAhead`).
     func attachVideo(at movie: URL, to sessionId: String, limits: SendLimits) async {
+        // `session.create` takes no uploads: a new session's first message keeps to its limits.
+        let ahead = sessionId != NewSessionDefaults.draft ? await videosGoAhead() : false
         if let length = try? await AVURLAsset(url: movie).load(.duration),
-           let refusal = AttachmentLimits.refusal(videoLasting: .seconds(length.seconds.rounded())) {
+           let refusal = AttachmentLimits.refusal(videoLasting: .seconds(length.seconds.rounded()), ahead: ahead) {
             try? FileManager.default.removeItem(at: movie)
             show(toast: refusal)
             return
@@ -1178,31 +1193,37 @@ final class AppModel {
         let id = UUID()
         let exported = VideoPrep.folder.appending(path: "\(id.uuidString).mp4")
         videoExports[sessionId, default: []].append(VideoExport(id: id, progress: 0))
+        let fitting = ahead ? ChunkedUpload.maxBytes : limits.maxBytes
         let export = Task.detached(priority: .userInitiated) { [weak self] in
-            try await VideoPrep.export(movie, to: exported, fitting: limits.maxBytes) { share in
+            try await VideoPrep.export(movie, to: exported, fitting: fitting) { share in
                 Task { @MainActor in self?.exportMoved(id, to: share, in: sessionId) }
             }
         }
         exportTasks[id] = export
         let outcome = await export.result
         exportTasks[id] = nil
-        endExport(id, in: sessionId)
         try? FileManager.default.removeItem(at: movie)
         guard case .success = outcome, !export.isCancelled else {
+            endExport(id, in: sessionId)
             try? FileManager.default.removeItem(at: exported)
             if !export.isCancelled { show(toast: "That video could not be made ready to send.") }
             return
         }
         let name = AttachmentNames.video(besides: draftAttachments[sessionId] ?? [])
         let size = (try? exported.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        defer { try? FileManager.default.removeItem(at: exported) }
+        if ahead, size > limits.maxBytes {
+            await sendAhead(exported, size: size, name: name, export: id, to: sessionId, limits: limits)
+            endExport(id, in: sessionId)
+            return
+        }
+        endExport(id, in: sessionId)
         if let refusal = AttachmentLimits.refusal(video: name, size: size, joining: draftAttachments[sessionId] ?? [], limits: limits) {
-            try? FileManager.default.removeItem(at: exported)
             show(toast: refusal)
             return
         }
         // Written anew rather than moved: the simulator refuses complete protection on the file the
         // export wrote ("Operation not permitted"), and under the limit it is a few megabytes.
-        defer { try? FileManager.default.removeItem(at: exported) }
         do {
             draftAttachments[sessionId, default: []].append(try store.files.keep(Data(contentsOf: exported), name: name, mime: VideoPrep.mime))
         } catch {
@@ -1210,9 +1231,114 @@ final class AppModel {
         }
     }
 
-    /// Stops a video's export: its tile goes once the export has, which is at once.
+    /// Sends an exported video to the Mac ahead of its message, its tile filling as the Mac acks each
+    /// chunk, through dropped connections, and keeps it for the message once the Mac has it whole. Over
+    /// cellular or Low Data Mode one over `CostlyUpload.over` waits on the person's yes first.
+    private func sendAhead(_ exported: URL, size: Int, name: String, export id: UUID, to sessionId: String, limits: SendLimits) async {
+        if let refusal = AttachmentLimits.refusal(videoAhead: size, joining: draftAttachments[sessionId] ?? [], limits: limits) {
+            show(toast: refusal)
+            return
+        }
+        if CostlyUpload.asks(size: size, costly: isCostlyNetwork), !(await ask(CostlyUpload(export: id, sessionId: sessionId, size: size))) { return }
+        let sha256: String
+        do {
+            sha256 = try await Task.detached(priority: .userInitiated) { try ChunkedUpload.sha256(of: exported) }.value
+        } catch {
+            show(toast: "That video could not be made ready to send.")
+            return
+        }
+        exportSending(id, in: sessionId)
+        let upload = Task {
+            try await ChunkedUpload.send(exported, size: size, sha256: sha256, connect: {
+                try await self.connectedAPI(within: .seconds(30))
+            }, begun: { made in
+                Task { @MainActor in self.uploadsBegun[id] = made }
+            }, received: { received in
+                print("[realm] upload acked \(received) of \(size)")
+                Task { @MainActor in self.exportMoved(id, to: Double(received) / Double(size), in: sessionId) }
+            }, resumed: { from in
+                print("[realm] upload resumed at \(from) of \(size)")
+            })
+        }
+        uploadTasks[id] = upload
+        let outcome = await upload.result
+        uploadTasks[id] = nil
+        let begun = uploadsBegun.removeValue(forKey: id)
+        let uploadId: String
+        switch outcome {
+        case .success(let made):
+            uploadId = made
+        case .failure(ChannelError.rpc(let refusal)) where refusal.code == "METHOD_NOT_FOUND":
+            // The Mac went back to a build from before videos went ahead: what it says of one this big.
+            macTakesVideosAhead = false
+            show(toast: AttachmentLimits.refusal(video: name, size: size, joining: [], limits: limits) ?? refusal.message)
+            return
+        case .failure(let error):
+            // Stopped, or refused: what the Mac has of it goes now rather than after a day.
+            if let begun { Task { try? await api?.uploadAbort(uploadId: begun) } }
+            if !(error is CancellationError) { show(toast: "\(name) did not reach your Mac. \(Self.describe(error))") }
+            return
+        }
+        print("[realm] upload finished \(uploadId) \(size) bytes sha256 \(sha256)")
+        do {
+            draftAttachments[sessionId, default: []].append(try store.files.keep(copying: exported, name: name, mime: VideoPrep.mime).uploaded(as: uploadId))
+        } catch {
+            show(toast: "\(name) could not be kept on this iPhone. \(error.localizedDescription)")
+            Task { try? await api?.uploadAbort(uploadId: uploadId) }
+        }
+    }
+
+    /// Whether this Mac takes videos ahead of their message: asked once a connection, by a status of
+    /// an upload no Mac has, which a Mac from before them answers `METHOD_NOT_FOUND`. Not connected,
+    /// the last answer stands.
+    private func videosGoAhead() async -> Bool {
+        if videosAheadAsked == channelGeneration, let known = macTakesVideosAhead { return known }
+        guard let api, isConnected else { return macTakesVideosAhead ?? false }
+        do {
+            _ = try await api.uploadStatus(uploadId: "none")
+            macTakesVideosAhead = true
+        } catch ChannelError.rpc(let refusal) {
+            macTakesVideosAhead = refusal.code != "METHOD_NOT_FOUND"
+        } catch {
+            return macTakesVideosAhead ?? false
+        }
+        videosAheadAsked = channelGeneration
+        return macTakesVideosAhead ?? false
+    }
+
+    /// On cellular or Low Data Mode, as this phone's network says it now. A debug build can be told
+    /// to read every network as one (`-costlyNetwork YES`), as the simulator has no cellular.
+    private var isCostlyNetwork: Bool {
+        if LaunchOptions.costlyNetwork { return true }
+        let path = network.currentPath
+        return path.isExpensive || path.isConstrained
+    }
+
+    private func ask(_ question: CostlyUpload) async -> Bool {
+        costlyUpload = question
+        return await withCheckedContinuation { answer in costlyUploadAnswer = answer }
+    }
+
+    /// The person's answer to `costlyUpload`: send it now, or not at all.
+    func answerCostlyUpload(_ send: Bool) {
+        guard costlyUpload != nil else { return }
+        costlyUpload = nil
+        costlyUploadAnswer?.resume(returning: send)
+        costlyUploadAnswer = nil
+    }
+
+    private func exportSending(_ id: UUID, in sessionId: String) {
+        guard let index = videoExports[sessionId]?.firstIndex(where: { $0.id == id }) else { return }
+        videoExports[sessionId]?[index].sending = true
+        videoExports[sessionId]?[index].progress = 0
+    }
+
+    /// Stops a video's export, or its going ahead to the Mac: its tile goes once it has, which is at
+    /// once. What of it the Mac had is dropped there too.
     func cancelExport(_ export: VideoExport) {
         exportTasks[export.id]?.cancel()
+        uploadTasks[export.id]?.cancel()
+        if export.id == costlyUpload?.export { answerCostlyUpload(false) }
     }
 
     private func exportMoved(_ id: UUID, to share: Double, in sessionId: String) {

@@ -50,12 +50,16 @@ enum PhotoPrep {
 
 /// A video as it goes to the Mac: H.264 in an MP4, at most 1280 by 720, and without the metadata it
 /// carried — where it was filmed, and on what. The encoder lowers the bitrate to fit the Mac's limit,
-/// but not below about 1.6 megabits a second for a camera's film, which fits 8 MB up to about 40 s.
+/// but not below about 1.6 megabits a second for a camera's film, which fits 8 MB up to about 40 s
+/// and the 100 MB that goes ahead of a message past 8 minutes.
 enum VideoPrep {
     static let mime = "video/mp4"
 
-    /// The longest video sent from iPhone for now; longer ones wait on the Mac taking files in pieces.
+    /// The longest video sent with its message, to a Mac that takes none ahead of it.
     static let longest: Duration = .seconds(60)
+    /// The longest sent ahead of its message (`ChunkedUpload`): camera film at 8:00, 30 or 60 fps,
+    /// came out at 94 MB at most.
+    static let longestAhead: Duration = .seconds(480)
 
     /// Where a picked video is copied out of Photos and exported to, each file under a name of its own.
     /// Both go once the video is kept, refused or stopped, and the folder goes at launch: an app killed
@@ -186,11 +190,24 @@ enum AttachmentLimits {
         return refusal(name, size: size, joining: others, limits: limits)
     }
 
-    /// Why a video is too long to export at all: its length, and the most that goes.
-    static func refusal(videoLasting length: Duration) -> String? {
-        guard length > VideoPrep.longest else { return nil }
+    /// Why a video is too long to export at all: its length, and the most that goes. `ahead`: the Mac
+    /// takes videos ahead of their message, which go up to `VideoPrep.longestAhead`.
+    static func refusal(videoLasting length: Duration, ahead: Bool = false) -> String? {
         let pattern = Duration.TimeFormatStyle(pattern: .minuteSecond)
+        if ahead {
+            guard length > VideoPrep.longestAhead else { return nil }
+            return "This video is \(length.formatted(pattern)). Realm sends videos up to \(VideoPrep.longestAhead.formatted(pattern)) from iPhone."
+        }
+        guard length > VideoPrep.longest else { return nil }
         return "This video is \(length.formatted(pattern)). Realm sends videos up to \(VideoPrep.longest.formatted(pattern)) from iPhone for now."
+    }
+
+    /// As `refusal(video:)`, for one going ahead of its message: only its size and the message's count
+    /// of files hold it back.
+    static func refusal(videoAhead size: Int, joining others: [OutgoingAttachment], limits: SendLimits) -> String? {
+        if others.count >= limits.maxCount { return full(limits) }
+        guard size > ChunkedUpload.maxBytes else { return nil }
+        return "This video is \(megabytes(size)) after export. Realm sends up to \(megabytes(ChunkedUpload.maxBytes)) a file from iPhone."
     }
 
     /// Why nothing more can be added: what the `+` menu says under its items at the limit.
@@ -201,6 +218,24 @@ enum AttachmentLimits {
     static func megabytes(_ bytes: Int) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
     }
+}
+
+/// A video asking before it goes ahead over cellular or Low Data Mode: once, and only past `over`.
+/// Wi-Fi never asks.
+struct CostlyUpload: Identifiable, Equatable {
+    static let over = 25 * 1024 * 1024
+
+    let export: UUID
+    let sessionId: String
+    let size: Int
+    var id: UUID { export }
+
+    static func asks(size: Int, costly: Bool) -> Bool {
+        costly && size > over
+    }
+
+    var title: String { "Send \(AttachmentLimits.megabytes(size)) over cellular?" }
+    var message: String { "This video is \(AttachmentLimits.megabytes(size)), and this iPhone is on cellular or Low Data Mode. On Wi-Fi it goes without asking." }
 }
 
 /// Where something to attach comes from.
@@ -280,15 +315,18 @@ struct LocalThumbnail: View {
     }
 }
 
-/// A video being exported for a message, by how far along it is.
+/// A video being made ready for a message, by how far along it is: exported, then for one too big
+/// to go with it, sent to the Mac ahead of it.
 struct VideoExport: Identifiable, Equatable {
     let id: UUID
     var progress: Double
+    var sending = false
 }
 
-/// A video's tile while it is exported: a ring that fills as it goes.
+/// A video's tile while it is exported or sent ahead: a ring that fills as it goes.
 private struct ExportTile: View {
     let progress: Double
+    let sending: Bool
 
     var body: some View {
         ZStack {
@@ -298,8 +336,8 @@ private struct ExportTile: View {
                 .trim(from: 0, to: max(0.03, progress))
                 .stroke(Palette.ink2, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Image(systemName: "video.fill")
-                .font(.system(size: 9))
+            Image(systemName: sending ? "arrow.up" : "video.fill")
+                .font(.system(size: 9, weight: sending ? .bold : .regular))
                 .foregroundStyle(Palette.ink2)
         }
         .frame(width: 24, height: 24)
@@ -307,7 +345,7 @@ private struct ExportTile: View {
         .frame(width: AttachmentStrip.side, height: AttachmentStrip.side)
         .background(Palette.mark, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
         .accessibilityElement()
-        .accessibilityLabel("Making the video ready to send")
+        .accessibilityLabel(sending ? "Sending the video to your Mac" : "Making the video ready to send")
         .accessibilityValue(progress.formatted(.percent.precision(.fractionLength(0))))
     }
 }
@@ -438,7 +476,7 @@ struct AttachmentStrip: View {
                     }
                 }
                 ForEach(exports) { export in
-                    ExportTile(progress: export.progress)
+                    ExportTile(progress: export.progress, sending: export.sending)
                         .overlay(alignment: .topTrailing) {
                             removeButton("Stop adding the video") { cancelExport(export) }
                         }
