@@ -21,6 +21,24 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-13-2",
+    title: "Realm v2.13.2",
+    date: "2026-11-15",
+    version: "v2.13.2",
+    area: "Release",
+    summary:
+      "Two security fixes: a saved password is only typed into a field from the site it was saved for, and a remote MCP server can no longer send your header secrets on to another site.",
+    short: "Two security fixes",
+    body: [
+      { kind: "p", text: "Two security fixes, both rated Low. Each needed an unusual setup to matter, and there is nothing to do after updating." },
+      { kind: "h", text: "Security" },
+      { kind: "ul", items: [
+        "**A saved password is only typed into a field that belongs to the site it was saved for.** Realm used to check only the address of the page itself, so when a page framed content from another address on the same site, an agent filling your password could be pointed at a field inside that frame. Realm now checks the frame the field is in, and refuses a field it cannot place. Sign-in codes are checked the same way.",
+        "**A remote MCP server can no longer have Realm resend your header secrets to another site through a redirect.** The MCP SDK Realm uses to talk to these servers moves to 1.32.2, which fixes two advisories.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-13-1",
     title: "Realm v2.13.1",
     date: "2026-11-13",
