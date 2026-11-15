@@ -373,7 +373,7 @@ private struct GalleryTile: View {
 
 /// A tile's picture of a file that is not one: a video's first frame, or a document's first page, its
 /// short side covering a `side`-point square.
-private enum GalleryCover {
+enum GalleryCover {
     static func image(of url: URL, kind: GalleryKind, side: CGFloat, scale: CGFloat) async -> UIImage? {
         switch kind {
         case .video:

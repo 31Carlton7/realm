@@ -130,9 +130,10 @@ struct NewSessionSheet: View {
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     ComposerLayout(card: true) {
                         if !attachments.isEmpty || preparing > 0 {
-                            AttachmentStrip(attachments: attachments, preparing: preparing, files: model.store.files,
+                            AttachmentStrip(attachments: attachments, preparing: preparing, exports: model.videoExports[key] ?? [], files: model.store.files,
                                             open: { previewing = AttachmentStrip.previewLink($0, files: model.store.files) },
-                                            remove: { model.removeAttachment($0, from: key) })
+                                            remove: { model.removeAttachment($0, from: key) },
+                                            cancelExport: { model.cancelExport($0) })
                                 .layoutValue(key: ComposerPart.self, value: .strip)
                         }
                         TextField(agent.map { "Message \($0.name)" } ?? "Message", text: draft, axis: .vertical)

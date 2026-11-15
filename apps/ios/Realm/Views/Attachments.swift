@@ -1,3 +1,4 @@
+import AVFoundation
 import ImageIO
 import PhotosUI
 import RealmKit
@@ -47,6 +48,79 @@ enum PhotoPrep {
     }
 }
 
+/// A video as it goes to the Mac: H.264 in an MP4, at most 1280 by 720, and without the metadata it
+/// carried — where it was filmed, and on what. The encoder lowers the bitrate to fit the Mac's limit,
+/// but not below about 1.6 megabits a second for a camera's film, which fits 8 MB up to about 40 s.
+enum VideoPrep {
+    static let mime = "video/mp4"
+
+    /// The longest video sent from iPhone for now; longer ones wait on the Mac taking files in pieces.
+    static let longest: Duration = .seconds(60)
+
+    /// Where a picked video is copied out of Photos and exported to, each file under a name of its own.
+    /// Both go once the video is kept, refused or stopped, and the folder goes at launch: an app killed
+    /// mid-export leaves its copy behind.
+    static let folder = URL.temporaryDirectory.appending(path: "Videos", directoryHint: .isDirectory)
+
+    static func sweep() {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    /// The export of `movie`, asked to come out under `maxBytes`. The encoder may still go over, a
+    /// little when it lowers the bitrate and more once it cannot, so the file is measured after.
+    static func session(for movie: URL, fitting maxBytes: Int) -> AVAssetExportSession? {
+        guard let session = AVAssetExportSession(asset: AVURLAsset(url: movie), presetName: AVAssetExportPreset1280x720) else {
+            return nil
+        }
+        // A tenth under: asked for 95%, a 30 s clip came out at 98% of the limit.
+        session.fileLengthLimit = Int64(maxBytes) * 9 / 10
+        // Left alone, an export carries where it was filmed over as an MP4 `loci` atom. Setting
+        // `metadata` to none does not stop it; the filter does, and takes the phone's make and model too.
+        session.metadataItemFilter = .forSharing()
+        session.shouldOptimizeForNetworkUse = true
+        return session
+    }
+
+    /// Exports `movie` to a new file at `destination`, telling `progress` how far along it is.
+    /// Cancelling the task stops the export and leaves nothing at `destination`.
+    static func export(_ movie: URL, to destination: URL, fitting maxBytes: Int, progress: @escaping @Sendable (Double) -> Void) async throws {
+        guard let session = session(for: movie, fitting: maxBytes) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Not Sendable in the SDK, though `states` is made to be watched while `export` runs.
+        nonisolated(unsafe) let watched = session
+        let watching = Task {
+            for await state in watched.states(updateInterval: 0.1) {
+                if case .exporting(let share) = state { progress(share.fractionCompleted) }
+            }
+        }
+        defer { watching.cancel() }
+        do {
+            try await session.export(to: destination, as: .mp4)
+            try Task.checkCancellation()
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+    }
+}
+
+/// A video picked from the library, copied out of Photos into `VideoPrep.folder`: what Photos hands
+/// over is only there while it is being taken.
+struct PickedMovie: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .movie) { received in
+            try FileManager.default.createDirectory(at: VideoPrep.folder, withIntermediateDirectories: true)
+            let copy = VideoPrep.folder.appending(path: "\(UUID().uuidString).\(received.file.pathExtension)")
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return PickedMovie(url: copy)
+        }
+    }
+}
+
 /// A file from Files as it goes to the Mac: its own bytes, except a picture of a kind the Mac cannot
 /// hand an agent inline (HEIC, TIFF), which goes as a photo would.
 enum FilePrep {
@@ -69,11 +143,20 @@ enum FilePrep {
 enum AttachmentNames {
     /// "Photo.jpg", then "Photo 2.jpg" and on: a photo's name that no other file of the message has.
     static func photo(besides taken: [OutgoingAttachment]) -> String {
+        numbered("Photo", "jpg", besides: taken)
+    }
+
+    /// "Video.mp4", then "Video 2.mp4" and on, as a photo's.
+    static func video(besides taken: [OutgoingAttachment]) -> String {
+        numbered("Video", "mp4", besides: taken)
+    }
+
+    private static func numbered(_ stem: String, _ ext: String, besides taken: [OutgoingAttachment]) -> String {
         let names = Set(taken.map(\.name))
-        if !names.contains("Photo.jpg") { return "Photo.jpg" }
+        if !names.contains("\(stem).\(ext)") { return "\(stem).\(ext)" }
         var number = 2
-        while names.contains("Photo \(number).jpg") { number += 1 }
-        return "Photo \(number).jpg"
+        while names.contains("\(stem) \(number).\(ext)") { number += 1 }
+        return "\(stem) \(number).\(ext)"
     }
 
     /// The name a picture made a JPEG goes by: "IMG_0412.HEIC" becomes "IMG_0412.jpg".
@@ -94,6 +177,22 @@ enum AttachmentLimits {
         return nil
     }
 
+    /// As `refusal`, but a video too big says how big it came out: it was made smaller already, and
+    /// longer ones wait on the Mac taking more.
+    static func refusal(video name: String, size: Int, joining others: [OutgoingAttachment], limits: SendLimits) -> String? {
+        if others.count < limits.maxCount, size > limits.maxBytes {
+            return "This video is \(megabytes(size)) after export. Realm sends up to \(megabytes(limits.maxBytes)) a file from iPhone for now."
+        }
+        return refusal(name, size: size, joining: others, limits: limits)
+    }
+
+    /// Why a video is too long to export at all: its length, and the most that goes.
+    static func refusal(videoLasting length: Duration) -> String? {
+        guard length > VideoPrep.longest else { return nil }
+        let pattern = Duration.TimeFormatStyle(pattern: .minuteSecond)
+        return "This video is \(length.formatted(pattern)). Realm sends videos up to \(VideoPrep.longest.formatted(pattern)) from iPhone for now."
+    }
+
     /// Why nothing more can be added: what the `+` menu says under its items at the limit.
     static func full(_ limits: SendLimits) -> String {
         "Up to \(limits.maxCount) files in one message."
@@ -107,6 +206,7 @@ enum AttachmentLimits {
 /// Where something to attach comes from.
 enum AttachmentSource: Sendable {
     case library(PhotosPickerItem)
+    case video(PhotosPickerItem)
     case camera(UIImage)
     case file(URL)
 }
@@ -180,6 +280,81 @@ struct LocalThumbnail: View {
     }
 }
 
+/// A video being exported for a message, by how far along it is.
+struct VideoExport: Identifiable, Equatable {
+    let id: UUID
+    var progress: Double
+}
+
+/// A video's tile while it is exported: a ring that fills as it goes.
+private struct ExportTile: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Palette.line, lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: max(0.03, progress))
+                .stroke(Palette.ink2, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Image(systemName: "video.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(Palette.ink2)
+        }
+        .frame(width: 24, height: 24)
+        .animation(.linear(duration: 0.1), value: progress)
+        .frame(width: AttachmentStrip.side, height: AttachmentStrip.side)
+        .background(Palette.mark, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+        .accessibilityElement()
+        .accessibilityLabel("Making the video ready to send")
+        .accessibilityValue(progress.formatted(.percent.precision(.fractionLength(0))))
+    }
+}
+
+/// A video on this phone as a tile: a frame from it, and how long it runs.
+struct VideoThumbnail: View {
+    let url: URL
+    let side: CGFloat
+    @Environment(\.displayScale) private var displayScale
+    @State private var frame: UIImage?
+    @State private var duration: Duration?
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(Palette.mark)
+            if let frame {
+                Image(uiImage: frame)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipped()
+        .overlay(alignment: .bottomLeading) {
+            if let duration {
+                Text(duration.formatted(.time(pattern: .minuteSecond)))
+                    .font(.caption2.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: frame != nil)
+        .task(id: url) {
+            frame = await GalleryCover.image(of: url, kind: .video, side: side, scale: displayScale)
+            if let length = try? await AVURLAsset(url: url).load(.duration) {
+                duration = .seconds(length.seconds.rounded())
+            }
+        }
+    }
+}
+
 /// A file that is not a picture, as one line: its kind's glyph, its name, and its size where known.
 struct AttachmentChip: View {
     let name: String
@@ -218,12 +393,14 @@ struct AttachmentStrip: View {
     var tabs: [DraftTab] = []
     /// The quiet line of each pane the space has, for telling apart those of one name.
     var tabLines: [String: String] = [:]
-    /// Picked, and still being read or made smaller.
+    /// Picked, and still being read or made smaller: the videos being exported among them.
     let preparing: Int
+    var exports: [VideoExport] = []
     let files: OutboxFiles
     let open: (OutgoingAttachment) -> Void
     let remove: (OutgoingAttachment) -> Void
     var removeTab: (DraftTab) -> Void = { _ in }
+    var cancelExport: (VideoExport) -> Void = { _ in }
 
     static let side: CGFloat = 56
 
@@ -257,20 +434,16 @@ struct AttachmentStrip: View {
                     .accessibilityLabel(attachment.name)
                     .accessibilityHint("Opens a preview")
                     .overlay(alignment: .topTrailing) {
-                        Button { remove(attachment) } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 20))
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .black.opacity(0.62))
-                                .frame(width: 32, height: 32)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .offset(x: 10, y: -10)
-                        .accessibilityLabel("Remove \(attachment.name)")
+                        removeButton("Remove \(attachment.name)") { remove(attachment) }
                     }
                 }
-                ForEach(0..<preparing, id: \.self) { _ in
+                ForEach(exports) { export in
+                    ExportTile(progress: export.progress)
+                        .overlay(alignment: .topTrailing) {
+                            removeButton("Stop adding the video") { cancelExport(export) }
+                        }
+                }
+                ForEach(0..<max(0, preparing - exports.count), id: \.self) { _ in
                     ProgressView()
                         .frame(width: Self.side, height: Self.side)
                         .background(Palette.mark, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
@@ -295,10 +468,27 @@ struct AttachmentStrip: View {
         .scrollClipDisabled()
     }
 
+    private func removeButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 20))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, .black.opacity(0.62))
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .offset(x: 10, y: -10)
+        .accessibilityLabel(label)
+    }
+
     @ViewBuilder
     private func tile(_ attachment: OutgoingAttachment) -> some View {
         if attachment.isImage {
             LocalThumbnail(url: files.url(of: attachment), side: Self.side)
+                .pictureTile()
+        } else if attachment.isVideo {
+            VideoThumbnail(url: files.url(of: attachment), side: Self.side)
                 .pictureTile()
         } else {
             AttachmentChip(name: attachment.name, size: attachment.size)
@@ -309,8 +499,8 @@ struct AttachmentStrip: View {
 }
 
 /// The files that went with a message, under it: pictures as tiles the Mac sends small copies of, as
-/// a turn's made files are drawn, and other files as chips. A tap on one, or a swipe right across them,
-/// opens them all in the gallery.
+/// a turn's made files are drawn, videos as a frame and their length, and other files as chips. A tap
+/// on one, or a swipe right across them, opens them all in the gallery.
 struct SentFiles: View {
     let files: [SentFile]
     let sessionId: String
@@ -318,14 +508,18 @@ struct SentFiles: View {
 
     var body: some View {
         let pages = GalleryPages(files)
-        let pictures = files.filter(\.isImage)
-        let others = files.filter { !$0.isImage }
+        let pictures = files.filter { $0.isImage || $0.isVideo }
+        let others = files.filter { !$0.isImage && !$0.isVideo }
         VStack(alignment: .trailing, spacing: 6) {
             if !pictures.isEmpty {
                 TrailingFlow(spacing: 6) {
                     ForEach(pictures, id: \.path) { file in
                         Button { opening = GalleryOpening(page: pages.page(of: file)) } label: {
-                            SentPicture(file: file, sessionId: sessionId)
+                            if file.isVideo {
+                                SentVideo(file: file, sessionId: sessionId)
+                            } else {
+                                SentPicture(file: file, sessionId: sessionId)
+                            }
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(file.name)
@@ -352,6 +546,12 @@ struct SentFiles: View {
 
 extension SentFile: @retroactive Identifiable {
     public var id: String { path }
+
+    var isVideo: Bool { mime.hasPrefix("video/") }
+}
+
+extension OutgoingAttachment {
+    var isVideo: Bool { mime.hasPrefix("video/") }
 }
 
 /// The files of a message still on its way, under it as they will be once the Mac has it, drawn from
@@ -362,18 +562,25 @@ struct OutgoingFiles: View {
     @ScaledMetric(relativeTo: .body) private var side: CGFloat = SentPicture.side
 
     var body: some View {
-        let pictures = attachments.filter(\.isImage)
+        let pictures = attachments.filter { $0.isImage || $0.isVideo }
+        let tile = min(side, SentPicture.largest)
         VStack(alignment: .trailing, spacing: 6) {
             if !pictures.isEmpty {
                 TrailingFlow(spacing: 6) {
                     ForEach(pictures) { attachment in
-                        LocalThumbnail(url: files.url(of: attachment), side: min(side, SentPicture.largest))
-                            .pictureTile()
-                            .accessibilityLabel(attachment.name)
+                        Group {
+                            if attachment.isVideo {
+                                VideoThumbnail(url: files.url(of: attachment), side: tile)
+                            } else {
+                                LocalThumbnail(url: files.url(of: attachment), side: tile)
+                            }
+                        }
+                        .pictureTile()
+                        .accessibilityLabel(attachment.name)
                     }
                 }
             }
-            ForEach(attachments.filter { !$0.isImage }) { attachment in
+            ForEach(attachments.filter { !$0.isImage && !$0.isVideo }) { attachment in
                 AttachmentChip(name: attachment.name, size: attachment.size)
                     .background(Fill.bubble, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
             }
@@ -415,6 +622,37 @@ struct SentPicture: View {
         .animation(.easeOut(duration: 0.2), value: thumbnail != nil)
         // Asked again once the Mac is there: a transcript kept from before draws before it connects.
         .task(id: model.isConnected) { await model.loadThumbnail(file.path, in: sessionId, side: side * displayScale) }
+    }
+}
+
+/// A video sent with a message: a frame from it and how long it runs, drawn from the file itself once
+/// this phone has it, which is the one the gallery plays. Until then, its kind's glyph.
+struct SentVideo: View {
+    let file: SentFile
+    let sessionId: String
+    @Environment(AppModel.self) private var model
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = SentPicture.side
+    @State private var kept: URL?
+
+    var body: some View {
+        let side = min(self.side, SentPicture.largest)
+        Group {
+            if let kept {
+                VideoThumbnail(url: kept, side: side)
+            } else {
+                Image(systemName: "video")
+                    .font(.title3)
+                    .foregroundStyle(Palette.ink3)
+                    .frame(width: side, height: side)
+                    .background(Fill.bubble)
+            }
+        }
+        .pictureTile()
+        // Asked again once the Mac is there: a transcript kept from before draws before it connects.
+        .task(id: model.isConnected) {
+            guard kept == nil else { return }
+            kept = try? await model.wholeFile(file.path, name: file.name, in: .session(sessionId)) { _ in }
+        }
     }
 }
 
