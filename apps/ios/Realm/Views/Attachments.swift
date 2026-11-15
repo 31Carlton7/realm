@@ -338,9 +338,11 @@ struct VideoThumbnail: View {
                     .font(.caption2.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.6), radius: 2)
                     .padding(.horizontal, 5)
-                    .padding(.vertical, 4)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
             }
         }
         .animation(.easeOut(duration: 0.2), value: frame != nil)
