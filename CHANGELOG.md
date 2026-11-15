@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.13.2 - 2026-11-15
+
+Two security fixes, both rated Low. Each needed an unusual setup to matter, and there is nothing to do after updating.
+
+- A saved password is only typed into a field that belongs to the site it was saved for. Realm used to check only the address of the page itself, so when a page framed content from another address on the same site, an agent filling your password could be pointed at a field inside that frame. Realm now checks the frame the field is in, and refuses a field it cannot place. Sign-in codes are checked the same way.
+- A remote MCP server can no longer have Realm resend your header secrets to another site through a redirect. The MCP SDK Realm uses to talk to these servers moves to 1.32.2, which fixes two advisories.
+
 ## v2.13.1 - 2026-11-13
 
 - An agent can no longer approve its own permission cards or switch off the sandbox through Realm's local socket. The token in `~/Realm/daemon.json` used to open every method Realm's server has, and an agent running with the sandbox off could read that file. That token now opens only what the `realm` command line itself needs, and the app keeps the full one to itself, in no file, command line or environment. There is nothing to do after updating.
