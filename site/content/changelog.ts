@@ -21,6 +21,25 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-13-3",
+    title: "Realm v2.13.3",
+    date: "2026-11-15",
+    version: "v2.13.3",
+    area: "Release",
+    summary:
+      "Realm quits when a signal or a macOS log out, restart or shut down tells it to, instead of staying in the menu bar.",
+    short: "Realm quits when the system tells it to",
+    body: [
+      { kind: "h", text: "Quitting" },
+      { kind: "ul", items: [
+        "**Realm quits when the system or a signal tells it to.** `kill`, Ctrl-C in the terminal that started Realm, and a macOS log out, restart or shut down all used to leave it running in the menu bar.",
+        "**A signal exits the app and leaves the server and its agents running,** and the next launch picks them up.",
+        "**A log out, restart or shut down stops the server and its agents, then exits,** without asking, the way the menu bar's Quit Realm & stop agents does.",
+        "**⌘Q, the menu's Quit and closing the last window still keep Realm in the menu bar.**",
+      ] },
+    ],
+  },
+  {
     slug: "v2-13-2",
     title: "Realm v2.13.2",
     date: "2026-11-15",
