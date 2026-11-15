@@ -30,12 +30,13 @@ export const entries: Entry[] = [
       "Realm quits when a signal or a macOS log out, restart or shut down tells it to, instead of staying in the menu bar.",
     short: "Realm quits when the system tells it to",
     body: [
+      { kind: "p", text: "One fix: Realm now quits when the system or a signal tells it to." },
       { kind: "h", text: "Quitting" },
       { kind: "ul", items: [
-        "**Realm quits when the system or a signal tells it to.** `kill`, Ctrl-C in the terminal that started Realm, and a macOS log out, restart or shut down all used to leave it running in the menu bar.",
-        "**A signal exits the app and leaves the server and its agents running,** and the next launch picks them up.",
-        "**A log out, restart or shut down stops the server and its agents, then exits,** without asking, the way the menu bar's Quit Realm & stop agents does.",
-        "**⌘Q, the menu's Quit and closing the last window still keep Realm in the menu bar.**",
+        "**`kill`, Ctrl-C in the terminal that started it, and a macOS log out, restart or shut down all used to leave Realm running in the menu bar,** because every quit was treated as \"keep running in the menu bar\".",
+        "**A signal (SIGTERM, SIGINT or SIGHUP) now exits the app** and leaves the server and its agents running, so the next launch picks them up where they were.",
+        "**At a log out, restart or shut down, Realm stops its server and its agents first and then exits,** without asking. A clean stop takes well under a second. If the server does not answer, Realm waits up to about 24 seconds before giving up on it.",
+        "**Cmd-Q, Quit in the menu and closing the last window are unchanged:** Realm stays in the menu bar, as before.",
       ] },
     ],
   },
