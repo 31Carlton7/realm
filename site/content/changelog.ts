@@ -30,10 +30,11 @@ export const entries: Entry[] = [
       "Two security fixes: a saved password is only typed into a field from the site it was saved for, and a remote MCP server can no longer send your header secrets on to another site.",
     short: "Two security fixes",
     body: [
+      { kind: "p", text: "Two security fixes, both rated Low. Each needed an unusual setup to matter, and there is nothing to do after updating." },
       { kind: "h", text: "Security" },
       { kind: "ul", items: [
-        "**A saved password is only typed into a field that belongs to the site it was saved for.** Realm checked the page's address but not the frame the field sat in, so a frame from another origin on the same site, such as a page of user content embedded in a sign-in page, could receive it. A field in such a frame is now refused before Touch ID is asked, and sign-in codes are checked the same way. Using it needed a page that embeds that kind of frame and an agent asking to fill into it.",
-        "**A remote MCP server can no longer have Realm resend your header secrets to another site.** A server you added, or an open redirect on one, could redirect Realm's requests to another site, and the headers you set for that server, such as an API key, went along. The MCP SDK moves to 1.32.2, which does not send them across. Using it needed a server you had added to redirect elsewhere.",
+        "**A saved password is only typed into a field that belongs to the site it was saved for.** Realm used to check only the address of the page itself, so when a page framed content from another address on the same site, an agent filling your password could be pointed at a field inside that frame. Realm now checks the frame the field is in, and refuses a field it cannot place. Sign-in codes are checked the same way.",
+        "**A remote MCP server can no longer have Realm resend your header secrets to another site through a redirect.** The MCP SDK Realm uses to talk to these servers moves to 1.32.2, which fixes two advisories.",
       ] },
     ],
   },
