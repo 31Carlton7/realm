@@ -19,7 +19,7 @@ import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
-import { confirmQuitCopy, decideQuit } from "./quit-policy";
+import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { BROWSER_KEEP_HIDDEN_DEFAULT, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
@@ -2267,7 +2267,22 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
+/** The quits that must not end in the menu bar: a signal, and macOS logging out or shutting down.
+ *  Both reach `before-quit` as the same `app.quit()` as ⌘Q, so they set the flags first. */
+function quitWhenTold() {
+  quitOnSignals(process, (signal) => {
+    console.error(`[quit] ${signal}`);
+    ({ quittingForReal, detachOnQuit } = quitFlagsFor("signal"));
+    // A server this process owns (the non-daemon shape) goes with it; a daemon is left to the next launch.
+    serverChild?.kill("SIGTERM");
+    app.quit();
+  });
+  // Posted before macOS sends the quit itself, which then reaches `before-quit` with these set.
+  powerMonitor.on("shutdown", () => { ({ quittingForReal, detachOnQuit } = quitFlagsFor("system-shutdown")); });
+}
+
 app.whenReady().then(async () => {
+  quitWhenTold();
   try {
     // Nothing Realm draws asks for the camera, and nothing it shows may: the camera grant is the
     // phone's picture's (capture-guard.ts says why), and the browser partition refuses the same. The
@@ -2686,8 +2701,9 @@ app.on("before-quit", (e) => {
   closingAll = true;
   // `quitAndInstall` calls `app.quit()` once its windows are closed, so an update restart arrives here
   // too, after `before-quit-for-update` — and must not go on to stop the daemon.
-  if (detachOnQuit) { detachFromDaemon(); return; }
-  if (decideQuit({ trigger: "quit", working: 0 }).kind === "go-resident" && !quittingForReal) {
+  const step = beforeQuitStep({ quittingForReal, detachOnQuit });
+  if (step === "detach") { detachFromDaemon(); return; }
+  if (step === "go-resident") {
     e.preventDefault();
     for (const w of BrowserWindow.getAllWindows()) w.close();
     goResident();
