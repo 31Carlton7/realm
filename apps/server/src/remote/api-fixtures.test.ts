@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -35,6 +36,8 @@ const WRITE = process.env.REALM_WRITE_FIXTURES === "1";
 const DECK = "/Users/me/Desktop/Deck";
 /** Where the Realm home that took the files sent from a phone is said to be. */
 const HOME = "/Users/me/Realm";
+/** The upload the Mac named, whatever id this run made. */
+const UPLOAD = "6b1f0c9e2d4a4f8e9a3c5d7e1f2a4b6c";
 
 const S = "01JSESSION00000000000000000";
 const CODEX = "01JCODEX000000000000000000";
@@ -560,8 +563,15 @@ async function generate(): Promise<Record<string, unknown>> {
     "tabs.preview": ((p: { tab: { itemId: string; kind: "browser"; title: string } }) => ({ ...p.tab, url: "http://localhost:4000/docs", bytes: 18_432, truncated: false })) as never,
     "mentions.files": (() => ({ hits: [{ path: "src/theme.ts", score: 12, marks: [] }, { path: "apps/ios/Realm/Theme/Palette.swift", score: 7, marks: [] }], truncated: false, source: "git" })) as never,
   });
-  const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, userHome: "/Users/me", dev: false, downscale: async () => Buffer.from("jpeg") });
+  const api = new MobileApi({
+    macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, userHome: "/Users/me", dev: false, downscale: async () => Buffer.from("jpeg"),
+    freeBytes: async () => 64 * 1024 ** 3,
+  });
   const call = (method: string, params: unknown) => api.handle(channel(rpc), method, params);
+  // A video sent ahead of its message: begun, its first chunk of two in, and how far it has come.
+  const video = Buffer.from("\0\0\0\x10ftypmp42\0\0\0\0moov", "latin1");
+  const begun = await call("session.uploadBegin", { size: video.length, sha256: createHash("sha256").update(video).digest("hex"), mime: "video/mp4" }) as { uploadId: string };
+  const chunked = await call("session.uploadChunk", { uploadId: begun.uploadId, offset: 0, data: video.subarray(0, 16).toString("base64") });
   // A frame is the JPEG `sips` makes at the side asked for — here its header alone, which keeps the file
   // small — taken at a clock held still, so the file is the same each time it is made.
   const frames = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, dev: false,
@@ -678,6 +688,9 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.switchAgent": await call("session.switchAgent", { id: OLDER[4]!, agent: "codex", model: "gpt-6-astra" }),
       "session.moveToSpace": await call("session.moveToSpace", { id: OLDER[0]!, spaceId: "sp2" }),
       "session.fork": await call("session.fork", { id: S }),
+      "session.uploadBegin": begun,
+      "session.uploadChunk": chunked,
+      "session.uploadStatus": await call("session.uploadStatus", { uploadId: begun.uploadId }),
     },
     events: {
       "session.hint": [{ id: S, text: "Approve the plan and run the migration" }, { id: S, text: null }],
@@ -697,7 +710,7 @@ async function generate(): Promise<Record<string, unknown>> {
       values: normalizeAnswers(card, answers),
     },
   };
-  return JSON.parse(JSON.stringify(fixture).replaceAll(dir, DECK).replaceAll(home, HOME).replaceAll(basename(dir), "Deck")) as Record<string, unknown>;
+  return JSON.parse(JSON.stringify(fixture).replaceAll(begun.uploadId, UPLOAD).replaceAll(dir, DECK).replaceAll(home, HOME).replaceAll(basename(dir), "Deck")) as Record<string, unknown>;
 }
 
 describe("mobile.v1 fixtures for RealmKit (PROTOCOL.md §9)", () => {
@@ -737,6 +750,7 @@ describe("mobile.v1 fixtures for RealmKit (PROTOCOL.md §9)", () => {
     // These answer `{ok: true}`, `{at}` or `{id}`: there is nothing in them for a phone to decode wrongly.
     const plain = ["ping", "session.close", "session.send", "session.answer", "session.stop", "session.seen", "session.create", "debug.report",
       "session.sendQueuedNow", "session.removeQueued", "session.holdQueued", "session.editQueued", "session.goal", "session.delete",
+      "session.uploadFinish", "session.uploadAbort",
       // Review went with the first Teams: these answer only that a review is not found.
       "review.get", "review.decide", "review.file"];
     expect(Object.keys(MobileCalls).filter((m) => !plain.includes(m) && !calls.has(m))).toEqual([]);

@@ -556,7 +556,12 @@ else keeps its own name, whatever it looks like.
 | `schedules.update` | `{id, spaceId?, title?, goal?, cron?, enabled?, agent?, model?, effort?, newSessionPerRun?, archiveSucceeded?}` | `{task: ScheduledTask}` |
 | `schedules.delete` | `{id}` | `{deleted: bool}` |
 | `teammate.checkIn` | `{id, schedule: {cron?, prompt?, enabled?}\|null}` | `{task: ScheduledTask\|null}` |
-| `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload], mentionRefs?: [MentionRef], tabs?: [TabRef]}` | `{ok: true}` |
+| `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload], mentionRefs?: [MentionRef], tabs?: [TabRef], uploads?: [uploadId]}` | `{ok: true}` |
+| `session.uploadBegin` | `{size, sha256, mime: "video/mp4"}` | `{uploadId, size, received: 0}` |
+| `session.uploadChunk` | `{uploadId, offset, data}` | `{received}` |
+| `session.uploadFinish` | `{uploadId}` | `{ok: true}` |
+| `session.uploadStatus` | `{uploadId}` | `{uploadId, size, received, finished: bool}` |
+| `session.uploadAbort` | `{uploadId}` | `{ok: true}` |
 | `session.composer` | `{id}` | `{commands: [UserCommand], skills: [{id, name, description}]}` |
 | `session.mentionFiles` | `{id, query?: string = ""}` | `{files: [{path, rel}]}` |
 | `session.tabs` | `{id}` | `{tabs: [{itemId, kind, title, url?, path?, cwd?, program?}]}` |
@@ -730,6 +735,33 @@ leaves nothing behind. What it is not given is the Mac's own default. `agents.li
 the desktop's "+" would reach for (the agent last chosen, else Claude).
 
 A phone offers files only to a Mac that answers `session.options`: an older Mac would drop them.
+
+**A video too big to go with its message goes ahead of it**, a chunk at a time, and the message names
+it in `uploads`. A Mac before these calls answers `session.uploadBegin` with `METHOD_NOT_FOUND`, and the
+phone keeps to `Limits`.
+
+```
+UPLOAD_LIMITS { maxBytes: 100 MB, chunkBytes: 512 KB, maxOpen: 2, maxOpenBytes: 200 MB }   in bytes
+```
+
+- **`session.uploadBegin`** declares the video: its `size`, at most `maxBytes`, and the SHA-256 of its
+  bytes. The Mac makes the `uploadId`, and the file's name; nothing the phone sends names a path. It is
+  refused (`INVALID_PARAMS`) when the phone has `maxOpen` uploads unfinished already, when its uploads
+  not yet sent with a message would come to more than `maxOpenBytes`, or when the Mac's disk has less
+  than twice `size` and a gigabyte free.
+- **`session.uploadChunk`** writes the next chunk, base64, to `<home>/tmp/uploads/<uploadId>.part`. It
+  must start at `received`, be at most `chunkBytes`, and not take the file past `size`. A phone may have
+  four in flight: the Mac takes an upload's chunks one at a time, in the order they came. A chunk
+  refused leaves the upload as it was.
+- **`session.uploadStatus`** says how far an upload has come: what a phone goes on from after its
+  connection dropped, from `received`.
+- **`session.uploadFinish`** checks the file whole: every byte of `size` in, an MP4 (its `ftyp` box), and
+  the SHA-256 declared. One with bytes to come is refused and stays; one that is not an MP4, or not what
+  was declared, is refused and deleted. A finished video moves to `<home>/tmp/attachments/<random>-Video.mp4`.
+- **`session.send`'s `uploads`** names at most one finished video, which counts toward `maxCount`. Sent,
+  it is the message's file, as a pasted one is, and its upload is gone.
+- **`session.uploadAbort`** drops the upload and its file. An upload not sent is swept after a day.
+- An `uploadId` this Mac did not make for this phone, or one aborted, swept or sent, is `NOT_FOUND`.
 
 **Needs you is the desktop's.** `home.get`'s `needsYou` is the sidebar's own rule, `needsYou` in
 `@realm/view`, run on the lists the sidebar is seeded from: `sessions.listAll`, `items.listAll`,
@@ -1250,6 +1282,9 @@ phone read, and what bounds it:
 - **`session.send`** and **`session.create`**: they write a phone's files, and only into the Realm
   home's `tmp/attachments`, under names the Mac makes. A folder there that is a link elsewhere is not
   written through. The phone names no path.
+- **`session.uploadBegin`** … **`session.uploadAbort`**: they write one phone's videos into the Realm
+  home's `tmp/uploads` under ids the Mac makes, and read back only how far each has come. Another
+  phone's uploads are not found.
 - **`session.options`**, **`session.configure`** and **`agents.list`**: the agents, models, levels,
   modes and rungs the desktop's pickers offer, and what three settings decide for a phone: what a
   message typed mid-turn does (`sessions.midTurnMode`), the rung Build goes back to

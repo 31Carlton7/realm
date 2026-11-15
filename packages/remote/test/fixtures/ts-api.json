@@ -5395,6 +5395,20 @@
         "activityAt": 1790000600000,
         "pinned": false
       }
+    },
+    "session.uploadBegin": {
+      "uploadId": "6b1f0c9e2d4a4f8e9a3c5d7e1f2a4b6c",
+      "size": 20,
+      "received": 0
+    },
+    "session.uploadChunk": {
+      "received": 16
+    },
+    "session.uploadStatus": {
+      "uploadId": "6b1f0c9e2d4a4f8e9a3c5d7e1f2a4b6c",
+      "size": 20,
+      "received": 16,
+      "finished": false
     }
   },
   "events": {
