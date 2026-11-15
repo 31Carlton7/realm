@@ -125,6 +125,9 @@ final class AppModel {
     private(set) var draftAttachments: [String: [OutgoingAttachment]] = [:]
     /// Picked for a session's composer, and still being read or made smaller.
     private(set) var preparingAttachments: [String: Int] = [:]
+    /// The videos among them being exported, by how far along each is.
+    private(set) var videoExports: [String: [VideoExport]] = [:]
+    @ObservationIgnored private var exportTasks: [UUID: Task<Void, any Error>] = [:]
     /// Each session's settings and what they could be, as its Mac last said: what the composer's chips
     /// show. Asked when the session opens, and again when its settings sheet does.
     private(set) var sessionOptions: [String: SessionOptions] = [:]
@@ -1122,10 +1125,18 @@ final class AppModel {
         guard let limits = limits ?? sessionOptions[sessionId]?.attachments, !sources.isEmpty else { return }
         preparingAttachments[sessionId, default: 0] += sources.count
         for source in sources {
+            if case .video(let item) = source {
+                if let movie = try? await item.loadTransferable(type: PickedMovie.self) {
+                    await attachVideo(at: movie.url, to: sessionId, limits: limits)
+                } else {
+                    show(toast: "That video could not be read.")
+                }
+                prepared(one: sessionId)
+                continue
+            }
             let name = AttachmentNames.photo(besides: draftAttachments[sessionId] ?? [])
             let outcome = await Task.detached(priority: .userInitiated) { await Self.prepare(source, photoName: name, limits: limits) }.value
-            let left = (preparingAttachments[sessionId] ?? 1) - 1
-            preparingAttachments[sessionId] = left > 0 ? left : nil
+            prepared(one: sessionId)
             let prepared: PreparedFile
             switch outcome {
             case .success(let file): prepared = file
@@ -1144,6 +1155,66 @@ final class AppModel {
                 show(toast: "\(prepared.name) could not be kept on this iPhone. \(error.localizedDescription)")
             }
         }
+    }
+
+    private func prepared(one sessionId: String) {
+        let left = (preparingAttachments[sessionId] ?? 1) - 1
+        preparingAttachments[sessionId] = left > 0 ? left : nil
+    }
+
+    /// A video copied out of Photos, exported to a small MP4 while its tile shows how far along it is,
+    /// then kept as a photo is. One still too big to send is refused by its size after export, before
+    /// any of it is kept; taking its tile out stops the export. Either way `movie` goes, and so does
+    /// anything the export left.
+    func attachVideo(at movie: URL, to sessionId: String, limits: SendLimits) async {
+        let id = UUID()
+        let exported = VideoPrep.folder.appending(path: "\(id.uuidString).mp4")
+        videoExports[sessionId, default: []].append(VideoExport(id: id, progress: 0))
+        let export = Task.detached(priority: .userInitiated) { [weak self] in
+            try await VideoPrep.export(movie, to: exported) { share in
+                Task { @MainActor in self?.exportMoved(id, to: share, in: sessionId) }
+            }
+        }
+        exportTasks[id] = export
+        let outcome = await export.result
+        exportTasks[id] = nil
+        endExport(id, in: sessionId)
+        try? FileManager.default.removeItem(at: movie)
+        guard case .success = outcome, !export.isCancelled else {
+            try? FileManager.default.removeItem(at: exported)
+            if !export.isCancelled { show(toast: "That video could not be made ready to send.") }
+            return
+        }
+        let name = AttachmentNames.video(besides: draftAttachments[sessionId] ?? [])
+        let size = (try? exported.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        if let refusal = AttachmentLimits.refusal(video: name, size: size, joining: draftAttachments[sessionId] ?? [], limits: limits) {
+            try? FileManager.default.removeItem(at: exported)
+            show(toast: refusal)
+            return
+        }
+        // Written anew rather than moved: the simulator refuses complete protection on the file the
+        // export wrote ("Operation not permitted"), and under the limit it is a few megabytes.
+        defer { try? FileManager.default.removeItem(at: exported) }
+        do {
+            draftAttachments[sessionId, default: []].append(try store.files.keep(Data(contentsOf: exported), name: name, mime: VideoPrep.mime))
+        } catch {
+            show(toast: "\(name) could not be kept on this iPhone. \(error.localizedDescription)")
+        }
+    }
+
+    /// Stops a video's export: its tile goes once the export has, which is at once.
+    func cancelExport(_ export: VideoExport) {
+        exportTasks[export.id]?.cancel()
+    }
+
+    private func exportMoved(_ id: UUID, to share: Double, in sessionId: String) {
+        guard let index = videoExports[sessionId]?.firstIndex(where: { $0.id == id }) else { return }
+        videoExports[sessionId]?[index].progress = share
+    }
+
+    private func endExport(_ id: UUID, in sessionId: String) {
+        videoExports[sessionId]?.removeAll { $0.id == id }
+        if videoExports[sessionId]?.isEmpty == true { videoExports[sessionId] = nil }
     }
 
     /// What other apps shared into Realm, each into the composer it was shared to: a session's, or the
@@ -1276,6 +1347,9 @@ final class AppModel {
                 return .failure(Refusal(words: "That photo could not be read."))
             }
             return .success(PreparedFile(data: jpeg, name: photoName, mime: "image/jpeg"))
+        case .video:
+            // `attach` exports a video itself (`attachVideo`), so its tile can show how far along it is.
+            return .failure(Refusal(words: "That video could not be read."))
         case .camera(let image):
             guard let jpeg = PhotoPrep.jpeg(image) else { return .failure(Refusal(words: "That photo could not be read.")) }
             return .success(PreparedFile(data: jpeg, name: photoName, mime: "image/jpeg"))

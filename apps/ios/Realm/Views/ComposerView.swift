@@ -132,13 +132,15 @@ struct ComposerView: View {
         // model and mode, and the one button — so the model a message goes to is never a tap away.
         ComposerLayout(card: true) {
             if !attachments.isEmpty || preparing > 0 || !tabs.isEmpty {
-                AttachmentStrip(attachments: attachments, tabs: tabs, tabLines: SpaceTab.lines(model.spaceTabs[sessionId] ?? []), preparing: preparing, files: model.store.files,
+                AttachmentStrip(attachments: attachments, tabs: tabs, tabLines: SpaceTab.lines(model.spaceTabs[sessionId] ?? []), preparing: preparing,
+                                exports: model.videoExports[sessionId] ?? [], files: model.store.files,
                                 open: { attachment in
                                     refocus = focused.wrappedValue
                                     previewing = AttachmentStrip.previewLink(attachment, files: model.store.files)
                                 },
                                 remove: { model.removeAttachment($0, from: sessionId) },
-                                removeTab: { model.removeTab($0.id, from: sessionId) })
+                                removeTab: { model.removeTab($0.id, from: sessionId) },
+                                cancelExport: { model.cancelExport($0) })
                     .layoutValue(key: ComposerPart.self, value: .strip)
                     .transition(.opacity)
             }
@@ -431,7 +433,8 @@ enum AttachmentPick {
 
 extension View {
     /// The photo library, the camera and Files, each presented while `pick` names it, with what was
-    /// picked handed to `attach`. The library offers as many photos as `room` leaves, and at least one.
+    /// picked handed to `attach`. The library offers as many photos and videos as `room` leaves, and at
+    /// least one.
     func attachmentPickers(_ pick: Binding<AttachmentPick?>, room: Int, attach: @escaping ([AttachmentSource]) -> Void) -> some View {
         modifier(AttachmentPickers(pick: pick, room: room, attach: attach))
     }
@@ -445,11 +448,13 @@ private struct AttachmentPickers: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .photosPicker(isPresented: shown(.photos), selection: $picked, maxSelectionCount: max(1, room), matching: .images)
+            .photosPicker(isPresented: shown(.photos), selection: $picked, maxSelectionCount: max(1, room), matching: .any(of: [.images, .videos]))
             .onChange(of: picked) { _, items in
                 guard !items.isEmpty else { return }
                 picked = []
-                attach(items.map(AttachmentSource.library))
+                attach(items.map { item in
+                    item.supportedContentTypes.contains { $0.conforms(to: .movie) } ? AttachmentSource.video(item) : .library(item)
+                })
             }
             .fullScreenCover(isPresented: shown(.camera)) {
                 CameraPicker { image in
