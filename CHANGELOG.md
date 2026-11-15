@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.13.3 - 2026-11-15
+
+One fix: Realm now quits when the system or a signal tells it to.
+
+- `kill`, Ctrl-C in the terminal that started it, and a macOS log out, restart or shut down all used to leave Realm running in the menu bar, because every quit was treated as "keep running in the menu bar".
+- A signal (SIGTERM, SIGINT or SIGHUP) now exits the app and leaves the server and its agents running, so the next launch picks them up where they were.
+- At a log out, restart or shut down, Realm stops its server and its agents first and then exits, without asking. A clean stop takes well under a second. If the server does not answer, Realm waits up to about 24 seconds before giving up on it.
+- Cmd-Q, Quit in the menu and closing the last window are unchanged: Realm stays in the menu bar, as before.
+
 ## v2.13.2 - 2026-11-15
 
 Two security fixes, both rated Low. Each needed an unusual setup to matter, and there is nothing to do after updating.
