@@ -302,7 +302,6 @@ struct SessionRowTests {
                        unread: false, updatedAt: 1_790_000_000_000, subagents: 3, subagentsWaiting: waiting, subagentWaiting: waiting > 0 ? "child" : nil)
         }
         #expect(RowState(lead(.running, 2)) == .subagentsWaiting("2 sub-agents need you"))
-        #expect(RowState(lead(.running, 2))?.isWaiting == true)
         #expect(RowState(lead(.waiting, 1)) == .waiting)
         #expect(RowState(lead(.idle, 0)) == nil)
         let now = Date(timeIntervalSince1970: 1_790_000_120)

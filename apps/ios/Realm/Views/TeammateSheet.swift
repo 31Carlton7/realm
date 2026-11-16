@@ -258,7 +258,7 @@ private struct HandleField: View {
         if let problem {
             Text(problem)
                 .font(.footnote)
-                .foregroundStyle(Palette.red)
+                .foregroundStyle(Tone.failed.agentColor)
                 .accessibilityIdentifier("teammate-handle-problem")
         }
     }
@@ -344,7 +344,7 @@ private struct TeammateForm<Handle: View, Place: View>: View {
                 .tint(Palette.accent)
             } footer: {
                 if let failure {
-                    Text(failure).foregroundStyle(Palette.red)
+                    Text(failure).foregroundStyle(Tone.failed.agentColor)
                 } else {
                     Text(note)
                 }

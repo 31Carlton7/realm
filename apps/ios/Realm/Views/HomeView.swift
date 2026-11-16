@@ -56,9 +56,7 @@ struct HomeView: View {
                             SessionLink(row: row, space: listing.space(of: row))
                         }
                     } header: {
-                        SectionHead(title: "Needs you") {
-                            Image(systemName: "hand.raised.fill").foregroundStyle(Palette.orange)
-                        }
+                        SectionHead(title: "Needs you") { EmptyView() }
                     }
                 }
                 if !listing.pinned.isEmpty, filter != .needsYou {
@@ -236,7 +234,7 @@ enum MacLine {
             let updated = "Updated \(LinkStatus.moment(savedAt, now: Date(), calendar: .current, locale: .current))"
             words = compact ? updated : "\(status.words) · \(updated)"
         }
-        return Text("\(Text(Image(systemName: status.kind.glyph)).foregroundStyle(status.kind.tone.color)) \(words)")
+        return Text("\(Text(Image(systemName: status.kind.glyph)).foregroundStyle(status.kind.tone.agentColor)) \(words)")
     }
 }
 
@@ -291,14 +289,6 @@ enum RowState: Equatable {
         case .failed: "Failed"
         case .done: "Done"
         case .subagentsWaiting(let words): words
-        }
-    }
-
-    /// Its own request or a sub-agent's: the tile wears the waiting dot.
-    var isWaiting: Bool {
-        switch self {
-        case .waiting, .subagentsWaiting: true
-        case .working, .failed, .done: false
         }
     }
 
@@ -453,7 +443,7 @@ struct ElsewhereRow: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HeadLine(symbol: "hand.raised.fill", tone: Palette.orange, words: waiting.words) {
+        HeadLine(symbol: "hand.raised.fill", tone: Tone.waiting.agentColor, words: waiting.words) {
             model.choose(.profile(waiting.profile.id))
         }
         .accessibilityHint("Shows \(waiting.profile.name)")
@@ -793,9 +783,9 @@ struct SessionRowView: View {
 }
 
 /// A row's round tile, as Manus marks a task: the space's mark, or the agent's where the section
-/// names the space; a quiet ring while a turn works, and the amber dot at its corner while it waits
-/// on you, each beside the words that say it too. Unread is the title's weight, never a dot, so amber
-/// is the only colour a row's state wears.
+/// names the space, and a quiet ring while a turn works. A row that waits on you says it once, in its
+/// words and their hand, as the Mac's sidebar row says it with one dot: the tile wears no dot of its
+/// own. Unread is the title's weight, never a dot.
 private struct RowTile: View {
     let row: SessionRow
     let space: Space?
@@ -817,15 +807,6 @@ private struct RowTile: View {
                 Circle()
                     .strokeBorder(Tone.working.agentColor, lineWidth: 1.5)
                     .restingPulse(when: true)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if state?.isWaiting == true {
-                Circle()
-                    .fill(Tone.waiting.agentColor)
-                    .frame(width: 11, height: 11)
-                    .overlay(Circle().strokeBorder(Ground.transcript, lineWidth: 2))
-                    .offset(x: 1, y: -1)
             }
         }
         .accessibilityHidden(true)
@@ -954,7 +935,7 @@ private struct UnsentRow: View {
         NavigationLink(value: Route.session(session.id)) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: refused == nil ? "clock.arrow.circlepath" : "exclamationmark.circle.fill")
-                    .foregroundStyle(refused == nil ? Palette.ink2 : Palette.red)
+                    .foregroundStyle(refused == nil ? Palette.ink2 : Tone.failed.agentColor)
                     .frame(width: 9)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(session.title)
@@ -963,7 +944,7 @@ private struct UnsentRow: View {
                         .lineLimit(2)
                     Text(detail(refused))
                         .font(.footnote)
-                        .foregroundStyle(refused == nil ? Palette.ink2 : Palette.red)
+                        .foregroundStyle(refused == nil ? Palette.ink2 : Tone.failed.agentColor)
                         .lineLimit(2)
                 }
             }

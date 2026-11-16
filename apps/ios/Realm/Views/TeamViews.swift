@@ -461,7 +461,7 @@ private struct CallStanding: View {
             case .working:
                 ProgressView().controlSize(.mini)
             case .needsYou:
-                Circle().fill(Palette.orange).frame(width: 7, height: 7)
+                Circle().fill(standing.tone.agentColor).frame(width: 7, height: 7)
             case .done:
                 Image(systemName: "checkmark").font(.caption2.weight(.bold))
             }

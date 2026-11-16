@@ -333,8 +333,8 @@ private struct ScreenStatus: View {
                 let age = picture.map { context.date.timeIntervalSince($0.at) }
                 let late = trouble != nil || (age ?? 0) > 5
                 let (word, tone): (String, Color) = paused ? ("Paused", Palette.ink3)
-                    : late ? (trouble ?? "Waiting for your Mac", Palette.orange)
-                    : picture == nil ? ("Connecting…", Palette.ink3) : ("Live", Palette.green)
+                    : late ? (trouble ?? "Waiting for your Mac", Tone.waiting.agentColor)
+                    : picture == nil ? ("Connecting…", Palette.ink3) : ("Live", Palette.ink2)
                 HStack(spacing: 8) {
                     Circle()
                         .fill(tone)

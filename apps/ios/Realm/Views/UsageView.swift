@@ -44,12 +44,11 @@ struct WindowReading: Equatable {
     }
 }
 
-/// A window's bar in the warning's tone where the provider warned about it, as the Mac's PlanCard draws
-/// it: orange nearing the limit, red past it; the accent otherwise.
+/// A window's bar in amber where the provider warned about it, nearing the limit or past it, with the
+/// words saying which; the accent otherwise. The Mac's PlanCard draws past it in red.
 enum WindowTone {
     static func of(_ plan: PlanLimits, _ window: PlanWindow) -> Color {
-        guard plan.warns(window) else { return Palette.accent }
-        return plan.alertLevel == "exceeded" ? Palette.red : Palette.orange
+        plan.warns(window) ? Tone.waiting.agentColor : Palette.accent
     }
 }
 
@@ -111,8 +110,7 @@ struct SpendReading: Equatable {
 
     var tone: Color {
         switch level {
-        case .near: Palette.orange
-        case .over: Palette.red
+        case .near, .over: Tone.waiting.agentColor
         case .within, nil: Palette.accent
         }
     }
@@ -202,7 +200,7 @@ private struct PlanSection: View {
                         .foregroundStyle(Palette.ink)
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Palette.orange)
+                        .foregroundStyle(Tone.waiting.agentColor)
                 }
                 .font(.subheadline.weight(.medium))
                 .listRowBackground(Fill.card)

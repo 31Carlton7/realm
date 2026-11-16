@@ -256,7 +256,7 @@ private struct ModeMenu: View {
                             Text(choice.label)
                         } icon: {
                             if SettingWords.removesGate(permission: choice.id) {
-                                ProfileMark.tinted(UIImage(systemName: SettingWords.symbol(permission: choice.id)), UIColor(Palette.orange))
+                                ProfileMark.tinted(UIImage(systemName: SettingWords.symbol(permission: choice.id)), UIColor(Tone.waiting.agentColor))
                             } else {
                                 Image(systemName: SettingWords.symbol(permission: choice.id))
                             }
@@ -268,10 +268,10 @@ private struct ModeMenu: View {
             }
         } label: {
             let warns = SettingWords.warns(options)
-            ChipLabel(text: chip.label, emphasised: false, tone: warns ? Palette.orange : nil) {
+            ChipLabel(text: chip.label, emphasised: false, tone: warns ? Tone.waiting.agentColor : nil) {
                 Image(systemName: chip.symbol)
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(warns ? Palette.orange : Palette.ink2)
+                    .foregroundStyle(warns ? Tone.waiting.agentColor : Palette.ink2)
             }
         }
         .accessibilityLabel("Mode, \(chip.label)")

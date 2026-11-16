@@ -170,7 +170,7 @@ private struct ViewOnlyNote: View {
                 // Amber is the one status with a colour: the picture or output is late.
                 Label(trouble, systemImage: "circle.fill")
                     .labelStyle(PaneStatusLabel())
-                    .foregroundStyle(Palette.orange)
+                    .foregroundStyle(Tone.waiting.agentColor)
             } else if let state {
                 Text(state)
                     .font(.footnote)

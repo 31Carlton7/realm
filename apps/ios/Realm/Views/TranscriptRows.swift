@@ -139,7 +139,7 @@ struct OutgoingMessageView: View {
                     if item.isFailed {
                         Image(systemName: "exclamationmark.circle.fill")
                             .font(.title3)
-                            .foregroundStyle(Palette.red)
+                            .foregroundStyle(Tone.failed.agentColor)
                             .accessibilityHidden(true)
                     }
                     if !text.isEmpty { UserBubble(text: text) }
@@ -201,7 +201,7 @@ struct OutgoingStatusView: View {
                 .multilineTextAlignment(alignment == .trailing ? .trailing : .leading)
         }
         .font(.footnote)
-        .foregroundStyle(tone.color)
+        .foregroundStyle(tone.agentColor)
         .accessibilityElement(children: .combine)
     }
 }
@@ -746,7 +746,7 @@ private struct ToolStateGlyph: View {
         let (symbol, color): (String, Color) = switch state {
         case .running: ("progress.indicator", Tone.working.agentColor)
         case .done: (kind.glyph, Palette.ink3)
-        case .error: ("xmark.circle.fill", Tone.failed.color)
+        case .error: ("xmark.circle.fill", Tone.failed.agentColor)
         }
         Image(systemName: symbol)
             .font(.footnote.weight(.semibold))
@@ -872,7 +872,7 @@ struct PlanSteps: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Image(systemName: Self.symbol(step.status))
                         .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(Self.tone(step.status).color)
+                        .foregroundStyle(Self.tone(step.status).agentColor)
                         .glyphColumn(22, relativeTo: .body)
                     Text(step.text)
                         .font(.body)
@@ -1028,8 +1028,8 @@ struct LineCounts: View {
                 .fixedSize()
         } else {
             HStack(spacing: 6) {
-                Text("+\(additions ?? 0)").foregroundStyle(Palette.green)
-                Text("−\(deletions ?? 0)").foregroundStyle(Palette.red)
+                Text("+\(additions ?? 0)").foregroundStyle(DiffInk.added)
+                Text("−\(deletions ?? 0)").foregroundStyle(DiffInk.removed)
             }
             .font(.footnote.weight(.medium))
             .monospacedDigit()
@@ -1220,7 +1220,7 @@ private struct MoveLine: View {
                 // The mark is part of the sentence, so a line that wraps stays centred as one.
                 let mark = move == .moved
                     ? Text(Image(systemName: "arrow.right.circle")).foregroundStyle(Palette.ink2)
-                    : Text(Image(systemName: "exclamationmark.triangle.fill")).foregroundStyle(Palette.orange)
+                    : Text(Image(systemName: "exclamationmark.triangle.fill")).foregroundStyle(Tone.failed.agentColor)
                 Text("\(mark) \(text)")
                     .foregroundStyle(move == .failed ? Palette.ink : Palette.ink2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1257,7 +1257,7 @@ private struct ErrorCard: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Palette.red)
+                .foregroundStyle(Tone.failed.agentColor)
             VStack(alignment: .leading, spacing: 4) {
                 Text(text)
                     .font(.body.weight(.medium))

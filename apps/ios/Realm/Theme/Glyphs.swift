@@ -24,7 +24,7 @@ private struct RestingPulse: ViewModifier {
 }
 
 /// How the link to the Mac looks beside its words: a shape for each state, and a tone that is only
-/// ever a state's — green connected, red where something failed, quiet otherwise.
+/// ever a state's — amber where something failed, the quiet ink otherwise, connected included.
 extension LinkStatus.Kind {
     var glyph: String {
         switch self {

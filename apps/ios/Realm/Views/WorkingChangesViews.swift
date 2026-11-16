@@ -254,7 +254,7 @@ struct ShipLineRow: View {
         Label {
             VStack(alignment: .leading, spacing: 6) {
                 Text(line.text)
-                    .foregroundStyle(line.bad ? Palette.orange : Palette.ink)
+                    .foregroundStyle(line.bad ? Tone.failed.agentColor : Palette.ink)
                 if let url = line.link {
                     // A link takes the accent, as the app keeps it for links.
                     Link(line.linkTitle ?? url.absoluteString, destination: url)
@@ -272,7 +272,7 @@ struct ShipLineRow: View {
             }
         } icon: {
             Image(systemName: line.bad ? "exclamationmark.circle" : line.id == "pr" ? "arrow.triangle.pull" : line.id == "push" ? "arrow.up.circle" : "checkmark.circle")
-                .foregroundStyle(line.bad ? Palette.orange : Palette.ink2)
+                .foregroundStyle(line.bad ? Tone.failed.agentColor : Palette.ink2)
         }
         .font(.subheadline)
         .padding(.vertical, 2)

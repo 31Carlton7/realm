@@ -360,30 +360,34 @@ private struct OfferedWidth: Layout {
     }
 }
 
-/// A state's tone. Green, orange and red say state, never decoration, and always beside a word or a
-/// glyph whose shape says it too.
+/// A state's tone, always beside a word or a glyph whose shape says it too.
 enum Tone {
     case quiet, working, waiting, failed, done
 
-    var color: Color {
-        switch self {
-        case .quiet: Palette.ink2
-        case .working: Palette.accentInk
-        case .waiting: Palette.orange
-        case .failed: Palette.red
-        case .done: Palette.green
-        }
-    }
-
-    /// The colour an agent's state wears: a sub-agent's, a teammate's, a message to one. Amber is the
-    /// only colour there, and only where it needs you or failed; working is said by its spinner, done
-    /// and at rest by their glyph or nothing, all in the quiet ink.
+    /// The one colour a state wears on the phone. Amber is the only one, and only where it needs you or
+    /// failed; working is said by its spinner, done and at rest by their glyph or nothing, all in the
+    /// quiet ink. No green for done or connected, no red for failed, no blue for working.
     var agentColor: Color {
         switch self {
         case .waiting, .failed: Palette.orange
         case .quiet, .working, .done: Palette.ink2
         }
     }
+}
+
+/// A diff's own colours, the desktop's diff tokens: added and removed lines, their counts and a new or
+/// deleted file's mark. They say what changed in the code, never how anything is doing, so they are
+/// not a state's and keep their green and red.
+enum DiffInk {
+    static let added = Palette.green
+    static let removed = Palette.red
+    static let addedWash = Palette.greenTint
+    static let removedWash = Palette.redTint
+}
+
+/// What a press will destroy: the red of a destructive action, never a state.
+enum DestructiveInk {
+    static let color = Palette.red
 }
 
 private struct GlyphColumn: ViewModifier {

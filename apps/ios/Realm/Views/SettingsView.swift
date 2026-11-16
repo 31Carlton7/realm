@@ -182,7 +182,7 @@ struct SettingsView: View {
                         confirmingForget = true
                     } label: {
                         Label("Forget \(mac.macName)…", systemImage: "minus.circle")
-                            .foregroundStyle(Palette.red)
+                            .foregroundStyle(DestructiveInk.color)
                     }
                     .profileRow()
                 }
@@ -285,7 +285,7 @@ private struct MacHeader: View {
                 // separator there.
                 HStack(spacing: 5) {
                     Image(systemName: status.symbol)
-                        .foregroundStyle(status.isConnected ? Palette.green : Palette.ink2)
+                        .foregroundStyle(status.kind.tone.agentColor)
                     Text(status.words)
                         .foregroundStyle(Palette.ink2)
                 }

@@ -86,7 +86,7 @@ struct PairView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Palette.red)
+                            .foregroundStyle(Tone.failed.agentColor)
                     }
                     .font(.subheadline.weight(.medium))
                     .padding(Radius.cardPadding)

@@ -116,7 +116,7 @@ struct RequestCard: View {
             .labelStyle(.titleAndIcon)
             .symbolRenderingMode(.hierarchical)
             .font(.footnote.weight(.semibold))
-            .foregroundStyle(tone.color)
+            .foregroundStyle(tone.agentColor)
     }
 
     /// The answers the Mac logged for an answered request, one per line by the question's head, a

@@ -243,7 +243,7 @@ private struct ListBlockView: View {
         if let checked = item.checked {
             Image(systemName: checked ? "checkmark.square.fill" : "square")
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(checked ? Palette.green : Palette.ink2)
+                .foregroundStyle(Palette.ink2)
                 .accessibilityLabel(checked ? "Done" : "Not done")
         } else if list.ordered {
             Text("\(list.start + index).")
