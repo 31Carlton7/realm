@@ -3516,20 +3516,13 @@ describe("one card", () => {
     expect(gap * rung, "the lift and the clip sit this far inside the painted edge, in px").toBeLessThan(0.5);
   });
 
-  it("lifts a card with no ring and no inset line, in both faces", () => {
-    // Once per face: dark's, then light's. THE MUTANTS: a ring layer, or an inset light, in either.
-    const lifts = [...tokensCss.matchAll(/--card-lift: ([^;]+);/g)].map((m) => m[1]!);
-    expect(lifts).toHaveLength(2);
-    for (const lift of lifts) for (const layer of lift.split(",")) {
-      expect(layer, "no layer is inset").not.toContain("inset");
-      // Every layer is blurred — a layer with no blur is a ring, whatever its offsets say.
-      expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
-      // …and falls: a close layer with no offset is a soft line round all four edges (LT-04: light's
-      // cards wore one that dark's did not).
-      expect(Number.parseFloat(layer.trim().split(/\s+/)[1]!), layer).toBeGreaterThan(0);
-    }
-    for (const filter of [...tokensCss.matchAll(/--card-lift-filter: ([^;]+);/g)].map((m) => m[1]!))
-      for (const drop of filter.matchAll(/drop-shadow\(([^)]+)\)/g)) expect(Number.parseFloat(drop[1]!.trim().split(/\s+/)[1]!), drop[0]).toBeGreaterThan(0);
+  it("draws a card as its fill alone: no lift, no ring and no inset line, in both faces", () => {
+    // The owner, 11-15: cards should have no shadow. Once per face, dark's then light's. THE MUTANTS:
+    // a lift back on either face, or its filter twin on light's.
+    const lifts = [...tokensCss.matchAll(/--card-lift: ([^;]+);/g)].map((m) => m[1]!.trim());
+    expect(lifts).toEqual(["none", "none"]);
+    const filters = [...tokensCss.matchAll(/--card-lift-filter: ([^;]+);/g)].map((m) => m[1]!.trim());
+    expect(filters.every((f) => f === "none"), filters.join(" | ")).toBe(true);
   });
 
   /* A card's fill is what makes it a card, so a new rule that paints one is held to the family. The
@@ -3577,13 +3570,12 @@ describe("one card", () => {
     expect(bodiesFor(":root[data-squircle] .mode-card[data-selected]").join(" ")).toContain("--sq-fill: var(--accent-tint)");
   });
 
-  it("lifts a light run of settings rows from its list, and only a list of rows", () => {
-    /* A row cannot cast the lift itself — it would fall across the row above it — and the light face's
-       white card on its near-white ground is barely there without one. THE MUTANT: the guard dropped,
-       so a heading or a note in the same container is lifted with the card, text and all. */
+  it("casts no lift from a light run of settings rows: a card is its fill (11-15)", () => {
+    /* The run of rows takes the card's lift only through the token, and the token is none. THE
+       MUTANTS: a drop-shadow written into the run's own rule, or the token given one again. */
     for (const list of [':root[data-mode="light"] :has(> .settings-row):not(:has(> :not(.settings-row)))', ':root[data-mode="light"] .engines-list'])
-      expect(bodiesFor(list).join(" "), list).toContain("filter: var(--card-lift-filter)");
-    expect(tokensCss).toMatch(/--card-lift-filter: drop-shadow\(/);
+      expect(bodiesFor(list).join(" "), list).not.toContain("drop-shadow");
+    expect(tokensCss).toMatch(/--card-lift-filter: none;/);
   });
 });
 
