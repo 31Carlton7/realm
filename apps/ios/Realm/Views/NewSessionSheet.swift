@@ -79,9 +79,10 @@ enum StartState: Equatable {
 }
 
 /// A new session, from Home's compose button: the space it goes in and the agent it is given, as chips
-/// over the composer's own card — its model and mode chips, its files, the field — and Start, which
-/// makes the session on the Mac with its first message and opens it. Nothing here waits in the outbox:
-/// while the Mac is away Start is off, and the words and files stay for when it is back.
+/// over the composer's own card at the sheet's foot — its model and mode chips, its files, the field —
+/// and Start, which makes the session on the Mac with its first message and opens it. Nothing here
+/// waits in the outbox: while the Mac is away Start is off, and the words and files stay for when it is
+/// back.
 struct NewSessionSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -191,6 +192,9 @@ struct NewSessionSheet: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
+            // Under the thumb on a tall phone, not across its top.
+            .defaultScrollAnchor(.bottom, for: .alignment)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollDismissesKeyboard(.interactively)
             .background(Ground.grouped)
             .softEdges(ground: Ground.grouped)

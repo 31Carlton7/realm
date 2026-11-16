@@ -10,7 +10,6 @@ struct MoveSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var target: MoveTarget?
-    @State private var detent: PresentationDetent = .medium
 
     /// How long the sheet waits on the Mac's answer before leaving the move to the transcript: a
     /// refusal comes back at once, and a move takes as long as starting the agent in its new place.
@@ -53,7 +52,8 @@ struct MoveSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large], selection: $detent)
+        // Whole, so what goes with the session and what stays read above Move rather than under it.
+        .presentationDetents([.large])
         .presentationBackground(Ground.grouped)
         .task { await model.loadMoveOptions(sessionId) }
         .onAppear {
@@ -63,10 +63,6 @@ struct MoveSheet: View {
         .onDisappear { model.moveSheets.remove(sessionId) }
         .onChange(of: options?.checkouts, initial: true) {
             if target == nil, let options { target = Self.firstTarget(options) }
-        }
-        // Two buttons leave the medium detent room for little more than where it runs.
-        .onChange(of: working, initial: true) {
-            if working { detent = .large }
         }
     }
 

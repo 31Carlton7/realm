@@ -18,6 +18,8 @@ struct HomeView: View {
     @State private var filter = HomeFilter.all
     @State private var reconnecting = false
     @State private var newSessionShown = false
+    /// How far a short list of search results is pushed down to sit on the field.
+    @State private var resultsLift: CGFloat = 0
     /// The moment By day reckons its days from, moved on at midnight and on coming back to the app.
     @State private var now = Date()
     @Namespace private var settingsZoom
@@ -106,10 +108,20 @@ struct HomeView: View {
         .listStyle(.plain)
         .listSectionSpacing(Self.sectionSpacing)
         .scrollContentBackground(.hidden)
-        // The last row scrolls clear of the New session button floating over the list's foot.
-        .contentMargins(.bottom, 72, for: .scrollContent)
+        // The last row scrolls clear of the New session button floating over the list's foot; while
+        // searching the button is gone, and the results sit down on the field.
+        .contentMargins(.bottom, searching ? 0 : 72, for: .scrollContent)
+        // Results grow up from the search field at the foot, the best nearest it. A List takes no
+        // alignment anchor, so a few results are pushed down by the room left over them.
+        .contentMargins(.top, matches == nil ? 0 : resultsLift, for: .scrollContent)
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom - geometry.contentSize.height
+        } action: { _, room in
+            resultsLift = matches == nil ? 0 : max(0, resultsLift + room)
+        }
         .background(Ground.transcript)
         .softEdges(ground: Ground.transcript)
+        .modifier(BestResultInView(best: matches?.hits.first?.id))
         .id(ListIdentity(choice: choice, style: style))
         // Manus's chips under the bar: what the list holds, by what it asks of the person. The list
         // blurs and fades under them as it does under the bar.
@@ -234,6 +246,19 @@ enum MacLine {
             words = compact ? updated : "\(status.words) · \(updated)"
         }
         return Text("\(Text(Image(systemName: status.kind.glyph)).foregroundStyle(status.kind.tone.agentColor)) \(words)")
+    }
+}
+
+/// More results than fit open at the best, nearest the field at the foot, each time the Mac sends new ones.
+private struct BestResultInView: ViewModifier {
+    let best: SearchHit.ID?
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content.onChange(of: best, initial: true) {
+                if let best { proxy.scrollTo(best, anchor: .bottom) }
+            }
+        }
     }
 }
 

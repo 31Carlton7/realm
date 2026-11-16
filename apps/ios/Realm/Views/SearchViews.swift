@@ -23,8 +23,8 @@ struct SearchAsk: Equatable {
     let choice: ProfileChoice
 }
 
-/// The sessions the Mac's search found, best first, as the palette lists them: each once, with its
-/// title and the words of the message that matched.
+/// The sessions the Mac's search found: each once, with its title and the words of the message that
+/// matched. The best is last, nearest the search field at the foot, as Spotlight sets its results.
 struct SearchHitsSection: View {
     let found: FoundSessions
     let home: Home
@@ -34,7 +34,7 @@ struct SearchHitsSection: View {
         // With no hits, Home's empty state says so, and a head counting none would say it twice.
         if !found.hits.isEmpty {
             Section {
-                ForEach(found.hits) { hit in
+                ForEach(found.hits.reversed()) { hit in
                     SearchHitLink(hit: hit, words: found.query, space: spaces[hit.session.spaceId])
                 }
             } header: {
@@ -252,14 +252,14 @@ struct FindBar: View {
                         .accessibilityIdentifier("find-place")
                     Button(action: older) {
                         Image(systemName: "chevron.up")
-                            .frame(width: 40, height: 44)
+                            .frame(width: 44, height: 44)
                     }
                     .disabled(!place.hasOlder)
                     .accessibilityLabel(place.olderIsOnMac ? "Search earlier messages" : "Previous match")
                     .accessibilityIdentifier("find-older")
                     Button(action: newer) {
                         Image(systemName: "chevron.down")
-                            .frame(width: 40, height: 44)
+                            .frame(width: 44, height: 44)
                     }
                     .disabled(!place.hasNewer)
                     .accessibilityLabel("Next match")
