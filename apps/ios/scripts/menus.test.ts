@@ -116,6 +116,12 @@ describe("Realm's menu", () => {
     expect(panel).toMatch(/\.shadow\(color: \.black\.opacity\(0\.1\), radius: 24, y: 10\)\s*\.floatingLift\(\)/);
   });
 
+  it("draws the chosen row's check in the row's own ink, not the accent", () => {
+    const choice = menu.slice(menu.indexOf("private struct MenuToggleRow"), menu.indexOf("private struct MenuRowLook"));
+    expect(choice).toContain('Image(systemName: "checkmark")');
+    expect(choice).not.toMatch(/foregroundStyle|\.tint\(|Palette\./);
+  });
+
   it("draws each section's head in the secondary ink", () => {
     expect(panel).toMatch(/section\.header[\s\S]*?\.foregroundStyle\(Palette\.ink2\)/);
   });

@@ -1255,8 +1255,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   menu as glass with the screen read through it — a chart's bars through Mode, the list through the
   profile switcher — so a tap that opens a menu opens `RealmMenu`: the card's solid surface with a
   floating menu's edge and lift, the desktop menu's rows, each section's head in the secondary ink and a
-  hairline between sections. It owes everything the system menu gave. VoiceOver reads it as a menu and
-  stays in it, with Close menu outside it. Its words follow Dynamic Type, wrapping inside the screen and
+  hairline between sections. The chosen row's check is in the row's own ink, not the accent: it says
+  "this one", and is not a status. It owes everything the system menu gave. VoiceOver reads it as a
+  menu and stays in it, with Close menu outside it. Its words follow Dynamic Type, wrapping inside the screen and
   scrolling inside the card past the room. A tap or a swipe outside puts it away. It opens with a light
   haptic, whole and at once, and leaves on a short fade. It opens on one side of its control, never over
   it, and clear of the keyboard. A submenu opens in place under its row, since a card cannot open

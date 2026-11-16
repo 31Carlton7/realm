@@ -397,7 +397,8 @@ private struct MenuRowButton: View {
     }
 }
 
-/// A choice: a row with the accent's check on the one that is on, as the phone's settings check theirs.
+/// A choice: a row with a check on the one that is on, in the row's own ink. A check says "this one", not
+/// a status, so it takes no colour of its own.
 struct RealmMenuToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         MenuToggleRow(configuration: configuration)
@@ -418,7 +419,6 @@ private struct MenuToggleRow: View {
                 Spacer(minLength: 8)
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(Palette.accent)
                     .opacity(configuration.isOn ? 1 : 0)
                     .accessibilityHidden(true)
             }
