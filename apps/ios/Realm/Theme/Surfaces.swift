@@ -83,13 +83,24 @@ struct DangerButtonStyle: ButtonStyle {
 /// lifted as the composer under it is, with the words in ink.
 struct ChipButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        ChipButtonLabel(configuration: configuration)
+            .floatingLift()
+    }
+}
+
+private struct ChipButtonLabel: View {
+    let configuration: ButtonStyleConfiguration
+    @ScaledMetric(relativeTo: .subheadline) private var lineHeight: CGFloat = 20
+
+    var body: some View {
+        let shape = PillShape(oneLine: max(36, lineHeight + 16))
         configuration.label
             .foregroundStyle(Palette.ink)
             .padding(.horizontal, 14)
+            .padding(.vertical, 8)
             .frame(minHeight: 36)
-            .background(configuration.isPressed ? Palette.hover : Fill.card, in: Capsule())
-            .floatingLift()
-            .contentShape(Capsule())
+            .background(configuration.isPressed ? Palette.hover : Fill.card, in: shape)
+            .contentShape(shape)
     }
 }
 
@@ -98,17 +109,30 @@ private struct CapsuleLabel: View {
     let fill: Color
     let ink: Color
     @Environment(\.isEnabled) private var isEnabled
+    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
     var body: some View {
+        let shape = PillShape(oneLine: max(48, lineHeight + 16))
         configuration.label
             .font(.body.weight(.semibold))
             .foregroundStyle(ink)
             .padding(.horizontal, 18)
             .padding(.vertical, 8)
             .frame(minHeight: 48)
-            .background(fill, in: Capsule())
+            .background(fill, in: shape)
             .opacity(configuration.isPressed ? 0.8 : isEnabled ? 1 : 0.45)
-            .contentShape(Capsule())
+            .contentShape(shape)
+    }
+}
+
+/// A capsule while its words are one line; once they wrap, it keeps the one line's corner, since a
+/// capsule as tall as three lines rounds its corners through the first and last of them.
+struct PillShape: Shape {
+    /// Its height with one line of words in it, at the current text size.
+    let oneLine: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        RoundedRectangle(cornerRadius: min(oneLine, rect.height) / 2).path(in: rect)
     }
 }
 
@@ -366,6 +390,60 @@ private struct OfferedWidth: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
+/// Chips in rows from the leading edge: as many to a row as fit, the rest on the rows under. A chip
+/// wider than the whole row is given the row's width, so its words wrap inside it rather than run off
+/// the card or under the button beside it.
+struct ChipRows: Layout {
+    var spacing: CGFloat = 0
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(width: proposal.width ?? .infinity, subviews: subviews)
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: proposal.width ?? rows.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for (index, size) in zip(row.indices, row.sizes) {
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var sizes: [CGSize] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func rows(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for index in subviews.indices {
+            var size = subviews[index].sizeThatFits(.unspecified)
+            if size.width > width {
+                size = subviews[index].sizeThatFits(ProposedViewSize(width: width, height: nil))
+                size.width = min(size.width, width)
+            }
+            if !row.indices.isEmpty, row.width + spacing + size.width > width {
+                rows.append(row)
+                row = Row()
+            }
+            row.width += (row.indices.isEmpty ? 0 : spacing) + size.width
+            row.height = max(row.height, size.height)
+            row.indices.append(index)
+            row.sizes.append(size)
+        }
+        if !row.indices.isEmpty { rows.append(row) }
+        return rows
     }
 }
 

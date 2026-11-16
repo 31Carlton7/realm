@@ -229,12 +229,40 @@ struct WaitingDock: View {
     /// Folds it to one line, giving the composer back.
     let fold: () -> Void
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var answering = false
     @State private var reviewingPlan = false
 
     var body: some View {
         let request = pending.request
         let session = model.store.transcript(sessionId).session
+        // Taller than the room over the transcript, at the largest sizes, the card scrolls inside its
+        // own edge rather than squeezing its words into ellipses.
+        let shape = RoundedRectangle(cornerRadius: Radius.composer, style: .continuous)
+        ViewThatFits(in: .vertical) {
+            card(request, session: session)
+            // Clipped to the card: scrolled, its rows otherwise run on over the session's bar.
+            ScrollView { card(request, session: session) }
+                .scrollBounceBehavior(.basedOnSize)
+                .clipShape(shape)
+        }
+        .background(Fill.card, in: shape)
+        // One shadow, the card's: without the group every pill and word on it casts its own.
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+        .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+        .sheet(isPresented: $answering) {
+            let stored = model.store.drafts[request.requestId]
+            QuestionSheet(draft: stored ?? QuestionDefaults.applied(to: model.store.draft(for: request, in: sessionId)),
+                          asker: Asker.name(request, agent: session?.agent ?? ""), message: request.message)
+        }
+        .sheet(isPresented: $reviewingPlan) {
+            PlanSheet(request: request, sessionId: sessionId)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func card(_ request: TranscriptRow.Request, session: SessionRow?) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 6) {
                 HStack(spacing: 6) {
@@ -257,15 +285,19 @@ struct WaitingDock: View {
                 .accessibilityLabel("Fold")
                 .accessibilityHint("Shows the message field, with this request as one line above it")
             }
+            // Cut short at the ordinary sizes, where the card stays a few lines tall; whole at the
+            // accessibility ones, where three lines hold a few words.
             Text(headline)
                 .font(.headline)
                 .foregroundStyle(Palette.ink)
-                .lineLimit(3)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
+                .fixedSize(horizontal: false, vertical: true)
             if case .permission = request.kind, !request.summary.isEmpty, request.summary != request.tool {
                 Text(request.summary)
                     .mono(.footnote)
                     .foregroundStyle(Palette.ink2)
-                    .lineLimit(2)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let answer = pending.answer {
                 held(answer)
@@ -275,20 +307,6 @@ struct WaitingDock: View {
         }
         .padding(Radius.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
-        // One shadow, the card's: without the group every pill and word on it casts its own.
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-        .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
-        .sheet(isPresented: $answering) {
-            let stored = model.store.drafts[request.requestId]
-            QuestionSheet(draft: stored ?? QuestionDefaults.applied(to: model.store.draft(for: request, in: sessionId)),
-                          asker: Asker.name(request, agent: session?.agent ?? ""), message: request.message)
-        }
-        .sheet(isPresented: $reviewingPlan) {
-            PlanSheet(request: request, sessionId: sessionId)
-        }
-        .accessibilityElement(children: .contain)
     }
 
     /// The one line that says what is asked.
@@ -339,7 +357,9 @@ struct WaitingDock: View {
                     model.submit(OneTapQuestion.answer(option, to: question, of: request, in: sessionId))
                 } label: {
                     Text(option.label)
-                        .lineLimit(2)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(ChoiceButtonStyle(suggested: OneTapQuestion.suggests(option, in: question)))
@@ -359,6 +379,7 @@ struct WaitingDock: View {
             Text(title)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(Palette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }
@@ -396,12 +417,13 @@ struct AnswerButtons: View {
     var body: some View {
         ViewThatFits(in: .horizontal) {
             EqualWidths(spacing: 10) {
-                declineButton
-                acceptButton
+                declineButton(lines: 1)
+                acceptButton(lines: 1)
             }
+            // Stacked, a label still too long for the width wraps.
             VStack(spacing: 10) {
-                acceptButton
-                declineButton
+                acceptButton(lines: nil)
+                declineButton(lines: nil)
             }
         }
         .controlSize(.large)
@@ -409,19 +431,19 @@ struct AnswerButtons: View {
         .font(.body.weight(.semibold))
     }
 
-    private var declineButton: some View {
+    private func declineButton(lines: Int?) -> some View {
         Button(action: onDecline) {
             Text(decline)
-                .lineLimit(1)
+                .lineLimit(lines)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(GreyButtonStyle())
     }
 
-    private var acceptButton: some View {
+    private func acceptButton(lines: Int?) -> some View {
         Button(action: onAccept) {
             Text(accept)
-                .lineLimit(1)
+                .lineLimit(lines)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(InkButtonStyle())

@@ -82,7 +82,7 @@ enum SettingWords {
 
 /// The chips on the composer's toolbar: the model, which opens the session's settings, the mode, a
 /// menu of its own, and where the session runs, which opens the Move sheet once its Mac can move it.
-/// They scroll sideways where the text is too large for them to fit.
+/// At the accessibility sizes they wrap onto the rows under.
 struct ComposerChips: View {
     let sessionId: String
     let openSettings: () -> Void
@@ -124,27 +124,26 @@ struct SettingChips: View {
     /// Where the session runs, for a session whose Mac can move it.
     var place: PlaceChip?
     let choose: (SessionChanges, SessionSetting) -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        Group {
-            if place == nil {
-                ScrollView(.horizontal) { chips(.words) }
-            } else {
-                // A phone's row has room for the model and the mode chips and little more, so the place
-                // chip gives up its words first, then the model chip its name; only then does it scroll.
-                ViewThatFits(in: .horizontal) {
-                    chips(.words)
-                    chips(.placeGlyph)
-                    chips(.agentMark)
-                    ScrollView(.horizontal) { chips(.agentMark) }
+        // At the accessibility sizes every chip keeps its words and the row wraps, as a glyph alone
+        // there hides the one thing the larger text was asked for.
+        if dynamicTypeSize.isAccessibilitySize {
+            ChipRows { chips(.words) }
+        } else {
+            // A phone's row has room for the model and the mode chips and little more, so the place
+            // chip gives up its words first, then the model chip its name; only then does the row wrap,
+            // with every word back.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) { chips(.words) }
+                if place != nil {
+                    HStack(spacing: 0) { chips(.placeGlyph) }
+                    HStack(spacing: 0) { chips(.agentMark) }
                 }
+                ChipRows { chips(.words) }
             }
         }
-        .scrollIndicators(.hidden)
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        // The chips stop growing at the last size before the accessibility ones, beside buttons that
-        // keep their size at every one, so the mode chip is not scrolled off the card at the largest.
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     /// How much of the row says itself in words.
@@ -152,32 +151,31 @@ struct SettingChips: View {
         case words, placeGlyph, agentMark
     }
 
+    @ViewBuilder
     private func chips(_ fit: Fit) -> some View {
-        HStack(spacing: 0) {
-            Button(action: openSettings) {
-                ChipLabel(text: label, emphasised: true, wordless: fit == .agentMark) {
-                    AgentMark(kind: kind, mark: mark, colored: true, size: 15, relativeTo: .subheadline)
+        Button(action: openSettings) {
+            ChipLabel(text: label, emphasised: true, wordless: fit == .agentMark) {
+                AgentMark(kind: kind, mark: mark, colored: true, size: 15, relativeTo: .subheadline)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Model, \(label)")
+        .accessibilityHint("Opens the model, reasoning and mode")
+        if let options, options.agent.modes.count > 1 || !options.agent.permissions.isEmpty {
+            ModeMenu(options: options, choose: choose)
+                .disabled(busy)
+        }
+        if let place {
+            Button(action: place.open) {
+                ChipLabel(text: place.label, emphasised: false, wordless: fit != .words) {
+                    Image(systemName: place.symbol)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.ink2)
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Model, \(label)")
-            .accessibilityHint("Opens the model, reasoning and mode")
-            if let options, options.agent.modes.count > 1 || !options.agent.permissions.isEmpty {
-                ModeMenu(options: options, choose: choose)
-                    .disabled(busy)
-            }
-            if let place {
-                Button(action: place.open) {
-                    ChipLabel(text: place.label, emphasised: false, wordless: fit != .words) {
-                        Image(systemName: place.symbol)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Palette.ink2)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Where it runs, \(place.label)")
-                .accessibilityHint("Moves this session to another checkout or a new worktree")
-            }
+            .accessibilityLabel("Where it runs, \(place.label)")
+            .accessibilityHint("Moves this session to another checkout or a new worktree")
         }
     }
 }
@@ -203,6 +201,7 @@ struct ChipLabel<Icon: View>: View {
     var wordless = false
     @ViewBuilder let icon: Icon
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 6) {
@@ -211,8 +210,9 @@ struct ChipLabel<Icon: View>: View {
                 Text(text)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(tone ?? (emphasised ? Palette.ink : Palette.ink2))
-                    .lineLimit(1)
-                    .fixedSize()
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
             }
             Image(systemName: "chevron.down")
                 .font(.caption2.weight(.bold))
@@ -222,7 +222,6 @@ struct ChipLabel<Icon: View>: View {
         .frame(minHeight: ComposerLayout.button)
         .contentShape(Rectangle())
         .opacity(isEnabled ? 1 : 0.45)
-        // Capped below the accessibility sizes, a chip shows its words large under a long press.
         .accessibilityShowsLargeContentViewer {
             Text(text)
         }

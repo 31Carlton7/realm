@@ -1260,6 +1260,14 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   connector's full name, `mcp__realm__realm-agent__agent_start` — widened the column, and every row
   and the composer under them slid off the screen's left edge. The verb yields last but can still be
   cut, and the column holds each row to its width (`keepsToOfferedWidth`).
+- At the accessibility sizes the phone's words grow with everything else and nothing is cut short. A
+  row of chips wraps rather than scrolling or stopping at a size: capped below those sizes, the
+  composer's chips still ran under Send at the largest, and a glyph alone hides the words the larger
+  text was asked for. Where the chips share a toolbar with fixed buttons they take a row of their own
+  above them, and a chip wider than its row wraps its words inside it. A pill whose words wrap keeps
+  the corner it had on one line, since a capsule three lines tall rounds through its first and last
+  line. A card asking for an answer that is taller than the room over the transcript scrolls inside
+  its own edge instead of squeezing its words into ellipses (`LargeTextTests`).
 - A phone card keeps one inset on all four sides and one gap between its head, each hairline and
   each row, and everything in it starts on one left edge. A control keeps its 44-point target, but
   the card is laid out by what the control draws, and the target reaches out into the gap and the

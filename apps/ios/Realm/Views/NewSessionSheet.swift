@@ -115,21 +115,15 @@ struct NewSessionSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 0) {
-                            SpaceChip(spaces: spaces, space: space) { spaceId = $0 }
-                            AgentChip(agents: agents, agent: agent) { kind in
-                                agentKind = kind
-                                chosen = nil
-                            }
+                    // Where the two do not fit a line, the agent goes under the space.
+                    ChipRows {
+                        SpaceChip(spaces: spaces, space: space) { spaceId = $0 }
+                        AgentChip(agents: agents, agent: agent) { kind in
+                            agentKind = kind
+                            chosen = nil
                         }
                     }
-                    .scrollIndicators(.hidden)
-                    .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-                    // The chips stop growing at the last size before the accessibility ones, as the
-                    // composer's do, so the space and the agent both stay on screen.
-                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                    ComposerLayout(card: true) {
+                    ComposerLayout(card: true, chipsRow: dynamicTypeSize.isAccessibilitySize) {
                         if !attachments.isEmpty || preparing > 0 {
                             AttachmentStrip(attachments: attachments, preparing: preparing, exports: model.videoExports[key] ?? [], files: model.store.files,
                                             open: { previewing = AttachmentStrip.previewLink($0, files: model.store.files) },
