@@ -49,6 +49,9 @@ struct HomeView: View {
                 }
                 if filter == .all {
                     WorkHeadLines(searching: listing.isFiltered)
+                    if !listing.isFiltered, !model.work.unsupported {
+                        HomePlaces()
+                    }
                 }
                 if !listing.needsYou.isEmpty, filter != .pinned {
                     Section {
@@ -775,6 +778,9 @@ struct SessionRowView: View {
                     } else {
                         RowAbout(row: row, space: space)
                     }
+                    if row.scheduled == true {
+                        ScheduledRunMark(dotted: !dynamicTypeSize.isAccessibilitySize)
+                    }
                     if let subagents = RowSubagents(row), subagents.waiting == 0 {
                         SubagentCount(words: subagents.words, dotted: !dynamicTypeSize.isAccessibilitySize)
                     }
@@ -795,6 +801,7 @@ struct SessionRowView: View {
     static func spoken(_ row: SessionRow, now: Date = Date()) -> String {
         var parts = [row.displayTitle]
         if let state = RowState(row) { parts.append(state.word) }
+        if row.scheduled == true { parts.append("Scheduled run") }
         if let subagents = RowSubagents(row), subagents.waiting == 0 { parts.append(subagents.words) }
         if let goal = row.shownGoal { parts.append("Goal \(goal.status.label)") }
         if row.unread { parts.append("Unread") }
@@ -865,6 +872,30 @@ private struct RowAbout: View {
         }
         .font(.footnote)
         .foregroundStyle(Palette.ink2)
+        .accessibilityHidden(true)
+    }
+}
+
+/// A session a scheduled task's run started, said after what the line says of it, as the desktop's
+/// row wears the schedule's clock: two runs of a task, or a run and the session it is named like,
+/// read apart. It keeps its words, and the model beside it yields first.
+private struct ScheduledRunMark: View {
+    /// After the line's other words; on a line of its own at the accessibility sizes.
+    let dotted: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if dotted { Text("·") }
+            HStack(spacing: 3) {
+                Image(systemName: "clock")
+                    .font(.caption)
+                Text("Scheduled run")
+            }
+        }
+        .font(.footnote)
+        .foregroundStyle(Palette.ink2)
+        // On a line of its own at the accessibility sizes, it wraps rather than run past the row's edge.
+        .fixedSize(horizontal: dotted, vertical: true)
         .accessibilityHidden(true)
     }
 }

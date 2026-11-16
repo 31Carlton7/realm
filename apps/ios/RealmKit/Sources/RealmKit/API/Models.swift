@@ -110,13 +110,15 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     public let moving: Bool?
     /// The goal it pursues, by where it stands and what it is. Nil for none, and from a Mac before goals.
     public let goal: GoalMark?
+    /// A scheduled task's run started it. Nil for the person's own sessions, and from a Mac before it said.
+    public let scheduled: Bool?
 
     public init(id: String, title: String, spaceId: String, spaceName: String, agent: String, model: String?,
                 status: SessionStatus, needsYou: Bool, unread: Bool, updatedAt: Millis,
                 agentName: String? = nil, agentMark: String? = nil, modelLabel: String? = nil,
                 createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil, pinned: Bool? = nil,
                 leadId: String? = nil, subagents: Int? = nil, subagentsWaiting: Int? = nil, subagentWaiting: String? = nil,
-                moving: Bool? = nil, goal: GoalMark? = nil) {
+                moving: Bool? = nil, goal: GoalMark? = nil, scheduled: Bool? = nil) {
         self.id = id
         self.title = title
         self.spaceId = spaceId
@@ -141,6 +143,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         self.subagentWaiting = subagentWaiting
         self.moving = moving
         self.goal = goal
+        self.scheduled = scheduled
     }
 
     /// The status as this phone shows it: Moving while the Mac moves the session.
@@ -160,7 +163,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         case id, title, spaceId, spaceName, agent, model, status, needsYou, unread, updatedAt, agentName, agentMark, modelLabel
         case createdAt, effort, permissionMode, activityAt, pinned
         case leadId, subagents, subagentsWaiting, subagentWaiting
-        case moving, goal
+        case moving, goal, scheduled
     }
 
     public init(from decoder: Decoder) throws {
@@ -189,6 +192,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         subagentWaiting = try? c.decodeIfPresent(String.self, forKey: .subagentWaiting)
         moving = try? c.decodeIfPresent(Bool.self, forKey: .moving)
         goal = try? c.decodeIfPresent(GoalMark.self, forKey: .goal)
+        scheduled = try? c.decodeIfPresent(Bool.self, forKey: .scheduled)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -217,6 +221,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(subagentWaiting, forKey: .subagentWaiting)
         try c.encodeIfPresent(moving, forKey: .moving)
         try c.encodeIfPresent(goal, forKey: .goal)
+        try c.encodeIfPresent(scheduled, forKey: .scheduled)
     }
 
     /// The mode the session is in, read from its stored permission mode. Nil where the Mac did not say.
