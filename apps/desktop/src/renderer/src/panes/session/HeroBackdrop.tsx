@@ -52,6 +52,24 @@ function watchLayout(pane: Element, onChange: () => void): () => void {
 /** A frame every other vsync is plenty for a drift this slow. */
 const FRAME_MS = 1000 / 30;
 
+/** How long the pane's size holds still before a picture is drawn again at it. */
+export const RESIZE_QUIET_MS = 150;
+
+/**
+ * `fn`, run once calls have stopped for RESIZE_QUIET_MS. A picture costs tens of ms to draw, so a
+ * window dragged by its edge would drop a frame for every size it passed through: the canvas holds
+ * its last frame (sized by CSS) while the pane resizes, and is drawn again once the size settles.
+ */
+function onceQuiet(fn: () => void) {
+  let timer = 0;
+  const call = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(fn, RESIZE_QUIET_MS);
+  };
+  call.cancel = () => window.clearTimeout(timer);
+  return call;
+}
+
 /**
  * The backdrop behind an empty session's greeting and prompter. A canvas laid under the pane's
  * content; it reads the greeting's and the card's boxes so the picture clears round them.
@@ -218,7 +236,8 @@ function textRuns(pane: Element): TextRun[] {
  * A colour-kept look (hero-backdrop-color.ts), or a picture shown as it is: drawn once into a 2D
  * canvas, with no frame loop, so there is nothing to stop under Reduce motion or Low power. It is
  * drawn again only when the pane changes size, the face or theme changes, or the prompter moves,
- * and a move re-lays the mask over the screened picture rather than screening it again.
+ * and a move re-lays the mask over the screened picture rather than screening it again. A new size
+ * waits until it has held still (`onceQuiet`).
  */
 function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; look: keyof typeof COLOR_LOOKS; held: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -236,16 +255,19 @@ function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; l
     let disposed = false;
     let pending = false;
     let drawn = "";
+    // Each draw's number; a draw that awaited past a newer one (or past a resize) stops there.
+    let latest = 0;
     const draw = async () => {
       if (pending) return;
       pending = true;
       await new Promise(requestAnimationFrame);
       pending = false;
-      if (disposed || heldRef.current) return;
+      const mine = ++latest;
+      const stale = () => disposed || heldRef.current || mine !== latest;
+      if (stale()) return;
       const box = pane.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = Math.round(box.width * dpr), h = Math.round(box.height * dpr);
-      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       const pal: Palette = readPalette(root);
       const card = cardRect(pane, box) ?? { x: 0, y: 0, w: 0, h: 0 };
       // The dock's box changes as its tabs' text does; only a real move of the card or the greeting
@@ -253,21 +275,33 @@ function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; l
       const words = pane.querySelector(".hero-greeting")?.getBoundingClientRect();
       const key = JSON.stringify([w, h, pal, [card.x, card.y, card.w, card.h, words?.left, words?.top, words?.width, words?.height].map((v) => Math.round(v ?? 0))]);
       if (key === drawn) return;
-      drawn = key;
       const pic = await pictureFor(backdrop, pal.dark);
-      if (!pic || disposed) return;
-      const done = await paintColorBackdrop(canvas, look, pic, card, dpr, pal.ground, () => textRuns(pane));
-      if (done && profile) renders.push(done);
+      if (!pic || stale()) return;
+      const done = await paintColorBackdrop(canvas, w, h, look, pic, card, dpr, pal.ground, () => textRuns(pane), stale);
+      if (!done) return;
+      drawn = key;
+      if (profile) renders.push(done);
     };
     // A picture that will not decode (a broken file of the person's own, or no decoder at all) leaves
     // the plain ground rather than an unhandled rejection; the next real change tries again.
-    const refresh = () => void draw().catch(() => { drawn = ""; });
+    const redraw = () => void draw().catch(() => { drawn = ""; });
+    const later = onceQuiet(redraw);
+    // Once a picture is up, a new size for the pane waits for it to hold still; anything else (the
+    // greeting's words, the prompter moving, a new face) draws at once.
+    const refresh = () => {
+      const box = pane.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      if (!drawn || (Math.round(box.width * dpr) === canvas.width && Math.round(box.height * dpr) === canvas.height)) return redraw();
+      latest++;
+      later();
+    };
     const unwatch = watchLayout(pane, refresh);
     const watch = new MutationObserver(refresh);
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "style"] });
     refresh();
     return () => {
       disposed = true;
+      later.cancel();
       unwatch();
       watch.disconnect();
     };
@@ -275,9 +309,6 @@ function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; l
   }, [backdrop.key, backdrop.moves, lookId]);
   return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
 }
-
-/** How long the pane's size holds still before the chat's picture is drawn again at it. */
-export const RESIZE_QUIET_MS = 150;
 
 /**
  * The picture behind a transcript (chat-backdrop.ts): drawn once, blurred by the edge blur's deeper
@@ -302,7 +333,6 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
     let pending = false;
     let drawn = "";
     let timer = 0;
-    let quiet = 0;
     // Each draw's number; a draw that awaited past a newer one (or past a resize) stops there.
     let latest = 0;
     const settled = () => {
@@ -353,14 +383,12 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
     };
     // A picture that will not decode leaves the plain ground, and the empty session's goes with it.
     const refresh = () => void draw().catch(() => { drawn = ""; settled(); });
-    // A redraw costs ~100 ms, so a window dragged by its edge would drop a frame for every one. Once
-    // a picture is up, the canvas (sized by CSS) stretches its last frame while the pane resizes, and
-    // the picture is drawn again only when the size has held still.
+    // A redraw costs ~100 ms. Once a picture is up, it stretches while the pane resizes.
+    const later = onceQuiet(refresh);
     const resize = new ResizeObserver(() => {
       if (!canvas.hasAttribute("data-drawn")) return refresh();
       latest++;
-      window.clearTimeout(quiet);
-      quiet = window.setTimeout(refresh, RESIZE_QUIET_MS);
+      later();
     });
     resize.observe(pane);
     const watch = new MutationObserver(refresh);
@@ -369,7 +397,7 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
     return () => {
       disposed = true;
       window.clearTimeout(timer);
-      window.clearTimeout(quiet);
+      later.cancel();
       resize.disconnect();
       watch.disconnect();
     };

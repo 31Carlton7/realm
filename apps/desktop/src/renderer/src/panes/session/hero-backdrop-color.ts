@@ -223,18 +223,20 @@ export function guard(runs: TextRun[], under: (rect: Rect, hushes: Hush[]) => Ui
 }
 
 /**
- * Lays the screened picture onto `canvas`, feathered out round the prompter's `card` and down the
- * pane, and hushed under the text. The guard works the hushes out first, from the screened cells
- * and `pictureAlpha` rather than by reading the canvas back: per group of runs `texts` returns, how
- * far the picture must come down there for every run to keep its ratio against its worst pixel.
+ * Lays the screened picture onto `canvas` at `w`×`h` device px, feathered out round the prompter's
+ * `card` and down the pane, and hushed under the text. The canvas keeps its last frame until the
+ * new one is ready, and a paint that `stale` says was overtaken while the picture was screened
+ * leaves it alone. The guard works the hushes out first, from the screened cells and
+ * `pictureAlpha` rather than by reading the canvas back: per group of runs `texts` returns, how far
+ * the picture must come down there for every run to keep its ratio against its worst pixel.
  * The canvas's own opacity is the backstop if a run still misses with the hushes in.
  */
-export async function paintColorBackdrop(canvas: HTMLCanvasElement, look: ColorLook, pic: Picture, card: Rect, dpr: number,
-  ground: Rgb, texts: () => TextRun[]): Promise<ColorRender | null> {
-  const { width: w, height: h } = canvas;
+export async function paintColorBackdrop(canvas: HTMLCanvasElement, w: number, h: number, look: ColorLook, pic: Picture, card: Rect,
+  dpr: number, ground: Rgb, texts: () => TextRun[], stale: () => boolean): Promise<ColorRender | null> {
   if (!w || !h) return null;
   const art = await screened(pic, look, w, h);
-  if (canvas.width !== w || canvas.height !== h) return null;
+  if (stale()) return null;
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   const start = performance.now();
   const cells = art.bitmap.getContext("2d", { willReadFrequently: true })!;
   const css = look.cell / dpr;
