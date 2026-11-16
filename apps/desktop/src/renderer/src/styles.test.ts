@@ -3516,20 +3516,13 @@ describe("one card", () => {
     expect(gap * rung, "the lift and the clip sit this far inside the painted edge, in px").toBeLessThan(0.5);
   });
 
-  it("lifts a card with no ring and no inset line, in both faces", () => {
-    // Once per face: dark's, then light's. THE MUTANTS: a ring layer, or an inset light, in either.
-    const lifts = [...tokensCss.matchAll(/--card-lift: ([^;]+);/g)].map((m) => m[1]!);
-    expect(lifts).toHaveLength(2);
-    for (const lift of lifts) for (const layer of lift.split(",")) {
-      expect(layer, "no layer is inset").not.toContain("inset");
-      // Every layer is blurred — a layer with no blur is a ring, whatever its offsets say.
-      expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
-      // …and falls: a close layer with no offset is a soft line round all four edges (LT-04: light's
-      // cards wore one that dark's did not).
-      expect(Number.parseFloat(layer.trim().split(/\s+/)[1]!), layer).toBeGreaterThan(0);
-    }
-    for (const filter of [...tokensCss.matchAll(/--card-lift-filter: ([^;]+);/g)].map((m) => m[1]!))
-      for (const drop of filter.matchAll(/drop-shadow\(([^)]+)\)/g)) expect(Number.parseFloat(drop[1]!.trim().split(/\s+/)[1]!), drop[0]).toBeGreaterThan(0);
+  it("draws a card as its fill alone: no lift, no ring and no inset line, in both faces", () => {
+    // The owner, 11-15: cards should have no shadow. Once per face, dark's then light's. THE MUTANTS:
+    // a lift back on either face, or its filter twin on light's.
+    const lifts = [...tokensCss.matchAll(/--card-lift: ([^;]+);/g)].map((m) => m[1]!.trim());
+    expect(lifts).toEqual(["none", "none"]);
+    const filters = [...tokensCss.matchAll(/--card-lift-filter: ([^;]+);/g)].map((m) => m[1]!.trim());
+    expect(filters.every((f) => f === "none"), filters.join(" | ")).toBe(true);
   });
 
   /* A card's fill is what makes it a card, so a new rule that paints one is held to the family. The
@@ -3577,13 +3570,32 @@ describe("one card", () => {
     expect(bodiesFor(":root[data-squircle] .mode-card[data-selected]").join(" ")).toContain("--sq-fill: var(--accent-tint)");
   });
 
-  it("lifts a light run of settings rows from its list, and only a list of rows", () => {
-    /* A row cannot cast the lift itself — it would fall across the row above it — and the light face's
-       white card on its near-white ground is barely there without one. THE MUTANT: the guard dropped,
-       so a heading or a note in the same container is lifted with the card, text and all. */
+  /* With no lift, a light card has only its fill to stand on, and Codex's light paper is white: a white
+     card on it measured no step at all (0 levels, live). So it stands a step UNDER the paper. THE
+     MUTANTS: the light card or tile put back on the white surface, a card that took the surface or the
+     chart's ground left on it, or the theme tiles left on the well the card now sits at. */
+  it("stands a light card a step under its paper, by its fill alone (11-15)", () => {
+    const light = bodiesFor(':root[data-mode="light"]').join(" ");
+    expect(light).toContain("--rl-card: color-mix(in srgb, var(--canvas) 93%, var(--ink))");
+    expect(light).toContain("--rl-tile: var(--rl-card)");
+    expect(light).not.toMatch(/--rl-(card|tile)(-hover|-press)?: var\(--surface\)/);
+    const OWN_FILL = [".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision",
+      ".app-view-request", ".stat-tile", ".usage-card", ".usage-figures", ".plan-account"];
+    const ruleFor = (scope: string, decl: string) => RULES.filter((r) => r.body.includes(decl))
+      .flatMap((r) => r.selectors).filter((x) => x.trim().startsWith(`${scope} :is(`)).join(" ");
+    for (const sel of OWN_FILL) {
+      expect(ruleFor(':root[data-mode="light"]', "--sq-fill: var(--rl-card)"), sel).toMatch(new RegExp(`\\${sel}\\b`));
+      expect(ruleFor(':root[data-mode="light"]:not([data-squircle])', "background: var(--rl-card)"), sel).toMatch(new RegExp(`\\${sel}\\b`));
+    }
+    expect(bodiesFor(':root[data-mode="light"] .mode-card:not([data-selected])').join(" ")).toContain("--sq-fill: var(--rl-tile-press)");
+  });
+
+  it("casts no lift from a light run of settings rows: a card is its fill (11-15)", () => {
+    /* The run of rows takes the card's lift only through the token, and the token is none. THE
+       MUTANTS: a drop-shadow written into the run's own rule, or the token given one again. */
     for (const list of [':root[data-mode="light"] :has(> .settings-row):not(:has(> :not(.settings-row)))', ':root[data-mode="light"] .engines-list'])
-      expect(bodiesFor(list).join(" "), list).toContain("filter: var(--card-lift-filter)");
-    expect(tokensCss).toMatch(/--card-lift-filter: drop-shadow\(/);
+      expect(bodiesFor(list).join(" "), list).not.toContain("drop-shadow");
+    expect(tokensCss).toMatch(/--card-lift-filter: none;/);
   });
 });
 
@@ -3748,15 +3760,30 @@ describe("light mode", () => {
        being just a flat square. And also it should have a light border. Look at the simulator and the
        bar that has the live indicator… That should be the shadow and border used for any library item."
        So the toolbar and the items all wear ONE token — and since 10-19 ("I don't like having borders")
-       that token is a card's lift, with no edge. THE MUTANTS: an item put back on a
-       flat inset rim, an item given the stack copied rather than named, the toolbar moved to another
-       stack on its own, a ring back in the token, and a picture tile's ring traced inside it. */
-    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--card-lift)");
+       that token is a lift with no edge. Cards lost theirs on 11-15; an object did not. THE MUTANTS: an
+       item put back on a flat inset rim, an item given the stack copied rather than named, the toolbar
+       moved to another stack on its own, a ring back in the token, the object handed the card's (now
+       empty) lift, and a picture tile's ring traced inside it. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--object-lift)");
+    const objectLifts = [...tokensCss.matchAll(/--object-lift: ([^;]+);/g)].map((m) => m[1]!.trim());
+    expect(objectLifts, "one per face").toHaveLength(2);
+    for (const lift of objectLifts) for (const layer of lift.split(",")) {
+      expect(layer, "no layer is inset").not.toContain("inset");
+      // Blurred, and falling: a layer with no blur is a ring, and one with no offset a line round all four edges.
+      expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
+      expect(Number.parseFloat(layer.trim().split(/\s+/)[1]!), layer).toBeGreaterThan(0);
+    }
     expect(RULES.filter((r) => /(^|[;\s])--rl-object-shadow\s*:/.test(r.body)), "defined once, so there is one place to change it").toHaveLength(1);
     for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".docs-home-glyph[data-type]", ".attach-art"]) {
       const body = bodiesFor(sel).join(" ");
       expect(body, sel).toContain("box-shadow: var(--rl-object-shadow)");
       expect(body, `${sel} keeps a rim of its own as well`).not.toMatch(/border: var\(--hairline-w\) solid|inset 0 0 0 var\(--hairline-w\)/);
+    }
+    /* Painted too: the card family's shared painted rule hands each member the card's lift (none), and
+       the two objects in the family win theirs back after it. THE MUTANT: a painted object left on none. */
+    for (const sel of [".library-tile", ".saved-turn-open"]) {
+      const shadows = bodiesFor(`:root[data-squircle] ${sel}`).filter((b) => b.includes("box-shadow"));
+      expect(shadows.at(-1), `painted ${sel}`).toContain("box-shadow: var(--rl-object-shadow)");
     }
     // One ring round a picture: the tile's, outside it. A second traced inside sat half a pixel off it.
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".library-tile[data-thumb]::after")))).toEqual([]);

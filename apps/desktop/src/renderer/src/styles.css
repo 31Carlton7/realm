@@ -128,10 +128,10 @@
   /* What an OBJECT rests on — a file's tile and its square in a row, a saved turn, a file on a message
      or in the prompter, and the device's toolbar: one surface for all of them (the owner, 10-05, of
      the toolbar: "That should be the shadow and border used for any library item"), and since 10-19
-     ("I don't like having borders") that surface is a card's — its lift, with no edge
-     drawn round it. Named once for all of them, so the toolbar pointed at and the files it was
-     pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
-  --rl-object-shadow: var(--card-lift);
+     ("I don't like having borders") with no edge drawn round it. Cards lost their lift on 11-15; an
+     object keeps it (`--object-lift`). Named once for all of them, so the toolbar pointed at and the
+     files it was pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
+  --rl-object-shadow: var(--object-lift);
   /* …and the lift as a filter, for a surface the worklet paints inside a clip of its own (the
      prompter's file well), where a box-shadow would trace the square border box. */
   --rl-object-lift-filter: var(--shadow-card-lift-filter);
@@ -272,11 +272,17 @@
      still answers the pointer at least as clearly as it did on the paler fill. */
   --rl-frame-raised: oklch(0.95 0.002 247.85);
   --rl-frame-raised-hover: oklch(0.915 0.003 247.86);
-  --rl-card: var(--surface);
-  --rl-card-hover: oklch(0.975 0.002 247.85);
-  --rl-tile: var(--surface);
-  --rl-tile-hover: oklch(0.975 0.002 247.85);
-  --rl-tile-press: oklch(0.955 0.002 247.85);
+  /* A card is its fill and nothing else (11-15), and this face's paper is white or a hair under it,
+     so a white card had no step left to stand on and read only by its lift. It goes the other way: a
+     step UNDER the paper, toward the ink, as grey grouped boxes sit on a light window (System
+     Settings). 7% of the ink measured 239 on Codex's 255 paper, live: 1.15:1, the dark card's step. Of
+     the paper and the ink rather than a fixed grey, so a tinted light theme keeps its hue. The hover
+     goes one step deeper, and an object's tile shares the card's fill and keeps its own lift. */
+  --rl-card: color-mix(in srgb, var(--canvas) 93%, var(--ink));
+  --rl-card-hover: color-mix(in srgb, var(--canvas) 89%, var(--ink));
+  --rl-tile: var(--rl-card);
+  --rl-tile-hover: var(--rl-card-hover);
+  --rl-tile-press: color-mix(in srgb, var(--canvas) 86%, var(--ink));
   --rl-shadow: var(--shadow-lg);                 /* shadow-plugin's smooth lg stack (BUI light --shadow-overlay, shadow half) */
   /* Dark on the light face too: a guest machine's desktop is arbitrary, and a near-white surround
      would fight it. */
@@ -6718,10 +6724,19 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .app-view-request { --sq-fill: var(--surface); }
 :root[data-squircle] .library-tile,
 :root[data-squircle] .agent-card { --sq-fill: var(--rl-tile); }
+/* The two objects in the family keep an object's lift, which a card no longer has. */
+:root[data-squircle] .saved-turn-open,
+:root[data-squircle] .library-tile { box-shadow: var(--rl-object-shadow); }
 :root[data-squircle] .stat-tile,
 :root[data-squircle] .usage-card,
 :root[data-squircle] .usage-figures,
 :root[data-squircle] .plan-account { --sq-fill: var(--chart-surface); }
+/* The cards that took the surface as their fill, and the Usage cards on the chart's: on the light face
+   that is the paper's own white, so they take the card's fill instead, as every other card does. */
+:root[data-mode="light"] :is(.edit-summary, .permission-card, .question-card, .question-answered, .plan-card, .plan-decision,
+  .app-view-request, .stat-tile, .usage-card, .usage-figures, .plan-account) { --sq-fill: var(--rl-card); }
+:root[data-mode="light"]:not([data-squircle]) :is(.edit-summary, .permission-card, .question-card, .question-answered, .plan-card,
+  .plan-decision, .app-view-request, .stat-tile, .usage-card, .usage-figures, .plan-account) { background: var(--rl-card); }
 :root[data-squircle] .saved-turn-open:hover { --sq-fill: var(--rl-card-hover); }
 :root[data-squircle] .settings-link-row:hover { --sq-fill: var(--rl-card-hover); }
 :root[data-squircle] .library-tile:hover { --sq-fill: var(--rl-tile-hover); }
@@ -6761,6 +6776,10 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle); --sq-fill: var(--rl-frame-raised);
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 :root[data-squircle] .mode-card[data-selected] { --sq-fill: var(--accent-tint); }
+/* On the light face the card sits a step under the paper, where the raised well sat: the well goes one
+   step deeper again, so it still reads inside the card. */
+:root[data-mode="light"] .mode-card:not([data-selected]) { --sq-fill: var(--rl-tile-press); }
+:root[data-mode="light"]:not([data-squircle]) .mode-card:not([data-selected]) { background: var(--rl-tile-press); }
 :root[data-squircle] .scope-doc-row:has(.memory-doc:focus) {
   --sq-ring: color-mix(in srgb, var(--rl-accent) 55%, transparent); --sq-ring-w: 1px; box-shadow: none; }
 /*

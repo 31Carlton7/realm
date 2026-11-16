@@ -242,10 +242,14 @@ Rules:
   positioned over the thing it is ruling? If not, the rule is decoration, however reasonable
   the story told about it. Chrome above content may take a seam; chrome above more chrome may
   not, and two stacked seams in the same 60px is the failure this rule exists to catch.
-- Hairlines separate structure. Shadows indicate elevation. A card is the one resting thing that
-  stands up, and it does so without an edge (the owner, 10-19: "I don't like having borders… it feels
-  cheap"): its fill and a soft lift with no ring in it (`--card-lift`), and nothing along any edge — a
-  light along the top, tried first, read as a top border once zoomed in. A thing a person picks up rather than reads — a file
+- Hairlines separate structure. Shadows indicate elevation, and a card is not elevated: it is its fill
+  and nothing else. The owner took the edge off first (10-19: "I don't like having borders… it feels
+  cheap") and then the lift (11-15: "I dislike cards with shadows here, I think they shouldn't have any
+  if anything"), so `--card-lift` is none and nothing runs along any edge. Where a card stops reading
+  against its ground, the fix is the step between the two fills, never a ring, an edge or a shadow.
+  The light face's paper is white or a hair under it, so there a card steps the other way: under the
+  paper, toward the ink, as grey grouped boxes sit on a light window.
+  What floats over content keeps its shadow: menus, popovers, sheets, toasts and the prompter. A thing a person picks up rather than reads — a file
   wherever it is shown, a saved turn, the device's toolbar — stands on the same surface through one
   token of its own (`--rl-object-shadow`, the owner's 10-05 rule that they all match). A picture in the
   transcript stays its own frame. Floating things — menus, popovers, sheets, toasts — are not cards:
