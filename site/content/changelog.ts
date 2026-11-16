@@ -21,6 +21,22 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-15-1",
+    title: "Realm v2.15.1",
+    date: "2026-11-16",
+    version: "v2.15.1",
+    area: "Release",
+    summary:
+      "Resizing the window no longer stutters with a picture behind a chat, and a new session's greeting steps aside for an open list.",
+    short: "A smoother resize, and the greeting steps aside",
+    body: [
+      { kind: "ul", items: [
+        "**Resizing the window no longer stutters with a picture behind a chat.** The picture holds still while you drag and is drawn again once the size settles.",
+        "**The greeting on a new session steps aside while a list is open over it,** so the commands, mentions, skills and agents lists no longer cut its text in half.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-15-0",
     title: "Realm v2.15.0",
     date: "2026-11-16",
