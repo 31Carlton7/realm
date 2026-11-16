@@ -40,10 +40,18 @@ enum Drawing {
             dumped += 1
             try? image.pngData()?.write(to: URL(fileURLWithPath: folder).appending(path: "drawing-\(dumped).png"))
         }
+        let picture = try #require(image.cgImage)
+        let words = try read(picture, .accurate)
+        // The accurate reader on the iOS 27.0 simulator finds no words at all in some drawings it
+        // reads at another width (Home's line for another profile, light, at 390); the fast one reads them.
+        return words.isEmpty ? try read(picture, .fast) : words
+    }
+
+    private static func read(_ picture: CGImage, _ level: VNRequestTextRecognitionLevel) throws -> String {
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
+        request.recognitionLevel = level
         request.usesLanguageCorrection = false
-        try VNImageRequestHandler(cgImage: try #require(image.cgImage)).perform([request])
+        try VNImageRequestHandler(cgImage: picture).perform([request])
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
     }
 }
