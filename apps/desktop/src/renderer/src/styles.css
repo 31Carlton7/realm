@@ -9966,6 +9966,10 @@ span.documents-name:hover { background: none; }
    pane and a page that already matches it. The Finder previews these files the same way. */
 .ql-view { overflow: auto; background: var(--rl-panel); display: flex; flex-direction: column; align-items: center;
   gap: 12px; padding: 16px; }
+/* A picture sits in the middle of the pane, not against its top with the empty space under it. `safe`
+   keeps a picture taller than the pane at its own top, so it scrolls from there instead of having its
+   top cut off above the scroller. A document drawn as a page stays at the top: it is a page. */
+.ql-view[data-picture] { justify-content: safe center; }
 /* Width-constrained, never height-constrained: legibility is a function of how wide the text renders,
    and a page scaled to fit the pane's height is a page nobody can read.
 

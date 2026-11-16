@@ -5653,3 +5653,11 @@ describe("dictation in the prompter", () => {
       .toContain('.composer-dictate[aria-pressed="true"] .composer-dictate-ring { scale: 1; }');
   });
 });
+
+describe("a picture in the Documents pane", () => {
+  it("sits in the middle of the pane, and a tall one still starts at its own top", () => {
+    // THE MUTANTS: no centring, which leaves a short picture against the top with the space under
+    // it; a plain `center`, which cuts the top off a picture taller than the pane.
+    expect(bodiesFor(".ql-view[data-picture]").join(" ")).toContain("justify-content: safe center");
+  });
+});

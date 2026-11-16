@@ -61,7 +61,7 @@ export function QuickLookView({ documentsId, path, version, scrollKey }: {
     );
   }
   return (
-    <div className="ql-view" ref={viewScroll}>
+    <div className="ql-view" ref={viewScroll} data-picture={isPictureFile(path) || undefined}>
       <img className="ql-page" src={src} alt={`Preview of ${basenameOf(path)}`} onError={() => setFailed(true)} />
       {/* Under the render, not over it: the limit is worth knowing before you try to select text,
           and it must not sit on top of the document it is describing. A picture has no text and no
