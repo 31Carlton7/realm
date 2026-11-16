@@ -54,11 +54,16 @@ function inkAfter(path: string, anchor: string): string {
   return text.slice(at).match(/\.foregroundStyle\(Palette\.(\w+)\)/)![1];
 }
 
-/** Whether a `Text(` and the modifier lines under it set a `foregroundStyle`. */
+/** Whether a `Text(…)` call and the modifier lines under it set a `foregroundStyle`. */
 function inkedChain(from: string): boolean {
-  const [first, ...rest] = from.split("\n");
+  let depth = 0, close = from.indexOf("(");
+  for (; close < from.length; close++) {
+    if (from[close] === "(") depth++;
+    else if (from[close] === ")" && --depth === 0) break;
+  }
+  const [sameLine, ...rest] = from.slice(close + 1).split("\n");
   const end = rest.findIndex((line) => !/^\s*\./.test(line));
-  return /\.foregroundStyle\(/.test([first, ...rest.slice(0, end < 0 ? rest.length : end)].join("\n"));
+  return /\.foregroundStyle\(/.test([sameLine, ...rest.slice(0, end < 0 ? rest.length : end)].join("\n"));
 }
 
 describe("quiet text on the phone", () => {
