@@ -68,14 +68,18 @@ export function soften(art: HTMLCanvasElement, ground: Rgb, w: number, h: number
  * The luminances a pixel behind the transcript may have, so that every one of `inks` keeps its
  * ratio over it: 4.5:1, with the guard's spare. An ink that already misses 4.5:1 on the plain ground
  * (the light face's link blue, 3.64:1) is held to 3:1 with the spare, or to what it had if that is
- * lower; holding it to its plain ratio would leave no picture at all.
+ * lower; holding it to its plain ratio would leave no picture at all. `links` are held to that 3:1
+ * however much more they have on the plain ground.
  */
-export function readableRange(ground: Rgb, inks: Rgb[]): [number, number] {
+export function readableRange(ground: Rgb, inks: Rgb[], links: Rgb[] = []): [number, number] {
   const lg = luminance(ground);
   let lo = 0, hi = 1;
-  for (const ink of inks) {
+  for (const ink of [...inks, ...links]) {
     const plain = contrast(ink, ground);
-    const floor = Math.min((plain >= 4.5 ? 4.5 : 3) + GUARD_SPARE, plain) - 0.005;
+    // A link is held to 3:1 over the picture whatever it has on the plain ground: the light face's
+    // links go a step deeper over a picture so that this costs the picture less, not the link.
+    const need = links.includes(ink) || plain < 4.5 ? 3 : 4.5;
+    const floor = Math.min(need + GUARD_SPARE, plain) - 0.005;
     const li = luminance(ink);
     if (li > lg) hi = Math.min(hi, (li + 0.05) / floor - 0.05);
     else lo = Math.max(lo, floor * (li + 0.05) - 0.05);

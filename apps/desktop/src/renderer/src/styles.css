@@ -3505,6 +3505,13 @@ body { --focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, tr
    move, so the picture and the prompter arrive together. Reduce motion's global kill makes it a cut. */
 .hero-backdrop[data-phase="chat"]:not([data-drawn]) { opacity: 0; }
 .hero-backdrop[data-settle] { transition: opacity var(--dur-move) var(--ease-fade); }
+/* Over a picture the light face moves its ink, not the picture: quiet text goes halfway to body ink
+   and links take the face's deeper blue, so the picture is lifted toward white far less to keep them
+   readable (a bright sky stayed a sky). The dark face keeps its inks: its picture already reads. */
+:root[data-mode="light"] { --ink-2-over-picture: color-mix(in oklab, var(--ink) 50%, var(--ink-2)); }
+:root[data-mode="light"] .session-pane:has(> .hero-backdrop[data-phase="chat"]) {
+  --rl-text-dim: var(--ink-2-over-picture); --chat-link: var(--accent-ink); }
+.session-pane:has(> .hero-backdrop[data-phase="chat"]) .md a:not(.msg-chip) { color: var(--chat-link, var(--rl-accent)); }
 /* Dropping a file anywhere on the pane. Inset from the panel edge rather than flush to it, so the
    glow reads as this pane's — in a four-way split a flush ring would run straight into its
    neighbour's and the two would look like one target.

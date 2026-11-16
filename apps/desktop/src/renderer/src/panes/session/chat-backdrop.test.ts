@@ -54,4 +54,22 @@ describe("hush", () => {
       expect(contrast(light.inks[2]!, p)).toBeGreaterThanOrEqual(3);
     }
   });
+
+  it("leaves a bright sky more of itself in the light face once its quiet ink and links go a step deeper", () => {
+    // The light face over a picture: quiet text halfway to body ink, links in the deeper accent
+    // (styles.css), with the links held to 3:1. THE MUTANTS: the hush still reading the root's inks,
+    // or the deeper link held to 4.5:1, which takes the sky back to white.
+    const deeper = { quiet: rgb(61, 62, 65), link: rgb(28, 103, 212) };
+    const sky = [120, 170, 235] as [number, number, number];
+    const today = picture(sky);
+    hush(today, light.ground, readableRange(light.ground, light.inks));
+    const moved = picture(sky);
+    hush(moved, light.ground, readableRange(light.ground, [light.inks[0]!, deeper.quiet], [deeper.link]));
+    const [was] = pixels(today), [now] = pixels(moved);
+    const distance = (p: Rgb) => Math.hypot(...p.map((v, k) => v - sky[k]! / 255));
+    expect(distance(now!)).toBeLessThan(distance(was!) * 0.6);
+    expect(contrast(light.inks[0]!, now!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(deeper.quiet, now!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(deeper.link, now!)).toBeGreaterThanOrEqual(3);
+  });
 });

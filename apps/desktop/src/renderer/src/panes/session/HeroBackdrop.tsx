@@ -316,8 +316,18 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
       const pal = readPalette(root);
       const style = getComputedStyle(root);
       const blur = parseFloat(style.getPropertyValue("--fade-blur-far")) || 0;
-      const inks = ["--ink", "--ink-2", "--rl-accent"].map((v) => resolveColor(style.getPropertyValue(v)));
-      const key = JSON.stringify([w, h, dpr, pal, blur, inks]);
+      // The inks as the pane draws them: over a picture the light face deepens its quiet text and its
+      // links (styles.css), and the picture is hushed for those, not the root's.
+      // Each is read through a probe in the pane, so a `color-mix()` there arrives as a colour.
+      const probe = document.createElement("span");
+      probe.hidden = true;
+      pane.appendChild(probe);
+      const ink = (v: string) => { probe.style.color = `var(${v})`; return resolveColor(getComputedStyle(probe).color); };
+      const link = getComputedStyle(pane).getPropertyValue("--chat-link").trim();
+      const inks = ["--ink", "--rl-text-dim", ...(link ? [] : ["--rl-accent"])].map(ink);
+      const links = link ? [ink("--chat-link")] : [];
+      probe.remove();
+      const key = JSON.stringify([w, h, dpr, pal, blur, inks, links]);
       if (key === drawn) return;
       drawn = key;
       const pic = await pictureFor(backdrop, pal.dark);
@@ -326,7 +336,7 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
       if (disposed) return;
       const art = soften(print, pal.ground, Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE), blur / SCALE);
       const pixels = art.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, art.width, art.height);
-      hush(pixels.data, pal.ground, readableRange(pal.ground, inks));
+      hush(pixels.data, pal.ground, readableRange(pal.ground, inks, links));
       if (canvas.width !== art.width || canvas.height !== art.height) { canvas.width = art.width; canvas.height = art.height; }
       canvas.getContext("2d")!.putImageData(pixels, 0, 0);
       canvas.dataset.drawn = "";

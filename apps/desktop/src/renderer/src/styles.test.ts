@@ -5661,3 +5661,16 @@ describe("a picture in the Documents pane", () => {
     expect(bodiesFor(".ql-view[data-picture]").join(" ")).toContain("justify-content: safe center");
   });
 });
+
+describe("ink over a picture behind the chat", () => {
+  it("deepens the light face's quiet text and links there, and leaves the dark face's alone", () => {
+    // THE MUTANTS: the rule on both faces (dark's picture already reads, and its inks would move), or
+    // the deeper link not reaching the transcript's links.
+    const scope = ':root[data-mode="light"] .session-pane:has(> .hero-backdrop[data-phase="chat"])';
+    expect(bodiesFor(scope).join(" ")).toContain("--rl-text-dim: var(--ink-2-over-picture)");
+    expect(bodiesFor(scope).join(" ")).toContain("--chat-link: var(--accent-ink)");
+    expect(bodiesFor(':root[data-mode="light"]').join(" ")).toContain("--ink-2-over-picture: color-mix(in oklab, var(--ink) 50%, var(--ink-2))");
+    expect(RULES.some((r) => r.selectors.some((x) => x.includes('[data-mode="dark"]') && x.includes("hero-backdrop")) && /--chat-link|--rl-text-dim/.test(r.body))).toBe(false);
+    expect(bodiesFor('.session-pane:has(> .hero-backdrop[data-phase="chat"]) .md a:not(.msg-chip)').join(" ")).toContain("color: var(--chat-link, var(--rl-accent))");
+  });
+});
