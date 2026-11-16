@@ -326,7 +326,7 @@ struct MemoryEditor: View {
                     if saving {
                         ProgressView()
                     } else {
-                        Button("Save", systemImage: "checkmark") {
+                        Button("Save") {
                             if file.external { asking = true } else { Task { await save(confirmExternal: false) } }
                         }
                         .foregroundStyle(dirty ? Palette.ink : Palette.ink3)
@@ -420,7 +420,7 @@ struct NewMemorySheet: View {
                     if saving {
                         ProgressView()
                     } else {
-                        Button("Save memory", systemImage: "checkmark") { Task { await save() } }
+                        Button("Save") { Task { await save() } }
                             .foregroundStyle(ready ? Palette.ink : Palette.ink3)
                             .disabled(!ready)
                             .accessibilityIdentifier("memory-create")

@@ -281,7 +281,7 @@ struct TaskSheet: View {
                             ProgressView()
                         } else {
                             let ready = model.isConnected && draft.valid(first: first, kept: kept) && (task == nil || changed)
-                            Button(task == nil ? "Create" : "Save", systemImage: "checkmark") { save() }
+                            Button(task == nil ? "Create" : "Save") { save() }
                                 .foregroundStyle(ready ? Palette.ink : Palette.ink3)
                                 .disabled(!ready)
                                 .accessibilityIdentifier("task-save")

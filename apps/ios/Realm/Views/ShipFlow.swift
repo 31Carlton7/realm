@@ -145,7 +145,7 @@ enum ShipWords {
         switch pr.state {
         case "created", "existing":
             if let url {
-                out.append(ShipLine(id: "pr", text: pr.state == "created" ? "Opened a pull request." : "A pull request is already open.", link: url, linkTitle: pr.url))
+                out.append(ShipLine(id: "pr", text: prOpened(url, created: pr.state == "created"), link: url, linkTitle: "Open on GitHub"))
             }
         case "compare":
             out.append(ShipLine(id: "pr", text: sentence(pr.reason ?? "GitHub can take it from here"), link: url, linkTitle: "Open a pull request"))
@@ -155,6 +155,14 @@ enum ShipWords {
             break
         }
         return out
+    }
+
+    /// The pull request by its number, as GitHub names it, rather than its address: "Opened pull request #42."
+    static func prOpened(_ url: URL, created: Bool) -> String {
+        let parts = url.pathComponents
+        let number = parts.count >= 2 && parts[parts.count - 2] == "pull" ? Int(parts[parts.count - 1]) : nil
+        let name = number.map { "pull request #\($0)" } ?? "a pull request"
+        return created ? "Opened \(name)." : "\(name.prefix(1).uppercased() + name.dropFirst()) is already open."
     }
 
     /// git's and gh's words as a sentence: a capital to start and a stop to end. One that starts with a

@@ -201,7 +201,15 @@ describe("durable runs — attempts and the budget", () => {
     expect(done.state).toBe("failed");
     expect(done.attempt).toBe(2);
     expect(attemptsOf(run.id).map((a) => [a.n, a.outcome])).toEqual([[1, "failed"], [2, "failed"]]);
-    expect(done.error).toBeTruthy();
+    // The phone and the Scheduled page print the reason as it is, so it is a sentence a person reads.
+    expect(done.error).toBe("The run finished without a reply. Open its session to see what it did.");
+  });
+
+  it("says a run whose session failed stopped with an error, not the session's status", async () => {
+    const { spaceId } = await boot({ script: [{ on: WORKER_OPENER, emit: [{ kind: "fail", message: "out of credits" }] }] });
+    const { run } = create(spaceId, { maxAttempts: 1 });
+    await settled(run.id);
+    expect(runOf(run.id).error).toBe("The run stopped with an error. Open its session to see where.");
   });
 
   it("retry() re-queues a terminal run and widens the budget to fit", async () => {

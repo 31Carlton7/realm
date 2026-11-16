@@ -50,6 +50,9 @@ enum ReviewOrder {
 /// Teams' Review in words: who handed a review back and where it goes, what Approve does before it is
 /// pressed, and what a decision left.
 enum ReviewWords {
+    /// An empty Review says what the desktop's Code review says of its own empty list.
+    static let empty = "Nobody is waiting on your review."
+
     /// Whether what a review asks to send is posted or sent, as its kind says, or neither.
     enum Family {
         case post, send
@@ -221,7 +224,7 @@ struct ReviewsView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let reviews, reviews.isEmpty {
-                EmptyState("Nothing to review", systemImage: "tray", description: "When a team hands something back for you to approve, it shows here.")
+                EmptyState("Nothing to review", systemImage: "tray", description: ReviewWords.empty)
             } else if reviews == nil {
                 Unreached(what: "Review", working: model.isConnected && !model.work.unsupported)
             }
@@ -653,7 +656,7 @@ private struct DecisionNoteSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {

@@ -106,7 +106,9 @@ struct ComposerChips: View {
         if model.store.transcript(sessionId).move?.isQueued == true {
             return PlaceChip(label: MoveWords.queued, symbol: "clock.arrow.circlepath", open: openMove)
         }
-        return PlaceChip(label: MoveWords.chip(options), symbol: options.from.kind == .primary ? "laptopcomputer" : "arrow.triangle.branch", open: openMove)
+        let primary = options.from.kind == .primary
+        return PlaceChip(label: MoveWords.chip(options), short: primary ? "Mac" : nil,
+                         symbol: primary ? "laptopcomputer" : "arrow.triangle.branch", open: openMove)
     }
 }
 
@@ -167,14 +169,14 @@ struct SettingChips: View {
         }
         if let place {
             Button(action: place.open) {
-                ChipLabel(text: place.label, emphasised: false, wordless: fit != .words) {
+                ChipLabel(text: place.shown(at: dynamicTypeSize), emphasised: false, wordless: fit != .words) {
                     Image(systemName: place.symbol)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink2)
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Where it runs, \(place.label)")
+            .accessibilityLabel(place.spoken)
             .accessibilityHint("Moves this session to another checkout or a new worktree")
         }
     }
@@ -183,9 +185,19 @@ struct SettingChips: View {
 /// The chip that says where a session runs, and opens where it could be moved to.
 struct PlaceChip {
     let label: String
+    /// What the chip says at the accessibility sizes, where "On Carlton's M4 MacBook Pro" ran to five
+    /// lines: "Mac" beside the laptop. VoiceOver still reads the label.
+    var short: String?
     /// A laptop on the Mac's own folder, a branch in a worktree or another checkout.
     let symbol: String
     let open: () -> Void
+
+    func shown(at size: DynamicTypeSize) -> String {
+        size.isAccessibilitySize ? short ?? label : label
+    }
+
+    /// What VoiceOver reads at every size: the whole label.
+    var spoken: String { "Where it runs, \(label)" }
 }
 
 /// A chip's face: quiet words with a glyph and a chevron, drawn on the composer's own card rather than
@@ -238,32 +250,36 @@ private struct ModeMenu: View {
         let chip = SettingWords.chip(options)
         Menu {
             if options.agent.modes.count > 1 {
-                Picker("Mode", selection: mode) {
-                    ForEach(options.agent.modes) { choice in
-                        if let mode = SessionMode(rawValue: choice.id) {
-                            Label(choice.label, systemImage: SettingWords.symbol(mode)).tag(mode)
-                        }
-                    }
-                }
-                .pickerStyle(.inline)
-            }
-            if options.mode == .build, !options.agent.permissions.isEmpty {
-                Picker("Permissions", selection: permission) {
-                    ForEach(options.agent.permissions) { choice in
-                        // A menu draws its icons in the tint; the rung that removes the gate keeps its tone.
-                        Label {
-                            Text(choice.label)
-                        } icon: {
-                            if SettingWords.removesGate(permission: choice.id) {
-                                ProfileMark.tinted(UIImage(systemName: SettingWords.symbol(permission: choice.id)), UIColor(Tone.waiting.agentColor))
-                            } else {
-                                Image(systemName: SettingWords.symbol(permission: choice.id))
+                Section(head: "Mode") {
+                    Picker("Mode", selection: mode) {
+                        ForEach(options.agent.modes) { choice in
+                            if let mode = SessionMode(rawValue: choice.id) {
+                                Label(choice.label, systemImage: SettingWords.symbol(mode)).tag(mode)
                             }
                         }
-                        .tag(Optional(choice.id))
                     }
+                    .pickerStyle(.inline)
                 }
-                .pickerStyle(.inline)
+            }
+            if options.mode == .build, !options.agent.permissions.isEmpty {
+                Section(head: "Permissions") {
+                    Picker("Permissions", selection: permission) {
+                        ForEach(options.agent.permissions) { choice in
+                            // A menu draws its icons in the tint; the rung that removes the gate keeps its tone.
+                            Label {
+                                Text(choice.label)
+                            } icon: {
+                                if SettingWords.removesGate(permission: choice.id) {
+                                    ProfileMark.tinted(UIImage(systemName: SettingWords.symbol(permission: choice.id)), UIColor(Tone.waiting.agentColor))
+                                } else {
+                                    Image(systemName: SettingWords.symbol(permission: choice.id))
+                                }
+                            }
+                            .tag(Optional(choice.id))
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
             }
         } label: {
             let warns = SettingWords.warns(options)

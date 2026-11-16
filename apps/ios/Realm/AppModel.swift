@@ -195,6 +195,8 @@ final class AppModel {
     /// The profile Home shows, as the person last chose it for this Mac; nil until they choose.
     private(set) var keptProfile: ProfileChoice?
     private(set) var notificationStatus: UNAuthorizationStatus = .notDetermined
+    /// Realm's own question before iOS's notification prompt, once a paired phone has not been asked.
+    var notificationAskShown = false
     /// Goes up with every new channel. Open sessions open again, since a subscription does not
     /// outlive the channel it was made on.
     private(set) var channelGeneration = 0
@@ -1827,14 +1829,31 @@ final class AppModel {
 
     // MARK: - Notifications
 
+    /// The person put notifications off on Realm's sheet, so launch stops asking; Settings still offers them.
+    static let notificationsPutOffKey = "notificationsPutOff"
+
     func registerForPushes() {
         UIApplication.shared.registerForRemoteNotifications()
-        // Unattended runs must not leave a permission alert over the screen.
+        // Unattended runs must not leave a question over the screen.
         guard !LaunchOptions.unattended else { return }
+        Task {
+            await refreshNotificationStatus()
+            notificationAskShown = notificationStatus == .notDetermined && !UserDefaults.standard.bool(forKey: Self.notificationsPutOffKey)
+        }
+    }
+
+    /// Turn on, on Realm's sheet or in Settings: now iOS asks.
+    func allowNotifications() {
+        notificationAskShown = false
         Task {
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             await refreshNotificationStatus()
         }
+    }
+
+    func putOffNotifications() {
+        notificationAskShown = false
+        UserDefaults.standard.set(true, forKey: Self.notificationsPutOffKey)
     }
 
     func refreshNotificationStatus() async {

@@ -151,7 +151,8 @@ struct HomeView: View {
                 if listing.isFiltered {
                     NoResults(query: query, why: NoResults.words(style: style, pages: pages))
                 } else {
-                    EmptyState(choice.emptyWords(in: home), systemImage: "text.bubble", description: "Start one in Realm on your Mac, and it shows here.")
+                    EmptyState(choice.emptyWords(in: home), systemImage: "text.bubble",
+                               description: model.agentList == nil ? "Start one in Realm on your Mac, and it shows here." : "Tap New session at the bottom to start one.")
                 }
             }
         }
@@ -1060,7 +1061,7 @@ private struct FirstLoad: View {
                 RetryButton()
             }
         case .notAnswering:
-            EmptyState("\(mac) is not answering", systemImage: "laptopcomputer.trianglebadge.exclamationmark", description: "The relay can reach it, and Realm on it did not answer. Realm keeps trying.") {
+            EmptyState("\(mac) is not answering", systemImage: "laptopcomputer.trianglebadge.exclamationmark", description: "Check that Realm is open on your Mac. This iPhone keeps trying.") {
                 RetryButton()
             }
         case .refused(let reason):

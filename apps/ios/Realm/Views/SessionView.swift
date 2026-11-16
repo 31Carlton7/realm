@@ -93,6 +93,7 @@ struct SessionView: View {
                     .id(item.id)
                 }
                 .environment(\.newestTeammateCalls, TeammateCallState.newest(in: transcript.rows))
+                .environment(\.waitingTools, ToolWords.waiting(in: transcript.rows))
                 // Thinking is said where the next words will come, as Manus says it; what the turn is
                 // doing otherwise, and for how long, is the current step's card over the composer.
                 if transcript.isLive, status == .running, LiveActivity.of(transcript.rows) == .thinking {
@@ -666,7 +667,7 @@ private struct EmptyTranscript: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                EmptyState(status.words, systemImage: status.symbol, description: "This session shows here once your Mac is there.")
+                EmptyState(status.words, systemImage: status.symbol, description: "It shows here once your Mac is connected.")
             }
         }
     }

@@ -29,18 +29,25 @@ enum NewSessionDefaults {
     }
 
     /// An agent's settings as a new session starts on them: its default model, or its first where it
-    /// names none, its model's own reasoning, and Build on the Mac's own rung.
+    /// names none, its model's own reasoning, and Build on the Mac's own rung, which the mode chip names
+    /// as a session's does ("Ask each time"), not as "Build".
     static func options(_ agent: AgentOptions, in list: AgentList) -> SessionOptions {
         let model = agent.models.first { $0.id == nil } ?? agent.models.first
-        return SessionOptions(agent: agent, model: model?.id, modelLabel: model?.label ?? agent.name, effort: nil, permissionMode: nil,
-                              midTurn: list.midTurn, attachments: list.attachments)
+        return SessionOptions(agent: agent, model: model?.id, modelLabel: model?.label ?? agent.name, effort: nil,
+                              permissionMode: restingPermission(agent, in: list), midTurn: list.midTurn, attachments: list.attachments)
+    }
+
+    /// The rung a new session is on when nobody picks one: the Mac's default, where the agent has it.
+    static func restingPermission(_ agent: AgentOptions, in list: AgentList) -> String? {
+        list.teammatePermission.flatMap { id in agent.permissions.contains { $0.id == id } ? id : nil }
     }
 
     /// What `session.create` is asked for: only what was chosen, so everything else is the Mac's default.
-    static func settings(_ options: SessionOptions) -> SessionChanges {
+    static func settings(_ options: SessionOptions, resting: String? = nil) -> SessionChanges {
         let build = options.mode == .build
+        let permission = build && options.permissionMode != resting ? options.permissionMode : nil
         return SessionChanges(model: options.model.map { .some($0) }, effort: options.effort.map { .some($0) },
-                              mode: build ? nil : options.mode, permission: build ? options.permissionMode : nil)
+                              mode: build ? nil : options.mode, permission: permission)
     }
 }
 
@@ -154,7 +161,8 @@ struct NewSessionSheet: View {
                             guard let space, let agent, let options else { return }
                             Task {
                                 starting = true
-                                if await model.startSession(in: space, agent: agent.kind, settings: NewSessionDefaults.settings(options)) {
+                                let resting = list.flatMap { NewSessionDefaults.restingPermission(agent, in: $0) }
+                                if await model.startSession(in: space, agent: agent.kind, settings: NewSessionDefaults.settings(options, resting: resting)) {
                                     dismiss()
                                 }
                                 starting = false
@@ -196,7 +204,7 @@ struct NewSessionSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
             }

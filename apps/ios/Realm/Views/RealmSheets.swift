@@ -11,6 +11,7 @@ struct ConfirmSheet: View {
     let message: String
     let button: String
     var role: ButtonRole?
+    var cancel = "Cancel"
     let confirm: () -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -18,7 +19,7 @@ struct ConfirmSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             SheetHead(title: title, message: message)
             HStack(spacing: 10) {
-                Button("Cancel") { dismiss() }
+                Button(cancel) { dismiss() }
                     .buttonStyle(GreyButtonStyle())
                 Group {
                     if role == .destructive {

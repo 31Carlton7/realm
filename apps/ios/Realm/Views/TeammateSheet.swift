@@ -103,7 +103,7 @@ struct TeammateSheet: View {
                     if saving {
                         ProgressView()
                     } else {
-                        Button("Save", systemImage: "checkmark") { save() }
+                        Button("Save") { save() }
                             .foregroundStyle(canSave ? Palette.ink : Palette.ink3)
                             .disabled(!canSave)
                             .accessibilityIdentifier("teammate-save")
@@ -189,7 +189,7 @@ struct NewTeammateSheet: View {
                     if creating {
                         ProgressView()
                     } else {
-                        Button("Create", systemImage: "checkmark") { create() }
+                        Button("Create") { create() }
                             .foregroundStyle(canCreate ? Palette.ink : Palette.ink3)
                             .disabled(!canCreate)
                             .accessibilityIdentifier("teammate-create")

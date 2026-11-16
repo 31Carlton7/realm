@@ -21,38 +21,29 @@ enum HomeFilter: Hashable, CaseIterable {
 }
 
 /// The chips under Home's bar: All, then Needs you and Pinned while each holds anything, the chosen one
-/// filled with ink as Manus fills it; and at the end, how the list is laid out.
+/// filled with ink as Manus fills it; and at the end, how the list is laid out. They grow with the text
+/// at every size, and at the accessibility sizes they wrap onto rows instead of scrolling.
 struct HomeChips: View {
     @Binding var filter: HomeFilter
     let needsYou: Int
     let pinned: Int
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .subheadline) private var lineHeight: CGFloat = 20
 
     var body: some View {
         let counts: [HomeFilter: Int] = [.needsYou: needsYou, .pinned: pinned]
         let shown = HomeFilter.allCases.filter { $0 == .all || $0 == filter || (counts[$0] ?? 0) > 0 }
-        HStack(spacing: 8) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(shown, id: \.self) { chip in
-                        let chosen = chip == filter
-                        Button {
-                            filter = chip
-                        } label: {
-                            Text(chip.words(count: counts[chip]))
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(chosen ? Fill.onPrimary : Palette.ink2)
-                                .padding(.horizontal, 14)
-                                .frame(minHeight: 34)
-                                .background(chosen ? Fill.primary : Fill.pill, in: Capsule())
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(chosen ? .isSelected : [])
-                    }
+        HStack(alignment: .top, spacing: 8) {
+            if dynamicTypeSize.isAccessibilitySize {
+                ChipRows(spacing: 8) { chips(shown, counts: counts) }
+                    .padding(.leading, 16)
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) { chips(shown, counts: counts) }
+                        .padding(.leading, 16)
                 }
-                .padding(.leading, 16)
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
             ViewOptionsMenu()
                 .padding(.trailing, 8)
         }
@@ -63,7 +54,30 @@ struct HomeChips: View {
         // A chip whose sessions are gone leaves the list on All, never on an empty choice.
         .onChange(of: needsYou) { _, count in if count == 0, filter == .needsYou { filter = .all } }
         .onChange(of: pinned) { _, count in if count == 0, filter == .pinned { filter = .all } }
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    @ViewBuilder
+    private func chips(_ shown: [HomeFilter], counts: [HomeFilter: Int]) -> some View {
+        let shape = PillShape(oneLine: max(34, lineHeight + 14))
+        ForEach(shown, id: \.self) { chip in
+            let chosen = chip == filter
+            Button {
+                filter = chip
+            } label: {
+                Text(chip.words(count: counts[chip]))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(chosen ? Fill.onPrimary : Palette.ink2)
+                    .multilineTextAlignment(.leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .frame(minHeight: 34)
+                    .background(chosen ? Fill.primary : Fill.pill, in: shape)
+                    .contentShape(shape)
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(chosen ? .isSelected : [])
+            .accessibilityIdentifier("home-chip-\(chip)")
+        }
     }
 }
 

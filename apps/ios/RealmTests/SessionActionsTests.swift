@@ -131,11 +131,11 @@ struct RowActionsTests {
     }
 
     /// A teammate's chat is the teammate's: the desktop's menu for it neither forks, moves, switches nor
-    /// deletes it, so the phone's does not.
+    /// deletes it, so the phone's does not, and it is not renamed, since its name is the teammate's.
     @Test func aTeammatesChatKeepsToItsRow() {
         let actions = RowActions(row: Staged.toggle, connected: true, teammateChat: true)
-        #expect(actions.menu == [.pin, .rename, .archive, .stop])
-        #expect(actions.trailing == [.archive, .rename, .stop])
+        #expect(actions.menu == [.pin, .archive, .stop])
+        #expect(actions.trailing == [.archive, .stop])
     }
 
     /// A sub-agent is its lead's: none of the four either, whether or not it runs.

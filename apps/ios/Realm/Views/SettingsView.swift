@@ -125,7 +125,7 @@ struct SettingsView: View {
                 .profileRow()
                 switch model.notificationStatus {
                 case .notDetermined:
-                    Button("Allow notifications") { model.registerForPushes() }
+                    Button("Allow notifications") { model.allowNotifications() }
                         .tint(Palette.accentInk)
                         .profileRow()
                 case .denied:
