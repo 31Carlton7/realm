@@ -191,7 +191,8 @@ enum RowAction: Hashable, Identifiable {
 /// edge; Archive, Rename and, while a turn is under way, Stop from the trailing edge, outermost first;
 /// all of them in a press-and-hold, then Fork, Move to space… and Switch agent…, a lead's Sub-agents,
 /// Stop, and Delete last, as the desktop's row menu ends on it. A teammate's chat and a sub-agent have
-/// none of the four: the desktop's menus for them do not either. Everything but Sub-agents and Stop
+/// none of the four: the desktop's menus for them do not either. A teammate's chat has no Rename: its
+/// name is the teammate's, changed from Edit. Everything but Sub-agents and Stop
 /// changes the Mac's own session, so it is off while the Mac is away; Sub-agents lists what the phone
 /// last heard, and Stop keeps its place, and says why it cannot go.
 struct RowActions: Equatable {
@@ -205,9 +206,10 @@ struct RowActions: Equatable {
         let stop: [RowAction] = row.isWorking ? [.stop] : []
         let subagents: [RowAction] = RowSubagents(row) == nil ? [] : [.subagents]
         let own = !teammateChat && row.leadId == nil
+        let rename: [RowAction] = teammateChat ? [] : [.rename]
         leading = [pin]
-        trailing = [.archive, .rename] + stop
-        menu = [pin, .rename, .archive] + (own ? [.fork, .moveToSpace, .switchAgent] : []) + subagents + stop + (own ? [.delete] : [])
+        trailing = [.archive] + rename + stop
+        menu = [pin] + rename + [.archive] + (own ? [.fork, .moveToSpace, .switchAgent] : []) + subagents + stop + (own ? [.delete] : [])
         self.connected = connected
     }
 

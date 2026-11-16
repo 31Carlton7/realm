@@ -106,7 +106,9 @@ struct ComposerChips: View {
         if model.store.transcript(sessionId).move?.isQueued == true {
             return PlaceChip(label: MoveWords.queued, symbol: "clock.arrow.circlepath", open: openMove)
         }
-        return PlaceChip(label: MoveWords.chip(options), symbol: options.from.kind == .primary ? "laptopcomputer" : "arrow.triangle.branch", open: openMove)
+        let primary = options.from.kind == .primary
+        return PlaceChip(label: MoveWords.chip(options), short: primary ? "Mac" : nil,
+                         symbol: primary ? "laptopcomputer" : "arrow.triangle.branch", open: openMove)
     }
 }
 
@@ -167,14 +169,14 @@ struct SettingChips: View {
         }
         if let place {
             Button(action: place.open) {
-                ChipLabel(text: place.label, emphasised: false, wordless: fit != .words) {
+                ChipLabel(text: place.shown(at: dynamicTypeSize), emphasised: false, wordless: fit != .words) {
                     Image(systemName: place.symbol)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink2)
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Where it runs, \(place.label)")
+            .accessibilityLabel(place.spoken)
             .accessibilityHint("Moves this session to another checkout or a new worktree")
         }
     }
@@ -183,9 +185,19 @@ struct SettingChips: View {
 /// The chip that says where a session runs, and opens where it could be moved to.
 struct PlaceChip {
     let label: String
+    /// What the chip says at the accessibility sizes, where a Mac's whole name ran to five lines: "Mac"
+    /// beside the laptop. VoiceOver still reads the label.
+    var short: String?
     /// A laptop on the Mac's own folder, a branch in a worktree or another checkout.
     let symbol: String
     let open: () -> Void
+
+    func shown(at size: DynamicTypeSize) -> String {
+        size.isAccessibilitySize ? short ?? label : label
+    }
+
+    /// What VoiceOver reads at every size: the whole label.
+    var spoken: String { "Where it runs, \(label)" }
 }
 
 /// A chip's face: quiet words with a glyph and a chevron, drawn on the composer's own card rather than

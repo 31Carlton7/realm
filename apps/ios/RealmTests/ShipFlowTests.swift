@@ -96,7 +96,7 @@ struct ShipFlowTests {
         let shipped = ShipResult(commit: .init(state: "skipped"), push: .init(state: "pushed", remote: "origin", branch: "theme-column"),
                                  pr: .init(state: "created", url: "https://github.com/acme/realm/pull/42"))
         let done = ShipWords.lines(shipped, openPr: true)
-        #expect(done.map(\.text) == ["Pushed to origin/theme-column.", "Opened a pull request."])
+        #expect(done.map(\.text) == ["Pushed to origin/theme-column.", "Opened pull request #42."])
         #expect(done[1].link == URL(string: "https://github.com/acme/realm/pull/42"))
 
         let refused = ShipResult(commit: .init(state: "nothing-to-commit"), push: .init(state: "rejected", remote: "origin", branch: "x", reason: "origin has commits x does not — pull or rebase, then ship again"),
@@ -130,7 +130,7 @@ struct ShipFlowTests {
         flow.finish(ShipResult(commit: .init(state: "committed", sha: "abc1234", subject: "Add the column"),
                                push: .init(state: "pushed", remote: "origin", branch: "theme-column"),
                                pr: .init(state: "created", url: "https://github.com/acme/realm/pull/42")))
-        #expect(flow.report.map(\.text) == ["Committed abc1234 — Add the column", "Pushed to origin/theme-column.", "Opened a pull request."])
+        #expect(flow.report.map(\.text) == ["Committed abc1234 — Add the column", "Pushed to origin/theme-column.", "Opened pull request #42."])
         // Nothing is left to confirm: no line offers a second step.
         #expect(flow.report.allSatisfy { $0.retry == nil && !$0.bad })
     }

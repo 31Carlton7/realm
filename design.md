@@ -1268,6 +1268,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   the corner it had on one line, since a capsule three lines tall rounds through its first and last
   line. A card asking for an answer that is taller than the room over the transcript scrolls inside
   its own edge instead of squeezing its words into ellipses (`LargeTextTests`).
+- On the phone a state is said once and truthfully, in the desktop's words. A call held up by a
+  permission reads "Waiting for you" with a still hand, never "Running" with a spinner over the card
+  that asks: nothing runs until the answer. A sheet leaves one way, the X in its bar, whatever VoiceOver
+  calls it, and commits with its word ("Save", "Create"), never a check alone. iOS's own prompts come
+  after Realm has said what they are for: the notification prompt follows a Realm sheet that names
+  what the notifications carry, and Not now there stops the asking (`sheets.test.ts`, `WordingTests`).
 - A phone card keeps one inset on all four sides and one gap between its head, each hairline and
   each row, and everything in it starts on one left edge. A control keeps its 44-point target, but
   the card is laid out by what the control draws, and the target reaches out into the gap and the

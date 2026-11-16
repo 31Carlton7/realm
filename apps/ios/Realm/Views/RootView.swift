@@ -66,6 +66,12 @@ struct RootView: View {
                 .sheet(isPresented: pairingOverTheTop) {
                     NavigationStack { PairView(overTheTop: true) }
                 }
+                // Before iOS asks, Realm says what the notifications are for.
+                .sheet(isPresented: notificationAsk) {
+                    ConfirmSheet(title: NotificationAsk.title, message: NotificationAsk.message, button: "Turn on", cancel: "Not now") {
+                        model.allowNotifications()
+                    }
+                }
             }
         }
         // Chrome is monochrome, as iOS draws its own bars: a bar's glyphs and a menu's icons in ink, and
@@ -99,6 +105,12 @@ struct RootView: View {
         (model.store.home?.spaces ?? []).filter(model.profileChoice.includes)
     }
 
+    private var notificationAsk: Binding<Bool> {
+        Binding(get: { model.notificationAskShown && model.pairing == .idle }, set: { shown in
+            if !shown, model.notificationAskShown { model.putOffNotifications() }
+        })
+    }
+
     private var pairingOverTheTop: Binding<Bool> {
         Binding(get: { model.pairing != .idle || model.pairingRequested }, set: { shown in
             guard !shown else { return }
@@ -106,6 +118,12 @@ struct RootView: View {
             if !model.pairing.isBusy { model.pairing = .idle }
         })
     }
+}
+
+/// Realm's question before iOS's notification prompt: what the notifications are for.
+enum NotificationAsk {
+    static let title = "Turn on notifications?"
+    static let message = "Realm tells you when an agent is waiting on you, and you can answer from the lock screen."
 }
 
 /// Something that happened, at the top of the screen for a few seconds on a card lifted over the

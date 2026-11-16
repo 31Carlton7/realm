@@ -34,7 +34,7 @@ struct PairView: View {
         .toolbar {
             if overTheTop {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
                         .disabled(model.pairing.isBusy)
                 }
                 .sharedBackgroundVisibility(.hidden)
@@ -319,7 +319,7 @@ private struct PasteLinkSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
@@ -423,14 +423,19 @@ struct QRScanner: UIViewControllerRepresentable {
 }
 
 /// What a pairing link asks before it pairs: the Mac it names and the relay it goes through, so a
-/// stranger's Mac is plain to see, and the Mac it replaces if this iPhone has one.
+/// stranger's Mac is plain to see, and the Mac it replaces if this iPhone has one. Realm's own relays
+/// are "Realm's relay"; any other is named by its host.
 struct PairConfirmation: Equatable {
     let title: String
     let message: String
 
+    /// Where Realm runs its relays (`packages/contracts/src/remote.ts`).
+    static let realmRelays = "realm-relay.workers.dev"
+
     init(_ link: PairingLink, replacing paired: String?) {
         title = "Pair with “\(link.macName)”?"
-        let relay = link.relay.host() ?? link.relay.absoluteString
+        let host = link.relay.host() ?? link.relay.absoluteString
+        let relay = host.hasSuffix(".\(Self.realmRelays)") ? "Realm's relay" : host
         message = if let paired {
             "This iPhone will stop showing \(paired)'s sessions and show \(link.macName)'s instead, through \(relay)."
         } else {

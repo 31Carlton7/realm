@@ -142,7 +142,7 @@ export class RunService {
     const run = this.d.store.get(w.runId);
     if (run && !isRunTerminal(run.state)) {
       this.d.store.closeAttempt(run.id, "abandoned", "the worker session was deleted");
-      this.settle(run.id, "failed", { error: "the run's session was deleted before it finished" });
+      this.settle(run.id, "failed", { error: "The run's session was deleted before it finished." });
     }
   }
 
@@ -287,7 +287,7 @@ export class RunService {
       if (!before || before.state !== "queued") return;
       // Checked here rather than only at settle: a run whose deadline passed while it sat queued
       // should not spend an attempt proving it.
-      if (this.expiredNow(before)) { this.settle(id, "expired", { error: "the run's deadline passed before it could start" }); return; }
+      if (this.expiredNow(before)) { this.settle(id, "expired", { error: "The run passed its deadline before it could start." }); return; }
       const run = this.d.store.claim(id);
       if (!run) return; // someone else claimed it; exactly one dispatcher wins
 
@@ -338,7 +338,7 @@ export class RunService {
         } catch (e) {
           await cleanupWorktree(env.value.created, this.d.environments);
           if (this.closing) return;
-          const why = `could not create the run's session: ${errorMessage(e)}`;
+          const why = `Realm could not start the run's session: ${errorMessage(e)}`;
           this.d.store.closeAttempt(id, "failed", why);
           this.settle(id, "failed", { error: why });
           return;
@@ -388,7 +388,7 @@ export class RunService {
           ...(scheduled ? { scheduled } : {}) });
       } catch (e) {
         if (this.closing) return;
-        const why = `the run's session could not be started: ${errorMessage(e)}`;
+        const why = `The run's first message did not reach its session: ${errorMessage(e)}`;
         this.d.store.closeAttempt(id, "failed", why);
         this.failOrRetry(id, why);
       }
@@ -421,11 +421,13 @@ export class RunService {
     // retrying it under the same deadline would only expire again.
     if (this.expiredNow(run)) {
       this.d.store.closeAttempt(run.id, "expired", null);
-      this.settle(run.id, "expired", { error: "the run's deadline passed", result: finalText });
+      this.settle(run.id, "expired", { error: "The run passed its deadline before it finished.", result: finalText });
       return;
     }
     if (ev.payload.status === "error" || ev.payload.status === "ended") {
-      const why = `the run's session ended with status "${ev.payload.status}"`;
+      const why = ev.payload.status === "error"
+        ? "The run stopped with an error. Open its session to see where."
+        : "The run's session was stopped before it finished.";
       this.d.store.closeAttempt(run.id, "failed", why);
       this.failOrRetry(run.id, why, finalText);
       return;
@@ -434,7 +436,7 @@ export class RunService {
     // that produced no output. Treat it as a failed attempt rather than reporting an empty result
     // as the run's deliverable.
     if (finalText === null) {
-      const why = "the run's session settled without producing any output";
+      const why = "The run finished without a reply. Open its session to see what it did.";
       this.d.store.closeAttempt(run.id, "failed", why);
       this.failOrRetry(run.id, why);
       return;
@@ -472,7 +474,7 @@ export class RunService {
       if (run.state === "blocked") continue; // waiting on a person; a restart changes nothing
       if (this.expiredNow(run)) {
         this.d.store.closeAttempt(run.id, "expired", null);
-        this.settle(run.id, "expired", { error: "the run's deadline passed while the server was down" });
+        this.settle(run.id, "expired", { error: "The run passed its deadline while Realm was closed." });
         continue;
       }
       if (run.state === "running") {

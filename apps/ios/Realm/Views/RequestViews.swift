@@ -563,7 +563,7 @@ struct QuestionSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Not now") { dismiss() }
+                    Button("Not now", systemImage: "xmark") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
             }
@@ -771,7 +771,7 @@ struct PlanSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Not now") { dismiss() }
+                    Button("Not now", systemImage: "xmark") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
             }

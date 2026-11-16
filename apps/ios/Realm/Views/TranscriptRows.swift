@@ -261,12 +261,13 @@ private struct WorkLine: View {
     let row: TranscriptRow
     let sessionId: String
     var checkpointAfter: String?
+    @Environment(\.waitingTools) private var waitingTools
 
     var body: some View {
         switch row.content {
         case .tool(let name, let summary, let state, let detail):
             ToolLine(name: name, summary: summary, state: state, detail: detail, sessionId: sessionId,
-                     checkpointId: Edits.changes(name) ? checkpointAfter : nil)
+                     checkpointId: Edits.changes(name) ? checkpointAfter : nil, waiting: waitingTools.contains(row.key))
         case .thinking(let text):
             ThinkingLine(text: text)
         default:
@@ -284,22 +285,24 @@ private struct ToolGroupLine: View {
     @State private var open = false
     @Environment(\.holdPlace) private var holdPlace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.waitingTools) private var waitingTools
 
     var body: some View {
         let states = rows.compactMap { row -> ToolState? in
             if case .tool(_, _, let state, _) = row.content { state } else { nil }
         }
-        let running = states.last == .running
+        let waiting = rows.last.map { waitingTools.contains($0.key) } ?? false
+        let running = states.last == .running && !waiting
         let state: ToolState = running ? .running : states.contains(.error) ? .error : .done
         let kind = rows.first?.groupableKind ?? .other
-        let words = ToolWords.group(kind, count: rows.count, running: running) ?? ""
+        let words = waiting ? ToolWords.waiting : ToolWords.group(kind, count: rows.count, running: running) ?? ""
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
                 WorkPill(running: running) {
-                    ToolStateGlyph(state: state, kind: kind)
+                    ToolStateGlyph(state: state, kind: kind, waiting: waiting)
                 } label: {
                     Text(words)
                     Image(systemName: open ? "chevron.up" : "chevron.down")
@@ -432,6 +435,28 @@ enum ToolWords {
     struct Line: Equatable {
         let verb: String
         let object: String?
+    }
+
+    /// What a call held up by a permission says in place of its verb, as the desktop's row does.
+    static let waiting = "Waiting for you"
+
+    /// The calls a pending permission holds up, by row key: for each permission still unanswered, the
+    /// newest call of the tool it asks about that is still running before it. The Mac's request does not
+    /// name its call, and an agent asks before the call it is about runs.
+    static func waiting(in rows: [TranscriptRow]) -> Set<String> {
+        var running: [String: String] = [:]
+        var held: Set<String> = []
+        for row in rows {
+            switch row.content {
+            case .tool(let name, _, let state, _):
+                running[name] = state == .running ? row.key : nil
+            case .request(let request) where request.state == .pending && request.kind == .permission:
+                if let key = running[request.tool] { held.insert(key) }
+            default:
+                break
+            }
+        }
+        return held
     }
 
     static func line(tool: String, summary: String, running: Bool) -> Line {
@@ -604,6 +629,8 @@ struct PillButtonStyle: ButtonStyle {
 
 extension EnvironmentValues {
     @Entry var pillPressed = false
+    /// The calls held up by a permission the person has not answered, by row key (`ToolWords.waiting(in:)`).
+    @Entry var waitingTools: Set<String> = []
 }
 
 /// One step of the work as Manus draws it: a grey pill, as wide as its words, with the glyph of its
@@ -641,6 +668,8 @@ private struct ToolLine: View {
     let sessionId: String
     /// The turn's changes, when this tool changed a file and its turn has settled.
     let checkpointId: String?
+    /// The call waits on the person's answer to a permission, so nothing is running yet.
+    var waiting = false
     @State private var open = false
     @State private var showingAll = false
     @Environment(\.holdPlace) private var holdPlace
@@ -650,15 +679,17 @@ private struct ToolLine: View {
     static let previewLines = 16
 
     var body: some View {
-        let words = ToolWords.line(tool: name, summary: summary, running: state == .running)
+        let running = state == .running && !waiting
+        let said = ToolWords.line(tool: name, summary: summary, running: running)
+        let words = waiting ? ToolWords.Line(verb: ToolWords.waiting, object: said.object) : said
         let kind = ToolWords.kind(name)
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
-                WorkPill(running: state == .running) {
-                    ToolStateGlyph(state: state, kind: kind)
+                WorkPill(running: running) {
+                    ToolStateGlyph(state: state, kind: kind, waiting: waiting)
                 } label: {
                     // The verb is whole before the object gets any room, but it can still be cut:
                     // set at its own width, a long name pushed every row of the transcript off screen.
@@ -671,7 +702,7 @@ private struct ToolLine: View {
             }
             .buttonStyle(PillButtonStyle())
             .sensoryFeedback(.selection, trigger: open)
-            .accessibilityLabel("\([words.verb, words.object].compactMap { $0 }.joined(separator: " "))\(state == .error ? ", failed" : "")")
+            .accessibilityLabel("\([words.verb, words.object].compactMap { $0 }.joined(separator: waiting ? ", " : " "))\(state == .error ? ", failed" : "")")
             .accessibilityValue(open ? "Open" : "Folded")
             .accessibilityHint(checkpointId == nil ? "Shows what it printed" : "Shows the change")
             if open {
@@ -690,7 +721,7 @@ private struct ToolLine: View {
     }
 
     private var output: some View {
-        let text = detail ?? (state == .running ? "Still running." : "No output.")
+        let text = detail ?? (waiting ? "Runs once you allow it." : state == .running ? "Still running." : "No output.")
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         return VStack(alignment: .leading, spacing: 8) {
             ScrollView(.horizontal) {
@@ -736,14 +767,17 @@ private struct ToolObject: View {
     }
 }
 
-/// A tool's state by the shape of its glyph: a run's indicator while it works, a cross when it failed,
-/// and at rest the glyph of its kind, in the quiet ink.
+/// A tool's state by the shape of its glyph: a run's indicator while it works, a raised hand while it
+/// waits on the person (in ink: the request's card is the one place that says it in amber), a cross
+/// when it failed, and at rest the glyph of its kind, in the quiet ink.
 private struct ToolStateGlyph: View {
     let state: ToolState
     let kind: ToolWords.Kind
+    var waiting = false
 
     var body: some View {
         let (symbol, color): (String, Color) = switch state {
+        case .running where waiting: ("hand.raised", Palette.ink2)
         case .running: ("progress.indicator", Tone.working.agentColor)
         case .done: (kind.glyph, Palette.ink3)
         case .error: ("xmark.circle.fill", Tone.failed.agentColor)
@@ -752,7 +786,7 @@ private struct ToolStateGlyph: View {
             .font(.footnote.weight(.semibold))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(color)
-            .restingPulse(when: state == .running)
+            .restingPulse(when: state == .running && !waiting)
             .contentTransition(.symbolEffect(.replace))
             .accessibilityHidden(true)
     }
