@@ -3570,6 +3570,26 @@ describe("one card", () => {
     expect(bodiesFor(":root[data-squircle] .mode-card[data-selected]").join(" ")).toContain("--sq-fill: var(--accent-tint)");
   });
 
+  /* With no lift, a light card has only its fill to stand on, and Codex's light paper is white: a white
+     card on it measured no step at all (0 levels, live). So it stands a step UNDER the paper. THE
+     MUTANTS: the light card or tile put back on the white surface, a card that took the surface or the
+     chart's ground left on it, or the theme tiles left on the well the card now sits at. */
+  it("stands a light card a step under its paper, by its fill alone (11-15)", () => {
+    const light = bodiesFor(':root[data-mode="light"]').join(" ");
+    expect(light).toContain("--rl-card: color-mix(in srgb, var(--canvas) 93%, var(--ink))");
+    expect(light).toContain("--rl-tile: var(--rl-card)");
+    expect(light).not.toMatch(/--rl-(card|tile)(-hover|-press)?: var\(--surface\)/);
+    const OWN_FILL = [".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision",
+      ".app-view-request", ".stat-tile", ".usage-card", ".usage-figures", ".plan-account"];
+    const ruleFor = (scope: string, decl: string) => RULES.filter((r) => r.body.includes(decl))
+      .flatMap((r) => r.selectors).filter((x) => x.trim().startsWith(`${scope} :is(`)).join(" ");
+    for (const sel of OWN_FILL) {
+      expect(ruleFor(':root[data-mode="light"]', "--sq-fill: var(--rl-card)"), sel).toMatch(new RegExp(`\\${sel}\\b`));
+      expect(ruleFor(':root[data-mode="light"]:not([data-squircle])', "background: var(--rl-card)"), sel).toMatch(new RegExp(`\\${sel}\\b`));
+    }
+    expect(bodiesFor(':root[data-mode="light"] .mode-card:not([data-selected])').join(" ")).toContain("--sq-fill: var(--rl-tile-press)");
+  });
+
   it("casts no lift from a light run of settings rows: a card is its fill (11-15)", () => {
     /* The run of rows takes the card's lift only through the token, and the token is none. THE
        MUTANTS: a drop-shadow written into the run's own rule, or the token given one again. */
