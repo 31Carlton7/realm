@@ -247,6 +247,8 @@ Rules:
   cheap") and then the lift (11-15: "I dislike cards with shadows here, I think they shouldn't have any
   if anything"), so `--card-lift` is none and nothing runs along any edge. Where a card stops reading
   against its ground, the fix is the step between the two fills, never a ring, an edge or a shadow.
+  The light face's paper is white or a hair under it, so there a card steps the other way: under the
+  paper, toward the ink, as grey grouped boxes sit on a light window.
   What floats over content keeps its shadow: menus, popovers, sheets, toasts and the prompter. A thing a person picks up rather than reads — a file
   wherever it is shown, a saved turn, the device's toolbar — stands on the same surface through one
   token of its own (`--rl-object-shadow`, the owner's 10-05 rule that they all match). A picture in the
