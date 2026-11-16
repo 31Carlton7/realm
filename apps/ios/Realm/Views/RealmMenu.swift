@@ -19,7 +19,7 @@ struct RealmMenu<Label: View, Content: View>: View {
     var primaryAction: (() -> Void)?
     @ViewBuilder let content: () -> Content
     @ViewBuilder let label: () -> Label
-    @Environment(\.self) private var environment
+    @Environment(AppModel.self) private var model: AppModel?
     @State private var anchor = MenuAnchor()
 
     init(_ title: String, hint: String? = nil, primaryAction: (() -> Void)? = nil,
@@ -62,8 +62,7 @@ struct RealmMenu<Label: View, Content: View>: View {
 
     private func open() {
         guard let view = anchor.view, let window = view.window else { return }
-        RealmMenuHost.shared.present(title: title, anchor: view.convert(view.bounds, to: nil), over: window,
-                                     environment: environment, content: content)
+        RealmMenuHost.shared.present(title: title, anchor: view.convert(view.bounds, to: nil), over: window, model: model, content: content)
     }
 }
 
@@ -140,9 +139,9 @@ final class RealmMenuHost {
         ]
     }
 
-    /// Opens a menu beside `anchor`, a frame on screen. Its rows see the environment of the control that
-    /// opened it — the model, the colour scheme, the text size — under the menu's own row styles.
-    func present(title: String, anchor: CGRect, over parent: UIWindow, environment: EnvironmentValues? = nil,
+    /// Opens a menu beside `anchor`, a frame on screen. Its rows are given the app's model; the face and
+    /// the text size are its own window's, so they follow the screen while the menu is up.
+    func present(title: String, anchor: CGRect, over parent: UIWindow, model: AppModel? = nil,
                  @ViewBuilder content: () -> some View) {
         dismiss(fading: false)
         guard let scene = parent.windowScene else { return }
@@ -150,7 +149,8 @@ final class RealmMenuHost {
         window.frame = parent.frame
         window.windowLevel = .alert
         let panel = RealmMenuPanel(title: title, close: MenuClose { [weak self] in self?.dismiss() }, content: content())
-        window.rootViewController = RealmMenuController(panel: AnyView(MenuRoot(opener: environment, panel: panel)), anchor: anchor, keyboard: keyboard) { [weak self] in
+        let root = model.map { AnyView(panel.environment($0)) } ?? AnyView(panel)
+        window.rootViewController = RealmMenuController(panel: root, anchor: anchor, keyboard: keyboard) { [weak self] in
             self?.dismiss()
         }
         window.isHidden = false
@@ -172,26 +172,6 @@ final class RealmMenuHost {
         UIView.animate(withDuration: 0.12, animations: { window.alpha = 0 }) { _ in
             window.isHidden = true
             UIAccessibility.post(notification: .screenChanged, argument: nil)
-        }
-    }
-}
-
-/// The menu under the environment of the control that opened it, but for the face and the text size,
-/// which follow the screen while the menu is up.
-private struct MenuRoot<Panel: View>: View {
-    let opener: EnvironmentValues?
-    let panel: Panel
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        if let opener {
-            panel
-                .environment(\.self, opener)
-                .environment(\.colorScheme, colorScheme)
-                .environment(\.dynamicTypeSize, dynamicTypeSize)
-        } else {
-            panel
         }
     }
 }

@@ -114,6 +114,25 @@ struct RealmMenuTests {
         #expect(elements.contains { $0.accessibilityLabel == "Mode" && $0.accessibilityTraits.contains(.header) })
     }
 
+    /// An open menu follows the screen to the other face: its card is the dark surface once the screen is dark.
+    @Test func itFollowsTheScreensFace() throws {
+        var haptics = 0
+        let (window, menu, controller) = try Self.opened(&haptics)
+        defer { window.isHidden = true; RealmMenuHost.shared.dismiss(fading: false) }
+        func card(_ style: UIUserInterfaceStyle) throws -> CGFloat {
+            menu.overrideUserInterfaceStyle = style
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            let view = try #require(controller.host.view)
+            let image = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in _ = view.drawHierarchy(in: view.bounds, afterScreenUpdates: true) }
+            // A point on the card beside the head, clear of every word.
+            let point = CGRect(x: (view.bounds.maxX - 30) * image.scale, y: 12 * image.scale, width: 1, height: 1)
+            let pixel = try #require(image.cgImage?.cropping(to: point))
+            return try #require(UIImage(cgImage: pixel).white)
+        }
+        #expect(try card(.light) > 0.9)
+        #expect(try card(.dark) < 0.3)
+    }
+
     /// Every element VoiceOver can reach under a view.
     static func elements(in view: NSObject) -> [NSObject] {
         var found: [NSObject] = []
@@ -127,6 +146,32 @@ struct RealmMenuTests {
             }
         }
         return found
+    }
+
+    /// With the keyboard up, the menu's room ends at the keyboard's top, so a menu from the composer opens
+    /// above it rather than under it.
+    @Test func aMenuKeepsClearOfTheKeyboard() throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 440, height: 956)
+        let controller = RealmMenuController(panel: AnyView(Color.clear.frame(width: 250, height: 100)),
+                                             anchor: CGRect(x: 16, y: 560, width: 44, height: 44),
+                                             keyboard: CGRect(x: 0, y: 620, width: 440, height: 336)) {}
+        window.rootViewController = controller
+        window.isHidden = false
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+        #expect(controller.room.maxY == 620, "\(controller.room)")
+        #expect(controller.host.view.frame.maxY <= 560, "above the control, clear of the keyboard: \(controller.host.view.frame)")
+    }
+
+    /// The profile switcher is the whole title, at least a touch tall (the audit's HOME-08: 63 by 18).
+    @Test func theProfileSwitcherIsATouchTall() {
+        for size in [DynamicTypeSize.xSmall, .large, .accessibility5] {
+            let title = ProfileTitle(name: "Personal", subtitle: Text("On Carlton's Mac")).dynamicTypeSize(size)
+            let fitted = UIHostingController(rootView: title).sizeThatFits(in: CGSize(width: 300, height: 400))
+            #expect(fitted.height >= 44 && fitted.width >= 120, "\(size): \(fitted)")
+        }
     }
 
     /// The Mode menu draws its two heads, which iOS's menu dropped (the audit's COMP-08).
@@ -161,5 +206,17 @@ struct RealmMenuTests {
         #expect(whole.width <= 416, "\(whole)")
         let kept = UIHostingController(rootView: panel).sizeThatFits(in: CGSize(width: 416, height: 300))
         #expect(kept.height <= 300, "\(kept)")
+    }
+}
+
+private extension UIImage {
+    /// How light a one-pixel image is, from black at 0 to white at 1.
+    var white: CGFloat? {
+        guard let cgImage else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return CGFloat(Int(pixel[0]) + Int(pixel[1]) + Int(pixel[2])) / (3 * 255)
     }
 }
