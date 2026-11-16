@@ -86,10 +86,12 @@ enum VideoPrep {
     }
 
     /// Exports `movie` to a new file at `destination`, telling `progress` how far along it is.
-    /// Cancelling the task stops the export and leaves nothing at `destination`.
+    /// Cancelling the task stops the export and leaves nothing at `destination`. Where the system
+    /// offers no 1280 by 720 export, as the iOS 27.0 simulator offers none but passthrough, the film
+    /// is encoded by `transcode` instead.
     static func export(_ movie: URL, to destination: URL, fitting maxBytes: Int, progress: @escaping @Sendable (Double) -> Void) async throws {
         guard let session = session(for: movie, fitting: maxBytes) else {
-            throw CocoaError(.fileReadCorruptFile)
+            return try await transcode(movie, to: destination, fitting: maxBytes, progress: progress)
         }
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Not Sendable in the SDK, though `states` is made to be watched while `export` runs.
@@ -107,6 +109,124 @@ enum VideoPrep {
             try? FileManager.default.removeItem(at: destination)
             throw error
         }
+    }
+
+    /// The film's bitrate for `transcode`: what spreads a tenth under `maxBytes` over `seconds`, less
+    /// the sound, no lower than the 1.6 megabits a second the system's export goes to, and no higher
+    /// than 5, plenty at 1280 by 720, so a short clip is not made big to fill the limit.
+    static func bitRate(lasting seconds: Double, fitting maxBytes: Int) -> Int {
+        let fits = Double(maxBytes) * 0.9 * 8 / max(seconds, 1) - Double(soundBitRate)
+        return min(max(Int(fits), 1_600_000), 5_000_000)
+    }
+
+    static let soundBitRate = 128_000
+
+    /// What the system's export does, by hand: H.264 at most 1280 by 720 at `bitRate`, AAC sound,
+    /// the film's rotation kept, and none of its metadata, which a writer only writes when given it.
+    static func transcode(_ movie: URL, to destination: URL, fitting maxBytes: Int, progress: @escaping @Sendable (Double) -> Void) async throws {
+        let asset = AVURLAsset(url: movie)
+        guard let film = try await asset.loadTracks(withMediaType: .video).first else { throw CocoaError(.fileReadCorruptFile) }
+        let sound = try await asset.loadTracks(withMediaType: .audio).first
+        let duration = try await asset.load(.duration)
+        let (natural, transform) = try await film.load(.naturalSize, .preferredTransform)
+        let scale = min(1, 1_280 / max(natural.width, natural.height), 720 / min(natural.width, natural.height))
+        let even = { (side: CGFloat) in Int((side * scale / 2).rounded()) * 2 }
+
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let reader = try AVAssetReader(asset: asset)
+        let writer = try AVAssetWriter(outputURL: destination, fileType: .mp4)
+        writer.shouldOptimizeForNetworkUse = true
+        let frames = AVAssetReaderTrackOutput(track: film, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        ])
+        let encoded = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: even(natural.width), AVVideoHeightKey: even(natural.height),
+            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: bitRate(lasting: duration.seconds, fitting: maxBytes)],
+        ])
+        encoded.transform = transform
+        var pairs = [(frames as AVAssetReaderOutput, encoded)]
+        if let sound {
+            let samples = AVAssetReaderTrackOutput(track: sound, outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 2,
+            ])
+            pairs.append((samples, AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: soundBitRate,
+            ])))
+        }
+        for (output, input) in pairs {
+            output.alwaysCopiesSampleData = false
+            reader.add(output)
+            writer.add(input)
+        }
+        guard reader.startReading(), writer.startWriting() else {
+            throw reader.error ?? writer.error ?? CocoaError(.fileReadCorruptFile)
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        // Cancelling stops the reading, which ends each pump. It goes on the pumps' queue: a reader
+        // cancelled while it copies a sample crashes.
+        let queue = DispatchQueue(label: "VideoPrep.transcode")
+        nonisolated(unsafe) let reading = reader
+        nonisolated(unsafe) let moving = pairs
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                pump(moving, on: queue, telling: progress, of: duration) { done.resume() }
+            }
+        } onCancel: {
+            queue.async { reading.cancelReading() }
+        }
+        guard !Task.isCancelled, reader.status == .completed else {
+            writer.cancelWriting()
+            removeWritten(destination)
+            try Task.checkCancellation()
+            throw reader.error ?? CocoaError(.fileReadCorruptFile)
+        }
+        await writer.finishWriting()
+        guard writer.status == .completed else {
+            removeWritten(destination)
+            throw writer.error ?? CocoaError(.fileWriteUnknown)
+        }
+    }
+
+    /// Removes what a writer stopped short left at `destination`: the file, and the working copy
+    /// beside it ("<name>.sb-…") that cancelling leaves.
+    private static func removeWritten(_ destination: URL) {
+        let folder = destination.deletingLastPathComponent()
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        for name in names where name.hasPrefix(destination.lastPathComponent) {
+            try? FileManager.default.removeItem(at: folder.appending(path: name))
+        }
+    }
+
+    /// Moves every sample of each output into its input as fast as the writer takes them, telling
+    /// `progress` how far into `duration` the film has come, and calls `finish` once every reading
+    /// has ended or the writer has stopped.
+    private static func pump(_ pairs: [(AVAssetReaderOutput, AVAssetWriterInput)], on queue: DispatchQueue,
+                             telling progress: @escaping @Sendable (Double) -> Void, of duration: CMTime,
+                             then finish: @escaping @Sendable () -> Void) {
+        let pumping = DispatchGroup()
+        for (index, (output, input)) in pairs.enumerated() {
+            // Not Sendable in the SDK; only touched on `queue`.
+            nonisolated(unsafe) let output = output
+            nonisolated(unsafe) let input = input
+            nonisolated(unsafe) var finished = false
+            pumping.enter()
+            input.requestMediaDataWhenReady(on: queue) {
+                while !finished, input.isReadyForMoreMediaData {
+                    guard let sample = output.copyNextSampleBuffer() else {
+                        input.markAsFinished()
+                        finished = true
+                        return pumping.leave()
+                    }
+                    guard input.append(sample) else {
+                        finished = true
+                        return pumping.leave()
+                    }
+                    if index == 0 { progress(CMSampleBufferGetPresentationTimeStamp(sample).seconds / max(duration.seconds, 1)) }
+                }
+            }
+        }
+        pumping.notify(queue: .global(), execute: finish)
     }
 }
 
