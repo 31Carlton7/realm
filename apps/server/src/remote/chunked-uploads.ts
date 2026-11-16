@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { appendFile, mkdir, open, readdir, readFile, realpath, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { prefixedAttachmentName, sweepTempAttachments, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
+import { prefixedAttachmentName, sweepTempAttachments, tempAttachmentDir, tempUploadDir } from "@realm/contracts/src/temp-attachments";
 import { UPLOAD_LIMITS } from "@realm/remote";
 import { UploadRefused } from "./uploads";
 
@@ -44,7 +44,7 @@ export class ChunkedUploads {
 
   constructor(private readonly home: string, private readonly freeBytes: (dir: string) => Promise<number> = freeOnDisk) {}
 
-  private get dir(): string { return join(this.home, "tmp", "uploads"); }
+  private get dir(): string { return tempUploadDir(this.home); }
   private part(id: string): string { return join(this.dir, `${id}.part`); }
   private record(id: string): string { return join(this.dir, `${id}.json`); }
 

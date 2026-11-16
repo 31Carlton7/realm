@@ -6,7 +6,7 @@ import { symlink } from "node:fs/promises";
 import { tempDir } from "@realm/test-utils";
 import {
   describeFiles, existingPath, fileThumbnail, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
-  statFile, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
+  statFile, sweepTempAttachments, sweepTempFilesAtLaunch, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
 } from "./attachments";
 
 let home: string;
@@ -67,6 +67,19 @@ describe("saveTempAttachment", () => {
     expect(a.path).not.toBe(b.path);
     expect((await stat(a.path)).size).toBe(1);
     expect((await stat(b.path)).size).toBe(2);
+  });
+});
+
+describe("sweepTempFilesAtLaunch", () => {
+  it("sweeps the part of a video a phone stopped sending a day ago, and keeps one still arriving", async () => {
+    const uploads = join(home, "tmp", "uploads");
+    await mkdir(uploads, { recursive: true });
+    await writeFile(join(uploads, "old.part"), "x");
+    await writeFile(join(uploads, "fresh.part"), "x");
+    await age(join(uploads, "old.part"), TEMP_ATTACHMENT_TTL_MS + 60_000);
+    await age(join(uploads, "fresh.part"), 60 * 60_000);
+    await sweepTempFilesAtLaunch(home);
+    expect(await readdir(uploads)).toEqual(["fresh.part"]);
   });
 });
 
