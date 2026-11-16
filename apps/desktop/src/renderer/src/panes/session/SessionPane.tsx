@@ -312,7 +312,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const setDraft = useApp((s) => s.setDraft);
   /* `session` is not proven until the early return below, and a hook cannot move past it — hence the
      optional chain. The store refreshes this list when a session opens; the pane only reads it. */
-  const spaceCommands = useApp((s) => (session ? s.spaceCommands[session.spaceId] : undefined) ?? EMPTY_COMMANDS);
+  const sessionCommands = useApp((s) => s.sessionCommands[id] ?? EMPTY_COMMANDS);
   const expandCommand = useApp((s) => s.expandCommand);
   const startGoal = useApp((s) => s.startGoal);
   const setGoalStatus = useApp((s) => s.setGoalStatus);
@@ -701,17 +701,18 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       run: () => openSpacePage(session.spaceId, "skills"),
     } as SlashCommand] : []),
     { id: "connections", label: "Manage connections", hint: "Open this space's connectors", icon: "plug", run: () => openSpacePage(session.spaceId, "connections") },
-    /* The user's own commands, from `<space>/commands`, `~/Realm/commands` and `~/.claude/commands`.
+    /* The user's own commands, from `<space>/commands`, the checkout's `.claude/commands`,
+       `~/Realm/commands` and `~/.claude/commands`.
        Appended after the app's own so the built-ins lead the picker — and they can never collide with
        one, because the server marks a file whose name a built-in owns invalid, and only the runnable
        ones arrive here. */
-    ...runnableCommands(spaceCommands).map((c): SlashCommand => ({
+    ...runnableCommands(sessionCommands).map((c): SlashCommand => ({
       id: c.name, label: c.name, hint: c.description, icon: "sparkles",
       /* Derived, not declared: a template that advertises an argument is one that needs one, so the
          picker arms the box instead of running on nothing — the same gesture `/goal` already has. */
       takesArgument: c.argumentHint !== null,
       run: (rest) => run(async () => {
-        const { text } = await expandCommand(session.spaceId, c.name, rest);
+        const { text } = await expandCommand(id, c.name, rest);
         /* The DRAFT, never a send. An unmatched `$3` is left standing in `text` precisely so the user
            reads it before Return; sending here would turn that into a silent failure. */
         setDraft(id, text);

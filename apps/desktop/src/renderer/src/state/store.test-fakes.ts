@@ -259,6 +259,8 @@ export type FakeData = {
   /** A space's user-defined slash commands, by space id. Absent → none, which is what a space with no
    *  `commands/` directory really reports. */
   commands?: Record<string, UserCommand[]>;
+  /** Each command file's template, by path: a list carries no bodies, so `commands.expand` reads here. */
+  commandBodies?: Record<string, string>;
   /** The folder `commands.list` reports as the space's own writable root. */
   commandsRoot?: string;
   /** A space's project scripts, by space id. Absent → none. */
@@ -582,6 +584,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
     commands: overrides.commands ?? {},
+    commandBodies: overrides.commandBodies ?? {},
     commandsRoot: overrides.commandsRoot ?? "/realm-home/commands",
     scripts: overrides.scripts ?? {},
     sandbox: overrides.sandbox ?? {
@@ -1302,7 +1305,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.sandbox = { ...data.sandbox, prefs: prefs ?? data.sandbox.defaults, inherited: prefs === null };
       return { ...data.sandbox };
     },
-    listCommands: async (spaceId) => { calls.push(`listCommands:${spaceId}`); return { root: data.commandsRoot, commands: [...(data.commands[spaceId ?? ""] ?? [])] }; },
+    listCommands: async (spaceId, cwd) => { calls.push(`listCommands:${spaceId}:${cwd}`); return { root: data.commandsRoot, commands: [...(data.commands[spaceId ?? ""] ?? [])] }; },
     expandCommand: async (spaceId, name, args) => {
       calls.push(`expandCommand:${spaceId}:${name}`);
       const command = (data.commands[spaceId ?? ""] ?? []).find((c) => c.name === name);
@@ -1310,7 +1313,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       /* The real expander, not a lookalike: placeholder handling is the whole behaviour here, and a
          fake that substituted differently would let a test pass against semantics the server does
          not have. */
-      return { command, ...expandCommand(command.body, args) };
+      return { command, ...expandCommand(data.commandBodies[command.path] ?? "", args) };
     },
     listSkillSources: async (spaceId) => {
       calls.push(`listSkillSources:${spaceId}`);

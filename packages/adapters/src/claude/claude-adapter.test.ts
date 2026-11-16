@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CLAUDE_MCP_OUTPUT_TOKENS, ClaudeAdapter, claudeAllowedTools, claudeModels, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
+import { CLAUDE_LISTING_ENV, CLAUDE_MCP_OUTPUT_TOKENS, ClaudeAdapter, claudeAllowedTools, claudeModels, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import { GATEWAY_TOOL_TIMEOUT_MS, RestartRequiredError, type StartOptions } from "../types";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -1220,7 +1220,7 @@ describe("ClaudeAdapter skills", () => {
     settingsFile({ env: { REALM_PROBE_FROM_SETTINGS: "yes" }, apiKeyHelper: "printf sk-never-minted" });
     const { handle, options } = capture({ env: { REALM_PROBE_OWN: "v" } });
     await handle.send({ text: "hi", attachments: [] });
-    expect((await options()).env).toEqual({ MAX_MCP_OUTPUT_TOKENS: String(CLAUDE_MCP_OUTPUT_TOKENS), ...process.env, REALM_PROBE_OWN: "v" });
+    expect((await options()).env).toEqual({ MAX_MCP_OUTPUT_TOKENS: String(CLAUDE_MCP_OUTPUT_TOKENS), ...CLAUDE_LISTING_ENV, ...process.env, REALM_PROBE_OWN: "v" });
     await handle.dispose();
   });
 
@@ -1241,6 +1241,26 @@ describe("ClaudeAdapter skills", () => {
     await own.handle.send({ text: "hi", attachments: [] });
     expect(((await own.options()).env as Record<string, string>).MAX_MCP_OUTPUT_TOKENS).toBe("40000");
     await own.handle.dispose();
+  });
+
+  it("gives the CLI's skill listing room for every description, with or without skills", async () => {
+    // At the CLI's default (1% of the context window) a 200k-window model keeps 2 of 53 descriptions.
+    for (const skills of [undefined, { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" }]) {
+      const { handle, options } = capture({ skills });
+      await handle.send({ text: "hi", attachments: [] });
+      expect(((await options()).env as Record<string, string>).SLASH_COMMAND_TOOL_CHAR_BUDGET).toBe("100000");
+      await handle.dispose();
+    }
+  });
+
+  it("leaves a listing budget the user set themselves alone", async () => {
+    vi.stubEnv("SLASH_COMMAND_TOOL_CHAR_BUDGET", "5000");
+    for (const skills of [undefined, { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" }]) {
+      const { handle, options } = capture({ skills });
+      await handle.send({ text: "hi", attachments: [] });
+      expect(((await options()).env as Record<string, string>).SLASH_COMMAND_TOOL_CHAR_BUDGET).toBe("5000");
+      await handle.dispose();
+    }
   });
 });
 

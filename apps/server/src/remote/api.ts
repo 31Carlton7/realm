@@ -362,7 +362,7 @@ export class MobileApi {
         case "session.tabPreview": return phoneTabCard(await rpc.call("tabs.preview", { sessionId: p.id as string, tab: p.tab as MobileParams<"session.tabPreview">["tab"] }), this.o.userHome ?? homedir());
         case "session.expandCommand": {
           const session = await rpc.call("sessions.get", { id: p.id as string });
-          const { text, missing } = await rpc.call("commands.expand", { spaceId: session.spaceId, name: p.name as string, args: p.args as string });
+          const { text, missing } = await rpc.call("commands.expand", { spaceId: session.spaceId, name: p.name as string, args: p.args as string, cwd: session.cwd || null });
           return { text, missing };
         }
         case "session.goal": await rpc.call("goals.start", { sessionId: p.id as string, objective: p.objective as string, tokenBudget: null }); return { ok: true };
@@ -715,7 +715,7 @@ export class MobileApi {
 
   private async composer(rpc: RpcPort, id: string): Promise<MobileResult<"session.composer">> {
     const session = await rpc.call("sessions.get", { id });
-    const [{ commands }, skills] = await Promise.all([rpc.call("commands.list", { spaceId: session.spaceId }), this.mentionable(rpc, session)]);
+    const [{ commands }, skills] = await Promise.all([rpc.call("commands.list", { spaceId: session.spaceId, cwd: session.cwd || null }), this.mentionable(rpc, session)]);
     return {
       commands: runnableCommands(commands).map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint })),
       skills: skills.map((k) => ({ id: k.id, name: k.name, description: k.description })),

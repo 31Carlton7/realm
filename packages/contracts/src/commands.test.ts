@@ -4,51 +4,55 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   RESERVED_COMMAND_NAMES, commandNameFromFile, expandCommand, isReservedCommandName, readCommandDocument,
-  runnableCommands, CommandNameSchema, type UserCommand,
+  runnableCommands, untypeableReason, type UserCommand,
 } from "./commands";
 import { SESSION_MODES } from "./presets";
 
 const doc = (frontmatter: Record<string, string> | null, body: string) => ({ frontmatter, body });
 
 describe("commandNameFromFile", () => {
-  it("takes the name off the filename", () => {
+  it("takes the name off the filename, keeping its case", () => {
     expect(commandNameFromFile("standup.md")).toBe("standup");
     expect(commandNameFromFile("write-tests.md")).toBe("write-tests");
+    // Claude lists `Plain_Name.md` as `/Plain_Name`; matching ignores case, display does not.
+    expect(commandNameFromFile("Standup.MD")).toBe("Standup");
   });
 
-  it("folds case, because macOS hands back the name it feels like", () => {
-    // A file created as `standup.md` and read back as `Standup.MD` has to be one command, not two —
-    // and the lower-cased name is also the only one `filterSlashCommands` can ever match.
-    expect(commandNameFromFile("Standup.MD")).toBe("standup");
+  it("names a nested file with `:`, as Claude does", () => {
+    expect(commandNameFromFile("git/commit.md")).toBe("git:commit");
+    expect(commandNameFromFile("a/b/c.md")).toBe("a:b:c");
   });
 
-  it("is not a command unless it is a .md file", () => {
+  it("is not a command unless it is a visible .md file", () => {
     expect(commandNameFromFile("notes.txt")).toBeNull();
     expect(commandNameFromFile("README")).toBeNull();
     expect(commandNameFromFile(".DS_Store")).toBeNull();
-  });
-
-  it("refuses a name the prompter could never type", () => {
-    // `slashQueryAt` stops the token at the first character outside [a-z0-9-], so each of these would
-    // list a command that no amount of typing selects.
-    expect(commandNameFromFile("has space.md")).toBeNull();
-    expect(commandNameFromFile("with_underscore.md")).toBeNull();
-    expect(commandNameFromFile("dotted.name.md")).toBeNull();
-    expect(commandNameFromFile("-leading.md")).toBeNull();
+    expect(commandNameFromFile(".hidden.md")).toBeNull();
     expect(commandNameFromFile(".md")).toBeNull();
   });
 
-  it("accepts exactly what the schema does", () => {
-    expect(CommandNameSchema.safeParse("standup").success).toBe(true);
-    expect(CommandNameSchema.safeParse("Standup").success).toBe(false);
-    expect(CommandNameSchema.safeParse("2fa").success).toBe(true);
+  it("names every other file, even one that cannot be typed, so it can be listed with a reason", () => {
+    expect(commandNameFromFile("has space.md")).toBe("has space");
+    expect(commandNameFromFile("with_underscore.md")).toBe("with_underscore");
+    expect(commandNameFromFile("dotted.name.md")).toBe("dotted.name");
+  });
+});
+
+describe("untypeableReason", () => {
+  it("accepts upper case, `_`, `.` and a nested name's `:`", () => {
+    for (const name of ["standup", "Plain_Name", "v2.1", "git:commit", "2fa", "-x"]) expect(untypeableReason(name), name).toBeNull();
+  });
+
+  it("says why a name with a space, or anything else, cannot be typed", () => {
+    expect(untypeableReason("has space")).toMatch(/space/);
+    expect(untypeableReason("café")).toMatch(/letters, digits/);
   });
 });
 
 describe("readCommandDocument", () => {
   it("reads the description and the argument hint", () => {
     expect(readCommandDocument("standup", doc({ description: "Write a standup note", "argument-hint": "[yesterday]" }, "Body")))
-      .toEqual({ description: "Write a standup note", argumentHint: "[yesterday]", body: "Body", valid: true, reason: null });
+      .toEqual({ description: "Write a standup note", argumentHint: "[yesterday]", valid: true, reason: null });
   });
 
   it("leaves argumentHint null when the file does not take one", () => {
@@ -58,19 +62,24 @@ describe("readCommandDocument", () => {
     expect(readCommandDocument("standup", doc({ description: "d", "argument-hint": "  " }, "Body")).argumentHint).toBeNull();
   });
 
-  it("is invalid, with a different sentence, for each way a file falls short", () => {
-    expect(readCommandDocument("a", doc(null, "just prose")).reason).toMatch(/frontmatter/);
-    expect(readCommandDocument("a", doc({ name: "a" }, "body")).reason).toMatch(/`description`/);
+  it("runs a plain file with no frontmatter, and describes it by its first line", () => {
+    expect(readCommandDocument("a", doc(null, "\n\n# Review the diff\nthen say so"))).toEqual({
+      description: "Review the diff", argumentHint: null, valid: true, reason: null,
+    });
+    // Frontmatter without a description falls back the same way.
+    expect(readCommandDocument("a", doc({ "argument-hint": "<x>" }, "Ship $0")).description).toBe("Ship $0");
+  });
+
+  it("is invalid, with a sentence, when there is nothing to send or the name cannot be typed", () => {
     expect(readCommandDocument("a", doc({ description: "d" }, "   \n\n")).reason).toMatch(/template/);
-    for (const bad of [doc(null, "x"), doc({ name: "a" }, "b"), doc({ description: "d" }, " ")]) {
+    expect(readCommandDocument("a", doc(null, "  ")).reason).toMatch(/empty/);
+    expect(readCommandDocument("has space", doc(null, "body")).reason).toMatch(/space/);
+    for (const bad of [doc(null, " "), doc({ description: "d" }, " ")]) {
       expect(readCommandDocument("a", bad).valid).toBe(false);
     }
   });
 
   it("keeps what it managed to read out of a file it has to reject", () => {
-    // The opposite of the skills reader's `invalidMeta`, on purpose: there is no directory name to
-    // fall back on here, and showing the author the half that parsed is how they find the half that
-    // did not.
     const meta = readCommandDocument("a", doc({ description: "Ship it" }, ""));
     expect(meta.valid).toBe(false);
     expect(meta.description).toBe("Ship it");
@@ -83,6 +92,8 @@ describe("readCommandDocument", () => {
       expect(meta.valid, name).toBe(false);
       expect(meta.reason, name).toContain(`/${name}`);
     }
+    // Whatever the file's case: `/plan` would match `Plan.md` too.
+    expect(readCommandDocument("Plan", perfect).valid).toBe(false);
     // Not a blanket refusal: the point is the six names, not every name.
     expect(readCommandDocument("standup", perfect).valid).toBe(true);
   });
@@ -125,54 +136,65 @@ describe("expandCommand", () => {
       .toBe("Review the auth code, then say so about the auth code.");
   });
 
-  it("fills $1…$9 from the words", () => {
-    const args = "a b c d e f g h i";
-    expect(expandCommand("$1/$2/$3/$4/$5/$6/$7/$8/$9", args).text).toBe("a/b/c/d/e/f/g/h/i");
+  it("numbers the words from $0, as Claude's CLI does", () => {
+    expect(expandCommand("$0/$1/$2", "a b c").text).toBe("a/b/c");
+    expect(expandCommand("$ARGUMENTS[0]-$ARGUMENTS[2]", "a b c").text).toBe("a-c");
+  });
+
+  it("has no last placeholder: $10 is the eleventh word", () => {
+    // Claude 2.1.322, measured: twelve words fill $0…$11, and $12 stays standing.
+    const args = "a b c d e f g h i j k l";
+    expect(expandCommand("$9 $10 $11 $ARGUMENTS[10]", args).text).toBe("j k l k");
+    const out = expandCommand("[$0] [$12] [$100]", args);
+    expect(out.text).toBe("[a] [$12] [$100]");
+    expect(out.missing).toEqual(["$12", "$100"]);
+  });
+
+  it("keeps a quoted run as one word", () => {
+    expect(expandCommand("[$0] [$1]", `"old name" 'new one'`).text).toBe("[old name] [new one]");
   });
 
   it("trims the argument string, and splits words on any run of whitespace", () => {
-    expect(expandCommand("[$ARGUMENTS] [$1] [$2]", "   one    two  ").text).toBe("[one    two] [one] [two]");
+    expect(expandCommand("[$ARGUMENTS] [$0] [$1]", "   one    two  ").text).toBe("[one    two] [one] [two]");
   });
 
   it("leaves an unmatched positional standing, and says which", () => {
     // Empty would be the silent failure: "compare  and b" still reads as a sentence, and the agent
     // would answer a question nobody asked.
-    const out = expandCommand("compare $1 and $3", "only-one");
-    expect(out.text).toBe("compare only-one and $3");
-    expect(out.missing).toEqual(["$3"]);
+    const out = expandCommand("compare $0 and $2", "only-one");
+    expect(out.text).toBe("compare only-one and $2");
+    expect(out.missing).toEqual(["$2"]);
   });
 
   it("reports each missing placeholder once, in the order they appear", () => {
-    expect(expandCommand("$3 $2 $3 $2", "a").missing).toEqual(["$3", "$2"]);
+    expect(expandCommand("$3 $2 $3 $2 $ARGUMENTS[5]", "a").missing).toEqual(["$3", "$2", "$ARGUMENTS[5]"]);
   });
 
   it("expands $ARGUMENTS to nothing when there were no arguments, and does not call that missing", () => {
-    // Unlike a positional: the rest of the line exists and is empty, and there is no other word it
-    // could have meant. The truncated sentence is visible in the draft either way.
     expect(expandCommand("Summarise: $ARGUMENTS", "   ")).toEqual({ text: "Summarise: ", missing: [] });
   });
 
   it("does not rescan what it substituted", () => {
     // A single pass is the whole reason: an argument that mentions $1 must arrive as the text the
-    // user typed, not as the first word again.
+    // user typed, not as a word again.
     expect(expandCommand("$ARGUMENTS", "literally $1 and $ARGUMENTS").text).toBe("literally $1 and $ARGUMENTS");
-    expect(expandCommand("$1", "$2 x").text).toBe("$2");
+    expect(expandCommand("$0", "$1 x").text).toBe("$1");
   });
 
-  it("leaves $10 and $0 alone rather than half-expanding them", () => {
-    // Without the (?![0-9]) guard `$10` becomes "<first word>0" — a template that quietly means
-    // something else, which is the failure this function exists to prevent.
-    expect(expandCommand("$10 $0 $ARGUMENTSX", "a b").text).toBe("$10 $0 $ARGUMENTSX");
+  it("leaves an escaped or run-on placeholder alone", () => {
+    expect(expandCommand("\\$0 costs \\$ARGUMENTS, $0th", "").text).toBe("$0 costs $ARGUMENTS, $0th");
   });
 
-  it("returns a template with no placeholders unchanged", () => {
-    expect(expandCommand("Run the tests.", "ignored")).toEqual({ text: "Run the tests.", missing: [] });
+  it("puts what was typed on an ARGUMENTS line when the template names no placeholder", () => {
+    // Claude's rule, and what keeps a plain .md from dropping the words typed after it.
+    expect(expandCommand("Run the tests.", "only the slow ones")).toEqual({ text: "Run the tests.\n\nARGUMENTS: only the slow ones", missing: [] });
+    expect(expandCommand("Run the tests.", "  ")).toEqual({ text: "Run the tests.", missing: [] });
   });
 });
 
 describe("runnableCommands", () => {
   const cmd = (name: string, over: Partial<UserCommand> = {}): UserCommand => ({
-    name, description: "d", argumentHint: null, body: "b", path: `/c/${name}.md`,
+    name, description: "d", argumentHint: null, path: `/c/${name}.md`,
     origin: { kind: "user", key: "user", label: "~/Realm/commands", root: "/c", writable: true },
     valid: true, reason: null, shadowedBy: null, ...over,
   });

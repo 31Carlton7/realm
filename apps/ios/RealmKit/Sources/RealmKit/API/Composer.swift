@@ -1,6 +1,6 @@
 import Foundation
 
-/// One of the person's own `/` commands, from `<space>/commands`, `~/Realm/commands` or `~/.claude/commands`.
+/// One of the person's own `/` commands, from `<space>/commands`, the checkout's `.claude/commands`, `~/Realm/commands` or `~/.claude/commands`.
 public struct UserCommand: Codable, Sendable, Hashable {
     public let name: String
     public let description: String

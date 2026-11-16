@@ -172,7 +172,7 @@ const MentionRefSchema = z.discriminatedUnion("kind", [
 ]);
 export type MentionRef = z.infer<typeof MentionRefSchema>;
 
-/** One of the person's own `/` commands, from `<space>/commands`, `~/Realm/commands` or `~/.claude/commands`. */
+/** One of the person's own `/` commands, from `<space>/commands`, the checkout's `.claude/commands`, `~/Realm/commands` or `~/.claude/commands`. */
 export const UserCommandSchema = z.object({
   name: z.string(),
   description: z.string(),

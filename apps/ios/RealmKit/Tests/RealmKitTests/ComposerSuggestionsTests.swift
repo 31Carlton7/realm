@@ -33,6 +33,16 @@ struct ComposerSuggestionsTests {
         #expect(ComposerToken.slash(in: "/plan", caret: 0) == nil)
     }
 
+    @Test func aSlashTokenTakesEveryCharacterACommandNameCanHave() {
+        // Nested (`git/commit.md` is `/git:commit`), underscored and dotted names are whole tokens.
+        #expect(ComposerToken.slash(in: "/git:commit now", caret: 4) == ComposerToken(start: 0, end: 11, query: "git"))
+        #expect(ComposerToken.slash(in: "/Plain_Name.v2", caret: 14) == ComposerToken(start: 0, end: 14, query: "Plain_Name.v2"))
+        let nested = ComposerCommand.list(modes: [], goal: false, attach: false,
+                                          user: [UserCommand(name: "git:Commit", description: "Commit", argumentHint: "<msg>")])
+        #expect(ComposerCommand.call(in: "/git:commit fix it", commands: nested)?.rest == "fix it")
+        #expect(ComposerCommand.filter(nested, query: "GIT:c").map(\.id) == ["git:Commit"])
+    }
+
     @Test func anAtOpensAtTheStartOfALineOrAfterASpaceButNotInsideAWordOrAnEmail() {
         #expect(ComposerToken.mention(in: "@", caret: 1) == ComposerToken(start: 0, end: 1, query: ""))
         #expect(ComposerToken.mention(in: "ask @des", caret: 8) == ComposerToken(start: 4, end: 8, query: "des"))

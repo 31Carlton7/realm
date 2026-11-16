@@ -282,6 +282,16 @@ const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
 
 /**
+ * The room the CLI gives its skill listing, in characters. Its own default is 1% of the model's
+ * context window at 4 characters a token: 40,000 for a 1M model, 8,000 for a 200k one. Over that it
+ * drops descriptions to bare names, lowest priority first. Measured with Realm's 55-skill library
+ * (19,000 characters): every description fits a 1M model, and a 200k one (claude-sonnet-4-5) kept 2
+ * of 53. 100,000 is the CLI's own ceiling for the experiment that raises it. Put under the user's own
+ * environment, so a budget they set still wins.
+ */
+export const CLAUDE_LISTING_ENV = { SLASH_COMMAND_TOOL_CHAR_BUDGET: "100000" } as const;
+
+/**
  * The CLI subprocess, started through Realm's execution sandbox instead of plainly.
  *
  * Installed as `Options.spawnClaudeCodeProcess` and ONLY when a wrap was supplied — see the option
@@ -466,7 +476,7 @@ export class ClaudeAdapter implements AgentAdapter {
       return result;
     };
 
-    const env = { ...MCP_OUTPUT_ENV, ...process.env, ...opts.env };
+    const env = { ...MCP_OUTPUT_ENV, ...CLAUDE_LISTING_ENV, ...process.env, ...opts.env };
     const switchable = bypassSwitchable(env);
     const options: Options = {
       cwd: opts.cwd,
@@ -728,7 +738,7 @@ export class ClaudeAdapter implements AgentAdapter {
         // Here rather than beside the `env` above because `start` is synchronous and the helper is a
         // child process; the first prompt waits on the input queue either way. ONLY the skills case:
         // everyone else's CLI reads the file itself, and their env must stay byte-for-byte what it was.
-        if (opts.skills) options.env = { ...MCP_OUTPUT_ENV, ...process.env, ...(await carrySettingsAuth({ env: { ...process.env, ...opts.env }, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
+        if (opts.skills) options.env = { ...MCP_OUTPUT_ENV, ...CLAUDE_LISTING_ENV, ...process.env, ...(await carrySettingsAuth({ env: { ...process.env, ...opts.env }, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
         if (disposed) return; // dispose stopped waiting mid-carry; a dead session must not spawn a CLI
         q = this.queryFn({ prompt: input, options });
         qSpawned();

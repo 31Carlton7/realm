@@ -399,9 +399,9 @@ export function registerMethods(d: Deps): void {
     if (spaceId !== null && !d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
     return spaceId;
   };
-  reg("commands.list", (p) => d.userCommands.list(commandSpace(p.spaceId)));
-  reg("commands.expand", (p) => d.userCommands.expand(commandSpace(p.spaceId), p.name, p.args));
-  reg("commands.sources", (p) => ({ sources: d.userCommands.sources(commandSpace(p.spaceId)) }));
+  reg("commands.list", (p) => d.userCommands.list(commandSpace(p.spaceId), p.cwd));
+  reg("commands.expand", (p) => d.userCommands.expand(commandSpace(p.spaceId), p.name, p.args, p.cwd));
+  reg("commands.sources", (p) => ({ sources: d.userCommands.sources(commandSpace(p.spaceId), p.cwd) }));
 
   // Every one of these checks the space exists first, for the reason the skills pair does: the blob
   // is keyed by space id, so a typo would read and write another space's scripts rather than saying so.

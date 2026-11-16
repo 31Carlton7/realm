@@ -83,13 +83,13 @@ async function main(): Promise<never> {
   const cmdDir = join(spaceRow.folderPath, "commands");
   mkdirSync(cmdDir, { recursive: true });
   writeFileSync(join(cmdDir, "review.md"),
-    "---\ndescription: Review a file\nargument-hint: <path>\n---\nPlease review $1 and report on $ARGUMENTS.\n");
+    "---\ndescription: Review a file\nargument-hint: <path>\n---\nPlease review $0 and report on $ARGUMENTS.\n");
   const listed = await call<{ commands: { name: string; valid: boolean }[] }>("commands.list", { spaceId: space.id });
   ok("discovers a command file written to the space folder", listed.commands.some((c) => c.name === "review" && c.valid),
     listed.commands.map((c) => c.name).join(", "));
   const expanded = await call<{ text: string; missing: string[] }>("commands.expand",
     { spaceId: space.id, name: "review", args: "src/app.ts and be blunt" });
-  ok("expands $1 and $ARGUMENTS", expanded.text.includes("src/app.ts") && expanded.text.includes("and be blunt"), expanded.text.trim());
+  ok("expands $0 and $ARGUMENTS", expanded.text.includes("src/app.ts") && expanded.text.includes("and be blunt"), expanded.text.trim());
   const short = await call<{ missing: string[] }>("commands.expand", { spaceId: space.id, name: "review", args: "" });
   ok("reports an unmatched placeholder rather than substituting nothing", short.missing.length > 0, short.missing.join(","));
 

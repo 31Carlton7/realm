@@ -1372,6 +1372,13 @@ describe("app store", () => {
       expect(api.calls.filter((c) => /^sessionEventsBefore:se1:[^:]*$/.test(c))).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:1501", "sessionEventsBefore:se1:501"]);
     });
 
+    it("openSession lists the session's commands with its checkout, whose .claude/commands are the repo's", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se1");
+      const spaceId = store.getState().sessions.se1!.spaceId;
+      await vi.waitFor(() => expect(api.calls).toContain(`listCommands:${spaceId}:/tmp`));
+    });
+
     it("openSession for a session of another profile fetches the session too", async () => {
       api = fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s3", "p2", "Thesis")], sessions: [session("se7", "s3")] });
       const store = createAppStore(api); await store.getState().boot();

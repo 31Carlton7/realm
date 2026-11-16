@@ -490,8 +490,8 @@ async function generate(): Promise<Record<string, unknown>> {
       { id: "mac", name: "mac", description: "Calendar, Reminders, Contacts and more on this Mac", path: "/Users/me/Realm/skills/mac/SKILL.md", enabled: false, valid: true },
     ] })) as never,
     "commands.list": (() => ({ root: "/Users/me/Realm/commands", commands: [
-      { name: "changelog", description: "Write the changelog for a release", argumentHint: "<version>", body: "Write the changelog for $1.", path: "/Users/me/Realm/commands/changelog.md", valid: true, reason: null, shadowedBy: null },
-      { name: "tidy", description: "Tidy the imports in the files this turn changed", argumentHint: null, body: "Tidy the imports.", path: "/Users/me/realm/commands/tidy.md", valid: true, reason: null, shadowedBy: null },
+      { name: "changelog", description: "Write the changelog for a release", argumentHint: "<version>", path: "/Users/me/Realm/commands/changelog.md", valid: true, reason: null, shadowedBy: null },
+      { name: "tidy", description: "Tidy the imports in the files this turn changed", argumentHint: null, path: "/Users/me/realm/commands/tidy.md", valid: true, reason: null, shadowedBy: null },
     ] })) as never,
     "commands.expand": ((p: { args: string }) => ({ command: {}, text: `Write the changelog for ${p.args}.`, missing: [] })) as never,
     "goals.set": ((p: { status: Goal["status"]; note: string | null }) => ({ goal: { ...goal, status: p.status, note: p.note, updatedAt: 1_790_000_400_000 } })) as never,
