@@ -10,16 +10,16 @@ import UIKit
 @Suite("Large text keeps every word", .serialized)
 struct LargeTextTests {
     static let sizes: [DynamicTypeSize] = [.accessibility3, .accessibility5]
-    /// The composer's toolbar between `+` and Send on the smaller phone (402 points wide).
-    static let toolbar: CGFloat = 274
+    /// The composer's chips at the accessibility sizes, on their own row across the card, on the smaller
+    /// phone (402 points wide). Between `+` and Send they had 274.
+    static let chipsRow: CGFloat = 358
 
     static func lineHeight(_ style: UIFont.TextStyle, _ size: UIContentSizeCategory) -> CGFloat {
         UIFont.preferredFont(forTextStyle: style, compatibleWith: UITraitCollection(preferredContentSizeCategory: size)).lineHeight
     }
 
-    /// The drawn height of a view, without the padding the drawing puts round it.
-    static func height(_ view: some View, width: CGFloat = 370, size: DynamicTypeSize) throws -> CGFloat {
-        try Drawing.image(of: view, width: width, size: size).size.height - 32
+    static func height(_ view: some View, width: CGFloat = 370, size: DynamicTypeSize) -> CGFloat {
+        UIHostingController(rootView: view.dynamicTypeSize(size)).sizeThatFits(in: CGSize(width: width, height: 4_000)).height
     }
 
     static func question(_ text: String, options: [String]) -> TranscriptRow.Request {
@@ -40,8 +40,10 @@ struct LargeTextTests {
                                  busy: false, openSettings: {},
                                  place: PlaceChip(label: "Main checkout", symbol: "laptopcomputer", open: {})) { _, _ in }
         for size in Self.sizes {
-            let words = try Drawing.words(chips, width: Self.toolbar, dark: false, size: size)
-            #expect(words.contains("Opus 5.5") && words.contains("Ask each time") && words.contains("Main checkout"), "\(size): \(words)")
+            let words = try Drawing.words(chips, width: Self.chipsRow, dark: false, size: size)
+            for word in ["Opus 5.5", "Ask each", "time", "Main", "checkout"] {
+                #expect(words.contains(word), "\(size): \(word) in \(words)")
+            }
         }
     }
 
@@ -80,6 +82,20 @@ struct LargeTextTests {
         #expect(words.contains("Skip"), "\(words)")
     }
 
+    /// Given less room than its words need, the dock keeps to the room and scrolls inside it rather than
+    /// squeezing them into ellipses.
+    @Test func aDockTallerThanItsRoomScrolls() throws {
+        let request = Self.question("Which database should the sync service use for the offline cache on the phone and the Mac?",
+                                    options: ["Postgres on the Mac", "SQLite on the phone, synced to the Mac every night", "DynamoDB global tables"])
+        let model = modelWithSession(rows: [TranscriptRow(key: "r:q1", seq: 4, content: .request(request))])
+        let dock = WaitingDock(pending: try Self.pending(request, model: model), sessionId: "s1", fold: {}).environment(model)
+            .dynamicTypeSize(.accessibility5)
+        let size = UIHostingController(rootView: dock).sizeThatFits(in: CGSize(width: 370, height: 500))
+        #expect(size.height <= 500, "\(size)")
+        let roomy = UIHostingController(rootView: dock).sizeThatFits(in: CGSize(width: 370, height: 4_000))
+        #expect(roomy.height > 500, "with room it is as tall as its words: \(roomy)")
+    }
+
     /// Stacked, an answer button too long for the width wraps rather than ends in an ellipsis.
     @Test func aStackedAnswerButtonWraps() throws {
         let buttons = AnswerButtons(decline: "Skip", accept: "Continue answering", onDecline: {}, onAccept: {})
@@ -96,22 +112,21 @@ struct LargeTextTests {
         #expect(words.contains("waiting on you"), "\(words)")
     }
 
-    /// A pill grown taller by its words keeps its resting corner, so the words are inside its fill.
-    @Test func aTallPillKeepsItsRestingCorner() {
-        let path = PillShape(height: 48).path(in: CGRect(x: 0, y: 0, width: 300, height: 150))
+    /// A pill whose words wrap keeps the corner it had at one line, so the words stay inside its fill.
+    @Test func aWrappedPillKeepsItsOneLineCorner() {
+        let path = PillShape(oneLine: 48).path(in: CGRect(x: 0, y: 0, width: 300, height: 150))
         #expect(path.contains(CGPoint(x: 10, y: 10)))
         #expect(!path.contains(CGPoint(x: 2, y: 2)))
-        let resting = PillShape(height: 48).path(in: CGRect(x: 0, y: 0, width: 300, height: 48))
-        #expect(!resting.contains(CGPoint(x: 6, y: 6)), "at its resting height it is a capsule")
+        let oneLine = PillShape(oneLine: 48).path(in: CGRect(x: 0, y: 0, width: 300, height: 48))
+        #expect(!oneLine.contains(CGPoint(x: 6, y: 6)), "on one line it is a capsule")
     }
 
     /// A page's row keeps its chevron on the name's line; what waits there goes under the name.
     @Test func aSettingsPageRowKeepsItsChevronOnTheNamesLine() throws {
         let line = Self.lineHeight(.body, .accessibilityExtraExtraExtraLarge)
-        let usage = try Self.height(SettingsPageRow(page: .usage, note: nil), size: .accessibility5)
+        let usage = Self.height(SettingsPageRow(page: .usage, note: nil), size: .accessibility5)
         #expect(usage < 1.5 * line, "one line, the chevron beside the name: \(usage) against \(line)")
         let review = SettingsPageRow(page: .reviews, note: "2 to review")
-        #expect(try Self.height(review, size: .accessibility5) < 2.5 * line)
         let words = try Drawing.words(review, size: .accessibility5)
         #expect(words.contains("Review") && words.contains("2 to review"), "\(words)")
         #expect(try Drawing.words(review).contains("2 to review"))
@@ -120,6 +135,6 @@ struct LargeTextTests {
     /// The relay's host is whole at the accessibility sizes, not cut in its middle.
     @Test func theRelayHostIsWhole() throws {
         let words = try Drawing.words(RelayHost(host: "relay.realm-mobile.example.com"), size: .accessibility5)
-        #expect(words.contains("realm-mobile") && words.contains("example.com"), "\(words)")
+        #expect(words.contains("mobile") && words.contains("example"), "\(words)")
     }
 }

@@ -90,9 +90,10 @@ struct ChipButtonStyle: ButtonStyle {
 
 private struct ChipButtonLabel: View {
     let configuration: ButtonStyleConfiguration
+    @ScaledMetric(relativeTo: .subheadline) private var lineHeight: CGFloat = 20
 
     var body: some View {
-        let shape = PillShape(height: 36)
+        let shape = PillShape(oneLine: max(36, lineHeight + 16))
         configuration.label
             .foregroundStyle(Palette.ink)
             .padding(.horizontal, 14)
@@ -108,9 +109,10 @@ private struct CapsuleLabel: View {
     let fill: Color
     let ink: Color
     @Environment(\.isEnabled) private var isEnabled
+    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
     var body: some View {
-        let shape = PillShape(height: 48)
+        let shape = PillShape(oneLine: max(48, lineHeight + 16))
         configuration.label
             .font(.body.weight(.semibold))
             .foregroundStyle(ink)
@@ -123,14 +125,14 @@ private struct CapsuleLabel: View {
     }
 }
 
-/// A capsule at its resting height; grown taller by larger text, it keeps that height's corner, since
-/// a capsule as tall as three lines rounds its corners through the first and last of them.
+/// A capsule while its words are one line; once they wrap, it keeps the one line's corner, since a
+/// capsule as tall as three lines rounds its corners through the first and last of them.
 struct PillShape: Shape {
-    /// The height it rests at, and is a capsule at.
-    let height: CGFloat
+    /// Its height with one line of words in it, at the current text size.
+    let oneLine: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        RoundedRectangle(cornerRadius: min(height, rect.height) / 2).path(in: rect)
+        RoundedRectangle(cornerRadius: min(oneLine, rect.height) / 2).path(in: rect)
     }
 }
 

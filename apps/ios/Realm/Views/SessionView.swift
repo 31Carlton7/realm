@@ -555,6 +555,7 @@ struct FoldedRequest: View {
     let unfold: () -> Void
     @Environment(AppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .subheadline) private var lineHeight: CGFloat = 20
 
     var body: some View {
         let session = model.store.transcript(sessionId).session
@@ -576,7 +577,7 @@ struct FoldedRequest: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Fill.card, in: PillShape(height: 48))
+        .background(Fill.card, in: PillShape(oneLine: max(48, lineHeight + 16)))
         .accessibilityHint("Opens the request")
     }
 }

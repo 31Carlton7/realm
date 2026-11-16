@@ -130,7 +130,7 @@ struct ComposerView: View {
                                     midTurn: options?.midTurn, canSteer: options != nil)
         // Always the card, as Manus's composer is: the field, and under it the toolbar of `+`, the
         // model and mode, and the one button — so the model a message goes to is never a tap away.
-        ComposerLayout(card: true) {
+        ComposerLayout(card: true, chipsRow: dynamicTypeSize.isAccessibilitySize) {
             if !attachments.isEmpty || preparing > 0 || !tabs.isEmpty {
                 AttachmentStrip(attachments: attachments, tabs: tabs, tabLines: SpaceTab.lines(model.spaceTabs[sessionId] ?? []), preparing: preparing,
                                 exports: model.videoExports[sessionId] ?? [], files: model.store.files,
@@ -368,6 +368,9 @@ enum ComposerPart: LayoutValueKey {
 /// is between the two, so the field keeps the keyboard and each part moves to its new place.
 struct ComposerLayout: Layout {
     var card: Bool
+    /// The card's chips take a row of their own across it, over `+` and the button: at the accessibility
+    /// sizes, where between the two they had room for a word or two a line.
+    var chipsRow = false
 
     /// A button's side, and the toolbar's height until its chips' words need more.
     static let button: CGFloat = 44
@@ -398,20 +401,27 @@ struct ComposerLayout: Layout {
         let add = index(.add), chips = index(.chips), primary = index(.primary)
         let field = index(.field)
         if card {
-            // The field across the card, the toolbar under it: as tall as its chips, which grow with
-            // the text size and wrap onto more rows while the buttons keep their size, at the foot
-            // beside the last row.
+            // The field across the card, the toolbar under it: as tall as its chips' words, which grow
+            // with the text size while the buttons keep theirs, centred beside them.
             let fieldWidth = width - 32
             let fieldHeight = field.map { subviews[$0].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height } ?? button
             if let field { frames[field] = CGRect(x: 16, y: top, width: fieldWidth, height: fieldHeight) }
             let bar = top + fieldHeight - 4
-            let leading: CGFloat = add == nil ? 10 : 4 + button
             let trailing = width - 4 - button
+            if chipsRow {
+                let chipsHeight = chips.map { subviews[$0].sizeThatFits(ProposedViewSize(width: width - 20, height: nil)).height } ?? 0
+                if let chips { frames[chips] = CGRect(x: 10, y: bar, width: width - 20, height: chipsHeight) }
+                let buttons = bar + chipsHeight
+                if let add { frames[add] = CGRect(x: 4, y: buttons, width: button, height: button) }
+                if let primary { frames[primary] = CGRect(x: trailing, y: buttons, width: button, height: button) }
+                return (frames, buttons + button + 4)
+            }
+            let leading: CGFloat = add == nil ? 10 : 4 + button
             let chipsWidth = max(0, trailing - 4 - leading)
             let barHeight = max(button, chips.map { subviews[$0].sizeThatFits(ProposedViewSize(width: chipsWidth, height: nil)).height } ?? 0)
-            let foot = bar + barHeight - button
-            if let add { frames[add] = CGRect(x: 4, y: foot, width: button, height: button) }
-            if let primary { frames[primary] = CGRect(x: trailing, y: foot, width: button, height: button) }
+            let middle = bar + (barHeight - button) / 2
+            if let add { frames[add] = CGRect(x: 4, y: middle, width: button, height: button) }
+            if let primary { frames[primary] = CGRect(x: trailing, y: middle, width: button, height: button) }
             if let chips { frames[chips] = CGRect(x: leading, y: bar, width: chipsWidth, height: barHeight) }
             return (frames, bar + barHeight + 4)
         }

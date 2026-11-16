@@ -236,6 +236,33 @@ struct WaitingDock: View {
     var body: some View {
         let request = pending.request
         let session = model.store.transcript(sessionId).session
+        // Taller than the room over the transcript, at the largest sizes, the card scrolls inside its
+        // own edge rather than squeezing its words into ellipses.
+        let shape = RoundedRectangle(cornerRadius: Radius.composer, style: .continuous)
+        ViewThatFits(in: .vertical) {
+            card(request, session: session)
+            // Clipped to the card: scrolled, its rows otherwise run on over the session's bar.
+            ScrollView { card(request, session: session) }
+                .scrollBounceBehavior(.basedOnSize)
+                .clipShape(shape)
+        }
+        .background(Fill.card, in: shape)
+        // One shadow, the card's: without the group every pill and word on it casts its own.
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+        .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+        .sheet(isPresented: $answering) {
+            let stored = model.store.drafts[request.requestId]
+            QuestionSheet(draft: stored ?? QuestionDefaults.applied(to: model.store.draft(for: request, in: sessionId)),
+                          asker: Asker.name(request, agent: session?.agent ?? ""), message: request.message)
+        }
+        .sheet(isPresented: $reviewingPlan) {
+            PlanSheet(request: request, sessionId: sessionId)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func card(_ request: TranscriptRow.Request, session: SessionRow?) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 6) {
                 HStack(spacing: 6) {
@@ -264,11 +291,13 @@ struct WaitingDock: View {
                 .font(.headline)
                 .foregroundStyle(Palette.ink)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
+                .fixedSize(horizontal: false, vertical: true)
             if case .permission = request.kind, !request.summary.isEmpty, request.summary != request.tool {
                 Text(request.summary)
                     .mono(.footnote)
                     .foregroundStyle(Palette.ink2)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let answer = pending.answer {
                 held(answer)
@@ -278,20 +307,6 @@ struct WaitingDock: View {
         }
         .padding(Radius.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
-        // One shadow, the card's: without the group every pill and word on it casts its own.
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-        .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
-        .sheet(isPresented: $answering) {
-            let stored = model.store.drafts[request.requestId]
-            QuestionSheet(draft: stored ?? QuestionDefaults.applied(to: model.store.draft(for: request, in: sessionId)),
-                          asker: Asker.name(request, agent: session?.agent ?? ""), message: request.message)
-        }
-        .sheet(isPresented: $reviewingPlan) {
-            PlanSheet(request: request, sessionId: sessionId)
-        }
-        .accessibilityElement(children: .contain)
     }
 
     /// The one line that says what is asked.
@@ -343,6 +358,8 @@ struct WaitingDock: View {
                 } label: {
                     Text(option.label)
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(ChoiceButtonStyle(suggested: OneTapQuestion.suggests(option, in: question)))
@@ -362,6 +379,7 @@ struct WaitingDock: View {
             Text(title)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(Palette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }

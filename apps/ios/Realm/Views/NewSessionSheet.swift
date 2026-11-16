@@ -123,7 +123,7 @@ struct NewSessionSheet: View {
                             chosen = nil
                         }
                     }
-                    ComposerLayout(card: true) {
+                    ComposerLayout(card: true, chipsRow: dynamicTypeSize.isAccessibilitySize) {
                         if !attachments.isEmpty || preparing > 0 {
                             AttachmentStrip(attachments: attachments, preparing: preparing, exports: model.videoExports[key] ?? [], files: model.store.files,
                                             open: { previewing = AttachmentStrip.previewLink($0, files: model.store.files) },

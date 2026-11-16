@@ -213,6 +213,7 @@ struct ChipLabel<Icon: View>: View {
                     // One line, except where a chip alone is wider than its row at the accessibility
                     // sizes: there its words wrap.
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
             }
             Image(systemName: "chevron.down")
