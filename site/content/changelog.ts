@@ -21,6 +21,51 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-14-0",
+    title: "Realm v2.14.0",
+    date: "2026-11-15",
+    version: "v2.14.0",
+    area: "Release",
+    summary:
+      "Realm takes its own limits off custom commands and MCP servers: nested commands and Claude's placeholders, MCP calls that run past a minute, and large results kept on Claude and Codex.",
+    short: "No more Realm limits on commands and MCP",
+    body: [
+      { kind: "p", text: "Realm takes its own limits off custom commands and MCP servers." },
+      { kind: "h", text: "Custom commands" },
+      { kind: "ul", items: [
+        "**Custom commands take any command file Claude would.** Folders nest, so `git/commit.md` is `/git:commit`. Frontmatter is optional: a plain `.md` runs, and the picker shows its first line. There is no size limit. Names can use either case, `_` and `.`, and they match without regard to case.",
+        "**Your repo's own `.claude/commands` are read too,** between the space's commands and yours, so a worktree brings its repo's commands with it.",
+        "**`$0` is now the first word and `$1` the second, as in Claude.** This changes existing Realm commands: one that used `$1` for the first word now gets the second, so change it to `$0`. `$ARGUMENTS[N]` and quoted words work too, and a command with no placeholders still gets what you typed after it.",
+        "**A command name that can't be typed, such as one with a space, is listed with the reason** instead of being skipped without a word.",
+      ] },
+      { kind: "h", text: "MCP" },
+      { kind: "ul", items: [
+        "**An MCP tool call is no longer cut off at 60 seconds.** It can run for up to an hour. A server that dies or closes its connection still fails the call at once.",
+        "**On Claude, large results stay in the conversation** up to 100,000 tokens and 500,000 characters, up from 25,000 and 50,000. Past that they go to a file, as before, so nothing is lost.",
+        "**On Codex, an MCP result longer than Codex keeps is saved whole to a file.** Codex keeps 40,000 bytes of a tool result and cuts the middle out, with no copy. When a text result from an MCP server is longer than that, Realm saves all of it to a file and gives Codex the first 16 KB or so and the path, so it can read the rest. The file is deleted with the session, or after 7 days.",
+        "**Test connection waits for a slow first start,** up to 60 seconds instead of 5. After 4 seconds it says it is still starting, with Cancel.",
+        "**A failing server comes back by itself.** Realm tries it again after 30 seconds, then waits longer each time up to 5 minutes, instead of waiting for you to press Retry. When it reconnects on its own, Settings ▸ MCP lists its tools without Refresh tools.",
+        "**Tool names over Claude's 128-character limit are no longer dropped.** Realm lists them shortened with a short hash and still calls the real tool. Server names can be up to 106 characters.",
+        "**MCP views have no 5 MB cap,** and Realm's own tools that used to clip long text (reading a document, a session, a browser page or a simulator's elements) now page through it instead.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**Cards have no shadow.** Every card is its fill and nothing else, in light and dark. Files, saved turns and the device toolbar keep theirs.",
+        "**A picture in the Documents pane sits in the middle of the pane.** One taller than the pane starts at its own top and scrolls from there.",
+      ] },
+      { kind: "h", text: "Realm for iPhone" },
+      { kind: "p", text: "No Realm for iPhone build ships with this release. These come with the next one." },
+      { kind: "ul", items: [
+        "**Send videos from your photo library.** The photo picker shows videos alongside photos. The phone exports each one to an MP4 of at most 1280x720 with no location or other metadata, and its tile shows a frame from the video and how long it runs.",
+        "**Videos up to 8:00 and 100 MB.** A short clip goes with its message. A bigger one goes to your Mac in chunks before the message, and if the connection drops it carries on from where it stopped. On cellular or Low Data Mode, Realm asks before sending a video over 25 MB.",
+        "**A sent video keeps its frame and length on the phone.** Your Mac keeps a video sent from iPhone for a day, as it does any file. Opening one it no longer has says so.",
+        "**On a Mac running an earlier Realm,** the phone sends only videos up to 1:00 that fit in 8 MB.",
+        "**A sent photo keeps its picture on the phone** after your Mac clears the file.",
+        "**Amber is the only colour a state wears:** amber where something needs you or failed, the quiet ink otherwise. Green checks, blue steps and red failures are gone.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-13-3",
     title: "Realm v2.13.3",
     date: "2026-11-15",
