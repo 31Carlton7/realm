@@ -185,6 +185,32 @@ describe("a video sent ahead of its message", () => {
     expect((over as { message: string }).message).toContain("200 MB");
   });
 
+  it("holds a phone to its caps when its begins all arrive at once", async () => {
+    const r = rig();
+    const bytes = movie(CHUNK);
+    const beginOf = (size: number) => r.call("session.uploadBegin", { size, sha256: sha256(bytes), mime: "video/mp4" });
+    // THE MUTANT: no line for a phone's begins, and each one reads the caps before any of the others is written.
+    const answers = await Promise.all(Array.from({ length: 6 }, () => beginOf(bytes.length)));
+    expect(answers.filter((a) => a.ok)).toHaveLength(UPLOAD_LIMITS.maxOpen);
+    for (const refused of answers.filter((a) => !a.ok)) expect((refused as { message: string }).message).toContain("2 videos");
+    expect(r.listed(r.uploads)).toHaveLength(2 * UPLOAD_LIMITS.maxOpen);
+
+    // One finished video of 100 MB, never sent, then two of 60 MB at once: only one fits under 200 MB.
+    const big = rig();
+    const largest = Buffer.alloc(UPLOAD_LIMITS.maxBytes);
+    FTYP.copy(largest);
+    const uploadId = await big.begin(largest);
+    const part = join(big.uploads, `${uploadId}.part`);
+    writeFileSync(part, FTYP);
+    truncateSync(part, UPLOAD_LIMITS.maxBytes);
+    expect(await big.call("session.uploadFinish", { uploadId })).toMatchObject({ ok: true });
+    const sixty = () => big.call("session.uploadBegin", { size: 60 * MB, sha256: "0".repeat(64), mime: "video/mp4" });
+    const [first, second] = await Promise.all([sixty(), sixty()]);
+    expect(first).toMatchObject({ ok: true });
+    expect(second).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+    expect((second as { message: string }).message).toContain("200 MB");
+  });
+
   it("is refused when the Mac has less than twice its size and a gigabyte free", async () => {
     const size = 10 * MB;
     const at = (free: number) => rig({ free }).call("session.uploadBegin", { size, sha256: "0".repeat(64), mime: "video/mp4" });

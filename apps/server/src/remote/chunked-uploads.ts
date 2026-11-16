@@ -38,7 +38,8 @@ const freeOnDisk = async (dir: string): Promise<number> => {
 };
 
 export class ChunkedUploads {
-  /** Each upload's calls, one after another: chunks sent four at a time must still land in order. */
+  /** Each upload's calls, one after another: chunks sent four at a time must still land in order. A
+   *  phone's begins have a line of their own, so its caps are checked against every upload it made. */
   private readonly lines = new Map<string, Promise<unknown>>();
 
   constructor(private readonly home: string, private readonly freeBytes: (dir: string) => Promise<number> = freeOnDisk) {}
@@ -47,7 +48,11 @@ export class ChunkedUploads {
   private part(id: string): string { return join(this.dir, `${id}.part`); }
   private record(id: string): string { return join(this.dir, `${id}.json`); }
 
-  async begin(phoneId: string, size: number, sha256: string): Promise<{ uploadId: string; size: number; received: number }> {
+  begin(phoneId: string, size: number, sha256: string): Promise<{ uploadId: string; size: number; received: number }> {
+    return this.inLine(`phone:${phoneId}`, () => this.beginNow(phoneId, size, sha256));
+  }
+
+  private async beginNow(phoneId: string, size: number, sha256: string): Promise<{ uploadId: string; size: number; received: number }> {
     await mkdir(this.dir, { recursive: true });
     await sweepTempAttachments(this.dir);
     // Finished but not yet sent still holds room on this Mac, so it counts toward the bytes, not the uploads.
@@ -139,11 +144,11 @@ export class ChunkedUploads {
     for (const uploadId of uploadIds) await rm(this.record(uploadId), { force: true });
   }
 
-  private inLine<T>(uploadId: string, work: () => Promise<T>): Promise<T> {
-    const run = (this.lines.get(uploadId) ?? Promise.resolve()).then(work, work);
+  private inLine<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const run = (this.lines.get(key) ?? Promise.resolve()).then(work, work);
     const settled = run.catch(() => {});
-    this.lines.set(uploadId, settled);
-    void settled.then(() => { if (this.lines.get(uploadId) === settled) this.lines.delete(uploadId); });
+    this.lines.set(key, settled);
+    void settled.then(() => { if (this.lines.get(key) === settled) this.lines.delete(key); });
     return run;
   }
 
