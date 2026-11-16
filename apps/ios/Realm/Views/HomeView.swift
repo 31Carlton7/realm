@@ -533,7 +533,8 @@ struct ProfileTitle: View {
         .frame(minWidth: 120, minHeight: 44)
         .contentShape(Rectangle())
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(name)
         .accessibilityShowsLargeContentViewer {
             Text(name)
         }
