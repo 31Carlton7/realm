@@ -225,6 +225,8 @@ private struct GalleryPage: View {
                 }
             } catch ChannelError.rpc(let refusal) where refusal.code == "METHOD_NOT_FOUND" {
                 problem = "Update Realm on your Mac to open this file here."
+            } catch ChannelError.rpc(let refusal) where refusal.code == "NOT_FOUND" && kind == .video {
+                problem = "This video is no longer on your Mac."
             } catch is CancellationError {
             } catch {
                 problem = AppModel.describe(error)
@@ -377,12 +379,19 @@ enum GalleryCover {
     static func image(of url: URL, kind: GalleryKind, side: CGFloat, scale: CGFloat) async -> UIImage? {
         switch kind {
         case .video:
-            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            let asset = AVURLAsset(url: url)
+            let generator = AVAssetImageGenerator(asset: asset)
             // A phone films sideways and says which way up in the track; the frame comes unrotated without it.
             generator.appliesPreferredTrackTransform = true
             // The longest side bounds both: twice the tile keeps the short side of a tall film over it.
             generator.maximumSize = CGSize(width: 2 * side * scale, height: 2 * side * scale)
-            guard let frame = try? await generator.image(at: .zero).image else { return nil }
+            // A second in, or halfway through a shorter one: an export held to 100 MB can open on a black
+            // frame held for half a second, and the default tolerance would snap back to it.
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            let length = (try? await asset.load(.duration)) ?? .zero
+            let at = CMTimeMinimum(CMTime(value: 1, timescale: 1), CMTimeMultiplyByRatio(length, multiplier: 1, divisor: 2))
+            guard let frame = try? await generator.image(at: at).image else { return nil }
             return UIImage(cgImage: frame)
         case .document:
             let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side, height: 2 * side), scale: scale, representationTypes: .thumbnail)

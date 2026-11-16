@@ -246,6 +246,10 @@ struct ComposerView: View {
         .sheet(isPresented: $moveShown) {
             MoveSheet(sessionId: sessionId)
         }
+        .sheet(item: Binding(get: { model.costlyUpload?.sessionId == sessionId ? model.costlyUpload : nil },
+                             set: { if $0 == nil { model.answerCostlyUpload(false) } })) { question in
+            ConfirmSheet(title: question.title, message: question.message, button: "Send") { model.answerCostlyUpload(true) }
+        }
         .quickLookPreview($previewing)
         .onChange(of: previewing) { _, now in
             if now == nil { AttachmentStrip.forgetPreviews() }

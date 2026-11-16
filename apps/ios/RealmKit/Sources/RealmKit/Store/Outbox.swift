@@ -128,13 +128,22 @@ public struct OutgoingAttachment: Codable, Sendable, Hashable, Identifiable {
     public let size: Int
     /// The file holding its bytes, in `OutboxFiles`' folder.
     public let file: String
+    /// A video that went to the Mac ahead of its message (`ChunkedUpload`): the message names it by
+    /// this, and its bytes do not go again. Nil for a file that goes with the message.
+    public let uploadId: String?
 
-    public init(id: UUID, name: String, mime: String, size: Int, file: String) {
+    public init(id: UUID, name: String, mime: String, size: Int, file: String, uploadId: String? = nil) {
         self.id = id
         self.name = name
         self.mime = mime
         self.size = size
         self.file = file
+        self.uploadId = uploadId
+    }
+
+    /// The same file, on the Mac already as the upload `uploadId`.
+    public func uploaded(as uploadId: String) -> OutgoingAttachment {
+        OutgoingAttachment(id: id, name: name, mime: mime, size: size, file: file, uploadId: uploadId)
     }
 
     public var isImage: Bool { mime.hasPrefix("image/") }

@@ -57,6 +57,10 @@ enum LaunchOptions {
     static var diagnosticsSession: String? { UserDefaults.standard.string(forKey: "diagnosticsSession") }
     #if DEBUG
     static var stagedPhoto: String? { UserDefaults.standard.string(forKey: "stagePhoto") }
+    /// Reads every network as cellular, for a video's question about sending over one.
+    static var costlyNetwork: Bool { UserDefaults.standard.bool(forKey: "costlyNetwork") }
+    #else
+    static let costlyNetwork = false
     #endif
 
     static var diagnosticsEchoes: Int? {

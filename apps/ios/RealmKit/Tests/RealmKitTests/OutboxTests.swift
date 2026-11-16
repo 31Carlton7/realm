@@ -282,6 +282,24 @@ struct OutboxFilesTests {
         #expect(try files.url(of: photo).resourceValues(forKeys: [.fileProtectionKey]).fileProtection == .complete)
     }
 
+    /// A video already on the Mac goes by its upload, not its bytes: they are not read again, so a
+    /// copy no longer on this phone does not hold the message back. One kept by an earlier build has none.
+    @Test func aVideoSentAheadGoesByItsUpload() async throws {
+        let store = openStore()
+        let transport = ScriptedTransport()
+        let photo = try files.keep(Self.jpeg, name: "Photo.jpg", mime: "image/jpeg")
+        let video = try files.keep(Data("ftyp".utf8), name: "Video.mp4", mime: "video/mp4").uploaded(as: "6b1f0c9e2d4a4f8e9a3c5d7e1f2a4b6c")
+        files.remove([video])
+        store.enqueueMessage("Both", attachments: [photo, video], in: "s1")
+        #expect(await Courier(store: store).deliver("s1", via: transport) == .done)
+        #expect(transport.uploads.first?.map(\.name) == ["Photo.jpg"])
+        #expect(transport.delivered.first?.attachments.compactMap(\.uploadId) == ["6b1f0c9e2d4a4f8e9a3c5d7e1f2a4b6c"])
+        let saved = try JSONEncoder().encode(photo)
+        #expect(try JSONDecoder().decode(OutgoingAttachment.self, from: saved).uploadId == nil)
+        let older = Data(#"{"id":"\#(photo.id.uuidString)","name":"Photo.jpg","mime":"image/jpeg","size":6,"file":"\#(photo.file)"}"#.utf8)
+        #expect(try JSONDecoder().decode(OutgoingAttachment.self, from: older) == photo)
+    }
+
     /// The Mac is sent the message's files from where they waited, and the delivery the person chose.
     @Test func aMessageTakesItsFilesAndItsDelivery() async throws {
         let store = openStore()

@@ -144,6 +144,17 @@ export type AgentOptions = z.infer<typeof AgentOptionsSchema>;
 export const SendLimitsSchema = z.object({ maxCount: z.number().int(), maxBytes: z.number().int(), maxTotalBytes: z.number().int() });
 export const SEND_LIMITS = { maxCount: 6, maxBytes: 8 * 1024 * 1024, maxTotalBytes: 10 * 1024 * 1024 } as const;
 
+/** What the Mac takes of a video too big to go with its message, which goes ahead of it a chunk at a
+ *  time (`session.uploadBegin`): at most `maxBytes`, `chunkBytes` to a chunk, and from one phone at
+ *  most `maxOpen` unfinished uploads, and `maxOpenBytes` among every upload not yet sent with a message. */
+export const UPLOAD_LIMITS = { maxBytes: 100 * 1024 * 1024, chunkBytes: 512 * 1024, maxOpen: 2, maxOpenBytes: 200 * 1024 * 1024 } as const;
+
+/** An upload's id, as the Mac made it at `session.uploadBegin`. */
+const UploadId = z.string().min(1).max(64);
+
+/** How far an upload has come: `received` bytes of `size`, each one the Mac has written. */
+const UploadProgressSchema = z.object({ uploadId: UploadId, size: z.number().int(), received: z.number().int() });
+
 /** A file sent with a message: a photo taken or picked on the phone, or a file from its Files. */
 const AttachmentUploadSchema = z.object({
   name: z.string().min(1).max(200),
@@ -1057,9 +1068,37 @@ export const MobileCalls = {
       mentionRefs: z.array(MentionRefSchema).max(12).optional(),
       /** The panes it hands over as cards, read on the Mac as it is sent. */
       tabs: z.array(TabRefSchema).max(8).optional(),
+      /** A video that went ahead of the message (`session.uploadFinish`), by its upload's id. */
+      uploads: z.array(UploadId).max(1).optional(),
     }),
     result: Ok,
   },
+  /** Starts a video's upload ahead of its message: `size` bytes whose SHA-256 is `sha256`, an MP4. The
+   *  Mac names it, and refuses one it has no room for, or one past the phone's `UPLOAD_LIMITS`. */
+  "session.uploadBegin": {
+    params: z.object({
+      size: z.number().int().min(1).max(UPLOAD_LIMITS.maxBytes),
+      sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      mime: z.literal("video/mp4"),
+    }),
+    result: UploadProgressSchema,
+  },
+  /** The next chunk, base64: it must start at `received`, be at most `chunkBytes`, and not take the
+   *  upload past its `size`. One refused leaves the upload as it was, to go on from `received`. */
+  "session.uploadChunk": {
+    params: z.object({
+      uploadId: UploadId, offset: z.number().int().min(0),
+      data: z.string().min(1).max(Math.ceil(UPLOAD_LIMITS.chunkBytes / 3) * 4),
+    }),
+    result: z.object({ received: z.number().int() }),
+  },
+  /** Checks the whole upload against its size, its SHA-256 and the MP4 it must be, and makes it a file
+   *  `session.send`'s `uploads` can take. */
+  "session.uploadFinish": { params: z.object({ uploadId: UploadId }), result: Ok },
+  /** How far an upload has come, which a phone goes on from after its connection dropped. */
+  "session.uploadStatus": { params: z.object({ uploadId: UploadId }), result: UploadProgressSchema.extend({ finished: z.boolean() }) },
+  /** Drops an upload and what of it the Mac has. */
+  "session.uploadAbort": { params: z.object({ uploadId: UploadId }), result: Ok },
   /** What the composer's `/` and `@` lists offer that the phone does not already hold: the person's
    *  own commands and the skills the session's agent can be handed. */
   "session.composer": {

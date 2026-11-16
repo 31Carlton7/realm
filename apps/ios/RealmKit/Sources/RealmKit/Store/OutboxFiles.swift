@@ -53,6 +53,32 @@ public struct OutboxFiles: Sendable {
         return OutgoingAttachment(id: id, name: name, mime: mime, size: size, file: file)
     }
 
+    /// Keeps a copy of a file already on this phone, written anew a megabyte at a time: a video sent
+    /// ahead of its message can be a hundred megabytes, and the file an export wrote takes no protection
+    /// on the simulator.
+    public func keep(copying url: URL, name: String, mime: String) throws -> OutgoingAttachment {
+        let id = UUID()
+        let file = "\(id.uuidString).\(Self.fileExtension(name: name, mime: mime))"
+        try makeFolder()
+        let destination = directory.appending(path: file)
+        #if os(iOS)
+        let attributes: [FileAttributeKey: Any] = [.protectionKey: FileProtectionType.complete]
+        #else
+        let attributes: [FileAttributeKey: Any] = [:]
+        #endif
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: attributes) else { throw CocoaError(.fileWriteUnknown) }
+        let reader = try FileHandle(forReadingFrom: url)
+        defer { try? reader.close() }
+        let writer = try FileHandle(forWritingTo: destination)
+        defer { try? writer.close() }
+        var size = 0
+        while let piece = try reader.read(upToCount: 1024 * 1024), !piece.isEmpty {
+            try writer.write(contentsOf: piece)
+            size += piece.count
+        }
+        return OutgoingAttachment(id: id, name: name, mime: mime, size: size, file: file)
+    }
+
     private func makeFolder() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var folder = directory
@@ -72,9 +98,9 @@ public struct OutboxFiles: Sendable {
         return try Data(contentsOf: url)
     }
 
-    /// A message's files, as `session.send` carries them.
+    /// A message's files, as `session.send` carries them: all but the videos already on the Mac.
     public func uploads(for item: OutgoingItem) throws -> [AttachmentUpload] {
-        try item.attachments.map { AttachmentUpload(name: $0.name, mime: $0.mime, bytes: try bytes(of: $0)) }
+        try item.attachments.filter { $0.uploadId == nil }.map { AttachmentUpload(name: $0.name, mime: $0.mime, bytes: try bytes(of: $0)) }
     }
 
     public func remove(_ attachments: some Sequence<OutgoingAttachment>) {

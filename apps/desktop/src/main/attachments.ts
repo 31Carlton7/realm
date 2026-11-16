@@ -5,7 +5,7 @@ import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
 import { DIRECTORY_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath, resolveFileTarget } from "@realm/contracts";
-import { prefixedAttachmentName, safeAttachmentName, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
+import { prefixedAttachmentName, safeAttachmentName, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir, tempUploadDir } from "@realm/contracts/src/temp-attachments";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
@@ -14,6 +14,13 @@ export type PickedFile = { path: string; mime: string; name: string; size: numbe
 // Where a pasted file goes, its name and its sweep are shared with realm-server, which writes a file
 // sent from Realm Mobile the same way.
 export { safeAttachmentName, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir };
+
+/** The launch sweep: pasted files, and parts of videos a phone stopped sending, which nothing else
+ *  sweeps until that phone starts another. */
+export async function sweepTempFilesAtLaunch(home: string): Promise<void> {
+  await sweepTempAttachments(tempAttachmentDir(home));
+  await sweepTempAttachments(tempUploadDir(home));
+}
 
 /** Write a pasted file into the temp directory and describe it the way the picker does. */
 export async function saveTempAttachment(home: string, name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> {

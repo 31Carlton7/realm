@@ -26,7 +26,7 @@ import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { readTextFile } from "./read-text";
 import { addBackgrounds, backgroundImageUrl, listBackgrounds, removeBackground, updateBackground, type Reencode } from "./backgrounds";
-import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempFilesAtLaunch, type PickedFile } from "./attachments";
 import { shareImage } from "./share-images";
 import { clearBrowserPartition, coverJpeg, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
@@ -2311,7 +2311,7 @@ app.whenReady().then(async () => {
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
     // restarts the app is bounded too.
-    void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
+    void sweepTempFilesAtLaunch(info.home).catch(() => {});
     await restoreWindows(info);
     // Disabled builds return their existing state without loading electron-updater. Signed packaged
     // builds check the public feed and download in the background; failures remain visible in

@@ -113,7 +113,7 @@ public actor MobileConnection {
     }
 
     private struct PendingCall {
-        let continuation: CheckedContinuation<Data, Error>
+        let resume: @Sendable (Result<Data, any Error>) -> Void
         let timer: Task<Void, Never>
     }
 
@@ -219,14 +219,37 @@ public actor MobileConnection {
                 try? await Task.sleep(for: timeout)
                 self.expireCall(id)
             }
-            pending[id] = PendingCall(continuation: continuation, timer: timer)
+            pending[id] = PendingCall(resume: { continuation.resume(with: $0) }, timer: timer)
             for frame in frames { socket.send(frame) }
+        }
+    }
+
+    /// Writes a call to the channel before it returns, and answers with a wait on its reply: calls
+    /// written one after another reach the Mac in that order, however many are in flight at once.
+    public func write<Params: Encodable & Sendable, Result: Decodable & Sendable>(
+        _ method: String, params: Params, as type: Result.Type = Result.self, timeout: Duration? = nil
+    ) throws -> WrittenCall<Result> {
+        guard var channel, let socket else { throw ChannelError.notConnected }
+        let id = nextRequestId
+        nextRequestId += 1
+        let frames = try Frames.seal(Envelope.request(id: id, method: method, params: params), with: &channel.send)
+        self.channel = channel
+        let (reply, sink) = AsyncThrowingStream.makeStream(of: Data.self)
+        let timer = Task {
+            try? await Task.sleep(for: timeout ?? requestTimeout)
+            self.expireCall(id)
+        }
+        pending[id] = PendingCall(resume: { sink.yield(with: $0); sink.finish() }, timer: timer)
+        for frame in frames { socket.send(frame) }
+        return WrittenCall {
+            for try await message in reply { return try Envelope.result(Result.self, from: message) }
+            throw ChannelError.connectionLost
         }
     }
 
     private func expireCall(_ id: Int) {
         guard let call = pending.removeValue(forKey: id) else { return }
-        call.continuation.resume(throwing: ChannelError.timedOut)
+        call.resume(.failure(ChannelError.timedOut))
     }
 
     private func expireWaiter(_ id: UUID) {
@@ -379,7 +402,7 @@ public actor MobileConnection {
         case .response(let id):
             guard let call = pending.removeValue(forKey: id) else { return }
             call.timer.cancel()
-            call.continuation.resume(returning: message)
+            call.resume(.success(message))
         case .event(let event):
             eventSink.yield(event)
         case .unrecognized:
@@ -394,7 +417,7 @@ public actor MobileConnection {
         pending.removeAll()
         for call in calls.values {
             call.timer.cancel()
-            call.continuation.resume(throwing: error)
+            call.resume(.failure(error))
         }
     }
 
@@ -407,6 +430,15 @@ public actor MobileConnection {
         guard !stopped || newState == .stopped else { return }
         state = newState
         stateSink.yield(newState)
+    }
+}
+
+/// A call written to the channel whose answer is still to come (`MobileConnection.write`).
+public struct WrittenCall<Result: Sendable>: Sendable {
+    public let result: @Sendable () async throws -> Result
+
+    public init(result: @escaping @Sendable () async throws -> Result) {
+        self.result = result
     }
 }
 
@@ -560,9 +592,9 @@ public struct MobileAPI: Sendable {
     /// `attachments` go only to a Mac that answers `session.options`: an older one would drop them.
     /// `mentionRefs` say what each `@[label]` in `text` names; they go only to a Mac that answers
     /// `session.composer`, since an older one refuses a field it does not know. `tabs` go only to a Mac
-    /// that answers `session.tabs`.
+    /// that answers `session.tabs`. `uploads` name videos that went ahead of the message (`ChunkedUpload`).
     public func send(id: String, text: String, delivery: Delivery? = nil, attachments: [AttachmentUpload] = [],
-                     mentionRefs: [MentionRef] = [], tabs: [TabRef] = [], timeout: Duration? = nil) async throws {
+                     mentionRefs: [MentionRef] = [], tabs: [TabRef] = [], uploads: [String] = [], timeout: Duration? = nil) async throws {
         struct Params: Encodable, Sendable {
             let id: String
             let text: String
@@ -570,6 +602,7 @@ public struct MobileAPI: Sendable {
             let attachments: [AttachmentUpload]
             let mentionRefs: [MentionRef]
             let tabs: [TabRef]
+            let uploads: [String]
             func encode(to encoder: Encoder) throws {
                 var c = encoder.container(keyedBy: Key.self)
                 try c.encode(id, forKey: .id)
@@ -579,11 +612,13 @@ public struct MobileAPI: Sendable {
                 if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
                 if !mentionRefs.isEmpty { try c.encode(mentionRefs, forKey: .mentionRefs) }
                 if !tabs.isEmpty { try c.encode(tabs, forKey: .tabs) }
+                if !uploads.isEmpty { try c.encode(uploads, forKey: .uploads) }
             }
-            enum Key: String, CodingKey { case id, text, delivery, attachments, mentionRefs, tabs }
+            enum Key: String, CodingKey { case id, text, delivery, attachments, mentionRefs, tabs, uploads }
         }
         _ = try await connection.call("session.send",
-                                      params: Params(id: id, text: text, delivery: delivery, attachments: attachments, mentionRefs: mentionRefs, tabs: tabs),
+                                      params: Params(id: id, text: text, delivery: delivery, attachments: attachments, mentionRefs: mentionRefs, tabs: tabs,
+                                                     uploads: uploads),
                                       as: Acknowledged.self, timeout: timeout)
     }
 

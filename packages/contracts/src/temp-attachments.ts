@@ -23,6 +23,10 @@ import { basename, dirname, join } from "node:path";
  */
 export const tempAttachmentDir = (home: string): string => join(home, "tmp", "attachments");
 
+/** Where realm-server keeps a video from Realm Mobile while it arrives a chunk at a time, swept like
+ *  the attachments folder. */
+export const tempUploadDir = (home: string): string => join(home, "tmp", "uploads");
+
 /** How long a pasted file survives. Longer than any single turn (the adapter reads it asynchronously,
  *  after `sessions.send` has already resolved), short enough that the directory cannot creep. */
 export const TEMP_ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1000;

@@ -17,6 +17,7 @@ import {
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
+import { ChunkedUploads, UploadNotFound } from "./chunked-uploads";
 import { checkSpacePath, documentRow, DOCUMENTS_SEARCH_LIMIT, SECRET_REFUSAL, withheldFile } from "./documents";
 import { memoryCreate, memoryFile, memoryList, memoryOverview, MemoryRefused, memorySetLearning, memoryWrite } from "./memory";
 import { agentOptions, changesFor, ChoiceRefused, probeList, sessionModelLabel, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
@@ -267,8 +268,15 @@ export class MobileApi {
    *  or still being taken: what every call for that pane meanwhile is answered with. */
   private readonly pagePictures = new Map<string, { at: number; frame: Promise<ScreenFrame> }>();
 
-  /** `userHome` is the Mac's home folder, which paths are shortened against; the server's own by default. */
-  constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string; userHome?: string }) {}
+  private readonly chunked: ChunkedUploads;
+
+  /** `userHome` is the Mac's home folder, which paths are shortened against; the server's own by default.
+   *  `freeBytes` is how much room the disk holding a folder has; the disk's own by default. */
+  constructor(private readonly o: {
+    macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string; userHome?: string; freeBytes?: (dir: string) => Promise<number>;
+  }) {
+    this.chunked = new ChunkedUploads(o.realmHome, o.freeBytes);
+  }
 
   async handle(ctx: ChannelContext, method: string, params: unknown): Promise<unknown> {
     if (!Object.hasOwn(MobileCalls, method)) throw new MobileError("METHOD_NOT_FOUND", `no mobile.v1 call ${method}`);
@@ -325,11 +333,23 @@ export class MobileApi {
         case "teammate.checkIn": return await this.checkIn(rpc, p as MobileParams<"teammate.checkIn">);
         case "session.send": {
           const tabs = p.tabs as MobileParams<"session.send">["tabs"];
-          const files = await this.uploads(p.text as string, p.attachments as Upload[], tabs?.length ?? 0);
+          const uploadIds = (p.uploads as string[] | undefined) ?? [];
+          const attachments = p.attachments as Upload[];
+          if (attachments.length + uploadIds.length > SEND_LIMITS.maxCount) throw new MobileError("INVALID_PARAMS", `A message takes at most ${SEND_LIMITS.maxCount} files.`);
+          const videos = await this.chunked.files(ctx.phoneId, uploadIds);
+          const files = await this.uploads(p.text as string, attachments, (tabs?.length ?? 0) + videos.length);
           const named = await this.named(rpc, p.id as string, p.text as string, p.mentionRefs as MentionRef[] | undefined);
-          await rpc.call("sessions.send", { id: p.id as string, text: p.text as string, attachments: files, delivery: p.delivery as "auto" | "queue" | "steer", ...named, ...(tabs?.length ? { tabs } : {}) });
+          await rpc.call("sessions.send", {
+            id: p.id as string, text: p.text as string, attachments: [...files, ...videos], delivery: p.delivery as "auto" | "queue" | "steer", ...named, ...(tabs?.length ? { tabs } : {}),
+          });
+          await this.chunked.sent(uploadIds);
           return { ok: true };
         }
+        case "session.uploadBegin": return await this.chunked.begin(ctx.phoneId, p.size as number, p.sha256 as string);
+        case "session.uploadChunk": return await this.chunked.chunk(ctx.phoneId, p.uploadId as string, p.offset as number, p.data as string);
+        case "session.uploadFinish": await this.chunked.finish(ctx.phoneId, p.uploadId as string); return { ok: true };
+        case "session.uploadStatus": return await this.chunked.status(ctx.phoneId, p.uploadId as string);
+        case "session.uploadAbort": await this.chunked.abort(ctx.phoneId, p.uploadId as string); return { ok: true };
         case "session.composer": return await this.composer(rpc, p.id as string);
         case "session.mentionFiles": return await this.mentionFiles(rpc, p.id as string, p.query as string);
         case "session.tabs": {
@@ -439,6 +459,7 @@ export class MobileApi {
       }
     } catch (e) {
       if (e instanceof MobileError) throw e;
+      if (e instanceof UploadNotFound) throw new MobileError("NOT_FOUND", e.message);
       if (e instanceof ChoiceRefused || e instanceof UploadRefused) throw new MobileError("INVALID_PARAMS", e.message);
       if (e instanceof MemoryRefused) throw new MobileError("FORBIDDEN", e.message);
       if (e instanceof RpcCallError) {
@@ -709,9 +730,9 @@ export class MobileApi {
   }
 
   /** A message's files, checked whole and written where a desktop paste goes; a message must carry
-   *  words, a file or a tab. */
-  private async uploads(text: string, uploads: readonly Upload[], tabs = 0): Promise<{ path: string; mime: string }[]> {
-    if (text.length === 0 && uploads.length === 0 && tabs === 0) throw new MobileError("INVALID_PARAMS", "A message needs words, a file or a tab.");
+   *  words, a file or a tab. `alongside` counts its tabs and the videos that went ahead of it. */
+  private async uploads(text: string, uploads: readonly Upload[], alongside = 0): Promise<{ path: string; mime: string }[]> {
+    if (text.length === 0 && uploads.length === 0 && alongside === 0) throw new MobileError("INVALID_PARAMS", "A message needs words, a file or a tab.");
     return await saveUploads(this.o.realmHome, checkUploads(uploads));
   }
 
