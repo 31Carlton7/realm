@@ -465,18 +465,23 @@ private struct TaskMenuItems: View {
     let delete: () -> Void
 
     var body: some View {
-        Button("Run now", systemImage: "play", action: { actions.runNow(task) })
-        if ScheduleWords.editable(task) {
-            Button("Edit", systemImage: "pencil", action: edit)
-            if !ScheduleWords.finished(task) {
-                if task.enabled {
-                    Button("Pause", systemImage: "pause", action: { actions.setEnabled(false, task) })
-                } else {
-                    Button("Resume", systemImage: "play.circle", action: { actions.setEnabled(true, task) })
+        Section {
+            Button("Run now", systemImage: "play", action: { actions.runNow(task) })
+            if ScheduleWords.editable(task) {
+                Button("Edit", systemImage: "pencil", action: edit)
+                if !ScheduleWords.finished(task) {
+                    if task.enabled {
+                        Button("Pause", systemImage: "pause", action: { actions.setEnabled(false, task) })
+                    } else {
+                        Button("Resume", systemImage: "play.circle", action: { actions.setEnabled(true, task) })
+                    }
                 }
             }
-            Divider()
-            Button(task.teammateId != nil ? "Delete check-in…" : "Delete task…", systemImage: "trash", role: .destructive, action: delete)
+        }
+        if ScheduleWords.editable(task) {
+            Section {
+                Button(task.teammateId != nil ? "Delete check-in…" : "Delete task…", systemImage: "trash", role: .destructive, action: delete)
+            }
         }
     }
 }
@@ -638,8 +643,10 @@ struct ScheduledTaskView: View {
             }
             if let task {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu("More", systemImage: "ellipsis") {
+                    RealmMenu("More") {
                         TaskMenuItems(task: task, actions: TaskActions(model: model), edit: { editing = .edit(task) }) { deleting = true }
+                    } label: {
+                        Label("More", systemImage: "ellipsis")
                     }
                     .accessibilityIdentifier("task-more")
                 }

@@ -248,35 +248,8 @@ private struct ModeMenu: View {
 
     var body: some View {
         let chip = SettingWords.chip(options)
-        Menu {
-            if options.agent.modes.count > 1 {
-                Picker("Mode", selection: mode) {
-                    ForEach(options.agent.modes) { choice in
-                        if let mode = SessionMode(rawValue: choice.id) {
-                            Label(choice.label, systemImage: SettingWords.symbol(mode)).tag(mode)
-                        }
-                    }
-                }
-                .pickerStyle(.inline)
-            }
-            if options.mode == .build, !options.agent.permissions.isEmpty {
-                Picker("Permissions", selection: permission) {
-                    ForEach(options.agent.permissions) { choice in
-                        // A menu draws its icons in the tint; the rung that removes the gate keeps its tone.
-                        Label {
-                            Text(choice.label)
-                        } icon: {
-                            if SettingWords.removesGate(permission: choice.id) {
-                                ProfileMark.tinted(UIImage(systemName: SettingWords.symbol(permission: choice.id)), UIColor(Tone.waiting.agentColor))
-                            } else {
-                                Image(systemName: SettingWords.symbol(permission: choice.id))
-                            }
-                        }
-                        .tag(Optional(choice.id))
-                    }
-                }
-                .pickerStyle(.inline)
-            }
+        RealmMenu("Mode", hint: "Changes what the agent may do") {
+            ModeMenuRows(options: options, choose: choose)
         } label: {
             let warns = SettingWords.warns(options)
             ChipLabel(text: chip.label, emphasised: false, tone: warns ? Tone.waiting.agentColor : nil) {
@@ -285,8 +258,43 @@ private struct ModeMenu: View {
                     .foregroundStyle(warns ? Tone.waiting.agentColor : Palette.ink2)
             }
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Mode, \(chip.label)")
-        .accessibilityHint("Changes what the agent may do")
+    }
+}
+
+/// The mode menu's rows, each group under its head, so "Ask" the mode never reads as "Ask each time" the
+/// rung (the audit's COMP-08). Only the rung that removes the gate keeps a tone, on its glyph.
+struct ModeMenuRows: View {
+    let options: SessionOptions
+    let choose: (SessionChanges, SessionSetting) -> Void
+
+    var body: some View {
+        if options.agent.modes.count > 1 {
+            Section(head: "Mode") {
+                ForEach(options.agent.modes) { choice in
+                    if let mode = SessionMode(rawValue: choice.id) {
+                        Toggle(isOn: self.mode.isChosen(mode)) {
+                            Label(choice.label, systemImage: SettingWords.symbol(mode))
+                        }
+                    }
+                }
+            }
+        }
+        if options.mode == .build, !options.agent.permissions.isEmpty {
+            Section(head: "Permissions") {
+                ForEach(options.agent.permissions) { choice in
+                    Toggle(isOn: permission.isChosen(choice.id)) {
+                        Label {
+                            Text(choice.label)
+                        } icon: {
+                            Image(systemName: SettingWords.symbol(permission: choice.id))
+                                .foregroundStyle(SettingWords.removesGate(permission: choice.id) ? Tone.waiting.agentColor : Palette.ink)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var mode: Binding<SessionMode> {

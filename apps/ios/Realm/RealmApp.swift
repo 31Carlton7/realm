@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let bar = UINavigationBarAppearance()
         bar.subtitleTextAttributes = [.foregroundColor: UIColor(Palette.ink2)]
         UINavigationBar.appearance().standardAppearance = bar
+        RealmMenuHost.shared.watchKeyboard()
         if !RealmType.isInstalled { model.log.error("JetBrains Mono did not register; the system's mono stands in.") }
         return true
     }

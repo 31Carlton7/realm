@@ -101,7 +101,6 @@ struct ScreensSheet: View {
                                 .padding(.horizontal, 20)
                                 .frame(minHeight: 44)
                                 .background(Fill.card, in: Capsule())
-                                .floatingLift()
                         }
                         .buttonStyle(.plain)
                         .accessibilityHint(paused ? "Asks your Mac for the picture again" : "Holds the picture still")
@@ -112,7 +111,6 @@ struct ScreensSheet: View {
                                     .foregroundStyle(Palette.ink)
                                     .frame(width: 44, height: 44)
                                     .background(Fill.card, in: Circle())
-                                    .floatingLift()
                             }
                             .accessibilityLabel("Share")
                         }
@@ -135,10 +133,12 @@ struct ScreensSheet: View {
                 let others = (panes?.browsers.isEmpty ?? true) && (panes?.terminals.isEmpty ?? true) ? nil : panes
                 if screens.count > 1 || others != nil, let screen {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Picker("Screen", selection: Binding(get: { screen.id }, set: { selected = $0 })) {
-                                ForEach(screens) { screen in
-                                    Label(screen.name, systemImage: ScreenWords.glyph(screen.kind)).tag(screen.id)
+                        RealmMenu("Screens") {
+                            Section {
+                                ForEach(screens) { option in
+                                    Toggle(isOn: Binding(get: { option.id == screen.id }, set: { if $0 { selected = option.id } })) {
+                                        Label(option.name, systemImage: ScreenWords.glyph(option.kind))
+                                    }
                                 }
                             }
                             // The space's other panes, grouped as the desktop names them: each opens its viewer.

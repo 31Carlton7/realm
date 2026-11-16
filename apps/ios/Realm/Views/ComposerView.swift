@@ -499,12 +499,14 @@ struct AddMenu: View {
 
     var body: some View {
         let full = count >= limits.maxCount
-        Menu {
-            item("Photo library", "photo.on.rectangle", .photos, full: full)
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                item("Take photo", "camera", .camera, full: full)
+        RealmMenu("Add photos or files") {
+            Section {
+                item("Photo library", "photo.on.rectangle", .photos, full: full)
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    item("Take photo", "camera", .camera, full: full)
+                }
+                item("Choose files", "folder", .files, full: full)
             }
-            item("Choose files", "folder", .files, full: full)
         } label: {
             // A bar's button keeps its size at every text size, as the system's do; a long press shows it large.
             // In a ring, as Manus draws its `+`.
@@ -516,7 +518,9 @@ struct AddMenu: View {
                 .frame(width: ComposerLayout.button, height: ComposerLayout.button)
                 .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Add photos or files")
+        .accessibilityIdentifier("composer-add")
         .accessibilityShowsLargeContentViewer {
             Label("Add photos or files", systemImage: "plus")
         }
@@ -524,8 +528,7 @@ struct AddMenu: View {
 
     private func item(_ title: String, _ symbol: String, _ kind: AttachmentPick, full: Bool) -> some View {
         Button { pick(kind) } label: {
-            Label(title, systemImage: symbol)
-            if full { Text(AttachmentLimits.full(limits)) }
+            Label { MenuRowWords(title, line: full ? AttachmentLimits.full(limits) : nil) } icon: { Image(systemName: symbol) }
         }
         .disabled(full)
     }
@@ -547,21 +550,17 @@ private struct PrimaryButton: View {
                 Button { perform(kind) } label: { glyph }
                     .buttonStyle(.plain)
             } else {
-                Menu {
-                    ForEach(action.alternatives, id: \.self) { other in
-                        // A second line of words in an item's label is what a menu draws under its title.
-                        let item = Button(role: other == .stop ? .destructive : nil) { perform(other) } label: {
-                            Label(other.title, systemImage: other.symbol)
-                            if let line = other.explanation(steerNote: steerNote) { Text(line) }
+                RealmMenu(kind.title, primaryAction: { perform(kind) }) {
+                    Section {
+                        ForEach(action.alternatives, id: \.self) { other in
+                            Button(role: other == .stop ? .destructive : nil) { perform(other) } label: {
+                                Label { MenuRowWords(other.title, line: other.explanation(steerNote: steerNote)) } icon: { Image(systemName: other.symbol) }
+                            }
+                            .disabled(unreachable(other))
                         }
-                        .disabled(unreachable(other))
-                        // The app's tint colours every glyph in a menu, a destructive one's too: Stop's takes its words' red.
-                        if other == .stop { item.tint(.red) } else { item }
                     }
                 } label: {
                     glyph
-                } primaryAction: {
-                    perform(kind)
                 }
                 .accessibilityActions {
                     ForEach(action.alternatives, id: \.self) { other in

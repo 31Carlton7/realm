@@ -248,14 +248,18 @@ private struct SpaceChip: View {
     let spaces: [Space]
     let space: Space?
     let choose: (String) -> Void
-    @Environment(AppModel.self) private var model
 
     var body: some View {
-        Menu {
-            ForEach(spaces) { option in
-                Toggle(isOn: Binding(get: { option.id == space?.id }, set: { if $0 { choose(option.id) } })) {
-                    Text(option.name)
-                    SpaceMark.image(option, picture: model.spacePictures[option.id])
+        RealmMenu("Space", hint: "Chooses the space the session starts in") {
+            Section {
+                ForEach(spaces) { option in
+                    Toggle(isOn: Binding(get: { option.id == space?.id }, set: { if $0 { choose(option.id) } })) {
+                        Label {
+                            Text(option.name)
+                        } icon: {
+                            SpaceGlyph(space: option, size: 17, relativeTo: .body)
+                        }
+                    }
                 }
             }
         } label: {
@@ -263,9 +267,9 @@ private struct SpaceChip: View {
                 if let space { SpaceGlyph(space: space, size: 15, relativeTo: .subheadline) }
             }
         }
+        .buttonStyle(.plain)
         .disabled(spaces.isEmpty)
         .accessibilityLabel("Space, \(space?.name ?? "none")")
-        .accessibilityHint("Chooses the space the session starts in")
         .accessibilityIdentifier("new-session-space")
     }
 }
@@ -278,47 +282,30 @@ private struct AgentChip: View {
     let choose: (String) -> Void
 
     var body: some View {
-        Menu {
-            ForEach(agents, id: \.kind) { option in
-                Toggle(isOn: Binding(get: { option.kind == agent?.kind }, set: { if $0 { choose(option.kind) } })) {
-                    Text(option.name)
-                    if !option.available, let note = option.note { Text(note) }
-                    if let mark = Self.mark(option) { mark }
+        RealmMenu("Agent", hint: "Chooses the agent the session starts with") {
+            Section {
+                ForEach(agents, id: \.kind) { option in
+                    Toggle(isOn: Binding(get: { option.kind == agent?.kind }, set: { if $0 { choose(option.kind) } })) {
+                        Label {
+                            MenuRowWords(option.name, line: option.available ? nil : option.note)
+                        } icon: {
+                            AgentMark(kind: option.kind, mark: option.mark, colored: true, size: 17, relativeTo: .body)
+                        }
+                    }
+                    .disabled(!option.available)
                 }
-                .disabled(!option.available)
             }
         } label: {
             ChipLabel(text: agent?.name ?? "No agent", emphasised: false) {
                 if let agent { AgentMark(kind: agent.kind, mark: agent.mark, colored: true, size: 15, relativeTo: .subheadline) }
             }
         }
+        .buttonStyle(.plain)
         .disabled(agents.isEmpty)
         .accessibilityLabel("Agent, \(agent?.name ?? "none")")
-        .accessibilityHint("Chooses the agent the session starts with")
         .accessibilityIdentifier("new-session-agent")
     }
 
-    /// An agent's mark as a menu draws it, which is only ever an image: in its vendor's colour where the
-    /// mark has one, as the chip draws it, else in the text's ink, and faded with its name where it cannot
-    /// run. Left to the menu, every mark would wear the app's accent, as if each were the one chosen.
-    private static func mark(_ agent: AgentOptions) -> Image? {
-        guard let icon = AgentMark.icon(kind: agent.kind, mark: agent.mark), let image = UIImage(named: "Agents/\(icon)") else { return nil }
-        let color = Marks.agentColors[icon].flatMap { Color(hex: $0) }.map { UIColor($0) } ?? .label
-        return Image(uiImage: image.withTintColor(agent.available ? color : color.withAlphaComponent(0.45), renderingMode: .alwaysOriginal))
-    }
-}
-
-/// A space's mark as a menu draws it, which is only ever an image: its glyph in its colour, its emoji
-/// drawn into one, or its picture once fetched.
-enum SpaceMark {
-    static func image(_ space: Space, picture: UIImage?) -> Image {
-        switch SpaceIcon(space: space) {
-        case .emoji(let emoji): Image(uiImage: ProfileMark.drawn(emoji)).renderingMode(.original)
-        case .picture: picture.map { Image(uiImage: $0).renderingMode(.original) } ?? ProfileMark.tinted(UIImage(named: "Spaces/folder"), nil)
-        case .glyph(let name):
-            ProfileMark.tinted(UIImage(named: "Spaces/\(name)"), space.color?.stringValue.flatMap(SpaceTint.color).map(UIColor.init))
-        }
-    }
 }
 
 extension AppModel {
