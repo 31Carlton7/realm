@@ -276,6 +276,9 @@ function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; l
   return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
 }
 
+/** How long the pane's size holds still before the chat's picture is drawn again at it. */
+export const RESIZE_QUIET_MS = 150;
+
 /**
  * The picture behind a transcript (chat-backdrop.ts): drawn once, blurred by the edge blur's deeper
  * radius (`--fade-blur-far`) so it stops competing with the words, and each pixel brought toward the
@@ -299,6 +302,9 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
     let pending = false;
     let drawn = "";
     let timer = 0;
+    let quiet = 0;
+    // Each draw's number; a draw that awaited past a newer one (or past a resize) stops there.
+    let latest = 0;
     const settled = () => {
       if (timer) return;
       timer = window.setTimeout(() => settledRef.current(), parseFloat(getComputedStyle(canvas).transitionDuration) * 1000 || 0);
@@ -308,7 +314,9 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
       pending = true;
       await new Promise(requestAnimationFrame);
       pending = false;
-      if (disposed) return;
+      const mine = ++latest;
+      const stale = () => disposed || mine !== latest;
+      if (stale()) return;
       const box = pane.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = Math.round(box.width * dpr), h = Math.round(box.height * dpr);
@@ -330,22 +338,30 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
       probe.remove();
       const key = JSON.stringify([w, h, dpr, pal, blur, inks, links]);
       if (key === drawn) return;
-      drawn = key;
       const pic = await pictureFor(backdrop, pal.dark);
-      if (!pic || disposed) return;
+      if (!pic || stale()) return;
       const print = await printed(backdrop.effect, pic, pal, w, h, dpr);
-      if (disposed) return;
+      if (stale()) return;
       const art = soften(print, pal.ground, Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE), blur / SCALE);
       const pixels = art.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, art.width, art.height);
       hush(pixels.data, pal.ground, readableRange(pal.ground, inks, links));
       if (canvas.width !== art.width || canvas.height !== art.height) { canvas.width = art.width; canvas.height = art.height; }
       canvas.getContext("2d")!.putImageData(pixels, 0, 0);
+      drawn = key;
       canvas.dataset.drawn = "";
       settled();
     };
     // A picture that will not decode leaves the plain ground, and the empty session's goes with it.
     const refresh = () => void draw().catch(() => { drawn = ""; settled(); });
-    const resize = new ResizeObserver(refresh);
+    // A redraw costs ~100 ms, so a window dragged by its edge would drop a frame for every one. Once
+    // a picture is up, the canvas (sized by CSS) stretches its last frame while the pane resizes, and
+    // the picture is drawn again only when the size has held still.
+    const resize = new ResizeObserver(() => {
+      if (!canvas.hasAttribute("data-drawn")) return refresh();
+      latest++;
+      window.clearTimeout(quiet);
+      quiet = window.setTimeout(refresh, RESIZE_QUIET_MS);
+    });
     resize.observe(pane);
     const watch = new MutationObserver(refresh);
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "style"] });
@@ -353,6 +369,7 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
     return () => {
       disposed = true;
       window.clearTimeout(timer);
+      window.clearTimeout(quiet);
       resize.disconnect();
       watch.disconnect();
     };
