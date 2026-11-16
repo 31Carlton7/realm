@@ -335,20 +335,26 @@ private struct ExportTile: View {
     @State private var frame: UIImage?
 
     var body: some View {
-        // Over a frame, white on the darkened frame, as a video tile's length is.
+        // Over a frame, white on a dark disc, so the ring reads on a bright frame too.
         let ink = frame == nil ? Palette.ink2 : .white
         ZStack {
+            if frame != nil {
+                Circle()
+                    .fill(.black.opacity(0.5))
+                    .frame(width: 34, height: 34)
+            }
             Circle()
                 .stroke(frame == nil ? Palette.line : .white.opacity(0.35), lineWidth: 3)
+                .frame(width: 24, height: 24)
             Circle()
                 .trim(from: 0, to: max(0.03, progress))
                 .stroke(ink, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+                .frame(width: 24, height: 24)
             Image(systemName: sending ? "arrow.up" : "video.fill")
                 .font(.system(size: 9, weight: sending ? .bold : .regular))
                 .foregroundStyle(ink)
         }
-        .frame(width: 24, height: 24)
         .animation(.linear(duration: 0.1), value: progress)
         .frame(width: AttachmentStrip.side, height: AttachmentStrip.side)
         .background {
@@ -358,9 +364,9 @@ private struct ExportTile: View {
                     Image(uiImage: frame)
                         .resizable()
                         .scaledToFill()
-                    Rectangle().fill(.black.opacity(0.4))
                 }
             }
+            .frame(width: AttachmentStrip.side, height: AttachmentStrip.side)
             .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
         }
         .animation(.easeOut(duration: 0.2), value: frame != nil)
