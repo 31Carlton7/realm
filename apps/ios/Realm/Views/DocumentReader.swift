@@ -39,13 +39,9 @@ struct DocumentReader: View {
     var body: some View {
         Group {
             if let problem {
-                ContentUnavailableView(document.name, systemImage: refused ? "lock" : document.symbol, description: Text(problem))
+                EmptyState(document.name, systemImage: refused ? "lock" : document.symbol, description: problem)
             } else if case .none(let reason)? = preview?.preview {
-                ContentUnavailableView {
-                    Label(document.name, systemImage: document.symbol)
-                } description: {
-                    Text(reason)
-                } actions: {
+                EmptyState(document.name, systemImage: document.symbol, description: reason) {
                     Button("Open in Quick Look") { Task { await getWhole(thenPreview: true) } }
                         .buttonStyle(.bordered)
                         .disabled(fetching)

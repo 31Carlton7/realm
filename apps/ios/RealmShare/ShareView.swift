@@ -20,8 +20,8 @@ struct ShareView: View {
                 if let targets {
                     picker(targets)
                 } else {
-                    ContentUnavailableView("Pair Realm first", systemImage: "laptopcomputer",
-                                           description: Text("Open Realm on this iPhone and pair it with your Mac, then share again."))
+                    EmptyState("Pair Realm first", systemImage: "laptopcomputer",
+                               description: "Open Realm on this iPhone and pair it with your Mac, then share again.")
                 }
             }
             .background(Ground.grouped)

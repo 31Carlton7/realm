@@ -78,6 +78,7 @@ targets:
       - path: RealmShare
       - path: Realm/Theme/Palette.swift
       - path: Realm/Theme/Surfaces.swift
+      - path: Realm/Theme/EmptyState.swift
       - path: Realm/Assets.xcassets
     dependencies:
       - package: RealmKit

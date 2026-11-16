@@ -153,14 +153,9 @@ struct UsageView: View {
         .overlay {
             if usage == nil {
                 if model.work.unsupported || !model.isConnected {
-                    ContentUnavailableView {
-                        Label("Usage is on your Mac", systemImage: "laptopcomputer")
-                    } description: {
-                        Text(model.work.unsupported ? "Update Realm on your Mac to see it here."
-                             : "This iPhone shows it while your Mac is connected.")
-                    }
+                    EmptyState("Usage is on your Mac", systemImage: "laptopcomputer", description: model.work.unsupported ? "Update Realm on your Mac to see it here." : "This iPhone shows it while your Mac is connected.")
                 } else if let problem {
-                    ContentUnavailableView("Usage did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
+                    EmptyState("Usage did not load", systemImage: "exclamationmark.triangle", description: problem)
                 } else {
                     ProgressView()
                 }

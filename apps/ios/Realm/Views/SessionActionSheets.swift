@@ -340,8 +340,7 @@ struct SavedView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let saved, saved.entries.isEmpty {
-                ContentUnavailableView("Nothing saved yet", systemImage: "bookmark",
-                                       description: Text("Hold a message you sent in a session and choose Save turn."))
+                EmptyState("Nothing saved yet", systemImage: "bookmark", description: "Hold a message you sent in a session and choose Save turn.")
             } else if saved == nil {
                 Unreached(what: "Saved", working: model.isConnected)
             }

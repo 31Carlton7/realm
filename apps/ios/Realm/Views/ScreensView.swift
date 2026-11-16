@@ -273,16 +273,11 @@ private struct ScreenStage: View {
                     .accessibilityLabel(screen.map { "\($0.name), as it is on your Mac" } ?? "Screen")
                     .transition(.opacity)
             } else if let screen, !screen.live || resting {
-                ContentUnavailableView {
-                    Label("\(screen.name) isn't running", systemImage: ScreenWords.glyph(screen.kind))
-                } description: {
-                    Text("Open it on your Mac to see it here.")
-                }
+                EmptyState("\(screen.name) isn't running", systemImage: ScreenWords.glyph(screen.kind), description: "Open it on your Mac to see it here.")
             } else if screen == nil {
-                ContentUnavailableView("Nothing to show", systemImage: "rectangle.on.rectangle",
-                                       description: Text("This session's space has no simulator or machine open."))
+                EmptyState("Nothing to show", systemImage: "rectangle.on.rectangle", description: "This session's space has no simulator or machine open.")
             } else if let trouble {
-                ContentUnavailableView(trouble, systemImage: "exclamationmark.triangle")
+                EmptyState(trouble, systemImage: "exclamationmark.triangle")
             } else {
                 ProgressView()
             }

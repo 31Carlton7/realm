@@ -17,18 +17,13 @@ struct PullRequestView: View {
             if let pr = lookup?.pr {
                 page(pr)
             } else if let lookup {
-                ContentUnavailableView {
-                    Label("No pull request", systemImage: "arrow.triangle.pull")
-                } description: {
-                    Text(lookup.reason ?? "Nobody has opened a pull request for this branch yet. Commit, push & PR in Changes opens one.")
-                }
+                EmptyState("No pull request", systemImage: "arrow.triangle.pull", description: lookup.reason ?? "Nobody has opened a pull request for this branch yet. Commit, push & PR in Changes opens one.")
             } else if let problem {
-                ContentUnavailableView("The pull request did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
+                EmptyState("The pull request did not load", systemImage: "exclamationmark.triangle", description: problem)
             } else if model.isConnected {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView("The pull request is read on your Mac", systemImage: "laptopcomputer",
-                                       description: Text("This iPhone shows it while your Mac is connected."))
+                EmptyState("The pull request is read on your Mac", systemImage: "laptopcomputer", description: "This iPhone shows it while your Mac is connected.")
             }
         }
         .background(Ground.grouped)

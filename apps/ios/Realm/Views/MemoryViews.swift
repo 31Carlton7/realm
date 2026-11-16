@@ -276,7 +276,7 @@ struct MemoryView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let problem, memories == nil {
-                ContentUnavailableView("Memory", systemImage: WorkPage.memory.symbol, description: Text(problem))
+                EmptyState("Memory", systemImage: WorkPage.memory.symbol, description: problem)
             } else if !words.isEmpty {
                 if let found, found.isEmpty {
                     NoResults(query: words, why: "Search reads every memory's name, description and text. Try fewer words.")
@@ -284,8 +284,7 @@ struct MemoryView: View {
             } else if memories == nil {
                 Unreached(what: "Memory", working: model.isConnected)
             } else if places.isEmpty {
-                ContentUnavailableView("No memory here yet", systemImage: WorkPage.memory.symbol,
-                                       description: Text("Agents save what they learn here as they work, or write one yourself."))
+                EmptyState("No memory here yet", systemImage: WorkPage.memory.symbol, description: "Agents save what they learn here as they work, or write one yourself.")
             }
         }
         .navigationTitle("Memory")
@@ -453,11 +452,11 @@ struct MemoryPlaceView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let problem, !pages.loaded {
-                ContentUnavailableView(place.title, systemImage: WorkPage.memory.symbol, description: Text(problem))
+                EmptyState(place.title, systemImage: WorkPage.memory.symbol, description: problem)
             } else if !pages.loaded {
                 Unreached(what: place.title, working: model.isConnected)
             } else if pages.rows.isEmpty {
-                ContentUnavailableView("Nothing is kept here yet", systemImage: WorkPage.memory.symbol)
+                EmptyState("Nothing is kept here yet", systemImage: WorkPage.memory.symbol)
             }
         }
         .navigationTitle(place.title)

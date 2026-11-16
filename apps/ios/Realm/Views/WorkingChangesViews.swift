@@ -54,15 +54,13 @@ struct WorkingChangesView: View {
             if let tree {
                 list(tree)
             } else if noRepository {
-                ContentUnavailableView("No git repository", systemImage: "folder",
-                                       description: Text("There is no git repository here, so there is nothing to diff."))
+                EmptyState("No git repository", systemImage: "folder", description: "There is no git repository here, so there is nothing to diff.")
             } else if let problem {
-                ContentUnavailableView("The changes did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
+                EmptyState("The changes did not load", systemImage: "exclamationmark.triangle", description: problem)
             } else if model.isConnected {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView("The changes are on your Mac", systemImage: "laptopcomputer",
-                                       description: Text("This iPhone shows them while your Mac is connected."))
+                EmptyState("The changes are on your Mac", systemImage: "laptopcomputer", description: "This iPhone shows them while your Mac is connected.")
             }
         }
         .background(Ground.grouped)

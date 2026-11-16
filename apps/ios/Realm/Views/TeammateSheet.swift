@@ -89,7 +89,7 @@ struct TeammateSheet: View {
                     }
                     .disabled(saving)
                 } else {
-                    ContentUnavailableView("This teammate is not on your Mac any more", systemImage: "person.crop.circle.badge.questionmark")
+                    EmptyState("This teammate is not on your Mac any more", systemImage: "person.crop.circle.badge.questionmark")
                 }
             }
             .navigationTitle(teammate.map { "Edit \($0.name)" } ?? "Edit teammate")

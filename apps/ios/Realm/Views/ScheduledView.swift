@@ -315,8 +315,7 @@ struct ScheduledView: View {
             if searching, sections.upcoming.isEmpty, sections.checkIns.isEmpty {
                 NoResults(query: query, why: "Search reads each task's name, instructions and when it runs.")
             } else if tasks?.isEmpty == true, model.work.suggested == nil {
-                ContentUnavailableView("No scheduled tasks", systemImage: WorkPage.scheduled.symbol,
-                                       description: Text("Update Realm on your Mac to schedule one here."))
+                EmptyState("No scheduled tasks", systemImage: WorkPage.scheduled.symbol, description: "Update Realm on your Mac to schedule one here.")
             } else if tasks == nil {
                 Unreached(what: "Scheduled", working: model.isConnected && !model.work.unsupported)
             }
@@ -628,7 +627,7 @@ struct ScheduledTaskView: View {
             if let task {
                 page(task)
             } else {
-                ContentUnavailableView("This task is not on your Mac any more", systemImage: WorkPage.scheduled.symbol)
+                EmptyState("This task is not on your Mac any more", systemImage: WorkPage.scheduled.symbol)
             }
         }
         .background(Ground.transcript)

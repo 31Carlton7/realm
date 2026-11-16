@@ -20,7 +20,7 @@ struct MemoryFileView: View {
     var body: some View {
         Group {
             if let problem {
-                ContentUnavailableView(memory.title, systemImage: refused ? "lock" : WorkPage.memory.symbol, description: Text(problem))
+                EmptyState(memory.title, systemImage: refused ? "lock" : WorkPage.memory.symbol, description: problem)
             } else if let file {
                 reading(file)
             } else {
@@ -404,8 +404,7 @@ struct NewMemorySheet: View {
         NavigationStack {
             Group {
                 if homes.isEmpty {
-                    ContentUnavailableView("No memory repo to write in", systemImage: WorkPage.memory.symbol,
-                                           description: Text("New memories go in a Realm memory repo. Make one in Profile settings ▸ Memory on your Mac."))
+                    EmptyState("No memory repo to write in", systemImage: WorkPage.memory.symbol, description: "New memories go in a Realm memory repo. Make one in Profile settings ▸ Memory on your Mac.")
                 } else {
                     form
                 }
