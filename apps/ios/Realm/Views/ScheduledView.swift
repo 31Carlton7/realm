@@ -81,14 +81,9 @@ enum TaskOrder {
 
 /// What the Scheduled page says of a task's runs.
 enum ScheduleWords {
-    /// Runs that finished and have not been read: what Home's head counts.
+    /// Runs that finished and have not been read: what the Scheduled card on Home counts.
     static func unreadResults(_ tasks: [ScheduledTask]) -> Int {
         tasks.filter { task in task.lastRun.map { $0.unread && RunState($0.state).isFinished } ?? false }.count
-    }
-
-    /// "1 scheduled result", "2 scheduled results"
-    static func results(_ count: Int) -> String {
-        count == 1 ? "1 scheduled result" : "\(count) scheduled results"
     }
 
     /// When it runs next, as the end of a row: "Next tomorrow at 9:00 am", "Paused", or when it last

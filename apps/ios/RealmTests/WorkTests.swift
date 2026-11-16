@@ -414,8 +414,6 @@ struct ScheduledWordsTests {
             Work.task("never"),
         ]
         #expect(ScheduleWords.unreadResults(tasks) == 2)
-        #expect(ScheduleWords.results(1) == "1 scheduled result")
-        #expect(ScheduleWords.results(2) == "2 scheduled results")
     }
 
     /// What runs soonest first; then what is paused or will not run again, the latest run first.
@@ -455,23 +453,20 @@ struct ScheduledWordsTests {
 @Suite("Home's head and its menu")
 struct WorkHeadTests {
     @Test func nothingWaitingSaysNothing() {
-        #expect(WorkHead.lines(reviews: nil, schedules: nil).isEmpty)
-        #expect(WorkHead.lines(reviews: [], schedules: [Work.task("read", run: Work.run("Finished", unread: false))]).isEmpty)
+        #expect(WorkHead.lines(reviews: nil).isEmpty)
+        #expect(WorkHead.lines(reviews: []).isEmpty)
         // A review sent back for changes waits on its role, not on the person.
-        #expect(WorkHead.lines(reviews: [Work.review(state: "changes")], schedules: nil).isEmpty)
+        #expect(WorkHead.lines(reviews: [Work.review(state: "changes")]).isEmpty)
         // A search lists only what matched.
-        #expect(WorkHead.lines(reviews: [Work.review()], schedules: [Work.task("t", run: Work.run("Finished"))], searching: true).isEmpty)
+        #expect(WorkHead.lines(reviews: [Work.review()], searching: true).isEmpty)
     }
 
-    /// One quiet line for what waits in Review and one for the scheduled results not read, in that order.
-    @Test func whatWaitsIsOneLineEach() {
+    /// One quiet line for what waits in Review. The scheduled results not read are the Scheduled card's.
+    @Test func whatWaitsInReviewIsOneLine() {
         let reviews = [Work.review("a"), Work.review("b", state: "waiting"), Work.review("c", state: "changes")]
-        let tasks = [Work.task("t", run: Work.run("Finished")), Work.task("u", run: Work.run("Running"))]
-        let lines = WorkHead.lines(reviews: reviews, schedules: tasks)
-        #expect(lines.map(\.words) == ["2 to review", "1 scheduled result"])
-        #expect(lines.map(\.page) == [.reviews, .scheduled])
-        #expect(lines.map(\.page.route) == [.reviews, .scheduled])
-        #expect(WorkHead.lines(reviews: nil, schedules: tasks + [Work.task("v", run: Work.run("Failed"))]).map(\.words) == ["2 scheduled results"])
+        let lines = WorkHead.lines(reviews: reviews)
+        #expect(lines.map(\.words) == ["2 to review"])
+        #expect(lines.map(\.page.route) == [.reviews])
     }
 
     /// The Mac's pages: Library, Memory and Scheduled on Home, Review and Usage in the Mac's sheet, each
@@ -517,7 +512,7 @@ struct WorkFixtureWordsTests {
         struct List: Decodable { let reviews: [ReviewSummary] }
         let reviews = try Self.call(List.self, "reviews.list").reviews
         #expect(reviews.isEmpty)
-        #expect(WorkHead.lines(reviews: reviews, schedules: nil).isEmpty)
+        #expect(WorkHead.lines(reviews: reviews).isEmpty)
     }
 
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
@@ -527,7 +522,7 @@ struct WorkFixtureWordsTests {
         #expect(tasks.compactMap(\.lastRun).map { RunState($0.state) } == [.finished, .failed])
         #expect(RunState(try #require(Self.call([String: ScheduledTask].self, "schedules.runNow")["task"]?.lastRun).state) == .starting)
         // The brief finished unread; the failed run was read.
-        #expect(WorkHead.lines(reviews: nil, schedules: tasks).map(\.words) == ["1 scheduled result"])
+        #expect(ScheduleWords.unreadResults(tasks) == 1)
     }
 
     /// The plan's windows as the page draws them at the reading's own moment: a bar for each with a
