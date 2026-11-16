@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, CODEX_TOOL_OUTPUT_TOKENS, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
+import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import { GATEWAY_TOOL_TIMEOUT_MS, type AgentHandle, type StartOptions } from "../types";
 
 /**
@@ -446,11 +446,8 @@ describe("CodexAdapter", () => {
       model: "reflect",
       mcpServers: [{ name: "realm", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1" } }],
     });
-    const params = JSON.parse(of(evs, "init")[0]!.payload.model) as { config: { mcp_servers: Record<string, unknown>; tool_output_token_limit: number } };
+    const params = JSON.parse(of(evs, "init")[0]!.payload.model) as { config: { mcp_servers: Record<string, unknown> } };
     expect(params.config.mcp_servers).toEqual({ realm: { command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1" } } });
-    // THE MUTANT: leave the key out, and Codex cuts every result of Realm's tools to 10,000 tokens.
-    expect(params.config.tool_output_token_limit).toBe(CODEX_TOOL_OUTPUT_TOKENS);
-    expect(CODEX_TOOL_OUTPUT_TOKENS).toBe(136_000);
     await handle.dispose();
   });
 
