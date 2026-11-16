@@ -1038,4 +1038,19 @@ struct HomePlacesTests {
         #expect(Set(WorkPage.onHome).isDisjoint(with: WorkPage.inSettings))
         #expect(WorkPage.inSettings.map(\.title) == ["Review", "Usage"])
     }
+
+    /// The Scheduled card counts the results not read beside its name, and says nothing extra at none.
+    @Test func theScheduledCardCountsWhatIsNew() throws {
+        for size in [DynamicTypeSize.large, .accessibility5] {
+            let none = try Drawing.words(PlaceLabel(page: .scheduled, unread: 0), size: size)
+            #expect(none.contains("Scheduled") && !none.contains(where: \.isNumber), "\(none)")
+            let one = try Drawing.words(PlaceLabel(page: .scheduled, unread: 1), size: size)
+            #expect(one.contains("Scheduled") && one.filter(\.isNumber) == "1", "\(one)")
+            let many = try Drawing.words(PlaceLabel(page: .scheduled, unread: 12), size: size)
+            #expect(many.contains("Scheduled") && many.filter(\.isNumber) == "12", "\(many)")
+        }
+        #expect(PlaceLabel.spoken(.scheduled, unread: 0) == "Scheduled")
+        #expect(PlaceLabel.spoken(.scheduled, unread: 1) == "Scheduled, 1 new")
+        #expect(PlaceLabel.spoken(.scheduled, unread: 12) == "Scheduled, 12 new")
+    }
 }

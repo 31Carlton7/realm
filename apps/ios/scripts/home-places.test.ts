@@ -26,6 +26,19 @@ describe("Home says where the Mac's pages are", () => {
     expect(places).toMatch(/ViewThatFits\(in: \.horizontal\) \{\s*HStack\(spacing: 8\) \{ places \}\s*VStack\(spacing: 8\) \{ places \}/);
   });
 
+  it("counts the scheduled results not read on the Scheduled card, and draws no line for them", () => {
+    const menu = read("Realm/Views/HomeMenu.swift");
+    expect(body(menu, "enum WorkHead")).not.toMatch(/schedul/i);
+    const places = body(menu, "struct HomePlaces: View");
+    expect(places).toContain("ScheduleWords.unreadResults(model.work.schedules ?? [])");
+    expect(places).toContain("PlaceLabel(page: page, unread: unread)");
+    expect(places).toContain(".accessibilityLabel(PlaceLabel.spoken(page, unread: unread))");
+    // The count is in ink: no colour, no badge behind it.
+    const label = body(menu, "struct PlaceLabel: View");
+    expect(label).not.toMatch(/Tone\.|\.background|\.shadow|Capsule|Circle/);
+    expect(label).toContain(".foregroundStyle(Palette.ink)");
+  });
+
   it("lists each page once: the Mac's sheet keeps only what Home does not show", () => {
     const menu = read("Realm/Views/HomeMenu.swift");
     expect(menu).toContain("static let inSettings: [WorkPage] = [.reviews, .usage]");

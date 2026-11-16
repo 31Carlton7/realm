@@ -1,8 +1,8 @@
 import RealmKit
 import SwiftUI
 
-/// What Home's head says of the Mac's other pages, each a quiet line like the one for another profile:
-/// the reviews that wait for the person, and the scheduled runs that finished and were not read.
+/// What Home's head says of the Mac's other pages, a quiet line like the one for another profile: the
+/// reviews that wait for the person. The scheduled runs not read are counted on the Scheduled card.
 /// Nothing where there is nothing, and nothing while a search narrows the list to what matched.
 enum WorkHead {
     struct Line: Equatable, Identifiable {
@@ -17,12 +17,10 @@ enum WorkHead {
         (reviews ?? []).filter { ReviewStage($0.state) == .waiting }.count
     }
 
-    static func lines(reviews: [ReviewSummary]?, schedules: [ScheduledTask]?, searching: Bool = false) -> [Line] {
+    static func lines(reviews: [ReviewSummary]?, searching: Bool = false) -> [Line] {
         guard !searching else { return [] }
         let review = toReview(reviews)
-        let results = ScheduleWords.unreadResults(schedules ?? [])
-        return (review > 0 ? [Line(page: .reviews, words: "\(review) to review")] : [])
-            + (results > 0 ? [Line(page: .scheduled, words: ScheduleWords.results(results))] : [])
+        return review > 0 ? [Line(page: .reviews, words: "\(review) to review")] : []
     }
 }
 
@@ -82,7 +80,8 @@ enum WorkPage {
 }
 
 /// Library, Memory and Scheduled at Home's head, a card each with its glyph and its name, side by side
-/// and one under another at the accessibility sizes. The cards rest on the list, so they cast no shadow.
+/// and one under another at the accessibility sizes. Scheduled counts its results not read beside its
+/// name. The cards rest on the list, so they cast no shadow.
 struct HomePlaces: View {
     @Environment(AppModel.self) private var model
 
@@ -98,25 +97,50 @@ struct HomePlaces: View {
 
     private var places: some View {
         ForEach(WorkPage.onHome, id: \.self) { page in
+            let unread = page == .scheduled ? ScheduleWords.unreadResults(model.work.schedules ?? []) : 0
             Button {
                 model.path.append(page.route)
             } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: page.symbol)
-                        .font(.body)
-                        .foregroundStyle(Palette.ink2)
-                        .accessibilityHidden(true)
-                    Text(page.title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink)
-                        .lineLimit(1)
-                }
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: 64)
+                PlaceLabel(page: page, unread: unread)
             }
             .buttonStyle(PlaceButtonStyle())
+            .accessibilityLabel(PlaceLabel.spoken(page, unread: unread))
             .accessibilityIdentifier("place-\(page)")
         }
+    }
+}
+
+/// A place's glyph over its name, and beside the name what is new there, in ink.
+struct PlaceLabel: View {
+    let page: WorkPage
+    let unread: Int
+
+    /// "Scheduled", or "Scheduled, 3 new".
+    static func spoken(_ page: WorkPage, unread: Int) -> String {
+        unread > 0 ? "\(page.title), \(unread) new" : page.title
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(systemName: page.symbol)
+                .font(.body)
+                .foregroundStyle(Palette.ink2)
+                .accessibilityHidden(true)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(page.title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                if unread > 0 {
+                    Text("\(unread)")
+                        .font(.subheadline)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(Palette.ink)
+        }
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 64)
     }
 }
 
@@ -136,7 +160,7 @@ struct WorkHeadLines: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        ForEach(WorkHead.lines(reviews: model.work.reviews, schedules: model.work.schedules, searching: searching)) { line in
+        ForEach(WorkHead.lines(reviews: model.work.reviews, searching: searching)) { line in
             HeadLine(symbol: line.page.symbol, tone: Palette.ink2, words: line.words) {
                 model.path.append(line.page.route)
             }
