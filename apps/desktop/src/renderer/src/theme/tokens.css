@@ -809,12 +809,32 @@ a {
   --sidebar-ground: color-mix(in srgb, var(--page) min(calc(55% + var(--ground-alpha) * 0.45), calc(var(--ground-alpha) * 1.45)), transparent);
 }
 
+/* The prompter thins with the pane (the owner, 11-16: an opaque card on a see-through pane "sticks
+ * out like a sore thumb"). Its alpha is the pane's own mapping read 16 points further up the slider,
+ * so it is always a step denser than the ground it stands on. At the default it is opaque on both
+ * faces (84 + 16 is 100, and the light line reaches 100 at the same point), and above it nothing moves.
+ *
+ * The floor is what its quiet words need over a picture. The transcript never passes under the card,
+ * so the worst ground is a bright painting behind the chat: measured over the Cypresses at slider 0
+ * (`prompter-ground.test.ts` holds the number), 72% keeps the placeholder at 2.55:1 dark and 2.84:1
+ * light and the strip's labels at 2.82 and 2.67, all over the 2.4 the palette holds hints to. No blur:
+ * the picture is already softened where it sits behind the chat, and a blur measured no gain. */
+:root {
+  --prompter-floor: 72%;
+  --prompter-alpha: max(var(--prompter-floor), min(100%, calc(var(--pane-alpha) + 16%)));
+}
+:root[data-mode="light"] {
+  --prompter-alpha: max(var(--prompter-floor), min(100%, calc(92% + (var(--pane-alpha) + 16% - 84%) * 0.5), calc((var(--pane-alpha) + 16%) * 92 / 84)));
+}
+
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being
    * see-through, and it outranks a setting the user may have left on months ago. Both of them, not
    * just the column: a pane still showing the desktop through itself beside an opaque sidebar
    * answers the preference by half. */
   :root, :root[data-mode="light"] { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }
+  /* The prompter with them, or it would be the one thing left showing through. */
+  :root, :root[data-mode="light"] { --prompter-alpha: 100%; }
   /* The themed rule above outranks a bare :root, so it is named here too, or the preference would
    * leave a themed sidebar see-through. */
   :root[data-mode="dark"][data-theme]:not([data-theme="realm"]) { --sidebar-ground: var(--page); }
