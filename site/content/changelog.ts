@@ -21,6 +21,41 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-15-0",
+    title: "Realm v2.15.0",
+    date: "2026-11-16",
+    version: "v2.15.0",
+    area: "Release",
+    summary:
+      "Your background stays behind the whole chat, the window can be as see-through as you like with the prompter thinning to match, and a long list for Realm for iPhone.",
+    short: "Your background stays behind the chat",
+    body: [
+      { kind: "p", text: "Your background stays with you for the whole chat, and the window can be as see-through as you like." },
+      { kind: "h", text: "Desktop" },
+      { kind: "ul", items: [
+        "**Your background stays behind the chat.** The picture a new session shows, whether your own, a gallery picture or a generated look, now stays behind the whole conversation once it begins. It is softly blurred and dimmed only as far as the words need to stay readable, so a dark picture stays nearly whole and a bright one gives up some brightness instead. Background Off still means none.",
+        "**Both translucency sliders run the whole way.** In Settings ▸ Appearance, Pane translucency and Sidebar translucency now go from solid to none of the surface at all. The defaults and any value you saved do not move, so nothing changes until you move a slider. The tooltip says that past the default, text gets harder to read over a bright or busy desktop. Reduce Transparency still makes both solid.",
+        "**The prompter thins with the pane.** It goes from 40% at a fully see-through pane to solid at the default, so it no longer sits as a dark block on a see-through window. Its quiet text and hints step toward the body ink as it thins. At the default and above it looks exactly as before, and Reduce Transparency keeps it solid.",
+      ] },
+      { kind: "h", text: "Scheduled runs" },
+      { kind: "ul", items: [
+        "**A failed scheduled run says what happened in a sentence,** such as \"The run stopped with an error. Open its session to see where.\" on the Mac's Scheduled page and on the phone. Runs stored before this keep their old text.",
+        "**A session a schedule started is marked as a scheduled run for the phone.**",
+      ] },
+      { kind: "h", text: "Realm for iPhone" },
+      { kind: "p", text: "No Realm for iPhone build ships with this release. These come with the next one." },
+      { kind: "ul", items: [
+        "**Grey text you can read.** List heads, footers, values, hints and placeholders use Realm's inks, and every empty view has one layout: a glyph, a title, one line and at most one action.",
+        "**Controls within thumb reach on the big phone.** New session puts its chips, field and Start at the foot of the sheet. A question with up to four options shows them on the request card, so one tap answers it. Search results grow up from the field at the foot.",
+        "**Videos on iOS 27.** Where the system offers no 720p export, Realm makes the video itself, at most 1280x720 with no location or other metadata, tone-mapping HDR video as the system does. A long clip now fits the 100 MB limit up to 8:00.",
+        "**Home shows Library, Memory and Scheduled as cards at the head of the list, one tap each.** The Scheduled card carries the number of new results, and a row a schedule started reads \"Scheduled run\".",
+        "**Large text in the composer and Settings.** At the accessibility sizes the composer's chips grow and wrap instead of being cut, the request dock keeps every word, and Settings keeps its labels whole.",
+        "**Plainer wording.** A call waiting on your permission says \"Waiting for you\", an empty Review says \"Nobody is waiting on your review.\", every sheet closes with the X, and a sheet says \"Save\" or \"Create\" in words.",
+        "**Before iOS asks to send notifications, a Realm sheet says what they are for.** Not now stops it asking, and Settings ▸ Notifications still offers it.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-14-0",
     title: "Realm v2.14.0",
     date: "2026-11-15",
