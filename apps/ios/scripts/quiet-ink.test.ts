@@ -72,6 +72,25 @@ describe("quiet text on the phone", () => {
     expect(below(subtitle![1])).toEqual([]);
   });
 
+  it("inks every word set straight into a list's head or footer", () => {
+    const bare = sources.flatMap(({ path, text }) =>
+      [...text.matchAll(/\} (header|footer): \{/g)].flatMap((m) => {
+        let depth = 0, end = m.index + m[0].length - 1;
+        for (; end < text.length; end++) {
+          if (text[end] === "{") depth++;
+          else if (text[end] === "}" && --depth === 0) break;
+        }
+        const body = text.slice(m.index + m[0].length, end);
+        if (/SectionHead/.test(body)) return [];
+        const indent = body.match(/\n( *)[^ \n/]/)?.[1] ?? "";
+        const inkedWhole = new RegExp(`\\n${indent}\\.foregroundStyle\\(Palette\\.ink2\\)`).test(body);
+        const texts = body.match(/\bText\(/g)?.length ?? 0;
+        const inks = body.match(/\.foregroundStyle\(/g)?.length ?? 0;
+        return inkedWhole || inks >= texts ? [] : [`${path}:${text.slice(0, m.index).split("\n").length} ${m[1]}`];
+      }));
+    expect(bare).toEqual([]);
+  });
+
   it("draws every placeholder in the desktop's placeholder ink, never the system's", () => {
     const bare = sources.flatMap(({ path, text }) =>
       [...text.matchAll(/\bTextField\(/g)].flatMap((m) => {

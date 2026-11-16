@@ -163,6 +163,7 @@ struct WorkingChangesView: View {
         } header: {
             HStack {
                 Text(title)
+                    .foregroundStyle(Palette.ink2)
                 Spacer()
                 Button(all) { change(files.map(\.path), staged: !staged) }
                     .font(.footnote.weight(.medium))
