@@ -238,6 +238,57 @@ struct RealmMenuTests {
         let kept = UIHostingController(rootView: panel).sizeThatFits(in: CGSize(width: 416, height: 300))
         #expect(kept.height <= 300, "\(kept)")
     }
+
+    /// A session's More at AX5, opened from the bar, is taller than the screen: the card keeps to the room
+    /// under the bar and scrolls inside itself, and Delete, its last row, is in VoiceOver's reach and
+    /// comes into the card when it is scrolled to the end.
+    @Test func everyRowOfALongMenuCanBeReached() throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 440, height: 956)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; RealmMenuHost.shared.dismiss(fading: false) }
+        RealmMenuHost.shared.haptic = {}
+        RealmMenuHost.shared.present(title: "More", anchor: CGRect(x: 388, y: 62, width: 44, height: 44), over: window) {
+            Section { Button("Find in session", systemImage: "text.magnifyingglass") {} }
+            Section {
+                Button("Changes", systemImage: "plusminus") {}
+                Button("Pull request", systemImage: "arrow.triangle.pull") {}
+            }
+            Section {
+                ForEach([RowAction.pin, .rename, .archive, .fork, .moveToSpace, .switchAgent]) { action in
+                    Button(action.title, systemImage: action.symbol) {}
+                }
+            }
+            Section { Button("Delete", systemImage: "trash", role: .destructive) {} }
+        }
+        let menu = try #require(RealmMenuHost.shared.window)
+        menu.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        let controller = try #require(menu.rootViewController as? RealmMenuController)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+
+        let card = controller.host.view.frame
+        #expect(card.minY >= 106 && card.maxY <= window.bounds.maxY, "kept to the room under the bar: \(card)")
+        let scroll = try #require(Self.scrollView(in: controller.host.view), "the card does not scroll")
+        #expect(scroll.contentSize.height > scroll.bounds.height + 44, "\(scroll.contentSize) in \(scroll.bounds)")
+
+        let delete = try #require(Self.elements(in: controller.host.view).first { $0.accessibilityLabel == "Delete" },
+                                  "VoiceOver cannot reach Delete")
+        #expect(delete.accessibilityTraits.contains(.button))
+        scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentSize.height - scroll.bounds.height), animated: false)
+        controller.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        let shown = controller.host.view.convert(controller.host.view.bounds, to: nil)
+        #expect(shown.contains(delete.accessibilityFrame), "Delete at \(delete.accessibilityFrame), the card at \(shown)")
+    }
+
+    static func scrollView(in view: UIView) -> UIScrollView? {
+        if let scroll = view as? UIScrollView { return scroll }
+        return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+    }
 }
 
 private extension UIImage {
