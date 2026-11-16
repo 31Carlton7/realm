@@ -4,7 +4,7 @@ import { BackdropRenderer, LOOKS, readPalette, resolveColor, type Palette, type 
 import { COLOR_LOOKS, paintColorBackdrop, type ColorRender, type Picture, type TextRun } from "./hero-backdrop-color";
 import { loopMayRun, resolveBackdrop, type Backdrop } from "./backdrop-gallery";
 import { useYourBackgrounds, yourBackgroundUrl } from "../../state/your-backgrounds";
-import { paintChat, printed, readableShare, sample, soften } from "./chat-backdrop";
+import { SCALE, hushCanvas, printed, readableRange, soften } from "./chat-backdrop";
 
 /** The picture for a face, as a URL: a shipped look's own file, or a kept picture asked of main. */
 async function pictureFor(b: Backdrop, dark: boolean): Promise<Picture | null> {
@@ -281,9 +281,10 @@ const ms = (css: string) => parseFloat(css) * (css.trim().endsWith("ms") ? 1 : 1
 
 /**
  * The picture behind a transcript (chat-backdrop.ts): drawn once, blurred by the edge blur's deeper
- * radius (`--fade-blur-far`) so it stops competing with the words, and laid over the ground at the
- * largest share at which the body, quiet and link inks all keep 4.5:1. It answers only to the pane's
- * size and the face, never to the transcript, so scrolling and streaming cost it nothing.
+ * radius (`--fade-blur-far`) so it stops competing with the words, and each pixel brought toward the
+ * ground only as far as the body, quiet and link inks need to keep their ratios over it. It answers
+ * only to the pane's size and the face, never to the transcript, so scrolling and streaming cost it
+ * nothing.
  *
  * `settle` fades it in over the empty session's picture (the dock's move, `--dur-move`); otherwise
  * it is simply there once drawn. `onSettled` says the picture under it can go.
@@ -324,15 +325,13 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
       drawn = key;
       const pic = await pictureFor(backdrop, pal.dark);
       if (!pic || disposed) return;
-      const art = soften(await printed(backdrop.effect, pic, pal, w, h, dpr), blur * dpr);
+      const print = await printed(backdrop.effect, pic, pal, w, h, dpr);
       if (disposed) return;
-      // Text stands only in the transcript's column, so only the picture there has to let it read.
-      const col = pane.querySelector(".transcript-col")?.getBoundingClientRect();
-      const band = col && col.width > 0 ? { x: Math.max(0, Math.round((col.left - box.left) * dpr)), w: Math.min(w, Math.round(col.width * dpr)) } : { x: 0, w };
-      const share = readableShare(sample(art, band, dpr), pal.ground, inks);
-      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-      paintChat(canvas, art, share, pal.ground);
-      canvas.dataset.share = String(share);
+      const art = soften(print, pal.ground, Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE), blur / SCALE);
+      const lowered = hushCanvas(art, pal.ground, readableRange(pal.ground, inks));
+      if (canvas.width !== art.width || canvas.height !== art.height) { canvas.width = art.width; canvas.height = art.height; }
+      canvas.getContext("2d")!.drawImage(art, 0, 0);
+      canvas.dataset.lowered = lowered.toFixed(2);
       canvas.dataset.drawn = "";
       settled();
     };

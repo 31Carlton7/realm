@@ -442,8 +442,16 @@ Rules:
   all day stays plain.
 - An empty session is the one working surface that wears a picture (the owner, 11-10: "a bunch of
   different options… custom images would be really cool"), and it is on by default. Its default is a picture
-  printed through the colour-kept dither, a soft sky by day and a deep-space picture at night, because a new session is a place passed through on the way to work. It goes the moment the first message
-  does. The picture is printed, not pasted: a gallery look or a person's own image goes through a
+  printed through the colour-kept dither, a soft sky by day and a deep-space picture at night, because a new session is a place passed through on the way to work. It stays for the whole chat
+  (the owner, 11-15: "persistent through the chats, but keep the blur a bit minimal so we have a clean
+  effect"): the first message settles the same picture behind the transcript on the dock's move, and
+  Reduce motion makes that a cut. Behind a transcript it is blurred once, by the edge blur's deeper
+  radius, into a still canvas, never a backdrop filter over moving words, and each pixel is taken toward
+  the ground only as far as the body, quiet and link inks need to keep 4.5:1 over it, since words
+  can scroll over any pixel. That is the least dim that reads, and a bright picture pays for it
+  with its brightness rather than the words: at night a sunset stays a tint of its colours, and the
+  light face's link blue, which misses 4.5:1 on plain white already, is held to 3:1 so it leaves a
+  picture at all. The picture is printed, not pasted: a gallery look or a person's own image goes through a
   dither in the theme's tones, or a colour-kept dither, so it changes with the face and the theme.
   A person's own picture may be shown as it is, and even then it is under the same two rules as every
   look: the prompter stays its opaque card with the picture feathered out round it, never glass over

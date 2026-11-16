@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readableShare } from "./chat-backdrop";
+import { hush, readableRange } from "./chat-backdrop";
 import { contrast } from "./hero-backdrop-color";
 import type { Rgb } from "./hero-backdrop";
 
@@ -8,30 +8,50 @@ const picture = (...rgbs: [number, number, number][]) => {
   rgbs.forEach((c, i) => px.set([...c, 255], i * 4));
   return px;
 };
-const over = (pixel: [number, number, number], ground: Rgb, share: number): Rgb =>
-  [0, 1, 2].map((k) => ground[k]! * (1 - share) + (pixel[k]! / 255) * share) as Rgb;
+const pixels = (px: Uint8ClampedArray): Rgb[] =>
+  Array.from({ length: px.length / 4 }, (_, i) => [px[i * 4]! / 255, px[i * 4 + 1]! / 255, px[i * 4 + 2]! / 255]);
 
-describe("readableShare", () => {
-  const light: Rgb = [0.98, 0.98, 0.99], body: Rgb = [0.1, 0.1, 0.12], quiet: Rgb = [0.4, 0.4, 0.43];
-  const dark: Rgb = [0.13, 0.13, 0.14], darkBody: Rgb = [0.93, 0.93, 0.95], darkQuiet: Rgb = [0.68, 0.68, 0.71];
+// The faces' own inks, as measured in the built app.
+const rgb = (...c: number[]) => c.map((v) => v / 255) as Rgb;
+const light = { ground: rgb(255, 255, 255), inks: [rgb(26, 28, 31), rgb(96, 97, 99), rgb(58, 131, 247)] };
+const dark = { ground: rgb(28, 29, 31), inks: [rgb(242, 243, 244), rgb(165, 168, 173), rgb(61, 154, 255)] };
 
-  it("lowers a mid-tone sky until the quiet ink still reads at 4.5:1 against its worst pixel", () => {
-    const sky: [number, number, number][] = [[92, 128, 237], [150, 180, 240], [235, 240, 250]];
-    const share = readableShare(picture(...sky), light, [body, quiet]);
+describe("hush", () => {
+  it("brings a bright cloud down until every ink still reads over it, in the dark face", () => {
+    const px = picture([250, 220, 200], [120, 140, 230], [235, 240, 250]);
+    hush(px, dark.ground, readableRange(dark.ground, dark.inks));
+    for (const p of pixels(px)) {
+      expect(contrast(dark.inks[0]!, p)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(dark.inks[1]!, p)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("keeps every pixel that already lets the words read exactly as it was", () => {
+    const night: [number, number, number][] = [[10, 12, 30], [20, 22, 40], [40, 20, 60]];
+    const px = picture(...night);
+    expect(hush(px, dark.ground, readableRange(dark.ground, dark.inks))).toBe(0);
+    expect(Array.from(px)).toEqual(Array.from(picture(...night)));
+  });
+
+  it("takes a pixel only as far as it must: a step more of it and an ink misses", () => {
+    const [cloud] = pixels(picture([250, 220, 200]));
+    const px = picture([250, 220, 200]);
+    hush(px, dark.ground, readableRange(dark.ground, dark.inks));
+    const [kept] = pixels(px);
+    const share = (kept![0] - dark.ground[0]) / (cloud![0] - dark.ground[0]);
     expect(share).toBeGreaterThan(0);
-    expect(share).toBeLessThan(1);
-    for (const px of sky) expect(contrast(quiet, over(px, light, share))).toBeGreaterThanOrEqual(4.5);
-    // The least dim that does it: a step more picture and the bluest pixel no longer reads.
-    expect(contrast(quiet, over(sky[0]!, light, Math.min(1, share + 0.05)))).toBeLessThan(4.8);
+    const more = [0, 1, 2].map((k) => dark.ground[k]! + (cloud![k]! - dark.ground[k]!) * Math.min(1, share + 0.06)) as Rgb;
+    expect(Math.min(...dark.inks.map((ink) => contrast(ink, more)))).toBeLessThan(4.8);
   });
 
-  it("keeps a picture that is already darker than the dark face's ground whole", () => {
-    expect(readableShare(picture([10, 12, 30], [20, 22, 40]), dark, [darkBody, darkQuiet])).toBe(1);
-  });
-
-  it("takes the picture down further for a brighter one", () => {
-    const dim = readableShare(picture([90, 90, 90]), dark, [darkBody, darkQuiet]);
-    const bright = readableShare(picture([220, 200, 160]), dark, [darkBody, darkQuiet]);
-    expect(bright).toBeLessThan(dim);
+  it("leaves the light face a picture although its link blue misses 4.5:1 on the plain ground", () => {
+    expect(contrast(light.inks[2]!, light.ground)).toBeLessThan(4.5);
+    const px = picture([92, 128, 237], [150, 180, 240], [200, 210, 230]);
+    hush(px, light.ground, readableRange(light.ground, light.inks));
+    for (const p of pixels(px)) {
+      expect(p.some((v) => v < 0.97)).toBe(true);
+      expect(contrast(light.inks[1]!, p)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(light.inks[2]!, p)).toBeGreaterThanOrEqual(3);
+    }
   });
 });

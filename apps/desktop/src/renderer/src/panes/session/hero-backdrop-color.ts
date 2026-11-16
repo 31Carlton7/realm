@@ -55,7 +55,7 @@ export function ditherColor(px: Uint8ClampedArray, w: number, h: number, depth: 
 }
 
 const linear = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-const luminance = ([r, g, b]: Rgb) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+export const luminance = ([r, g, b]: Rgb) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 export const contrast = (a: Rgb, b: Rgb) => {
   const la = luminance(a), lb = luminance(b);
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
@@ -74,7 +74,7 @@ export type GuardSample = { pixels: Uint8ClampedArray; color: [number, number, n
 /** What the guard keeps in hand over a run's ratio, for the 8-bit mask and the canvas's
  *  premultiplied rounding, which tell most on the dark face's deep blues: there a run the model
  *  held at 3.1 measured 2.96 on a capture. */
-const GUARD_SPARE = 0.3;
+export const GUARD_SPARE = 0.3;
 
 export function safeOpacity(samples: GuardSample[], ground: Rgb): number {
   const over = (c: GuardSample["color"], bg: Rgb): Rgb => [0, 1, 2].map((k) => c[k]! * c[3] + bg[k]! * (1 - c[3])) as Rgb;
