@@ -113,7 +113,7 @@ struct HomePlaces: View {
 /// A place's glyph over its name, and beside the name what is new there, in ink.
 struct PlaceLabel: View {
     let page: WorkPage
-    var unread = 0
+    let unread: Int
 
     /// "Scheduled", or "Scheduled, 3 new".
     static func spoken(_ page: WorkPage, unread: Int) -> String {
