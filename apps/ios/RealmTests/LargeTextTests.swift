@@ -134,7 +134,7 @@ struct LargeTextTests {
         let model = modelWithSession(rows: [TranscriptRow(key: "r:q1", seq: 4, content: .request(request))])
         let folded = FoldedRequest(pending: try Self.pending(request, model: model), sessionId: "s1", unfold: {}).environment(model)
         let words = try Drawing.words(folded, size: .accessibility5)
-        #expect(words.contains("waiting on you"), "\(words)")
+        #expect(words.contains("Claude is") && words.contains("on you"), "\(words)")
     }
 
     /// A pill whose words wrap keeps the corner it had at one line, so the words stay inside its fill.
