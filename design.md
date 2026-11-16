@@ -731,10 +731,11 @@ acronym that is uppercase anyway (a file extension on a tile).
 - A list typed into takes its highlight from the keyboard. The pointer only takes it once it MOVES,
   because a list that opens under a resting pointer is otherwise lit wherever the pointer happened
   to be.
-- Menus are the system's. `Menu` hands its rows to an OS menu — material, type-to-select, and the
-  only surface that can open over a browser pane's native view — and draws its own only where there
-  is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the
-  menu with its rebuilt rows, because an OS menu cannot change under the pointer.
+- On the Mac, menus are the system's (the phone draws its own, under Agent sessions). `Menu` hands its
+  rows to an OS menu — material, type-to-select, and the only surface that can open over a browser
+  pane's native view — and draws its own only where there is no bridge (tests, and live scripts that set
+  `REALM_HTML_MENUS`). A two-step confirm reopens the menu with its rebuilt rows, because an OS menu
+  cannot change under the pointer.
 - The exception is a menu whose rows have to explain themselves — section heads, and a line after
   each name saying what the row does — which an OS menu row cannot carry: the prompter's "+". It is
   drawn in the app (`inApp`), and it owes everything the OS menu gave: the arrows across its
@@ -1269,6 +1270,19 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   card lifted as the composer is (the owner, 11-04, of the glass bar and the blur behind the
   composer: "I want it to revert back to the old blur that we had before… similar to the Apple
   Photos").
+- On the phone a menu is Realm's (the audit's first question, decided 11-12). iOS 26 draws every system
+  menu as glass with the screen read through it — a chart's bars through Mode, the list through the
+  profile switcher — so a tap that opens a menu opens `RealmMenu`: the card's solid surface with a
+  floating menu's edge and lift, the desktop menu's rows, each section's head in the secondary ink and a
+  hairline between sections. The chosen row's check is in the row's own ink, not the accent: it says
+  "this one", and is not a status. It owes everything the system menu gave. VoiceOver reads it as a
+  menu and stays in it, with Close menu outside it. Its words follow Dynamic Type, wrapping inside the screen and
+  scrolling inside the card past the room. A tap or a swipe outside puts it away. It opens with a light
+  haptic, whole and at once, and leaves on a short fade. It opens on one side of its control, never over
+  it, and clear of the keyboard. A submenu opens in place under its row, since a card cannot open
+  another beside itself. A control whose words are its menu's way in — the profile in Home's title — is
+  the whole title, name and line, at 44 points tall. What stays iOS's is a long press on a row, whose
+  lift and preview are the gesture, and a settings form's pickers (`menus.test.ts`, `RealmMenuTests`).
 - The edge covers what the bar covers and stops there. It ends within a short feather (8 pt) of the bar's
   edge, so a line that has cleared the bar reads whole. A pinned head stands on its own ground and dims
   nothing past its edge. A foot whose bar is a card — a session's composer, or a request in its place —

@@ -36,6 +36,19 @@ struct ScreensTests {
         #expect(ScreenWords.age(190) == "3m 10s ago")
     }
 
+    /// A live screen's Pause and Share, at rest on the sheet's ground.
+    @Test func aLiveScreenOffersPauseAndShare() throws {
+        let screen = SessionScreen(id: "sim", kind: .simulator, name: "iPhone 18 Pro Max", detail: "iOS Simulator", live: true)
+        let picture = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 80)).image { _ in }
+        for dark in [false, true] {
+            let words = try Drawing.words(ScreenControls(screen: screen, picture: picture, paused: .constant(false))
+                .frame(maxWidth: .infinity).padding(.vertical, 24).background(Ground.grouped), dark: dark)
+            #expect(words.contains("Pause"), "\(words)")
+        }
+        let paused = try Drawing.words(ScreenControls(screen: screen, picture: nil, paused: .constant(true)), dark: false)
+        #expect(paused.contains("Jump to live"), "\(paused)")
+    }
+
     /// With nothing open in the space, the sheet says so rather than spinning.
     @Test func anEmptySheetSaysThereIsNothingToShow() throws {
         let words = try Drawing.words(ScreensSheet(sessionId: "s1").environment(modelWithSession(status: .running)).frame(height: 700))

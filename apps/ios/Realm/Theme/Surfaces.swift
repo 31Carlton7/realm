@@ -18,6 +18,8 @@ enum Radius {
     static let composer: CGFloat = 24
     /// A photo or a file going with a message, in the composer's strip and under the message sent.
     static let thumbnail: CGFloat = 12
+    /// A menu's card; its rows' pressed fill is concentric inside it.
+    static let menu: CGFloat = 16
 }
 
 /// The grounds things stand on. Both faces keep one depth order — the ground, then a card a step

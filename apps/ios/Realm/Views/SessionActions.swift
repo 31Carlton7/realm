@@ -278,7 +278,8 @@ private struct SessionRowActions: ViewModifier {
 
 /// A session's actions as a menu lists them: Fork opens onto the Mac's agents, the session's own first,
 /// as the desktop's Fork… does; Delete stands apart at the foot. Stop and Delete take the destructive
-/// role, and with it red.
+/// role, and with it red. The same rows serve a row's long press, iOS's own menu, and Realm's menu,
+/// where Fork opens its agents in place.
 struct RowMenuItems: View {
     let row: SessionRow
     let actions: [RowAction]
@@ -286,25 +287,34 @@ struct RowMenuItems: View {
     /// After an action is taken, for a menu whose screen it ends.
     var then: (RowAction) -> Void = { _ in }
     @Environment(AppModel.self) private var model
+    @Environment(\.realmMenuClose) private var inRealmMenu
 
     var body: some View {
-        ForEach(actions.filter { $0 != .delete }) { action in
-            switch action {
-            case .fork:
-                Menu(action.title, systemImage: action.symbol) {
-                    ForEach(ForkChoice.choices(for: row, agents: model.agentList?.agents)) { choice in
-                        Button(choice.title) { model.fork(row, onto: choice.agent) }
-                    }
+        Section {
+            ForEach(actions.filter { $0 != .delete }) { action in
+                switch action {
+                case .fork where inRealmMenu != nil:
+                    MenuDisclosure(title: action.title, systemImage: action.symbol) { forks }
+                        .disabled(isOff(action))
+                case .fork:
+                    Menu(action.title, systemImage: action.symbol) { forks }
+                        .disabled(isOff(action))
+                // A menu takes its glyphs' colour from the app's tint: Stop's takes its words' red.
+                case .stop: button(action, role: .destructive).tint(.red)
+                default: button(action)
                 }
-                .disabled(isOff(action))
-            // A menu takes its glyphs' colour from the app's tint: Stop's takes its words' red.
-            case .stop: button(action, role: .destructive).tint(.red)
-            default: button(action)
             }
         }
         if actions.contains(.delete) {
-            Divider()
-            button(.delete, role: .destructive).tint(.red)
+            Section {
+                button(.delete, role: .destructive).tint(.red)
+            }
+        }
+    }
+
+    private var forks: some View {
+        ForEach(ForkChoice.choices(for: row, agents: model.agentList?.agents)) { choice in
+            Button(choice.title) { model.fork(row, onto: choice.agent) }
         }
     }
 
@@ -348,7 +358,7 @@ struct SessionMenu: View {
     var body: some View {
         let teammate = model.work.teammate(chat: row.id)
         let actions = RowActions(row: row, connected: model.isConnected, teammateChat: teammate != nil)
-        Menu {
+        RealmMenu("More") {
             // A teammate's chat has the teammate's own rows at the top, as its menu does on the Mac.
             if let teammate {
                 Section {
@@ -374,8 +384,9 @@ struct SessionMenu: View {
                 if action == .archive { dismiss() }
             }
         } label: {
-            Label("More", systemImage: "ellipsis")
+            BarMenuLabel("More", systemImage: "ellipsis")
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("session-menu")
     }
 }

@@ -158,8 +158,8 @@ struct HomeView: View {
         }
         .navigationTitle(choice.title(in: home))
         .navigationBarTitleDisplayMode(.inline)
-        .navigationSubtitle(MacLine.text(model: model, compact: dynamicTypeSize.isAccessibilitySize))
-        .modifier(ProfileSwitcher(home: home, choice: choice))
+        .modifier(ProfileSwitcher(home: home, choice: choice,
+                                  subtitle: MacLine.text(model: model, compact: dynamicTypeSize.isAccessibilitySize)))
         .sensoryFeedback(.selection, trigger: model.keptProfile)
         .sensoryFeedback(.selection, trigger: style)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in now = Date() }
@@ -480,16 +480,63 @@ struct ElsewhereRow: View {
 }
 
 /// The title opens the menu of profiles while the Mac has more than one; with one, or none it says,
-/// there is nothing to switch, and no chevron says otherwise.
+/// there is nothing to switch, and no chevron says otherwise. The whole title, its name and the line
+/// under it, is the control, at least 44 points tall: the name alone was 63 by 18 (the audit's HOME-08).
+/// The bar's own subtitle is only set without it, or the bar draws the line a second time under it.
 private struct ProfileSwitcher: ViewModifier {
     let home: Home?
     let choice: ProfileChoice
+    let subtitle: Text
 
     func body(content: Content) -> some View {
         if let home, let profiles = home.profilesToSwitch {
-            content.toolbarTitleMenu { ProfileMenu(home: home, profiles: profiles, choice: choice) }
+            content.toolbar {
+                ToolbarItem(placement: .principal) {
+                    RealmMenu("Profiles", hint: "Shows another profile's sessions") {
+                        ProfileMenu(home: home, profiles: profiles, choice: choice)
+                    } label: {
+                        ProfileTitle(name: choice.title(in: home), subtitle: subtitle)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("profile-switcher")
+                }
+            }
         } else {
-            content
+            content.navigationSubtitle(subtitle)
+        }
+    }
+}
+
+/// The bar's title as the switcher draws it: the profile's name with a chevron, the Mac's line under it,
+/// at the bar's own sizes. Like the bar's own title it keeps its size past the largest text size, and a
+/// long press shows it large.
+struct ProfileTitle: View {
+    let name: String
+    let subtitle: Text
+
+    var body: some View {
+        VStack(spacing: 1) {
+            HStack(spacing: 4) {
+                Text(name)
+                    .font(.headline)
+                    .foregroundStyle(Palette.ink)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Palette.ink3)
+            }
+            subtitle
+                .font(.caption)
+                .foregroundStyle(Palette.ink2)
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 12)
+        .frame(minWidth: 120, minHeight: 44)
+        .contentShape(Rectangle())
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(name)
+        .accessibilityShowsLargeContentViewer {
+            Text(name)
         }
     }
 }
@@ -505,29 +552,26 @@ private struct ProfileMenu: View {
     var body: some View {
         let withSpaces = home.profilesWithSpaces
         let selection = Binding(get: { choice }, set: { model.choose($0) })
-        ForEach(profiles) { profile in
-            Toggle(isOn: selection.isChosen(.profile(profile.id))) {
-                Self.item(profile.name, note: ProfileWaiting.note(for: profile, in: home), mark: ProfileMark.image(profile))
+        Section {
+            ForEach(profiles) { profile in
+                Toggle(isOn: selection.isChosen(.profile(profile.id))) {
+                    Label {
+                        MenuRowWords(profile.name, line: ProfileWaiting.note(for: profile, in: home))
+                    } icon: {
+                        MenuMark(image: ProfileMark.image(profile))
+                    }
+                }
+                .disabled(!withSpaces.contains(profile.id))
             }
-            .disabled(!withSpaces.contains(profile.id))
         }
-        Toggle(isOn: selection.isChosen(.all)) {
-            Self.item("All profiles", note: home.needsYou.isEmpty ? nil : ProfileWaiting.needYou(home.needsYou.count),
-                      mark: Image(systemName: "square.stack"))
-        }
-    }
-
-    /// A menu draws an item's second text as the line under its name, and its image as its mark — but
-    /// not from inside a label, so neither is wrapped in one.
-    @ViewBuilder
-    private static func item(_ name: String, note: String?, mark: Image) -> some View {
-        if let note {
-            Text(name)
-            Text(note)
-            mark
-        } else {
-            Text(name)
-            mark
+        Section {
+            Toggle(isOn: selection.isChosen(.all)) {
+                Label {
+                    MenuRowWords("All profiles", line: home.needsYou.isEmpty ? nil : ProfileWaiting.needYou(home.needsYou.count))
+                } icon: {
+                    Image(systemName: "square.stack")
+                }
+            }
         }
     }
 }
@@ -557,7 +601,7 @@ enum ProfileMark: Equatable {
         }
     }
 
-    /// The mark as an image, which is all a menu draws: a glyph in the profile's colour, as the Mac's
+    /// The mark as an image: a glyph in the profile's colour, as the Mac's
     /// switcher draws it, and an emoji drawn into one.
     static func image(_ profile: Profile) -> Image {
         let color = SpaceTint.color(profile.color).map(UIColor.init)
@@ -590,7 +634,7 @@ struct ViewOptionsMenu: View {
     @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
 
     var body: some View {
-        Menu {
+        RealmMenu("View options") {
             Section(head: "List") {
                 ForEach(ListStyle.allCases) { option in
                     Toggle(isOn: $style.isChosen(option)) {
@@ -617,18 +661,18 @@ struct ViewOptionsMenu: View {
             Image(systemName: "line.3.horizontal.decrease")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Palette.ink2)
-                .frame(width: 44, height: 36)
+                .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("View options")
         .accessibilityIdentifier("view-options")
     }
 }
 
 extension Binding where Value: Equatable & Sendable {
-    /// One of this choice's options, as a menu checks it: on while it is the one chosen, and choosing
-    /// it when pressed. A picker says the same, but a menu draws a picker's options with no title over
-    /// them and no second line under each.
+    /// One of this choice's options, as a menu's row checks it: on while it is the one chosen, and
+    /// choosing it when pressed.
     func isChosen(_ option: Value) -> Binding<Bool> {
         Binding<Bool>(get: { wrappedValue == option }, set: { if $0 { wrappedValue = option } })
     }

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 /** design.md: a card is its fill and nothing else, and what floats over content keeps its shadow. On
  *  the phone that is the composer and what rides on it, the request dock, the floating New session
- *  button, the search and find bars at the foot, the toast, and the mention list over the composer
+ *  button, the search and find bars at the foot, the toast, a menu, and the mention list over the composer
  *  (the owner, 11-15: "I dislike cards with shadows here"). Every shadow the app draws is listed
  *  here by the type that casts it, so a resting card that gains one fails. */
 const FLOATING: Record<string, string> = {
@@ -13,6 +13,7 @@ const FLOATING: Record<string, string> = {
   "Views/HomeChips.swift NewSessionButton": "the floating New session button",
   "Views/HomeView.swift SearchBar": "the search field at Home's foot",
   "Views/PairView.swift ScannerScreen": "the note over the camera",
+  "Views/RealmMenu.swift RealmMenuPanel": "a menu, over whatever opened it",
   "Views/RequestViews.swift WaitingDock": "the request dock",
   "Views/ReviewView.swift DecisionDock": "a review's decision, docked",
   "Views/RootView.swift ToastView": "the toast",
@@ -23,9 +24,6 @@ const FLOATING: Record<string, string> = {
   // Not a card: the play mark's shadow keeps it legible on any picture.
   "Views/Gallery.swift GalleryTile": "the play mark over a video's picture",
 };
-
-/** Resting controls that still cast a shadow, on screens no fix has reached yet. */
-const STILL_SHADOWED = ["Views/ScreensView.swift ScreensSheet"];
 
 const root = new URL("../Realm/", import.meta.url);
 
@@ -47,6 +45,6 @@ function shadowed(): string[] {
 
 describe("resting cards on the phone", () => {
   it("cast no shadow: only what floats over content does", () => {
-    expect(shadowed()).toEqual([...Object.keys(FLOATING), ...STILL_SHADOWED].sort());
+    expect(shadowed()).toEqual(Object.keys(FLOATING).sort());
   });
 });
