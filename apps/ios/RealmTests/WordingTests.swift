@@ -113,7 +113,9 @@ struct WordingTests {
                                  busy: false, openSettings: {}, place: Self.place) { _, _ in }
         for size in LargeTextTests.sizes {
             #expect(Self.place.shown(at: size) == "Mac")
+            // Vision on iOS 26.5 reads the short word in Cyrillic lookalikes ("Мaс").
             let words = try Drawing.words(chips, width: LargeTextTests.chipsRow, dark: false, size: size)
+                .replacingOccurrences(of: "М", with: "M").replacingOccurrences(of: "а", with: "a").replacingOccurrences(of: "с", with: "c")
             #expect(words.contains("Mac") && !words.contains("MacBook") && !words.contains("Carlton"), "\(size): \(words)")
             #expect(words.contains("Opus 5.5"), "\(size): \(words)")
         }
