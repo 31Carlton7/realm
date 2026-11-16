@@ -601,7 +601,7 @@ enum ProfileMark: Equatable {
         }
     }
 
-    /// The mark as an image, which is all a menu draws: a glyph in the profile's colour, as the Mac's
+    /// The mark as an image: a glyph in the profile's colour, as the Mac's
     /// switcher draws it, and an emoji drawn into one.
     static func image(_ profile: Profile) -> Image {
         let color = SpaceTint.color(profile.color).map(UIColor.init)
@@ -671,9 +671,8 @@ struct ViewOptionsMenu: View {
 }
 
 extension Binding where Value: Equatable & Sendable {
-    /// One of this choice's options, as a menu checks it: on while it is the one chosen, and choosing
-    /// it when pressed. A picker says the same, but a menu draws a picker's options with no title over
-    /// them and no second line under each.
+    /// One of this choice's options, as a menu's row checks it: on while it is the one chosen, and
+    /// choosing it when pressed.
     func isChosen(_ option: Value) -> Binding<Bool> {
         Binding<Bool>(get: { wrappedValue == option }, set: { if $0 { wrappedValue = option } })
     }

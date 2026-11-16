@@ -1,13 +1,9 @@
 import SwiftUI
 import UIKit
 
-/// Realm's own menu, on the phone (design.md ▸ the phone's menus). iOS 26 draws every system menu as
-/// glass, with the screen showing through it, so +, Mode, More, the profile switcher and the rest open
-/// this one instead: the card's solid surface with a floating menu's lift, the desktop menu's rows and
-/// section heads, and what the system menu gave for free kept. VoiceOver reads it as a menu and stays
-/// inside it; its words follow Dynamic Type and scroll inside the card when they outgrow the room; a tap
-/// or a swipe anywhere outside puts it away; it opens with a light tap of the haptic; and it opens
-/// whole on one side of its control, never over it.
+/// Realm's own menu on the phone, where iOS 26 draws every system menu as glass (design.md, the phone's
+/// menus). It keeps what the system menu gave: VoiceOver reads it as a menu, Dynamic Type, a touch
+/// outside puts it away, a haptic on open, and it never covers the control that opened it.
 ///
 /// The rows are the ordinary controls a system menu takes: `Button` (its role is kept), `Toggle` for a
 /// choice, with a check on the one that is on, and `Section(head:)` for a group under its head. A press
@@ -42,7 +38,6 @@ struct RealmMenu<Label: View, Content: View>: View {
         }
     }
 
-    /// A tap does the control's own thing; a long press opens the menu.
     private func pressable(_ primaryAction: @escaping () -> Void) -> some View {
         label()
             .background(MenuAnchorProbe(anchor: anchor))
@@ -91,9 +86,7 @@ private struct MenuAnchorProbe: UIViewRepresentable {
 /// when it fits there, else on the roomier side, as tall as that side allows. Its edge lines up with
 /// the control's edge nearer the screen's, and it keeps inside the room. It never covers the control.
 enum RealmMenuPlacement {
-    /// Between the control and the menu.
     static let gap: CGFloat = 6
-    /// Between the menu and the screen's edge.
     static let margin: CGFloat = 12
 
     static func frame(size: CGSize, anchor: CGRect, room: CGRect) -> CGRect {
@@ -117,7 +110,7 @@ enum RealmMenuPlacement {
 final class RealmMenuHost {
     static let shared = RealmMenuHost()
 
-    /// The tap a menu opens with. A test counts it.
+    /// The tap a menu opens with; replaceable so a test can count it.
     var haptic: () -> Void = { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     private(set) var window: UIWindow?
     /// Where the keyboard stands, on screen, while it is up: a menu opens clear of it.
