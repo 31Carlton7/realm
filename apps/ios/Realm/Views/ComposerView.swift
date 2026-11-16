@@ -549,7 +549,12 @@ private struct PrimaryButton: View {
             if action.alternatives.isEmpty {
                 Button { perform(kind) } label: { glyph }
                     .buttonStyle(.plain)
+                    .accessibilityShowsLargeContentViewer {
+                        Label(kind.title, systemImage: kind.symbol)
+                    }
             } else {
+                // No large-content viewer here: at the accessibility sizes its long press takes the one
+                // that opens the menu.
                 RealmMenu(kind.title, primaryAction: { perform(kind) }) {
                     Section {
                         ForEach(action.alternatives, id: \.self) { other in
@@ -573,9 +578,6 @@ private struct PrimaryButton: View {
         .opacity(away ? 0.45 : 1)
         .accessibilityLabel(kind.title)
         .accessibilityHint(kind.explanation(steerNote: steerNote) ?? "")
-        .accessibilityShowsLargeContentViewer {
-            Label(kind.title, systemImage: kind.symbol)
-        }
     }
 
     /// Stop has to reach the Mac: while it is away, Stop keeps its place, greyed. A message waits.

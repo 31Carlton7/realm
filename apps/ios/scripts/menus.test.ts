@@ -77,6 +77,14 @@ describe("menus on the phone", () => {
     ]);
   });
 
+  it("keep the large-content viewer off a button whose long press opens its menu", () => {
+    // At the accessibility sizes the viewer's long press wins, and Queue and Steer never open.
+    const composer = sources.find(({ path }) => path === "Views/ComposerView.swift")!.text;
+    const menuPath = composer.slice(composer.indexOf("RealmMenu(kind.title"), composer.indexOf("/// Stop has to reach the Mac"));
+    expect(menuPath).toContain("primaryAction");
+    expect(menuPath).not.toContain("accessibilityShowsLargeContentViewer");
+  });
+
   it("finds the menus it checks", () => {
     // The checks above pass on files they cannot read; this fails when the pattern stops matching.
     const opened = sites(/\bRealmMenu\(/);
