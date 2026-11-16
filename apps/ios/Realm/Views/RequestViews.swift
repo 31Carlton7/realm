@@ -220,9 +220,9 @@ enum PlanText {
 
 /// The request a session waits on, in the composer's place where the next press is: who asks and
 /// what, and the answers — Allow and Deny in place, one question's few options in place, other
-/// questions and a plan in a sheet. Once answered it
-/// says where the answer is until the Mac has it, and holds a Don't send while it waits. It is opaque:
-/// a decision is read, and the transcript showing through it would be read too.
+/// questions and a plan in a sheet. Once answered it says where the answer is until the Mac has it, and
+/// holds a Don't send while it waits. It is opaque: a decision is read, and the transcript showing
+/// through it would be read too.
 struct WaitingDock: View {
     let pending: PendingRequest
     let sessionId: String
