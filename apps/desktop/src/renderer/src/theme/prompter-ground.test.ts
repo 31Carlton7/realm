@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PANE_ALPHA, deriveVars, PANE_ALPHA_RANGE, REALM_SEED, type Mode } from "@realm/ui";
-import { CONTRAST_FLOOR } from "@realm/ui/src/themes";
+import { DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE } from "@realm/ui";
+import { CONTRAST_FLOOR, DEFAULT_SELECTION, deriveVars, REALM_SEED, themeVars, type Mode, type ThemeName } from "@realm/ui/src/themes";
 import { parseOklch, srgb, srgbLuminance, type Oklch } from "@realm/contracts";
 
 /** The prompter thins with the pane (tokens.css, the owner 11-16) the whole range, a step denser, and
@@ -112,17 +112,19 @@ describe("the prompter's words move their ink as it thins", () => {
     expect(dim.share(0)).toBe(0);
   });
 
-  it("holds hints to 2.4:1 and quiet text to 4.5:1 on the thinned card, at every slider value, both faces", () => {
+  it("holds hints to 2.4:1 and quiet text to 4.5:1 on the thinned card, at every slider value, on the default faces", () => {
     // THE mutants: either step removed (dark hints fall to 1.45:1, quiet text to 3.06:1 at slider 0).
-    for (const mode of faces) {
-      const v = deriveVars(REALM_SEED[mode], mode) as Record<string, string>;
+    const shipped: [ThemeName, Mode][] = [["realm", "dark"], ["realm", "light"], [DEFAULT_SELECTION.light, "light"]];
+    for (const [name, mode] of shipped) {
+      // Realm's own face is tokens.css itself, which is what its seed derives to.
+      const v = name === "realm" ? deriveVars(REALM_SEED[mode], mode) : themeVars(name, mode);
       const [ink, ink2, ink3, surface] = ["--ink", "--ink-2", "--ink-3", "--surface"].map((k) => parseOklch(v[k]!)) as [Oklch, Oklch, Oklch, Oklch];
       for (const s of slider) {
         const a = prompter[mode](s), t = thin(a);
         const ground = over(surface, MATERIAL[mode], a / 100);
-        expect(ratio(mix(ink2, ink3, faint.share(t)), ground), `${mode} hint at ${s}`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink3);
-        expect(ratio(mix(ink, ink2, dim.share(t)), ground), `${mode} quiet at ${s}`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink);
-        expect(ratio(ink, ground), `${mode} body at ${s}`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink);
+        expect(ratio(mix(ink2, ink3, faint.share(t)), ground), `${name}/${mode} hint at ${s}`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink3);
+        expect(ratio(mix(ink, ink2, dim.share(t)), ground), `${name}/${mode} quiet at ${s}`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink);
+        expect(ratio(ink, ground), `${name}/${mode} body at ${s}`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink);
       }
     }
   });
