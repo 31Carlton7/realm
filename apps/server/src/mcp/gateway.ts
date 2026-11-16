@@ -10,6 +10,7 @@ import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
 import type { McpCallLogStore, McpServerRow, McpServersStore } from "../store/mcp";
 import { compressToolResult } from "./compress";
+import type { ToolResultFiles } from "./tool-results";
 import type { McpHub, McpLiveTool } from "./hub";
 import type { McpService } from "./service";
 
@@ -212,6 +213,9 @@ export class McpGateway {
      * result is all anyone sees, exactly as before.
      */
     views?: { drew(sessionId: string, v: DrawnView): void };
+    /** Where a result too long for the calling engine is saved, for the engines that would cut it and
+     *  keep nothing (`ToolResultFiles`). Unwired, every result is returned whole, as before. */
+    toolResults?: ToolResultFiles;
     /** How often a running call says it is still running (`HEARTBEAT_MS`). Tests shrink it. */
     heartbeatMs?: number;
   }) {}
@@ -689,7 +693,11 @@ export class McpGateway {
       // say, to a live-check. Realm's own in-process providers above are deliberately not put
       // through it — they already choose and clip their own output shape.
       const raw = await this.d.hub.call(serverId, tool, args, { sessionId });
-      const result = compressToolResult(raw);
+      // Saved AFTER compression, so the file is the text the agent would have been handed.
+      const compressed = compressToolResult(raw);
+      const result = this.d.toolResults
+        ? await this.d.toolResults.spill(sessionId, this.d.sessions.get(sessionId)?.agentKind, compressed, (text) => this.scrub(sessionId, text))
+        : compressed;
       // A tool with a view drew one, for a server whose views are on: the view gets the server's
       // whole result, not the compressed one the agent reads. Its template is read now, in the
       // background, so the view has it by the time the transcript asks.
@@ -819,9 +827,12 @@ export class McpGateway {
     return errorResult(agentMessage);
   }
 
+  private scrub(sessionId: string, text: string): string {
+    return this.d.redact?.(sessionId, text) ?? text;
+  }
+
   private record(sessionId: string, serverId: string | null, serverName: string, tool: string, argsJson: string, ok: boolean, durationMs: number, resultSummary: string): void {
-    const scrub = (text: string) => this.d.redact?.(sessionId, text) ?? text;
-    const row = this.d.calls.append({ sessionId, serverId, serverName, tool, argsJson: scrub(argsJson), resultSummary: scrub(resultSummary), ok, durationMs });
+    const row = this.d.calls.append({ sessionId, serverId, serverName, tool, argsJson: this.scrub(sessionId, argsJson), resultSummary: this.scrub(sessionId, resultSummary), ok, durationMs });
     this.d.rpc.broadcast("mcp.call", row);
   }
 
