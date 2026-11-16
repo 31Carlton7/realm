@@ -191,8 +191,7 @@ struct NewSessionSheet: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            // At the sheet's foot, as a session's composer is, so the chips, the field and Start sit
-            // under the thumb on a tall phone rather than across its top.
+            // Under the thumb on a tall phone, not across its top.
             .defaultScrollAnchor(.bottom, for: .alignment)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollDismissesKeyboard(.interactively)

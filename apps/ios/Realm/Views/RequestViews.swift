@@ -452,12 +452,10 @@ struct EqualWidths: Layout {
 /// A question answered with one tap on the dock: the only one asked, one choice from at most four
 /// options, answerable on this phone and not secret. The rest open the sheet.
 enum OneTapQuestion {
-    static let mostOptions = 4
-
     static func of(_ request: TranscriptRow.Request) -> Question? {
         guard case .questions(let questions) = request.kind, questions.count == 1, let question = questions.first,
               !question.multiSelect, !question.secret, question.isAnswerableHere,
-              (1...mostOptions).contains(question.options.count) else { return nil }
+              (1...4).contains(question.options.count) else { return nil }
         return question
     }
 

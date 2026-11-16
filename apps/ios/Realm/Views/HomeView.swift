@@ -244,7 +244,7 @@ enum MacLine {
 private struct ListIdentity: Hashable {
     let choice: ProfileChoice
     let style: ListStyle
-    /// Results are a list of their own, so they open at their foot.
+    /// Results are a new list, since a list takes its initial offset only once.
     let searched: Bool
 }
 
