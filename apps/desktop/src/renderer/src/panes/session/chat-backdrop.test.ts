@@ -29,7 +29,7 @@ describe("hush", () => {
   it("keeps every pixel that already lets the words read exactly as it was", () => {
     const night: [number, number, number][] = [[10, 12, 30], [20, 22, 40], [40, 20, 60]];
     const px = picture(...night);
-    expect(hush(px, dark.ground, readableRange(dark.ground, dark.inks))).toBe(0);
+    hush(px, dark.ground, readableRange(dark.ground, dark.inks));
     expect(Array.from(px)).toEqual(Array.from(picture(...night)));
   });
 

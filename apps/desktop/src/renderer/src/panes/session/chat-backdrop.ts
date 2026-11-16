@@ -86,10 +86,9 @@ export function readableRange(ground: Rgb, inks: Rgb[]): [number, number] {
 /**
  * Takes each pixel of `px` (RGBA, opaque) toward `ground` only as far as it must for its luminance to
  * be inside `range`: a pixel already there keeps all of its colour, and one too bright or too dark
- * keeps the most of it that still lets the words read. Returns the share of pixels it lowered.
+ * keeps the most of it that still lets the words read.
  */
-export function hush(px: Uint8ClampedArray, ground: Rgb, [lo, hi]: [number, number]): number {
-  let lowered = 0;
+export function hush(px: Uint8ClampedArray, ground: Rgb, [lo, hi]: [number, number]) {
   const p: Rgb = [0, 0, 0], m: Rgb = [0, 0, 0];
   const mix = (a: number) => {
     for (let k = 0; k < 3; k++) m[k] = ground[k]! + (p[k]! - ground[k]!) * a;
@@ -107,16 +106,5 @@ export function hush(px: Uint8ClampedArray, ground: Rgb, [lo, hi]: [number, numb
     }
     mix(keep);
     px[i] = Math.round(m[0] * 255); px[i + 1] = Math.round(m[1] * 255); px[i + 2] = Math.round(m[2] * 255);
-    lowered++;
   }
-  return px.length ? lowered / (px.length / 4) : 0;
-}
-
-/** `art` with every pixel hushed into `range` over `ground`, in place. Returns the share lowered. */
-export function hushCanvas(art: HTMLCanvasElement, ground: Rgb, range: [number, number]): number {
-  const g = art.getContext("2d", { willReadFrequently: true })!;
-  const data = g.getImageData(0, 0, art.width, art.height);
-  const lowered = hush(data.data, ground, range);
-  g.putImageData(data, 0, 0);
-  return lowered;
 }

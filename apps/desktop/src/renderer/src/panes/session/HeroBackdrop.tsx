@@ -4,7 +4,7 @@ import { BackdropRenderer, LOOKS, readPalette, resolveColor, type Palette, type 
 import { COLOR_LOOKS, paintColorBackdrop, type ColorRender, type Picture, type TextRun } from "./hero-backdrop-color";
 import { loopMayRun, resolveBackdrop, type Backdrop } from "./backdrop-gallery";
 import { useYourBackgrounds, yourBackgroundUrl } from "../../state/your-backgrounds";
-import { SCALE, hushCanvas, printed, readableRange, soften } from "./chat-backdrop";
+import { SCALE, hush, printed, readableRange, soften } from "./chat-backdrop";
 
 /** The picture for a face, as a URL: a shipped look's own file, or a kept picture asked of main. */
 async function pictureFor(b: Backdrop, dark: boolean): Promise<Picture | null> {
@@ -276,9 +276,6 @@ function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; l
   return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
 }
 
-/** CSS seconds or milliseconds as ms. */
-const ms = (css: string) => parseFloat(css) * (css.trim().endsWith("ms") ? 1 : 1000) || 0;
-
 /**
  * The picture behind a transcript (chat-backdrop.ts): drawn once, blurred by the edge blur's deeper
  * radius (`--fade-blur-far`) so it stops competing with the words, and each pixel brought toward the
@@ -304,7 +301,7 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
     let timer = 0;
     const settled = () => {
       if (timer) return;
-      timer = window.setTimeout(() => settledRef.current(), ms(getComputedStyle(canvas).transitionDuration));
+      timer = window.setTimeout(() => settledRef.current(), parseFloat(getComputedStyle(canvas).transitionDuration) * 1000 || 0);
     };
     const draw = async () => {
       if (pending) return;
@@ -328,10 +325,10 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
       const print = await printed(backdrop.effect, pic, pal, w, h, dpr);
       if (disposed) return;
       const art = soften(print, pal.ground, Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE), blur / SCALE);
-      const lowered = hushCanvas(art, pal.ground, readableRange(pal.ground, inks));
+      const pixels = art.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, art.width, art.height);
+      hush(pixels.data, pal.ground, readableRange(pal.ground, inks));
       if (canvas.width !== art.width || canvas.height !== art.height) { canvas.width = art.width; canvas.height = art.height; }
-      canvas.getContext("2d")!.drawImage(art, 0, 0);
-      canvas.dataset.lowered = lowered.toFixed(2);
+      canvas.getContext("2d")!.putImageData(pixels, 0, 0);
       canvas.dataset.drawn = "";
       settled();
     };
