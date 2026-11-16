@@ -261,10 +261,12 @@ Rules:
   across the window's top), and the panes' one ground under the rim. The prompter is the one surface that
   follows a ground rather than standing on its own: an opaque card on a pane thinned by its slider
   "sticks out like a sore thumb" (the owner, 11-16), so the card and the tabs above and below it take
-  the pane's alpha a step denser, down to a floor its quiet words hold over a picture, and go solid
-  with the pane under Reduce Transparency. It stays the same quiet fill, with no blur, no sheen and no
-  bright edge; its lift fades as it thins, because a dark halo round a card you can see through reads
-  as dirt rather than height. The strip over the panes once
+  the pane's alpha a step denser, all the way down with it, and go solid with the pane under Reduce
+  Transparency. Its words hold by moving their ink, not by holding the fill: as it thins, the hints
+  step toward the quiet ink and the quiet ink toward body ink. The tab that touches the card is
+  seated on the card's own curve, so see-through pieces meet along one edge, with no band and no
+  notch. It stays the same quiet fill, with no blur, no sheen and no bright edge; its lift fades as it
+  thins, because a dark halo round a card you can see through reads as dirt rather than height. The strip over the panes once
   read as a frosted band because the reading dissolved up into it; nothing scrolls under it now.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.

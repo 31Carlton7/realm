@@ -811,20 +811,20 @@ a {
 
 /* The prompter thins with the pane (the owner, 11-16: an opaque card on a see-through pane "sticks
  * out like a sore thumb"). Its alpha is the pane's own mapping read 16 points further up the slider,
- * so it is always a step denser than the ground it stands on. At the default it is opaque on both
- * faces (84 + 16 is 100, and the light line reaches 100 at the same point), and above it nothing moves.
+ * so it is always a step denser than the ground it stands on, down the whole range: at slider 0 the
+ * dark card is 16% and the light one 17.5%. At the default it is opaque on both faces (84 + 16 is
+ * 100, and the light line reaches 100 at the same point), and above it nothing moves.
  *
- * The floor is what its quiet words need over a picture. The transcript never passes under the card,
- * so the worst ground is a bright painting behind the chat: measured over the Cypresses at slider 0
- * (`prompter-ground.test.ts` holds the number), 72% keeps the placeholder at 2.55:1 dark and 2.84:1
- * light and the strip's labels at 2.82 and 2.67, all over the 2.4 the palette holds hints to. No blur:
- * the picture is already softened where it sits behind the chat, and a blur measured no gain. */
+ * There is no floor (the owner, 11-16: "whether there's a picture or not, the prompter should become
+ * more transparent with the pane"). Its words hold by moving their ink instead (styles.css, the
+ * prompter on a thinned pane). The lift is gone by `--prompter-lift-until`. No blur: the picture is
+ * already softened where it sits behind the chat, and a blur measured no gain. */
 :root {
-  --prompter-floor: 72%;
-  --prompter-alpha: max(var(--prompter-floor), min(100%, calc(var(--pane-alpha) + 16%)));
+  --prompter-lift-until: 72%;
+  --prompter-alpha: min(100%, calc(var(--pane-alpha) + 16%));
 }
 :root[data-mode="light"] {
-  --prompter-alpha: max(var(--prompter-floor), min(100%, calc(92% + (var(--pane-alpha) + 16% - 84%) * 0.5), calc((var(--pane-alpha) + 16%) * 92 / 84)));
+  --prompter-alpha: min(100%, calc(92% + (var(--pane-alpha) + 16% - 84%) * 0.5), calc((var(--pane-alpha) + 16%) * 92 / 84));
 }
 
 @media (prefers-reduced-transparency: reduce) {

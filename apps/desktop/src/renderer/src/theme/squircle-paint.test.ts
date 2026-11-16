@@ -100,3 +100,72 @@ describe("the painter's ring", () => {
     expect(strokes).toEqual([]);
   });
 });
+
+/* A tab seated on the prompter's card (styles.css, the prompter on a thinned pane). It tucks 10px
+   behind the card, and see-through, painting that overlap showed a denser band, while cutting it at
+   the card's line left a notch where the card's corner has curved away from the line (the owner
+   circled all four joins, 11-16). Read back the region the painter clips its fill to, and ask it
+   about the points that matter. */
+describe("a tab seated on the card", () => {
+  const W = 500, H = 44, R = 36, INSET = 10;
+
+  function clipRegion(seat: "top" | "bottom") {
+    let path: Point[][] = [];
+    const clips: { subpaths: Point[][]; rule?: string }[] = [];
+    const ctx = {
+      fillStyle: "", strokeStyle: "", lineWidth: 0,
+      beginPath() { path = []; },
+      moveTo(x: number, y: number) { path.push([[x, y]]); },
+      lineTo(x: number, y: number) { path.at(-1)!.push([x, y]); },
+      rect(x: number, y: number, w: number, h: number) { path.push([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]); },
+      closePath() {}, fill() {}, stroke() {}, save() {}, restore() {},
+      clip(rule?: string) { clips.push({ subpaths: path.map((p) => [...p]), rule }); },
+    };
+    loadPainter().paint(ctx, { width: W, height: H }, props({
+      "--sq-seat": seat, "--sq-seat-radius": { value: R }, "--sq-seat-inset": { value: INSET },
+      "--sq-radius-top": { value: seat === "bottom" ? R : 0 }, "--sq-radius-bottom": { value: seat === "bottom" ? 0 : R },
+    }));
+    const seated = clips.find((c) => c.rule === "evenodd");
+    /** Even-odd, as canvas fills it: inside when a ray crosses the subpaths an odd number of times. */
+    const painted = ([x, y]: Point) => {
+      let inside = false;
+      for (const poly of seated!.subpaths) for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, yi] = poly[i]!, [xj, yj] = poly[j]!;
+        if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    };
+    return { seated, painted };
+  }
+
+  // THE mutants: the seat ignored (the band or the notch comes back), the card drawn without its
+  // corner (a hard cut), or the seat put on the wrong edge.
+  it("above the card: paints its tab down to the card's corner curve and nothing under the card", () => {
+    const { seated, painted } = clipRegion("bottom");
+    expect(seated).toBeDefined();
+    expect(painted([W / 2, H - INSET - 1])).toBe(true);
+    expect(painted([W / 2, H - INSET + 1])).toBe(false);
+    // At the tab's side the card's top has curved down past its line: the tab fills that, no notch.
+    expect(painted([1, H - INSET + 1])).toBe(true);
+    expect(painted([W - 1, H - INSET + 1])).toBe(true);
+    // and stops on the curve itself, so the card's corner is never painted over.
+    expect(painted([1, H - 1])).toBe(false);
+  });
+
+  it("below the card: the same, mirrored", () => {
+    const { seated, painted } = clipRegion("top");
+    expect(seated).toBeDefined();
+    expect(painted([W / 2, INSET + 1])).toBe(true);
+    expect(painted([W / 2, INSET - 1])).toBe(false);
+    expect(painted([1, INSET - 1])).toBe(true);
+    expect(painted([W - 1, INSET - 1])).toBe(true);
+    expect(painted([1, 1])).toBe(false);
+  });
+
+  it("clips nothing on a surface that is not seated", () => {
+    const { ctx } = recorder();
+    const rule: unknown[] = [];
+    loadPainter().paint({ ...ctx, clip: (r?: string) => rule.push(r) }, { width: W, height: H }, props());
+    expect(rule).not.toContain("evenodd");
+  });
+});

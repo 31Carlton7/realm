@@ -6589,12 +6589,12 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    only outside its box, and a circle of half the curve's radius holds the superellipse (the card rule
    above), so the shadow keeps to the card's shape and nothing lands under the face. Inset 0 for the
    same reason: inset 2px, the shadow's inner edge showed through a thinned face as a dark rim.
-   The lift fades out as the card thins, gone at the floor: a dark halo under a card you can see
-   through reads as dirt round it rather than as height. */
+   The lift fades out as the card thins, gone by `--prompter-lift-until`: a dark halo under a card you
+   can see through reads as dirt round it rather than as height. */
 :root[data-squircle] .composer::before {
   inset: 0; background: none; filter: none;
   border-radius: calc(var(--r-squircle) / 2); box-shadow: var(--shadow-card-lift);
-  opacity: calc((var(--prompter-alpha) - var(--prompter-floor)) / (100% - var(--prompter-floor)));
+  opacity: calc((var(--prompter-alpha) - var(--prompter-lift-until)) / (100% - var(--prompter-lift-until)));
 }
 /* The face: fill and ring, over the lift and under the content. It takes the card's inputs by an
    explicit `inherit` — they are registered non-inheriting — so every state rule written against the
@@ -6917,14 +6917,37 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 
 /* ── The prompter on a thinned pane ──
    The tabs above and below the card wear the frame's tone at the card's own alpha (tokens.css).
-   They tuck 10px behind the card. Opaque, that overlap is invisible; see-through, it showed as a
-   denser band inside the card's edge, so a thinned tab is cut at the card's line. While the card is
-   opaque the clip stands 24px outside every edge and cuts nothing, which keeps the default exactly as
-   it was drawn: the `* 1000` turns any alpha under 100% into the full 10px. */
+
+   Each tucks 10px behind the card. Opaque, that overlap is invisible; see-through, it showed as a
+   denser band inside the card's edge, and cutting the tab at the card's line left a notch at each
+   join instead, because the card's corner has already curved away from that line where the tab's
+   side meets it (the owner circled all four, 11-16). So the tab that touches the card is painted
+   SEATED on it (squircle-paint.js): its fill runs down to the card's own curve and stops there, the
+   tab and the card share one edge, and nothing is painted twice. The card's corners stay whole, and
+   opaque the result is pixel for pixel what the tuck drew.
+
+   Without the painter, and between two stacked tabs (whose join is a straight line), the tuck is
+   simply cut at the line. While the card is opaque that clip stands 24px outside every edge and cuts
+   nothing: the `* 1000` turns any alpha under 100% into the full 10px. */
 .composer-dock, .cr-ask-where { --prompter-strip: color-mix(in srgb, var(--rl-frame) var(--prompter-alpha), transparent); }
 .composer-dock { --tuck: min(10px, calc((100% - var(--prompter-alpha)) * 1000 - 24px)); }
 .composer-goal, .composer-todos, .composer-overstrip { clip-path: inset(-24px -24px var(--tuck) -24px); }
 .composer-understrip { clip-path: inset(var(--tuck) -24px -24px -24px); }
+:root[data-squircle] .composer-goal:has(+ .composer),
+:root[data-squircle] .composer-todos:has(+ .composer),
+:root[data-squircle] .composer-overstrip:has(+ .composer) {
+  clip-path: none; --sq-seat: bottom; --sq-seat-radius: var(--r-squircle); --sq-seat-inset: 10px; }
+:root[data-squircle] .composer + .composer-understrip {
+  clip-path: none; --sq-seat: top; --sq-seat-radius: var(--r-squircle); --sq-seat-inset: 10px; }
+/* The words hold by moving their ink, not by holding the fill (the way the chat does over a picture):
+   as the prompter thins, the hints (the placeholder, the strips' labels) step toward the quiet ink,
+   reaching it at the thinnest, and the quiet ink steps toward body ink, reaching the chat's own
+   over-picture ink (halfway) there. `--prompter-thin` is 0% while the card is opaque and 100% at the
+   dark face's thinnest, 16%. Set on the dock, not :root, so quick chat's opaque prompter reads 0%. */
+.composer-dock {
+  --prompter-thin: calc((100% - var(--prompter-alpha)) * 100 / 84);
+  --rl-text-faint: color-mix(in oklab, var(--ink-2) var(--prompter-thin), var(--ink-3));
+  --rl-text-dim: color-mix(in oklab, var(--ink) calc(var(--prompter-thin) / 2), var(--ink-2)); }
 /* Quick chat floats on its own surface and the viewer's ground is opaque, so their prompters stay
    solid; so does code review's question box. */
 .quick-chat, .media-viewer, .cr-ask { --prompter-alpha: 100%; }

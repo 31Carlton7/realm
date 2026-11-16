@@ -29,6 +29,11 @@ const PAINT_INPUTS: readonly PropertyDefinition[] = [
   /* The superellipse exponent. Its initial value is the signature 4, so every surface that says
    * nothing keeps the corner it had; only the controls that opt down (`--sq-n-ctl`) change. */
   { name: "--sq-n", syntax: "<number>", initialValue: "4", inherits: false },
+  /* A tab seated on the prompter's card: which of its edges sits on the card, the card's corner radius,
+   * and how far the card stands out past each side (squircle-paint.js, `clipOutsideCard`). */
+  { name: "--sq-seat", syntax: "none | top | bottom", initialValue: "none", inherits: false },
+  { name: "--sq-seat-radius", syntax: "<length>", initialValue: "0px", inherits: false },
+  { name: "--sq-seat-inset", syntax: "<length>", initialValue: "0px", inherits: false },
 ];
 
 export async function enableSquircles(root: HTMLElement = document.documentElement): Promise<boolean> {
