@@ -5,6 +5,7 @@ import Synchronization
 import Testing
 import UIKit
 import UserNotifications
+import VideoToolbox
 @testable import Realm
 
 /// Films made on the spot, as a phone would have filmed them: where, and on what.
@@ -12,8 +13,10 @@ enum Films {
     static let place = "+37.7749-122.4194+012.000/"
     static let phone = "iPhone 17 Pro"
 
-    /// A 1920 by 1080 film of `seconds`, carrying `place` and `phone` in its metadata.
-    static func filmed(seconds: Int, framesPerSecond: Int = 30) async throws -> URL {
+    /// A 1920 by 1080 film of `seconds`, carrying `place` and `phone` in its metadata. `everywhere`
+    /// writes them in every place a phone or an app puts them, not only the QuickTime keys an iPhone
+    /// writes: QuickTime user data (`©xyz`, `©mak`, `©mod`) and the 3GPP `loci` atom.
+    static func filmed(seconds: Int, framesPerSecond: Int = 30, everywhere: Bool = false) async throws -> URL {
         let url = URL.temporaryDirectory.appending(path: "filmed-\(UUID().uuidString).mov")
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         writer.metadata = [
@@ -21,6 +24,14 @@ enum Films {
             item(.quickTimeMetadataMake, "Apple"),
             item(.quickTimeMetadataModel, phone),
         ]
+        if everywhere {
+            writer.metadata += [
+                item(.quickTimeUserDataLocationISO6709, place),
+                item(.quickTimeUserDataMake, "Apple"),
+                item(.quickTimeUserDataModel, phone),
+                loci(),
+            ]
+        }
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 1_920, AVVideoHeightKey: 1_080,
         ])
@@ -54,6 +65,89 @@ enum Films {
         item.value = value as NSString
         item.dataType = kCMMetadataBaseDataType_UTF8 as String
         return item
+    }
+
+    /// `place` as a 3GPP location: version and flags, language, an empty name, role, then longitude,
+    /// latitude and altitude in 16.16 fixed point, the body ("earth") and empty notes.
+    private static func loci() -> AVMetadataItem {
+        var payload = Data([0, 0, 0, 0, 0x15, 0xC7, 0, 0])
+        for value in [-122.4194, 37.7749, 12.0] {
+            withUnsafeBytes(of: Int32(value * 65_536).bigEndian) { payload.append(contentsOf: $0) }
+        }
+        payload.append(contentsOf: Array("earth".utf8) + [0, 0])
+        let item = AVMutableMetadataItem()
+        item.identifier = AVMetadataItem.identifier(forKey: "loci", keySpace: .quickTimeUserData)
+        item.value = payload as NSData
+        item.dataType = kCMMetadataBaseDataType_RawData as String
+        return item
+    }
+
+    /// A 1920 by 1080 film of `seconds` as an iPhone films HDR: HEVC Main 10, BT.2020, HLG. Every
+    /// pixel is HLG's reference white, 75% of the signal: luma 180 in 8 bits.
+    static func filmedInHLG(seconds: Int) async throws -> URL {
+        let url = URL.temporaryDirectory.appending(path: "hlg-\(UUID().uuidString).mov")
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.hevc, AVVideoWidthKey: 1_920, AVVideoHeightKey: 1_080,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_2020,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_2100_HLG,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_2020,
+            ],
+            AVVideoCompressionPropertiesKey: [AVVideoProfileLevelKey: kVTProfileLevel_HEVC_Main10_AutoLevel as String],
+        ])
+        let frames = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,
+            kCVPixelBufferWidthKey as String: 1_920, kCVPixelBufferHeightKey as String: 1_080,
+        ])
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        for index in 0..<(seconds * 30) {
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
+            var buffer: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, frames.pixelBufferPool!, &buffer)
+            let frame = buffer!
+            CVBufferSetAttachments(frame, [
+                kCVImageBufferColorPrimariesKey: kCVImageBufferColorPrimaries_ITU_R_2020,
+                kCVImageBufferTransferFunctionKey: kCVImageBufferTransferFunction_ITU_R_2100_HLG,
+                kCVImageBufferYCbCrMatrixKey: kCVImageBufferYCbCrMatrix_ITU_R_2020,
+            ] as CFDictionary, .shouldPropagate)
+            CVPixelBufferLockBaseAddress(frame, [])
+            // 10 bits held high in 16: luma 64 + 75% of 876, colour at its middle.
+            for (plane, value) in [(0, UInt16(721) << 6), (1, UInt16(512) << 6)] {
+                let count = CVPixelBufferGetBytesPerRowOfPlane(frame, plane) * CVPixelBufferGetHeightOfPlane(frame, plane) / 2
+                let words = CVPixelBufferGetBaseAddressOfPlane(frame, plane)!.bindMemory(to: UInt16.self, capacity: count)
+                words.update(repeating: value, count: count)
+            }
+            CVPixelBufferUnlockBaseAddress(frame, [])
+            frames.append(frame, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: 30))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        return url
+    }
+
+    /// The mean 8-bit luma of a film's first frame, as stored: read with no colour conversion.
+    static func luma(of url: URL) async throws -> Double {
+        let asset = AVURLAsset(url: url)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        ])
+        reader.add(output)
+        reader.startReading()
+        defer { reader.cancelReading() }
+        let frame = try #require(output.copyNextSampleBuffer().flatMap(CMSampleBufferGetImageBuffer))
+        CVPixelBufferLockBaseAddress(frame, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(frame, .readOnly) }
+        let (width, height) = (CVPixelBufferGetWidthOfPlane(frame, 0), CVPixelBufferGetHeightOfPlane(frame, 0))
+        let row = CVPixelBufferGetBytesPerRowOfPlane(frame, 0)
+        let bytes = CVPixelBufferGetBaseAddressOfPlane(frame, 0)!.assumingMemoryBound(to: UInt8.self)
+        var total = 0
+        for y in 0..<height { for x in 0..<width { total += Int(bytes[y * row + x]) } }
+        return Double(total) / Double(width * height)
     }
 
     @MainActor static func outbox(_ model: AppModel) -> Set<String> {
@@ -106,6 +200,57 @@ struct VideoPrepTests {
         #expect(bytes.range(of: Data(Films.phone.utf8)) == nil, "the phone is in the file")
     }
 
+    /// A film carrying where it was filmed and on what in every place it can be written comes out of
+    /// the transcode with none of it: no metadata in any format or track, and not the coordinates,
+    /// the make, the model, or a `loci` or `©xyz` atom in the bytes.
+    @Test func theTranscodeKeepsNothingOfWhereOrOnWhat() async throws {
+        let film = try await Films.filmed(seconds: 2, everywhere: true)
+        defer { try? FileManager.default.removeItem(at: film) }
+        let place = Data([0xA9]) + Data("xyz".utf8)
+        let filmed = try Data(contentsOf: film)
+        #expect(filmed.range(of: Data("loci".utf8)) != nil && filmed.range(of: place) != nil, "the film itself carries both atoms")
+
+        let exported = URL.temporaryDirectory.appending(path: "exported-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: exported) }
+        try await VideoPrep.transcode(film, to: exported, fitting: Self.limits.maxBytes) { _ in }
+
+        let asset = AVURLAsset(url: exported)
+        let formats = try await asset.load(.availableMetadataFormats)
+        var items = try await asset.load(.metadata)
+        for format in formats { items += try await asset.loadMetadata(for: format) }
+        for track in try await asset.load(.tracks) { items += try await track.load(.metadata) }
+        #expect(items.isEmpty, "\(items.compactMap { $0.identifier?.rawValue })")
+        #expect(formats.isEmpty, "\(formats)")
+        #expect(try await asset.loadTracks(withMediaType: .metadata).isEmpty)
+
+        let bytes = try Data(contentsOf: exported)
+        for (what, needle) in [("latitude", "+37.7749"), ("longitude", "-122.4194"), ("make", "Apple"), ("model", Films.phone), ("3GPP location", "loci")] {
+            #expect(bytes.range(of: Data(needle.utf8)) == nil, "the \(what) is in the file")
+        }
+        #expect(bytes.range(of: place) == nil, "the place is in the file as ©xyz")
+    }
+
+    /// An HDR film, as an iPhone films one, is tone-mapped to HD colour (BT.709) by hand, as the
+    /// system's export does, rather than passed through as an 8-bit film still marked HLG.
+    @Test func theTranscodeToneMapsAnHDRFilm() async throws {
+        let film = try await Films.filmedInHLG(seconds: 1)
+        defer { try? FileManager.default.removeItem(at: film) }
+        #expect(try await Films.luma(of: film) == 180, "the film is HLG reference white")
+
+        let exported = URL.temporaryDirectory.appending(path: "exported-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: exported) }
+        try await VideoPrep.transcode(film, to: exported, fitting: Self.limits.maxBytes) { _ in }
+
+        let track = try #require(try await AVURLAsset(url: exported).loadTracks(withMediaType: .video).first)
+        let format = try #require(try await track.load(.formatDescriptions).first)
+        #expect(CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_ColorPrimaries) as? String == AVVideoColorPrimaries_ITU_R_709_2)
+        #expect(CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String == AVVideoTransferFunction_ITU_R_709_2)
+        // The system maps HLG's reference white to about 148, here as from macOS's own 1280 by 720
+        // export of the same film; passed through, it stays at 180.
+        let luma = try await Films.luma(of: exported)
+        #expect(abs(luma - 148) < 8, "\(luma)")
+    }
+
     /// A video still over the Mac's limit once exported is refused by its size, and nothing of it is
     /// kept: no draft file, nothing in the outbox to send, nothing left over.
     @Test func aVideoTooBigIsRefusedBeforeAnyOfItIsKept() async throws {
@@ -140,7 +285,13 @@ struct VideoPrepTests {
             #expect(bits / 8 < Double(limit), "\(seconds) s")
         }
         #expect(VideoPrep.bitRate(lasting: 2, fitting: limit) == 5_000_000, "a short film is not blown up to fill the limit")
-        #expect(VideoPrep.bitRate(lasting: 120, fitting: limit) == 1_600_000, "a long one is not starved to fit")
+        #expect(VideoPrep.bitRate(lasting: 120, fitting: limit) == 1_400_000, "a long one is not starved to fit")
+        // The longest sent ahead fits its limit with room for the encoder to go over: a 7:50 film
+        // asked for 1.6 megabits a second came out at 100.4 MB.
+        for seconds in [470.0, VideoPrep.longestAhead / .seconds(1)] {
+            let bits = Double(VideoPrep.bitRate(lasting: seconds, fitting: ChunkedUpload.maxBytes) + VideoPrep.soundBitRate) * seconds
+            #expect(bits / 8 <= Double(ChunkedUpload.maxBytes) * 0.9, "\(seconds) s")
+        }
     }
 
     /// Stopping an export by hand leaves nothing where it was writing, not even the writer's working copy.

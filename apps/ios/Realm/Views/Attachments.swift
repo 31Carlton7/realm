@@ -112,11 +112,12 @@ enum VideoPrep {
     }
 
     /// The film's bitrate for `transcode`: what spreads a tenth under `maxBytes` over `seconds`, less
-    /// the sound, no lower than the 1.6 megabits a second the system's export goes to, and no higher
-    /// than 5, plenty at 1280 by 720, so a short clip is not made big to fill the limit.
+    /// the sound, no lower than 1.4 megabits a second, and no higher than 5, plenty at 1280 by 720, so
+    /// a short clip is not made big to fill the limit. The floor is under the 1.44 that fits 8:00 in
+    /// the 100 MB ahead: at 1.6, a 7:50 camera film came out at 100.4 MB, over it.
     static func bitRate(lasting seconds: Double, fitting maxBytes: Int) -> Int {
         let fits = Double(maxBytes) * 0.9 * 8 / max(seconds, 1) - Double(soundBitRate)
-        return min(max(Int(fits), 1_600_000), 5_000_000)
+        return min(max(Int(fits), 1_400_000), 5_000_000)
     }
 
     static let soundBitRate = 128_000
@@ -136,8 +137,17 @@ enum VideoPrep {
         let reader = try AVAssetReader(asset: asset)
         let writer = try AVAssetWriter(outputURL: destination, fileType: .mp4)
         writer.shouldOptimizeForNetworkUse = true
+        // Read in HD colour, as the system's export makes a film: an HDR one (HLG or PQ, as an iPhone
+        // films) is tone-mapped to it, and the writer marks what it is given. Left alone, the HDR
+        // signal went through as 8-bit H.264 still marked HLG, and read grey and flat wherever it was
+        // not shown as HDR.
         let frames = AVAssetReaderTrackOutput(track: film, outputSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ],
         ])
         let encoded = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: even(natural.width), AVVideoHeightKey: even(natural.height),
