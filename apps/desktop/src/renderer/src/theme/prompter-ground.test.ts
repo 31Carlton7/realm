@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE } from "@realm/ui";
-import { CONTRAST_FLOOR, DEFAULT_SELECTION, deriveVars, REALM_SEED, themeVars, type Mode, type ThemeName } from "@realm/ui/src/themes";
+import { DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, type Mode } from "@realm/ui";
+import { CONTRAST_FLOOR, DEFAULT_SELECTION, deriveVars, REALM_SEED, themeVars, type ThemeName } from "@realm/ui/src/themes";
 import { parseOklch, srgb, srgbLuminance, type Oklch } from "@realm/contracts";
 
 /** The prompter thins with the pane (tokens.css, the owner 11-16) the whole range, a step denser, and
