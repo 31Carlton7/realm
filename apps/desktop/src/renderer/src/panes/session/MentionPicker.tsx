@@ -101,7 +101,7 @@ function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record
  * state. Mouse picks go through `onMouseDown` preventDefault so the textarea keeps focus. A group's
  * head is not a row: the arrows step over it, because only rows can be picked.
  */
-export function MentionPicker({ rows, activeIndex, anchorRef, appIcons, onPick, onHover, onClose }: {
+export function MentionPicker({ rows, activeIndex, anchorRef, appIcons, onPick, onHover, onClose, onPlace }: {
   /** Already ranked for the current query, in the order shown. */
   rows: readonly MentionRow[];
   activeIndex: number;
@@ -111,11 +111,12 @@ export function MentionPicker({ rows, activeIndex, anchorRef, appIcons, onPick, 
   onHover: (index: number) => void;
   /** Outside pointerdown / Escape (via the popover hook) — the Composer records the dismissal. */
   onClose: () => void;
+  onPlace?: (above: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // No exit, because this one is driven by typing: it opens and closes between keystrokes, and a
   // ghost of it trailing the caret while the sentence carries on is noise rather than motion.
-  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
+  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace });
   const active = Math.min(activeIndex, rows.length - 1);
   const { list, hoverRow } = usePickerScroller(active, onHover);
   return createPortal(

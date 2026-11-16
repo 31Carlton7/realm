@@ -59,7 +59,7 @@ function holds(s: Open, target: Node): boolean {
  * still hit-testable is worse than no exit at all. Surfaces that enter instantly close instantly:
  * enter and exit are one decision per surface, not two.
  */
-export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placement = "down", onClose, returnFocusRef, exit = false }: {
+export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placement = "down", onClose, returnFocusRef, exit = false, onPlace }: {
   ref: RefObject<HTMLElement | null>;
   anchorRef?: RefObject<HTMLElement | null>;
   /** Place at a point instead of against an anchor (context menus). */
@@ -69,6 +69,8 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
   onClose: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
   exit?: boolean;
+  /** Told which side of its anchor the surface landed on, each time it is placed. */
+  onPlace?: (above: boolean) => void;
 }): AnchoredPopover {
   const [pos, setPos] = useState<PopoverPosition | null>(null);
   const [closing, setClosing] = useState(false);
@@ -84,6 +86,8 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
   // anchored surface (preferred side → flip → slide along the anchor edge → complement fallback).
   // [] outside the provider, which makes placeAnchored the pre-W2 placement exactly.
   const browserRects = useBrowserRects();
+  const onPlaceRef = useRef(onPlace);
+  onPlaceRef.current = onPlace;
 
   useLayoutEffect(() => {
     const el = ref.current; if (!el) return;
@@ -113,6 +117,7 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
       // trigger. The vertical half flips with the surface itself (one that flipped above its anchor
       // grows upward); the horizontal half follows `align`. A point-placed menu grows from its point.
       const origin = `${placed.above ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`;
+      onPlaceRef.current?.(placed.above);
       // Same numbers → same object, so the ResizeObserver's synchronous first callback (and any
       // resize that does not actually move the surface) costs nothing and cannot cycle.
       setPos((prev) => prev && prev.left === placed.left && prev.top === placed.top && prev.origin === origin

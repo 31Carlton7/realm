@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { Environment } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -132,5 +132,40 @@ describe("the greeting is one run of text", () => {
     expect(span.tagName).toBe("SPAN");
     expect(span.querySelector("em, .hero-greeting-place")).toBeInTheDocument();
     expect(span.textContent).toMatch(/ \S+\?$|\. *$/);
+  });
+});
+
+describe("the greeting steps aside for a picker that opens over it", () => {
+  /* The `/` list climbs out of the card and over the line, which sits 20px above it, so the line's
+     last row was cut by the list's top edge. jsdom has no layout to measure the overlap, so this
+     holds the mark the stylesheet hides the line on (styles.test.ts holds the rule), placing the
+     card where the popover's own placement puts the list above it or, with no room, below it.
+     THE mutants: drop the mark, leave it on after the list has gone, or hide the line when the
+     list went below the card and was in nobody's way. */
+  const type = (box: HTMLElement, text: string) =>
+    fireEvent.change(box, { target: { value: text, selectionStart: text.length, selectionEnd: text.length } });
+  const anchorAt = (y: number) =>
+    vi.spyOn(HTMLTextAreaElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(200, y, 600, 40));
+  afterEach(() => vi.restoreAllMocks());
+
+  it("marks the line while the / list is up above the card, and clears the mark when it closes", async () => {
+    anchorAt(600);
+    const line = await mountHero({ id: "se1" });
+    const box = screen.getByRole("textbox", { name: /message/i });
+    expect(line).not.toHaveAttribute("data-yield");
+    type(box, "/");
+    expect(document.querySelector(".slash-picker")).not.toBeNull();
+    expect(line).toHaveAttribute("data-yield");
+    type(box, "");
+    expect(document.querySelector(".slash-picker")).toBeNull();
+    expect(line).not.toHaveAttribute("data-yield");
+  });
+
+  it("leaves the line alone when the list has no room above and opens below the card", async () => {
+    anchorAt(0);
+    const line = await mountHero({ id: "se1" });
+    type(screen.getByRole("textbox", { name: /message/i }), "/");
+    expect(document.querySelector(".slash-picker")).not.toBeNull();
+    expect(line).not.toHaveAttribute("data-yield");
   });
 });
