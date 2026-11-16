@@ -549,11 +549,12 @@ private struct SessionFoot: View {
 
 /// A request folded out of the composer's way: who asks, in one line that brings the card back. Stop
 /// is the composer's, on the row under it.
-private struct FoldedRequest: View {
+struct FoldedRequest: View {
     let pending: PendingRequest
     let sessionId: String
     let unfold: () -> Void
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         let session = model.store.transcript(sessionId).session
@@ -564,7 +565,7 @@ private struct FoldedRequest: View {
                 Text("\(Asker.name(pending.request, agent: session?.agent ?? "")) is waiting on you")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Palette.ink)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.up")
                     .font(.footnote.weight(.semibold))
@@ -575,64 +576,72 @@ private struct FoldedRequest: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Fill.card, in: Capsule())
+        .background(Fill.card, in: PillShape(height: 48))
         .accessibilityHint("Opens the request")
     }
 }
 
 /// The chips over the composer: who is working (the session's sub-agents), Review changes for what the
 /// last turn changed, and the reply the Mac suggests, which a press puts in the field to send or to change.
-private struct FootChips: View {
+/// They scroll sideways, and at the accessibility sizes wrap onto rows of their own, with the reply whole.
+struct FootChips: View {
     let sessionId: String
     let checkpointId: String?
     let hint: String?
     let useHint: (String) -> Void
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var reviewing = false
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                SubagentsChip(sessionId: sessionId)
-                if let checkpointId, model.turnChanges[checkpointId]?.totalFiles != 0 {
-                    Button {
-                        reviewing = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plusminus")
-                            Text("Review changes")
-                            if let changes = model.turnChanges[checkpointId], changes.countsLines {
-                                LineCounts(additions: changes.additions, deletions: changes.deletions)
-                            }
-                        }
-                        .font(.subheadline.weight(.medium))
-                    }
-                    .buttonStyle(ChipButtonStyle())
-                    .task(id: checkpointId) { await model.loadChanges(checkpointId, in: sessionId) }
-                    .sheet(isPresented: $reviewing) {
-                        ChangesSheet(checkpointId: checkpointId, sessionId: sessionId)
-                    }
-                }
-                if let hint {
-                    Button {
-                        useHint(hint)
-                    } label: {
-                        Label(hint, systemImage: "arrow.turn.down.right")
-                            .font(.subheadline)
-                            .lineLimit(1)
-                            .frame(maxWidth: 260, alignment: .leading)
-                    }
-                    .buttonStyle(ChipButtonStyle())
-                    .accessibilityLabel("Suggested reply: \(hint)")
-                    .accessibilityHint("Puts it in the message field")
-                }
+        if dynamicTypeSize.isAccessibilitySize {
+            ChipRows(spacing: 8) { chips }
+                .padding(.horizontal, 12)
+        } else {
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) { chips }
+                    .padding(.horizontal, 12)
             }
-            .padding(.horizontal, 12)
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
         }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
-        // The chips stop growing at the last size before the accessibility ones, as the composer's do.
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    @ViewBuilder
+    private var chips: some View {
+        SubagentsChip(sessionId: sessionId)
+        if let checkpointId, model.turnChanges[checkpointId]?.totalFiles != 0 {
+            Button {
+                reviewing = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plusminus")
+                    Text("Review changes")
+                    if let changes = model.turnChanges[checkpointId], changes.countsLines {
+                        LineCounts(additions: changes.additions, deletions: changes.deletions)
+                    }
+                }
+                .font(.subheadline.weight(.medium))
+            }
+            .buttonStyle(ChipButtonStyle())
+            .task(id: checkpointId) { await model.loadChanges(checkpointId, in: sessionId) }
+            .sheet(isPresented: $reviewing) {
+                ChangesSheet(checkpointId: checkpointId, sessionId: sessionId)
+            }
+        }
+        if let hint {
+            Button {
+                useHint(hint)
+            } label: {
+                Label(hint, systemImage: "arrow.turn.down.right")
+                    .font(.subheadline)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? nil : 260, alignment: .leading)
+            }
+            .buttonStyle(ChipButtonStyle())
+            .accessibilityLabel("Suggested reply: \(hint)")
+            .accessibilityHint("Puts it in the message field")
+        }
     }
 }
 

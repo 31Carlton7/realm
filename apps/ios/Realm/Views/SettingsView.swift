@@ -55,11 +55,7 @@ struct SettingsView: View {
                 // The Mac's link on a card of its own, as Manus puts the plan under the profile.
                 Section {
                     LabeledContent("Relay") {
-                        Text(mac.relay.host() ?? mac.relay.absoluteString)
-                            .mono(.subheadline)
-                            .foregroundStyle(Palette.ink2)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        RelayHost(host: mac.relay.host() ?? mac.relay.absoluteString)
                     }
                     .listRowBackground(Fill.card)
                     LabeledContent("Paired") {
@@ -78,20 +74,7 @@ struct SettingsView: View {
                             model.settingsShown = false
                             model.path.append(page.route)
                         } label: {
-                            LabeledContent {
-                                HStack(spacing: 6) {
-                                    if let note = page.note(reviews: model.work.reviews, schedules: model.work.schedules) {
-                                        Text(note)
-                                    }
-                                    Image(systemName: "chevron.right")
-                                        .font(.footnote.weight(.semibold))
-                                        .foregroundStyle(Palette.ink3)
-                                }
-                                .foregroundStyle(Palette.ink2)
-                            } label: {
-                                Label(page.title, systemImage: page.symbol)
-                                    .foregroundStyle(Palette.ink)
-                            }
+                            SettingsPageRow(page: page, note: page.note(reviews: model.work.reviews, schedules: model.work.schedules))
                         }
                         .profileRow()
                     }
@@ -244,6 +227,42 @@ extension View {
     }
 }
 
+/// A row that opens one of the Mac's pages: its glyph and name, what waits there, and the chevron on the
+/// name's line. At the accessibility sizes what waits goes under the name, since beside it the chevron
+/// was pushed onto a line of its own.
+struct SettingsPageRow: View {
+    let page: WorkPage
+    let note: String?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let large = dynamicTypeSize.isAccessibilitySize
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(page.title)
+                        .foregroundStyle(Palette.ink)
+                    if large, let note {
+                        Text(note)
+                            .foregroundStyle(Palette.ink2)
+                    }
+                }
+            } icon: {
+                Image(systemName: page.symbol)
+                    .foregroundStyle(Palette.ink)
+            }
+            Spacer(minLength: 8)
+            if !large, let note {
+                Text(note)
+                    .foregroundStyle(Palette.ink2)
+            }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.ink3)
+        }
+    }
+}
+
 /// A choice on a row of its own, its value in a menu; at the accessibility sizes, where that value
 /// is cut short on one line, its options are rows of their own.
 private struct ChoiceStyle: ViewModifier {
@@ -296,6 +315,21 @@ private struct MacHeader: View {
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The relay's host on one line, cut in the middle where it is long; at the accessibility sizes, where
+/// one line holds a dozen characters, all of it over as many lines as it takes.
+struct RelayHost: View {
+    let host: String
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        Text(host)
+            .mono(.subheadline)
+            .foregroundStyle(Palette.ink2)
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+            .truncationMode(.middle)
     }
 }
 

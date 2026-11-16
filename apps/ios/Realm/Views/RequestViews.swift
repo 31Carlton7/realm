@@ -229,6 +229,7 @@ struct WaitingDock: View {
     /// Folds it to one line, giving the composer back.
     let fold: () -> Void
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var answering = false
     @State private var reviewingPlan = false
 
@@ -257,15 +258,17 @@ struct WaitingDock: View {
                 .accessibilityLabel("Fold")
                 .accessibilityHint("Shows the message field, with this request as one line above it")
             }
+            // Cut short at the ordinary sizes, where the card stays a few lines tall; whole at the
+            // accessibility ones, where three lines hold a few words.
             Text(headline)
                 .font(.headline)
                 .foregroundStyle(Palette.ink)
-                .lineLimit(3)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
             if case .permission = request.kind, !request.summary.isEmpty, request.summary != request.tool {
                 Text(request.summary)
                     .mono(.footnote)
                     .foregroundStyle(Palette.ink2)
-                    .lineLimit(2)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
             }
             if let answer = pending.answer {
                 held(answer)
@@ -339,7 +342,7 @@ struct WaitingDock: View {
                     model.submit(OneTapQuestion.answer(option, to: question, of: request, in: sessionId))
                 } label: {
                     Text(option.label)
-                        .lineLimit(2)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(ChoiceButtonStyle(suggested: OneTapQuestion.suggests(option, in: question)))
@@ -396,12 +399,13 @@ struct AnswerButtons: View {
     var body: some View {
         ViewThatFits(in: .horizontal) {
             EqualWidths(spacing: 10) {
-                declineButton
-                acceptButton
+                declineButton(lines: 1)
+                acceptButton(lines: 1)
             }
+            // Stacked, a label still too long for the width wraps.
             VStack(spacing: 10) {
-                acceptButton
-                declineButton
+                acceptButton(lines: nil)
+                declineButton(lines: nil)
             }
         }
         .controlSize(.large)
@@ -409,19 +413,19 @@ struct AnswerButtons: View {
         .font(.body.weight(.semibold))
     }
 
-    private var declineButton: some View {
+    private func declineButton(lines: Int?) -> some View {
         Button(action: onDecline) {
             Text(decline)
-                .lineLimit(1)
+                .lineLimit(lines)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(GreyButtonStyle())
     }
 
-    private var acceptButton: some View {
+    private func acceptButton(lines: Int?) -> some View {
         Button(action: onAccept) {
             Text(accept)
-                .lineLimit(1)
+                .lineLimit(lines)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(InkButtonStyle())

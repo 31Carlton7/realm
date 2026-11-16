@@ -398,8 +398,9 @@ struct ComposerLayout: Layout {
         let add = index(.add), chips = index(.chips), primary = index(.primary)
         let field = index(.field)
         if card {
-            // The field across the card, the toolbar under it: as tall as its chips' words, which grow
-            // with the text size while the buttons keep theirs, centred beside them.
+            // The field across the card, the toolbar under it: as tall as its chips, which grow with
+            // the text size and wrap onto more rows while the buttons keep their size, at the foot
+            // beside the last row.
             let fieldWidth = width - 32
             let fieldHeight = field.map { subviews[$0].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height } ?? button
             if let field { frames[field] = CGRect(x: 16, y: top, width: fieldWidth, height: fieldHeight) }
@@ -408,9 +409,9 @@ struct ComposerLayout: Layout {
             let trailing = width - 4 - button
             let chipsWidth = max(0, trailing - 4 - leading)
             let barHeight = max(button, chips.map { subviews[$0].sizeThatFits(ProposedViewSize(width: chipsWidth, height: nil)).height } ?? 0)
-            let middle = bar + (barHeight - button) / 2
-            if let add { frames[add] = CGRect(x: 4, y: middle, width: button, height: button) }
-            if let primary { frames[primary] = CGRect(x: trailing, y: middle, width: button, height: button) }
+            let foot = bar + barHeight - button
+            if let add { frames[add] = CGRect(x: 4, y: foot, width: button, height: button) }
+            if let primary { frames[primary] = CGRect(x: trailing, y: foot, width: button, height: button) }
             if let chips { frames[chips] = CGRect(x: leading, y: bar, width: chipsWidth, height: barHeight) }
             return (frames, bar + barHeight + 4)
         }
