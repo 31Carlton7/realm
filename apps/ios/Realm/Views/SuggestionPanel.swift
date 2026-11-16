@@ -129,11 +129,9 @@ private struct MentionRowView: View {
             case .skill:
                 Image(systemName: "sparkles").font(.system(size: 15)).foregroundStyle(Palette.ink2)
             case .tab(let tab):
-                Image(systemName: TabWords.glyph(tab.kind)).font(.system(size: 15))
-                    .foregroundStyle(Palette.ink2)
+                Image(systemName: TabWords.glyph(tab.kind)).font(.system(size: 15)).foregroundStyle(Palette.ink2)
             case .file(let file):
-                Image(systemName: FileKind.symbol(file.rel)).font(.system(size: 15))
-                    .foregroundStyle(Palette.ink2)
+                Image(systemName: FileKind.symbol(file.rel)).font(.system(size: 15)).foregroundStyle(Palette.ink2)
             }
         } name: {
             Text(row.name).font(.body.weight(.medium))
