@@ -5400,6 +5400,13 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    a third of a 1000px window). The card is the next action and the greeting is the one thing here
    that is not, so it is the greeting that gives way. 380 is where the floor starts to win. */
 @container (max-height: 380px) { .session-pane[data-composer="hero"] .hero-greeting { display: none; } }
+/* The same giving way, for a picker the card opens over the line (`/`, `@`, the + menu's skills and
+   agents, while they sit above the card): drawn under the list, the line's last row was cut in half
+   by the list's top edge. It leaves quickly and comes back on a fade once the list has gone,
+   and is hidden for real once faded, so the place it links to cannot be clicked or tabbed to unseen. */
+.hero-greeting { transition: opacity var(--dur-swap) var(--ease-fade); }
+.hero-greeting[data-yield] { opacity: 0; visibility: hidden;
+  transition: opacity var(--dur-press) var(--ease-fade), visibility 0s linear var(--dur-press); }
 .hero-greeting em { font-style: normal; }
 /* The place the greeting names, as a link to the space's page: a link in prose — the accent and the
    line's own type, no underline until the pointer is on it (design.md). A button, so the keyboard

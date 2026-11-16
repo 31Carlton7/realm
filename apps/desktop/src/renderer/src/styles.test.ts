@@ -704,6 +704,16 @@ describe("Ara refresh §3/§4 geometry", () => {
      dropping `min-width: 0` from the span (a flex item's automatic minimum is its longest
      unbreakable run, so a space named without spaces in it pushes the line out past both pane
      edges and `overflow-wrap` never gets to break it). */
+  /* A picker the card opens upward climbs over the greeting (Composer.tsx marks the line while one
+     is up). THE mutants: the mark hides nothing, or the line fades but stays clickable and
+     tabbable, or it comes back instantly rather than on a fade. */
+  it("hides the hero greeting under its yield mark, and fades it back", () => {
+    const yielded = bodiesFor(".hero-greeting[data-yield]").join(" ");
+    expect(yielded).toContain("opacity: 0");
+    expect(yielded, "a faded line still takes the pointer and the Tab key").toContain("visibility: hidden");
+    expect(bodiesFor(".hero-greeting").join(" ")).toContain("transition: opacity var(--dur-swap) var(--ease-fade)");
+  });
+
   it("the hero greeting scales with its pane and keeps a third line inside the box", () => {
     const hero = bodiesFor(".hero-greeting").join(" ");
     // Fluid between two title rungs, against the SESSION PANE's inline size — the viewport would

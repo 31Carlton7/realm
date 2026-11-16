@@ -14,7 +14,7 @@ import type { SlashCommand } from "./slash-commands";
  * and this surface only draws the state. A mouse pick goes through `onMouseDown` preventDefault so
  * the textarea keeps focus and the caret does not jump.
  */
-export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover, onClose }: {
+export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover, onClose, onPlace }: {
   /** Already filtered by the current query, in the order shown. */
   commands: readonly SlashCommand[];
   activeIndex: number;
@@ -23,11 +23,12 @@ export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover,
   onHover: (index: number) => void;
   /** Outside pointerdown / Escape (via the popover hook) — the Composer records the dismissal. */
   onClose: () => void;
+  onPlace?: (above: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // No exit, matching the mention picker: this opens and closes between keystrokes, and a ghost of
   // it trailing the caret while the sentence carries on is noise rather than motion.
-  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
+  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace });
   const active = Math.min(activeIndex, commands.length - 1);
   const { list, hoverRow } = usePickerScroller(active, onHover);
   return createPortal(

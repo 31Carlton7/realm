@@ -787,6 +787,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   // The "+ → Skills" picker. Anchored on the plus itself, so it opens over the button the user pressed.
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [subAgentOpen, setSubAgentOpen] = useState(false);
+  const [pickerAbove, setPickerAbove] = useState(false);
   const rowAgents = useRowAgents(session.id);
   // The over-strip: what the checkout changed, which a compact prompter does not carry, or who is working.
   const showOverstrip = (!compact && hasChanges(changes)) || rowAgents.length > 0;
@@ -1237,6 +1238,11 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const permissionItems = buildPermissionItems(session.permissionMode, (id) => onOptions({ permissionMode: id }));
   const parked = planReturn ?? "default";
   const parkedItems = buildPermissionItems(parked, (id) => onParkPermission?.(id));
+  /* A picker the card opens grows up through the hero greeting, which sits 20px over the card: the
+     list is up to 280px tall and the line is the one thing on the screen that is not the next
+     action, so the line steps aside while one is up (`.hero-greeting[data-yield]`). Only while it is
+     ABOVE the card: in a short pane the list flips below it and the line is in nobody's way. */
+  const greetingYields = pickerAbove && (slashOpen || mentionOpen || skillPickerOpen || subAgentOpen);
 
   return (
     <div className="composer-dock">
@@ -1251,7 +1257,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
            of `offsetWidth` between the two forces the removal to land first. Under
            prefers-reduced-motion the global kill means no animation runs and no `animationend`
            arrives, which is the correct outcome: the greeting simply does not nod. */
-        <div className="hero-greeting"
+        <div className="hero-greeting" data-yield={greetingYields || undefined}
           onClick={(e) => {
             if (!(e.target instanceof HTMLElement) || e.target.tagName !== "EM") return;
             const line = e.currentTarget;
@@ -1450,20 +1456,20 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
         )}
         {slashOpen && (
           <SlashPicker commands={slashMatches} activeIndex={slashCur} anchorRef={ta}
-            onPick={pickSlash} onHover={setSlashActive} onClose={() => setSlashDismissed(true)} />
+            onPick={pickSlash} onHover={setSlashActive} onClose={() => setSlashDismissed(true)} onPlace={setPickerAbove} />
         )}
         {mentionOpen && (
           <MentionPicker rows={mentionMatches} activeIndex={mentionCur} anchorRef={ta} appIcons={mentions?.appIcons ?? NO_ICONS}
             onPick={pickMention} onHover={setMentionActive}
-            onClose={() => setMentionDismissed(mentionToken.start)} />
+            onClose={() => setMentionDismissed(mentionToken.start)} onPlace={setPickerAbove} />
         )}
-        {subAgentOpen && <AddSubAgent session={session} anchorRef={plusRef} canWorktree={gitInfo !== null} onClose={() => setSubAgentOpen(false)} />}
+        {subAgentOpen && <AddSubAgent session={session} anchorRef={plusRef} canWorktree={gitInfo !== null} onClose={() => setSubAgentOpen(false)} onPlace={setPickerAbove} />}
         {skillPickerOpen && (
           <SkillPicker skills={allSkills} anchorRef={plusRef}
             onToggle={(sk, enabled) => onToggleSkill?.(sk.id, enabled)}
             onMention={(sk) => insertMention(sk.id)}
             onManage={() => onManageSkills?.()}
-            onClose={() => setSkillPickerOpen(false)} />
+            onPlace={setPickerAbove} onClose={() => setSkillPickerOpen(false)} />
         )}
         {drop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
         {itemDrop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to point this message at that session</div>}

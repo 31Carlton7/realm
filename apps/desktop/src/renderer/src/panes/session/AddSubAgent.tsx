@@ -14,16 +14,17 @@ import { ModelPicker } from "./ModelPicker";
  * and where it works is the session's folder unless the checkout is a git repository, where it can
  * have a worktree of its own instead. Return in the line adds it.
  */
-export function AddSubAgent({ session, anchorRef, canWorktree, onClose }: {
+export function AddSubAgent({ session, anchorRef, canWorktree, onClose, onPlace }: {
   session: Session;
   anchorRef: RefObject<HTMLElement | null>;
   /** The session runs in a git checkout, so a worktree can be made beside it. */
   canWorktree: boolean;
   onClose: () => void;
+  onPlace?: (above: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, returnFocusRef: anchorRef, exit: true });
+  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, returnFocusRef: anchorRef, exit: true, onPlace });
   const [pick, setPick] = useState<{ kind: AgentKind; model: string | null }>({ kind: session.agentKind, model: session.model });
   const [brief, setBrief] = useState("");
   const [worktree, setWorktree] = useState(false);

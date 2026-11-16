@@ -74,7 +74,7 @@ export function groupSkills(skills: readonly Skill[]): Array<{ label: string; sk
  * Enabling is a real write to the space's preferences, not a per-message choice — the same switch the
  * settings panel shows, so the two surfaces can never claim different things about one skill.
  */
-export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, onManage }: {
+export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, onManage, onPlace }: {
   /** Every skill visible to this space, enabled or not, valid or not — the picker filters. */
   skills: readonly Skill[];
   anchorRef: RefObject<HTMLElement | null>;
@@ -86,13 +86,14 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
   onClose: () => void;
   /** Open the space's skills settings, for scan directories and the per-agent notes. */
   onManage: () => void;
+  onPlace?: (above: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
+  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace });
   useAutoHideScrollbar(list);
   /* The list runs out into the search field above it and the footer below it, rather than stopping
      at either edge: a row sliced in half by "Manage skills & folders…" read as the list being
