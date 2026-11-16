@@ -412,7 +412,8 @@ struct VideoThumbnail: View {
         .animation(.easeOut(duration: 0.2), value: frame != nil)
         .task(id: url) {
             frame = await GalleryCover.image(of: url, kind: .video, side: side, scale: displayScale)
-            if let poster, let data = frame?.jpegData(compressionQuality: 0.8) {
+            if let poster, !FileManager.default.fileExists(atPath: poster.path),
+               let data = frame?.jpegData(compressionQuality: 0.8) {
                 try? FileManager.default.createDirectory(at: poster.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? data.write(to: poster, options: .atomic)
             }
