@@ -148,7 +148,23 @@ struct RealmMenuTests {
     }
 
     /// Every element VoiceOver can reach under a view.
+    /// SwiftUI builds its accessibility tree only for a client that asks; with no VoiceOver or reader
+    /// attached (a fresh simulator) it reads empty. This turns on the automation the UI tests use, and
+    /// gives the tree a moment to build.
     static func elements(in view: NSObject) -> [NSObject] {
+        if let library = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW),
+           let symbol = dlsym(library, "_AXSSetAutomationEnabled") {
+            unsafeBitCast(symbol, to: (@convention(c) (Int32) -> Void).self)(1)
+        }
+        for _ in 0..<20 {
+            let found = collect(in: view)
+            if !found.isEmpty { return found }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        }
+        return []
+    }
+
+    private static func collect(in view: NSObject) -> [NSObject] {
         var found: [NSObject] = []
         var queue: [NSObject] = [view]
         while let next = queue.popLast() {
@@ -204,7 +220,8 @@ struct RealmMenuTests {
             for dark in [false, true] {
                 let words = try Drawing.words(RealmMenuPanel(title: "Mode", close: MenuClose {}, content: rows),
                                               width: 416, dark: dark, size: size)
-                for word in ["Permissions", "Ask each", "Accept", "Full access"] {
+                // Short fragments: Vision on iOS 26.5 runs a row's words into its check ("Askeachv").
+                for word in ["Permissions", "each", "Accept", "Full access"] {
                     #expect(words.contains(word), "\(size) \(dark ? "dark" : "light"): \(word) in \(words)")
                 }
             }
