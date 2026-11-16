@@ -187,3 +187,20 @@ struct TrailingFlowTests {
         #expect(roomy.height == side, "with room for all six, they are one row")
     }
 }
+
+@Suite("A sent photo's tile once the file is gone")
+struct PhotoPreviewTests {
+    /// THE MUTANTS: never keep the tile, or keep each one drawn over the first.
+    @Test func aTileDrawnAfterThePhotoIsGoneIsTheOneKept() throws {
+        let file = URL.temporaryDirectory.appending(path: "preview-\(UUID().uuidString)/preview.jpg")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let first = UIImage(cgImage: Pictures.image(width: 264, height: 198))
+        #expect(PhotoPreview.tile(drawn: first, keptAt: file) === first)
+        let again = UIImage(cgImage: Pictures.image(width: 120, height: 90))
+        #expect(PhotoPreview.tile(drawn: again, keptAt: file) === again)
+
+        let kept = try #require(PhotoPreview.tile(drawn: nil, keptAt: file)?.cgImage)
+        #expect(kept.width == 264, "the first tile drawn is the one kept")
+        #expect(kept.height == 198)
+    }
+}
