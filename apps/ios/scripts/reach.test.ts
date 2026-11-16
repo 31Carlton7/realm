@@ -33,11 +33,17 @@ describe("thumb reach on a tall phone", () => {
     const sheet = body(read("RequestViews.swift"), "struct QuestionSheet: View");
     expect(sheet).not.toContain(".confirmationAction");
     expect(sheet).toMatch(/\.safeAreaBar\(edge: \.bottom\) \{\s*Button \{\s*model\.submit\(draft\)/);
+    // Faint while not ready, so it stands on the sheet's ground rather than over the list.
+    expect(sheet).toMatch(/\.buttonStyle\(InkButtonStyle\(\)\)\s*(\/\/[^\n]*\s*)?\.background\(Ground\.grouped, in: Capsule\(\)\)\s*\.disabled\(!draft\.isComplete\)/);
   });
 
   it("grows search results up from the field, the best nearest it", () => {
     const home = body(read("HomeView.swift"), "struct HomeView: View");
-    expect(home).toContain(".defaultScrollAnchor(matches == nil ? nil : .bottom, for: .alignment)");
+    // A List ignores the alignment anchor, so a short page of results is pushed down by the room over it.
+    expect(home).toContain(".contentMargins(.top, matches == nil ? 0 : resultsLift, for: .scrollContent)");
+    expect(home).toMatch(/\.onScrollGeometryChange\(for: CGFloat\.self\) \{ geometry in\s*geometry\.containerSize\.height - geometry\.contentInsets\.top - geometry\.contentInsets\.bottom - geometry\.contentSize\.height/);
+    expect(home).toContain("resultsLift = matches == nil ? 0 : max(0, resultsLift + room)");
+    expect(home).toContain(".contentMargins(.bottom, searching ? 0 : 72, for: .scrollContent)");
     expect(home).toContain(".defaultScrollAnchor(matches == nil ? nil : .bottom, for: .initialOffset)");
     expect(home).toContain("searched: matches != nil");
     expect(body(read("SearchViews.swift"), "struct SearchHitsSection: View")).toContain("ForEach(found.hits.reversed())");

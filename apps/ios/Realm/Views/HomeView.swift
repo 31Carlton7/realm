@@ -18,6 +18,8 @@ struct HomeView: View {
     @State private var filter = HomeFilter.all
     @State private var reconnecting = false
     @State private var newSessionShown = false
+    /// How far a short list of search results is pushed down to sit on the field.
+    @State private var resultsLift: CGFloat = 0
     /// The moment By day reckons its days from, moved on at midnight and on coming back to the app.
     @State private var now = Date()
     @Namespace private var settingsZoom
@@ -106,12 +108,19 @@ struct HomeView: View {
         .listStyle(.plain)
         .listSectionSpacing(Self.sectionSpacing)
         .scrollContentBackground(.hidden)
-        // The last row scrolls clear of the New session button floating over the list's foot.
-        .contentMargins(.bottom, 72, for: .scrollContent)
+        // The last row scrolls clear of the New session button floating over the list's foot; while
+        // searching the button is gone, and the results sit down on the field.
+        .contentMargins(.bottom, searching ? 0 : 72, for: .scrollContent)
+        // Results grow up from the search field at the foot, the best nearest it. A List takes no
+        // alignment anchor, so a few results are pushed down by the room left over them.
+        .contentMargins(.top, matches == nil ? 0 : resultsLift, for: .scrollContent)
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom - geometry.contentSize.height
+        } action: { _, room in
+            resultsLift = matches == nil ? 0 : max(0, resultsLift + room)
+        }
         .background(Ground.transcript)
         .softEdges(ground: Ground.transcript)
-        // Results grow up from the search field at the foot, the best nearest it.
-        .defaultScrollAnchor(matches == nil ? nil : .bottom, for: .alignment)
         .defaultScrollAnchor(matches == nil ? nil : .bottom, for: .initialOffset)
         .id(ListIdentity(choice: choice, style: style, searched: matches != nil))
         // Manus's chips under the bar: what the list holds, by what it asks of the person. The list

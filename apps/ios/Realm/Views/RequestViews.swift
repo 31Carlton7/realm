@@ -552,6 +552,8 @@ struct QuestionSheet: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(InkButtonStyle())
+                // A Send not yet ready is drawn faint; the ground under it keeps the list from showing through.
+                .background(Ground.grouped, in: Capsule())
                 .disabled(!draft.isComplete)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
