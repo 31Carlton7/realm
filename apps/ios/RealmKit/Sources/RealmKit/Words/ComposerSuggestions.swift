@@ -22,7 +22,8 @@ public struct ComposerToken: Hashable, Sendable {
         let chars = Array(text)
         guard chars.first == "/" else { return nil }
         var end = 1
-        while end < chars.count, chars[end].isASCII, chars[end].isLetter || chars[end].isNumber || chars[end] == "-" { end += 1 }
+        // The Mac's `COMMAND_NAME_CHAR`: `_` and `.` are in names, and `:` joins a nested one (`/git:commit`).
+        while end < chars.count, chars[end].isASCII, chars[end].isLetter || chars[end].isNumber || "-_.:".contains(chars[end]) { end += 1 }
         guard caret >= 1, caret <= end else { return nil }
         return ComposerToken(start: 0, end: end, query: String(chars[1..<caret]))
     }
@@ -128,7 +129,7 @@ public struct ComposerCommand: Hashable, Sendable, Identifiable {
     public static func call(in text: String, commands: [ComposerCommand]) -> (command: ComposerCommand, rest: String)? {
         guard let token = ComposerToken.slash(in: text, caret: 1) else { return nil }
         let id = String(Array(text)[1..<token.end])
-        guard let command = commands.first(where: { $0.takesArgument && $0.id == id }) else { return nil }
+        guard let command = commands.first(where: { $0.takesArgument && $0.id.lowercased() == id.lowercased() }) else { return nil }
         return (command, String(Array(text)[token.end...]).trimmingLeadingWhitespace())
     }
 }

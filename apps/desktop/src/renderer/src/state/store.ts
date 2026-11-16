@@ -357,11 +357,12 @@ export type Api = TeammatesApi & {
   /** `scripts.run` — run a space's named shell command in a terminal, by its `script.<id>.run` id. */
   runScript(spaceId: string, commandId: string): Promise<{ terminalId: string; itemId: string; cwd: string }>;
   /** `commands.list` — a space's user-defined slash commands. `spaceId` is nullable so the palette can
-   *  ask outside a session, which drops the space folder's `commands/` and keeps the rest. */
-  listCommands(spaceId: string | null): Promise<{ root: string; commands: UserCommand[] }>;
+   *  ask outside a session, which drops the space folder's `commands/` and keeps the rest. `cwd` adds
+   *  the session's working folder's `.claude/commands`. */
+  listCommands(spaceId: string | null, cwd: string | null): Promise<{ root: string; commands: UserCommand[] }>;
   /** `commands.expand` — one command's template against what was typed after it. `missing` names the
    *  placeholders nothing was typed for; they are left STANDING in `text` so the draft shows them. */
-  expandCommand(spaceId: string | null, name: string, args: string): Promise<{ command: UserCommand; text: string; missing: string[] }>;
+  expandCommand(spaceId: string | null, name: string, args: string, cwd: string | null): Promise<{ command: UserCommand; text: string; missing: string[] }>;
   /** `themes.list` — the imported VS Code themes and the folder they live in. */
   listThemes(): Promise<{ root: string; themes: StoredTheme[] }>;
   /** The native picker for a `.json`/`.jsonc` colour theme; null when cancelled. */
@@ -1551,10 +1552,10 @@ export type AppState = TeammatesSlice & {
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
-  /** A space's user-defined slash commands, keyed by space id. Every file found, including the
-   *  invalid and shadowed ones — the picker filters to the runnable ones itself, because a settings
-   *  panel that wants to explain why `/foo` stopped working needs the rows the picker discards. */
-  spaceCommands: Record<string, UserCommand[]>;
+  /** A session's user-defined slash commands, keyed by session id, since its checkout's
+   *  `.claude/commands` are among them. Every file found, including the invalid and shadowed ones —
+   *  the picker filters to the runnable ones itself, because a settings panel that wants to explain why `/foo` stopped working needs the rows the picker discards. */
+  sessionCommands: Record<string, UserCommand[]>;
   /** A space's project scripts, keyed by space id. Held in the renderer — rather than asked for when a
    *  key is pressed — because the keybinding hook has to decide whether to swallow a keystroke
    *  SYNCHRONOUSLY, and `preventDefault` after an await is a no-op. */
@@ -2481,11 +2482,12 @@ export type AppState = TeammatesSlice & {
   connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<McpSignInStart & { serverId: string }>;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
-  /** Fetch a space's user-defined slash commands into `spaceCommands` (session open). */
-  refreshCommands(spaceId: string): Promise<void>;
+  /** Fetch a session's user-defined slash commands into `sessionCommands` (session open): its space's,
+   *  its working folder's `.claude/commands`, and the user-level ones. */
+  refreshCommands(sessionId: string): Promise<void>;
   /** Expand one user command's template against what was typed after it. Straight through to the
    *  server, which owns the placeholder rules — the renderer must not grow a second copy of them. */
-  expandCommand(spaceId: string, name: string, args: string): Promise<{ text: string; missing: string[] }>;
+  expandCommand(sessionId: string, name: string, args: string): Promise<{ text: string; missing: string[] }>;
   /** Fetch a space's project scripts into `spaceScripts` (session open, `scripts.changed`). */
   refreshScripts(spaceId: string): Promise<void>;
   /* The execution sandbox, straight through to the server. No slice: nothing outside the settings
@@ -4648,7 +4650,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", libraryTab: {}, connectionsTab: "apps", memoryLibraryRev: 0, librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, draftTabs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelDefaults: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, draftTabs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", sessionCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelDefaults: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
@@ -6160,7 +6162,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           if (opened) get().run(() => get().refreshSkills(opened.spaceId));
         /* Unconditional, unlike skills: a user command expands to TEXT in the draft, so it works the
            same for every agent kind — there is no injection the agent has to support. */
-        if (opened) get().run(() => get().refreshCommands(opened.spaceId));
+        if (opened) get().run(() => get().refreshCommands(id));
         if (opened) get().run(() => get().refreshScripts(opened.spaceId));
           // The rule's position, read from the mark as it was BEFORE this open, and only when there
           // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
@@ -7176,11 +7178,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { root, skills } = await api.listSkills(spaceId);
         set({ spaceSkills: { ...get().spaceSkills, [spaceId]: skills }, skillsRoot: root });
       },
-      async refreshCommands(spaceId) {
-        const { commands } = await api.listCommands(spaceId);
-        set({ spaceCommands: { ...get().spaceCommands, [spaceId]: commands } });
+      async refreshCommands(sessionId) {
+        const session = get().sessions[sessionId];
+        if (!session) return;
+        const { commands } = await api.listCommands(session.spaceId, session.cwd || null);
+        set({ sessionCommands: { ...get().sessionCommands, [sessionId]: commands } });
       },
-      expandCommand: (spaceId, name, args) => api.expandCommand(spaceId, name, args),
+      async expandCommand(sessionId, name, args) {
+        const session = get().sessions[sessionId];
+        if (!session) throw new Error(`no such session: ${sessionId}`);
+        return api.expandCommand(session.spaceId, name, args, session.cwd || null);
+      },
       getSandbox: (spaceId) => api.getSandbox(spaceId),
       setSandbox: (spaceId, prefs) => api.setSandbox(spaceId, prefs),
       async refreshScripts(spaceId) {

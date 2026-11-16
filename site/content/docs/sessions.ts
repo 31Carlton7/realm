@@ -163,17 +163,17 @@ export default page({
     ),
     h3("Your own commands"),
     p(
-      "A command of your own is a Markdown file whose name is the command. Realm reads them from the space's folder under `commands/`, from `~/Realm/commands`, and from `~/.claude/commands`, in that order, and the first to define a name wins. Its frontmatter gives the line the picker shows:",
+      "A command of your own is a Markdown file whose name is the command; a file in a sub-folder, like `git/commit.md`, is `/git:commit`. Realm reads them from the space's folder under `commands/`, from the session's checkout under `.claude/commands`, from `~/Realm/commands`, and from `~/.claude/commands`, in that order, and the first to define a name wins. Names can use letters, digits, `-`, `_` and `.`, in any case. Frontmatter is optional: without it, the picker shows the file's first line. With it, you choose that line and the hint for what comes after the command:",
     ),
     code(
       `---
 description: Write release notes for the last tag
 argument-hint: <version>
 ---
-Write release notes for $1 from the merged pull requests since the previous tag.`,
+Write release notes for $0 from the merged pull requests since the previous tag.`,
       "~/Realm/commands/notes.md",
     ),
-    p("`$ARGUMENTS` is everything typed after the command, and `$1` to `$9` are its words. The result goes into the prompter for you to read before you send it."),
+    p("`$ARGUMENTS` is everything typed after the command, and `$0`, `$1`, `$2` and on are its words, counted from zero as in Claude Code (`$ARGUMENTS[0]` is the same as `$0`). Quote words to keep them together. A command with no placeholders gets what you typed on an `ARGUMENTS:` line under it. The result goes into the prompter for you to read before you send it."),
 
     h2("Goals"),
     p(

@@ -1908,7 +1908,7 @@ describe("the composer's / and @ lists", () => {
   const skill = (id: string, extra: { enabled?: boolean; valid?: boolean } = {}) =>
     ({ id, name: id === "mac" ? "Mac" : `${id} skill`, description: `What ${id} does`, path: `/skills/${id}/SKILL.md`, enabled: true, valid: true, ...extra });
   const command = (name: string, extra: { valid?: boolean; shadowedBy?: string | null; argumentHint?: string | null } = {}) =>
-    ({ name, description: `Run ${name}`, argumentHint: null, body: "Review $ARGUMENTS", path: `/commands/${name}.md`, valid: true, reason: null, shadowedBy: null, ...extra });
+    ({ name, description: `Run ${name}`, argumentHint: null, path: `/commands/${name}.md`, valid: true, reason: null, shadowedBy: null, ...extra });
   function rig(agentKind: Session["agentKind"] = "claude") {
     const sent: Record<string, unknown>[] = [];
     const asked: Record<string, unknown>[] = [];
@@ -1947,7 +1947,8 @@ describe("the composer's / and @ lists", () => {
   it("fills in a command in the session's space, leaving what the args did not reach", async () => {
     const r = rig();
     expect(await r.call("session.expandCommand", { name: "ship", args: "the docs" })).toEqual({ ok: true, result: { text: "Ship the docs and $2", missing: ["$2"] } });
-    expect(r.asked).toEqual([{ spaceId: "sp1", name: "ship", args: "the docs" }]);
+    // With the checkout, whose .claude/commands are among the commands it can run.
+    expect(r.asked).toEqual([{ spaceId: "sp1", name: "ship", args: "the docs", cwd: "/Users/me/realm/" }]);
   });
 
   it("starts a goal on its objective, and refuses one with no words", async () => {

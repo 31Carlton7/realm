@@ -1223,19 +1223,20 @@ export const Methods = {
    * invalid ones are the point: a template with a typo has to be findable, not missing.
    *
    * `spaceId` is nullable because the palette lists commands outside a session: null drops the space
-   * folder's `commands/` and keeps the user-level and agent ones.
+   * folder's `commands/` and keeps the user-level and agent ones. `cwd` is the session's working
+   * folder, whose `.claude/commands` is the repo's own; absent or null, that root is not read.
    */
-  "commands.list": { params: z.object({ spaceId: IdSchema.nullable() }), result: z.object({ root: z.string(), commands: z.array(UserCommandSchema) }) },
+  "commands.list": { params: z.object({ spaceId: IdSchema.nullable(), cwd: z.string().min(1).nullable().default(null) }), result: z.object({ root: z.string(), commands: z.array(UserCommandSchema) }) },
   /** Expand one command's template against what the user typed after it. `missing` names the
    *  placeholders nothing was typed for; they are left STANDING in `text`, so the draft shows them. */
   "commands.expand": {
-    params: z.object({ spaceId: IdSchema.nullable(), name: z.string().min(1), args: z.string().default("") }),
+    params: z.object({ spaceId: IdSchema.nullable(), name: z.string().min(1), args: z.string().default(""), cwd: z.string().min(1).nullable().default(null) }),
     result: z.object({ command: UserCommandSchema, text: z.string(), missing: z.array(z.string()) }),
   },
   /** Every directory scanned and what each contributed — the "why is this command here" panel, the
    *  same shape and the same `count: 0` rule as `skills.sources`. */
   "commands.sources": {
-    params: z.object({ spaceId: IdSchema.nullable() }),
+    params: z.object({ spaceId: IdSchema.nullable(), cwd: z.string().min(1).nullable().default(null) }),
     result: z.object({ sources: z.array(z.object({ kind: CommandOriginKindSchema, key: z.string(), label: z.string(), path: z.string(), count: z.number().int(), writable: z.boolean() })) }),
   },
 

@@ -2,48 +2,61 @@ import { z } from "zod";
 import { SESSION_MODES } from "./presets";
 
 /**
- * A user-defined slash command's identity is its **filename**, not anything in its frontmatter.
+ * A user-defined slash command's identity is its **path under its root**, not anything in its
+ * frontmatter: `review.md` is `/review` and `git/commit.md` is `/git:commit`, which is how Claude
+ * names a nested command, so a repo's `.claude/commands` reads the same in both.
  *
- * That is the skills rule (`skills.ts`) deliberately repeated: the filename is unique by construction
- * inside a directory and it is the one thing that survives a file Realm cannot parse — and an
- * unparseable command still has to be listable, or the user has no way to find out why `/standup`
- * stopped existing.
+ * The filename is unique by construction inside a directory and it is the one thing that survives a
+ * file Realm cannot parse — and an unparseable command still has to be listable, or the user has no
+ * way to find out why `/standup` stopped existing. So a name is never refused at the door: one that
+ * cannot be typed (a space in it) is listed, invalid, with `untypeableReason` as its reason.
  *
- * The charset is narrower than `SkillIdSchema`'s and the narrowing is load-bearing, not tidiness. The
- * prompter scans a `/`-token with `[a-z0-9-]` (`slash-commands.ts`'s `slashQueryAt`) and filters it
- * with a lower-cased prefix match (`filterSlashCommands`), so a name outside this set is a command
- * that can be listed and never typed, and an upper-case one never matches what the user typed.
- *
- * It is also why discovered commands are NOT namespaced the way non-library skills are: `.` is not in
- * the token charset, so an `agents.foo`-shaped name would be untypeable. Collisions are settled by
- * source precedence instead (see `shadowedBy`), which is the only rule that leaves every name typeable.
+ * Case is kept for display and ignored for matching (`commandKey`): Claude lists `Plain_Name.md` as
+ * `/Plain_Name`, and typing `/plain_name` should still find it.
  */
-export const CommandNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "a command name is lower-case letters, digits and hyphens");
+export const COMMAND_NAME_CHAR = /[A-Za-z0-9_.:-]/;
+export const CommandNameSchema = z.string().regex(/^[A-Za-z0-9_.:-]+$/, "a command name is letters, digits, `-`, `_`, `.` and `:`");
+
+/** What two names are compared by. Every lookup goes through this so `/Review` and `/review` cannot
+ *  name two commands in one place and one in another. */
+export const commandKey = (name: string): string => name.toLowerCase();
 
 /** Commands are Markdown files, and only Markdown files. Anything else in the directory — a README's
  *  images, a `.DS_Store`, an editor's swap file — is not a template someone wrote to be expanded. */
 export const COMMAND_FILE_EXT = ".md";
 
-/** The command a file defines, or null when the file is not one. Case-folded, because macOS will hand
- *  back `Standup.md` for a file created as `standup.md` and the two must name one command. */
-export function commandNameFromFile(file: string): string | null {
-  if (!file.toLowerCase().endsWith(COMMAND_FILE_EXT)) return null;
-  const name = file.slice(0, -COMMAND_FILE_EXT.length).toLowerCase();
-  return CommandNameSchema.safeParse(name).success ? name : null;
+/** The command a file defines, from its `/`-separated path under the root, or null when it is not
+ *  one. Hidden files are not commands; neither is a file inside a hidden folder, which the walk
+ *  never enters. */
+export function commandNameFromFile(relPath: string): string | null {
+  if (!relPath.toLowerCase().endsWith(COMMAND_FILE_EXT)) return null;
+  const parts = relPath.slice(0, -COMMAND_FILE_EXT.length).split("/");
+  if (parts.some((p) => p === "" || p.startsWith("."))) return null;
+  return parts.join(":");
+}
+
+/** Why `/name` can never be typed, or null when it can. */
+export function untypeableReason(name: string): string | null {
+  if (CommandNameSchema.safeParse(name).success) return null;
+  return /\s/.test(name)
+    ? "the name has a space in it, so it can't be typed after `/` — rename the file"
+    : "the name can only be typed with letters, digits, `-`, `_` and `.` — rename the file";
 }
 
 /**
  * Where a command was found, in PRECEDENCE order — first one to define a name owns it.
  *
- *  - `space` — the space folder's `commands/`. Closest to the work, so it wins: a repo that ships a
+ *  - `space`   — the space folder's `commands/`. Closest to the work, so it wins: a repo that ships a
  *    `/review` for its own conventions should beat the user's generic one, the same way a project's
  *    `.claude/skills` is the most specific skills root.
- *  - `user`  — `<REALM_HOME>/commands`, visible in every space.
- *  - `agent` — an agent's own directory (`~/.claude/commands`). Read-only to Realm, always: this is the
- *    same promise the skills scan makes about `~/.claude`, and it is the reason `writable` exists on
- *    the origin rather than being inferred from the kind by each caller that cares.
+ *  - `project` — the session's working folder's `.claude/commands`: the commands a repo ships for
+ *    Claude, and so the ones a worktree of it brings along. Read-only to Realm, like `agent`.
+ *  - `user`    — `<REALM_HOME>/commands`, visible in every space.
+ *  - `agent`   — an agent's own directory (`~/.claude/commands`). Read-only to Realm, always: this is
+ *    the same promise the skills scan makes about `~/.claude`, and it is the reason `writable` exists
+ *    on the origin rather than being inferred from the kind by each caller that cares.
  */
-export const COMMAND_ORIGIN_KINDS = ["space", "user", "agent"] as const;
+export const COMMAND_ORIGIN_KINDS = ["space", "project", "user", "agent"] as const;
 export const CommandOriginKindSchema = z.enum(COMMAND_ORIGIN_KINDS);
 export type CommandOriginKind = z.infer<typeof CommandOriginKindSchema>;
 
@@ -62,21 +75,28 @@ export const CommandOriginSchema = z.object({
 });
 export type CommandOrigin = z.infer<typeof CommandOriginSchema>;
 
+/**
+ * One command file, as a list carries it.
+ *
+ * There is no template here. A list is read every time a session opens, and a command may be any
+ * size, so the list reads only each file's head (`COMMAND_HEAD_BYTES`) — enough for the frontmatter
+ * and the first line — and `commands.expand` reads the whole file when one is run.
+ */
 export const UserCommandSchema = z.object({
-  /** The word after the slash — the filename, minus `.md`. */
-  name: CommandNameSchema,
-  /** Frontmatter `description`: what the picker shows beside the name, so it earns its width. */
+  /** The word after the slash: the path under its root minus `.md`, folders joined with `:`. Not
+   *  `CommandNameSchema`, because a file whose name cannot be typed is still listed, with its reason. */
+  name: z.string().min(1),
+  /** Frontmatter `description`, or else the template's first line: what the picker shows beside the
+   *  name, the same fallback Claude uses for a file with no frontmatter. */
   description: z.string(),
   /** Frontmatter `argument-hint` (`<file> [--fix]`), or null. Its presence is also what tells the
    *  prompter this command is nothing without an argument — the same job `SlashCommand.takesArgument`
    *  does for a built-in, derived rather than declared so a template and its picker cannot disagree. */
   argumentHint: z.string().nullable(),
-  /** The template, verbatim, frontmatter removed. `expandCommand` turns this into the message. */
-  body: z.string(),
   /** Absolute path of the `.md` file — what "Open in editor" opens and what `shadowedBy` points at. */
   path: z.string(),
   origin: CommandOriginSchema,
-  /** False when the file cannot be run as written: no frontmatter, no description, no template, or a
+  /** False when the file cannot be run as written: no template, a name that cannot be typed, or a
    *  name a built-in already owns. Listed anyway, exactly as an invalid skill is. */
   valid: z.boolean(),
   /** Why it cannot run, in one sentence. Null when valid. */
@@ -108,25 +128,26 @@ export const RESERVED_COMMAND_NAMES: readonly string[] = [
   "attach", "connections", "diff", "export", "goal", "share", "skills",
 ].sort();
 
-export const isReservedCommandName = (name: string): boolean => RESERVED_COMMAND_NAMES.includes(name);
+/** Case-insensitive, because matching is: `Plan.md` would otherwise be a `/plan` the prompter offers
+ *  beside Realm's own. */
+export const isReservedCommandName = (name: string): boolean => RESERVED_COMMAND_NAMES.includes(commandKey(name));
 
 /**
- * How much of a command file is read.
- *
- * Far tighter than `SKILL_TEXT_MAX`, and for the opposite reason: a `SKILL.md` is a document an agent
- * consults, while this is a message that is about to be SENT — every byte of it is a byte of the
- * turn. 100k is a very long prompt and a very short file, so a `.md` above it is not a template
- * someone wrote; it is something else that landed in the directory. Over the cap the file is listed
- * as invalid and SAID to be too big, never quietly truncated into a prompt that stops mid-sentence.
+ * How much of each file a LIST reads: the frontmatter and the first line of the template, which is
+ * all a picker shows. Running a command reads the whole file, whatever its size.
  */
-export const COMMAND_TEXT_MAX = 100_000;
+export const COMMAND_HEAD_BYTES = 16 * 1024;
 
-/** A file's frontmatter and the text under it. `frontmatter: null` means there was no `---` block at
- *  all, which is a different failure from an empty one and gets a different sentence. */
+/** A file's frontmatter and the text under it. `frontmatter: null` means there was no `---` block. */
 export type CommandDocument = { frontmatter: Record<string, string> | null; body: string };
 
 /** The half of a `UserCommand` that comes out of the file itself; everything else is per-scan. */
-export type CommandMeta = Pick<UserCommand, "description" | "argumentHint" | "body" | "valid" | "reason">;
+export type CommandMeta = Pick<UserCommand, "description" | "argumentHint" | "valid" | "reason">;
+
+/** The template's first non-empty line, as a description. A Markdown heading's `#`s are dropped:
+ *  they are how the line is drawn in an editor, not what it says. */
+const firstLineOf = (body: string): string =>
+  body.split(/\r?\n/).map((l) => l.trim()).find((l) => l !== "")?.replace(/^#+\s+/, "") ?? "";
 
 /**
  * Read one command file's frontmatter into the fields a `UserCommand` carries, and decide whether it
@@ -139,22 +160,18 @@ export type CommandMeta = Pick<UserCommand, "description" | "argumentHint" | "bo
  * and the wrong one: two readers of one `---` block eventually disagree about a folded description,
  * and the disagreement would show up as a skill and a command reading the same file differently.
  *
- * Order of the checks is the order of the fixes. A reserved name is first because the file cannot run
- * under that name however well-formed the rest of it is.
+ * Frontmatter is optional, as it is for Claude: a plain `.md` is a template, and its first line is
+ * its description. Order of the checks is the order of the fixes. A reserved name is first because
+ * the file cannot run under that name however well-formed the rest of it is.
  */
 export function readCommandDocument(name: string, doc: CommandDocument): CommandMeta {
-  const description = doc.frontmatter?.description?.trim() ?? "";
+  const description = doc.frontmatter?.description?.trim() || firstLineOf(doc.body);
   const hint = doc.frontmatter?.["argument-hint"]?.trim() ?? "";
-  // Kept even when invalid, unlike the skills reader's `invalidMeta`: there is no id to fall back to
-  // here, and a viewer that shows what it managed to read is how the author sees what it missed.
-  const meta = { description, argumentHint: hint || null, body: doc.body };
+  const meta = { description, argumentHint: hint || null };
   if (isReservedCommandName(name)) return { ...meta, valid: false, reason: `/${name} is one of Realm's own commands — rename this file to use it` };
-  if (!doc.frontmatter) return { ...meta, valid: false, reason: "no `---` frontmatter block" };
-  // The description is the whole basis on which the picker offers a command, and the picker is the
-  // only place most of these are ever found. One without a description is not a command that reads
-  // badly, it is a command nobody discovers.
-  if (!description) return { ...meta, valid: false, reason: "frontmatter has no `description`" };
-  if (!doc.body.trim()) return { ...meta, valid: false, reason: "no template under the frontmatter" };
+  const untypeable = untypeableReason(name);
+  if (untypeable) return { ...meta, valid: false, reason: untypeable };
+  if (!doc.body.trim()) return { ...meta, valid: false, reason: doc.frontmatter ? "no template under the frontmatter" : "the file is empty" };
   return { ...meta, valid: true, reason: null };
 }
 
@@ -164,45 +181,51 @@ export const runnableCommands = (commands: readonly UserCommand[]): UserCommand[
   commands.filter((c) => c.valid && c.shadowedBy === null);
 
 /**
- * `$ARGUMENTS`, and `$1`…`$9`.
+ * Claude's placeholders, read off its CLI (2.1.322): `$ARGUMENTS`, `$ARGUMENTS[N]` and `$N`, where
+ * N is ZERO-based and has no upper bound — `$0` is the first word and `$10` the eleventh. A `\$`
+ * before one of them is a literal dollar sign.
  *
  * One alternation and one pass, so substituted text is never rescanned: an argument that contains the
- * literal `$1` must land in the message as `$1`, not as the first word again.
- *
- * `(?![0-9])` is what keeps `$10` out of it. Without it `$10` expands to the first word followed by a
- * stray `0` — a template that silently means something else, which is exactly the class of failure
- * this whole function is written to avoid.
+ * literal `$1` must land in the message as `$1`, not as a word again. `(?!\w)` keeps `$1st` whole.
  */
-const PLACEHOLDER = /\$ARGUMENTS\b|\$([1-9])(?![0-9])/g;
+const PLACEHOLDER = /(?<!\\)\\\$(?=ARGUMENTS|\d)|\$ARGUMENTS\[(\d+)\]|\$(\d+)(?!\w)|\$ARGUMENTS/g;
+
+/** The words of what was typed, with a quoted run kept as one word, as Claude splits them:
+ *  `/compare "old name" new` has two. */
+function argumentWords(rest: string): string[] {
+  return [...rest.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]!);
+}
 
 /**
  * Expand a template against what the user typed after the command.
  *
  * **An unmatched `$3` is left standing, and reported.** The alternative — substituting an empty
- * string — is the silent one: "compare $1 and $2" with one word typed still reads as a complete
+ * string — is the silent one: "compare $0 and $1" with one word typed still reads as a complete
  * English sentence about one thing, and the agent would answer the wrong question with no sign that
- * anything was missing. A literal `$3` in the draft is unmistakable.
+ * anything was missing. A literal `$1` in the draft is unmistakable. Claude does the same.
  *
  * That is only true because the expansion lands in the PROMPTER'S DRAFT and not straight on the wire:
  * the user reads the sentence before pressing Return, which is where a literal `$3` is unmissable.
  * Any caller that auto-sends an expansion owes the user the other behaviour — a non-empty `missing`
  * has to be a refusal there, because nobody is going to read it first.
  *
- * `$ARGUMENTS` is different and substitutes even when empty: it means "the rest of the line", the
- * rest of the line genuinely is empty, and there is no other word it could have meant. Over-supply
- * (three words typed at a template that only uses `$1`) is deliberately not reported — a template
- * that names one slot is a template that takes one word, and `argument-hint` is where it says so.
+ * `$ARGUMENTS` substitutes even when empty: it means "the rest of the line". A template that names
+ * no placeholder at all still gets what was typed, on an `ARGUMENTS:` line under it — Claude's rule,
+ * and the one that keeps a plain `.md` from silently dropping the words typed after it.
  */
 export function expandCommand(template: string, args: string): { text: string; missing: string[] } {
   const rest = args.trim();
-  const words = rest ? rest.split(/\s+/) : [];
+  const words = argumentWords(rest);
   const missing: string[] = [];
-  const text = template.replace(PLACEHOLDER, (token: string, digit: string | undefined) => {
-    if (digit === undefined) return rest;
-    const word = words[Number(digit) - 1];
-    if (word !== undefined) return word;
+  let used = false;
+  const text = template.replace(PLACEHOLDER, (token: string, indexed: string | undefined, positional: string | undefined) => {
+    if (token.startsWith("\\")) return "$";
+    const n = indexed ?? positional;
+    if (n === undefined) { used = true; return rest; }
+    const word = words[Number(n)];
+    if (word !== undefined) { used = true; return word; }
     if (!missing.includes(token)) missing.push(token);
     return token;
   });
-  return { text, missing };
+  return { text: !used && rest ? `${text}\n\nARGUMENTS: ${rest}` : text, missing };
 }

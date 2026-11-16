@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterSlashCommands, slashQueryAt, type SlashCommand } from "./slash-commands";
+import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
 import { exportFileName, exportSessionMarkdown } from "./export-session";
 import { emptyTranscript, type Block, type Transcript } from "./transcript-model";
 
@@ -30,6 +30,18 @@ describe("slashQueryAt", () => {
   it("opens on the bare slash, with an empty query", () => {
     expect(slashQueryAt("/", 1)).toEqual({ start: 0, end: 1, query: "" });
   });
+
+  it("takes every character a command name can have: case, `_`, `.`, and a nested name's `:`", () => {
+    expect(slashQueryAt("/git:commit now", 4)).toEqual({ start: 0, end: 11, query: "git" });
+    expect(slashQueryAt("/Plain_Name.v2", 14)).toEqual({ start: 0, end: 14, query: "Plain_Name.v2" });
+  });
+});
+
+describe("slashCallIn", () => {
+  it("finds an argument-taking command whatever case it was typed in", () => {
+    const review = { ...cmd("Git:Review", "Git:Review"), takesArgument: true };
+    expect(slashCallIn("/git:review src/app.ts", [review])).toEqual({ command: review, rest: "src/app.ts" });
+  });
 });
 
 describe("filterSlashCommands", () => {
@@ -45,6 +57,10 @@ describe("filterSlashCommands", () => {
 
   it("matches the label too, for a command whose name is not the word you would reach for", () => {
     expect(filterSlashCommands(all, "show").map((c) => c.id)).toEqual(["diff"]);
+  });
+
+  it("matches a name without regard to its case", () => {
+    expect(filterSlashCommands([cmd("Plain_Name", "Tidy")], "plain_").map((c) => c.id)).toEqual(["Plain_Name"]);
   });
 
   it("offers everything on a bare slash, and nothing on a miss", () => {

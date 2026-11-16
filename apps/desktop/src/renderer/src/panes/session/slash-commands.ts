@@ -1,3 +1,4 @@
+import { COMMAND_NAME_CHAR, commandKey } from "@realm/contracts";
 import type { IconName } from "@realm/ui";
 
 /**
@@ -9,7 +10,8 @@ import type { IconName } from "@realm/ui";
  * pickers look alike and are worded differently.
  */
 export type SlashCommand = {
-  /** The word after the slash. Lowercase, no spaces: it is typed, so it has to be typeable. */
+  /** The word after the slash, in `COMMAND_NAME_CHAR`s: it is typed, so it has to be typeable. Matched
+   *  without regard to case. */
   id: string;
   label: string;
   /** What running it does, in the imperative. Shown beside the name, so it earns its width. */
@@ -45,7 +47,7 @@ export function slashCallIn(text: string, commands: readonly SlashCommand[]): { 
   const token = slashQueryAt(text, 1);
   if (!token) return null;
   const id = text.slice(1, token.end);
-  const command = commands.find((c) => c.takesArgument && c.id === id);
+  const command = commands.find((c) => c.takesArgument && commandKey(c.id) === commandKey(id));
   if (!command) return null;
   return { command, rest: text.slice(token.end).replace(/^\s+/, "") };
 }
@@ -65,7 +67,7 @@ export function slashCallIn(text: string, commands: readonly SlashCommand[]): { 
 export function slashQueryAt(text: string, caret: number): { start: number; end: number; query: string } | null {
   if (text[0] !== "/") return null;
   let end = 1;
-  while (end < text.length && /[a-z0-9-]/i.test(text[end]!)) end++;
+  while (end < text.length && COMMAND_NAME_CHAR.test(text[end]!)) end++;
   // The caret has to be inside the token. Once the user has typed past it — "/export the thing" —
   // they are writing a message that happens to start with a slash, and the picker steps aside.
   if (caret < 1 || caret > end) return null;
@@ -78,5 +80,5 @@ export function slashQueryAt(text: string, caret: number): { start: number; end:
 export function filterSlashCommands(commands: readonly SlashCommand[], query: string): SlashCommand[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...commands];
-  return commands.filter((c) => c.id.startsWith(q) || c.label.toLowerCase().startsWith(q));
+  return commands.filter((c) => commandKey(c.id).startsWith(q) || c.label.toLowerCase().startsWith(q));
 }
