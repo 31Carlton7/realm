@@ -76,7 +76,6 @@ struct HomeChips: View {
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(chosen ? .isSelected : [])
-            .accessibilityIdentifier("home-chip-\(chip)")
         }
     }
 }

@@ -160,9 +160,10 @@ enum ShipWords {
     /// The pull request by its number, as GitHub names it, rather than its address: "Opened pull request #42."
     static func prOpened(_ url: URL, created: Bool) -> String {
         let parts = url.pathComponents
-        let number = parts.count >= 2 && parts[parts.count - 2] == "pull" ? Int(parts[parts.count - 1]) : nil
-        let name = number.map { "pull request #\($0)" } ?? "a pull request"
-        return created ? "Opened \(name)." : "\(name.prefix(1).uppercased() + name.dropFirst()) is already open."
+        guard parts.count >= 2, parts[parts.count - 2] == "pull", let number = Int(parts[parts.count - 1]) else {
+            return created ? "Opened a pull request." : "A pull request is already open."
+        }
+        return created ? "Opened pull request #\(number)." : "Pull request #\(number) is already open."
     }
 
     /// git's and gh's words as a sentence: a capital to start and a stop to end. One that starts with a
