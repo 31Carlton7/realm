@@ -63,6 +63,15 @@ struct GreyButtonStyle: ButtonStyle {
     }
 }
 
+/// An option among peers: grey, or ink for the one the asker suggests.
+struct ChoiceButtonStyle: ButtonStyle {
+    let suggested: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        CapsuleLabel(configuration: configuration, fill: suggested ? Fill.primary : Fill.pill, ink: suggested ? Fill.onPrimary : Palette.ink)
+    }
+}
+
 /// A destructive step's button: the same capsule in the danger fill, with the white word it is solved for.
 struct DangerButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

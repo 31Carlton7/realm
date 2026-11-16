@@ -110,7 +110,10 @@ struct HomeView: View {
         .contentMargins(.bottom, 72, for: .scrollContent)
         .background(Ground.transcript)
         .softEdges(ground: Ground.transcript)
-        .id(ListIdentity(choice: choice, style: style))
+        // Results grow up from the search field at the foot, the best nearest it.
+        .defaultScrollAnchor(matches == nil ? nil : .bottom, for: .alignment)
+        .defaultScrollAnchor(matches == nil ? nil : .bottom, for: .initialOffset)
+        .id(ListIdentity(choice: choice, style: style, searched: matches != nil))
         // Manus's chips under the bar: what the list holds, by what it asks of the person. The list
         // blurs and fades under them as it does under the bar.
         .safeAreaBar(edge: .top, spacing: 0) {
@@ -241,6 +244,8 @@ enum MacLine {
 private struct ListIdentity: Hashable {
     let choice: ProfileChoice
     let style: ListStyle
+    /// Results are a list of their own, so they open at their foot.
+    let searched: Bool
 }
 
 extension SessionRow {

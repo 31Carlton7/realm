@@ -219,7 +219,8 @@ enum PlanText {
 }
 
 /// The request a session waits on, in the composer's place where the next press is: who asks and
-/// what, and the answers — Allow and Deny in place, questions and a plan in a sheet. Once answered it
+/// what, and the answers — Allow and Deny in place, one question's few options in place, other
+/// questions and a plan in a sheet. Once answered it
 /// says where the answer is until the Mac has it, and holds a Don't send while it waits. It is opaque:
 /// a decision is read, and the transcript showing through it would be read too.
 struct WaitingDock: View {
@@ -248,11 +249,11 @@ struct WaitingDock: View {
                     Image(systemName: "chevron.down")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink2)
-                        .frame(width: 44, height: 32)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .padding(.vertical, -6)
+                .padding(.vertical, -12)
                 .accessibilityLabel("Fold")
                 .accessibilityHint("Shows the message field, with this request as one line above it")
             }
@@ -316,10 +317,50 @@ struct WaitingDock: View {
                           onDecline: { model.answer(.deny, to: request, in: sessionId) },
                           onAccept: { reviewingPlan = true })
         case .questions:
-            AnswerButtons(decline: "Skip", accept: model.store.drafts[request.requestId] == nil ? "Answer" : "Continue answering",
-                          onDecline: { model.answer(.deny, to: request, in: sessionId) },
-                          onAccept: { answering = true })
+            if let question = OneTapQuestion.of(request) {
+                oneTap(question, request: request)
+            } else {
+                AnswerButtons(decline: "Skip", accept: model.store.drafts[request.requestId] == nil ? "Answer" : "Continue answering",
+                              onDecline: { model.answer(.deny, to: request, in: sessionId) },
+                              onAccept: { answering = true })
+            }
         }
+    }
+
+    /// One question with a few options: each option is a button on the card, and a tap sends it. The
+    /// one the asker suggests is the filled one. Skip, and words of the person's own where the asker
+    /// takes them, go on a row under.
+    private func oneTap(_ question: Question, request: TranscriptRow.Request) -> some View {
+        VStack(spacing: 10) {
+            ForEach(question.options, id: \.label) { option in
+                Button {
+                    model.submit(OneTapQuestion.answer(option, to: question, of: request, in: sessionId))
+                } label: {
+                    Text(option.label)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ChoiceButtonStyle(suggested: OneTapQuestion.suggests(option, in: question)))
+                .accessibilityHint(option.description ?? "Sends this answer")
+            }
+            HStack(spacing: 10) {
+                quiet("Skip") { model.answer(.deny, to: request, in: sessionId) }
+                if question.takesText {
+                    quiet("Other answer") { answering = true }
+                }
+            }
+        }
+    }
+
+    private func quiet(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Palette.ink2)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// The answer given and where it is: on its way, waiting for the Mac, or refused.
@@ -408,6 +449,30 @@ struct EqualWidths: Layout {
     }
 }
 
+/// A question answered with one tap on the dock: the only one asked, one choice from at most four
+/// options, answerable on this phone and not secret. The rest open the sheet.
+enum OneTapQuestion {
+    static let mostOptions = 4
+
+    static func of(_ request: TranscriptRow.Request) -> Question? {
+        guard case .questions(let questions) = request.kind, questions.count == 1, let question = questions.first,
+              !question.multiSelect, !question.secret, question.isAnswerableHere,
+              (1...mostOptions).contains(question.options.count) else { return nil }
+        return question
+    }
+
+    static func answer(_ option: QuestionOption, to question: Question, of request: TranscriptRow.Request, in sessionId: String) -> AnswerDraft {
+        var draft = AnswerDraft(sessionId: sessionId, requestId: request.requestId, questions: [question])
+        draft.toggle(option.label, in: question)
+        return draft
+    }
+
+    static func suggests(_ option: QuestionOption, in question: Question) -> Bool {
+        guard case .one(let value) = question.defaultAnswer else { return false }
+        return option.answerValue == value || option.label == value
+    }
+}
+
 /// A fresh answer opens with what the asker suggests already picked, as the desktop's card opens.
 enum QuestionDefaults {
     static func applied(to draft: AnswerDraft) -> AnswerDraft {
@@ -479,14 +544,19 @@ struct QuestionSheet: View {
                     Button("Not now") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Send") {
-                        model.submit(draft)
-                        dismiss()
-                    }
-                    .disabled(!draft.isComplete)
+            }
+            .safeAreaBar(edge: .bottom) {
+                Button {
+                    model.submit(draft)
+                    dismiss()
+                } label: {
+                    Text("Send")
+                        .frame(maxWidth: .infinity)
                 }
-                .sharedBackgroundVisibility(.hidden)
+                .buttonStyle(InkButtonStyle())
+                .disabled(!draft.isComplete)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
         }
         .presentationDetents([.large])
@@ -586,7 +656,7 @@ private struct QuestionSection: View {
                         .opacity(chosen ? 1 : 0)
                 }
             }
-            .frame(minHeight: 30)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -629,7 +699,7 @@ private struct QuestionSection: View {
         }
         .font(.body)
         .foregroundStyle(Palette.ink)
-        .frame(minHeight: 30)
+        .frame(minHeight: 44)
         .listRowBackground(Fill.card)
     }
 
