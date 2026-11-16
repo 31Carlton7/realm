@@ -220,8 +220,8 @@ struct RealmMenuTests {
             for dark in [false, true] {
                 let words = try Drawing.words(RealmMenuPanel(title: "Mode", close: MenuClose {}, content: rows),
                                               width: 416, dark: dark, size: size)
-                // Short fragments: Vision on iOS 26.5 runs a row's words into its check ("Askeachv").
-                for word in ["Permissions", "each", "Accept", "Full access"] {
+                // "Ask" and "each" apart: Vision on iOS 26.5 runs the row's words together ("Askeachv").
+                for word in ["Permissions", "Ask", "each", "Accept", "Full access"] {
                     #expect(words.contains(word), "\(size) \(dark ? "dark" : "light"): \(word) in \(words)")
                 }
             }

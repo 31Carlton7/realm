@@ -112,6 +112,10 @@ describe("Realm's menu", () => {
     expect(menu).not.toMatch(/Material|glassEffect|\.blur\(|UIVisualEffectView|UIBlurEffect/);
   });
 
+  it("floats over what opened it, with the shared lift under its own deeper shadow", () => {
+    expect(panel).toMatch(/\.shadow\(color: \.black\.opacity\(0\.1\), radius: 24, y: 10\)\s*\.floatingLift\(\)/);
+  });
+
   it("draws each section's head in the secondary ink", () => {
     expect(panel).toMatch(/section\.header[\s\S]*?\.foregroundStyle\(Palette\.ink2\)/);
   });
