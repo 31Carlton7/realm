@@ -1466,10 +1466,12 @@ final class AppModel {
     }
     #endif
 
-    /// Takes a file out of a session's composer, and off this phone.
+    /// Takes a file out of a session's composer, and off this phone. A video already on the Mac goes
+    /// there too, so it stops counting toward what the Mac holds for this phone.
     func removeAttachment(_ attachment: OutgoingAttachment, from sessionId: String) {
         draftAttachments[sessionId]?.removeAll { $0.id == attachment.id }
         store.files.remove([attachment])
+        if let uploadId = attachment.uploadId { Task { try? await api?.uploadAbort(uploadId: uploadId) } }
     }
 
     /// A picked photo or file, ready to keep; or why it cannot go, in words. Off the main thread: a
