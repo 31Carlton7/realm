@@ -1613,6 +1613,15 @@ final class AppModel {
         thumbnails[key] = await image.byPreparingThumbnail(ofSize: CGSize(width: side, height: side)) ?? image
     }
 
+    /// A photo sent with a message, small enough for its tile; once the Mac has swept it, the tile kept
+    /// when it was first drawn.
+    func loadSentPicture(_ path: String, in sessionId: String, side: CGFloat) async {
+        await loadThumbnail(path, in: sessionId, side: side)
+        let key = Self.previewKey(path, sessionId)
+        let tile = PhotoPreview.tile(drawn: thumbnails[key], keptAt: Self.poster(path, in: sessionId))
+        if thumbnails[key] == nil { thumbnails[key] = tile }
+    }
+
     func thumbnail(_ path: String, in sessionId: String) -> UIImage? {
         thumbnails[Self.previewKey(path, sessionId)]
     }
@@ -1663,8 +1672,8 @@ final class AppModel {
     }
 
     private static let wholeFiles = URL.cachesDirectory.appending(path: "Files", directoryHint: .isDirectory)
-    /// A frame of each sent video this phone has drawn, kept outside the cache: the Mac sweeps a sent
-    /// video after a day, and its tile still shows it.
+    /// A frame of each sent video and the tile of each sent photo this phone has drawn, kept outside the
+    /// cache: the Mac sweeps a sent file after a day, and its tile still shows it.
     private static let posters = URL.applicationSupportDirectory.appending(path: "Posters", directoryHint: .isDirectory)
 
     static func poster(_ path: String, in sessionId: String) -> URL {

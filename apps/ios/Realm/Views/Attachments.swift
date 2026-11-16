@@ -443,6 +443,21 @@ struct VideoPoster {
     private static func lengthFile(_ file: URL) -> URL { file.deletingPathExtension().appendingPathExtension("length") }
 }
 
+/// A sent photo's tile as first drawn, kept beside the videos' frames so its tile reads the same once
+/// the file is gone.
+enum PhotoPreview {
+    /// The tile to draw: the one `drawn` from the Mac's copy, kept at `file` the first time; with no
+    /// copy to draw from, the one kept.
+    static func tile(drawn: UIImage?, keptAt file: URL) -> UIImage? {
+        guard let drawn else { return UIImage(contentsOfFile: file.path) }
+        if !FileManager.default.fileExists(atPath: file.path), let data = drawn.jpegData(compressionQuality: 0.8) {
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: file, options: .atomic)
+        }
+        return drawn
+    }
+}
+
 extension View {
     /// How long a video runs, along the foot of its tile.
     func videoLength(_ duration: Duration?) -> some View {
@@ -695,7 +710,8 @@ struct OutgoingFiles: View {
     }
 }
 
-/// A picture sent with a message, once the Mac has sent a small copy: until then, its kind's glyph.
+/// A picture sent with a message, once the Mac has sent a small copy: gone from the Mac, the tile kept
+/// when it was first drawn; until then, its kind's glyph.
 struct SentPicture: View {
     let file: SentFile
     let sessionId: String
@@ -728,7 +744,7 @@ struct SentPicture: View {
         .pictureTile()
         .animation(.easeOut(duration: 0.2), value: thumbnail != nil)
         // Asked again once the Mac is there: a transcript kept from before draws before it connects.
-        .task(id: model.isConnected) { await model.loadThumbnail(file.path, in: sessionId, side: side * displayScale) }
+        .task(id: model.isConnected) { await model.loadSentPicture(file.path, in: sessionId, side: side * displayScale) }
     }
 }
 
