@@ -121,8 +121,8 @@ struct HomeView: View {
         }
         .background(Ground.transcript)
         .softEdges(ground: Ground.transcript)
-        .defaultScrollAnchor(matches == nil ? nil : .bottom, for: .initialOffset)
-        .id(ListIdentity(choice: choice, style: style, searched: matches != nil))
+        .modifier(BestResultInView(best: matches?.hits.first?.id))
+        .id(ListIdentity(choice: choice, style: style))
         // Manus's chips under the bar: what the list holds, by what it asks of the person. The list
         // blurs and fades under them as it does under the bar.
         .safeAreaBar(edge: .top, spacing: 0) {
@@ -249,12 +249,23 @@ enum MacLine {
     }
 }
 
+/// More results than fit open at the best, nearest the field at the foot, each time the Mac sends new ones.
+private struct BestResultInView: ViewModifier {
+    let best: SearchHit.ID?
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content.onChange(of: best, initial: true) {
+                if let best { proxy.scrollTo(best, anchor: .bottom) }
+            }
+        }
+    }
+}
+
 /// What makes one list another: a switch of profile or of style starts the new one at its top.
 private struct ListIdentity: Hashable {
     let choice: ProfileChoice
     let style: ListStyle
-    /// Results are a new list, since a list takes its initial offset only once.
-    let searched: Bool
 }
 
 extension SessionRow {

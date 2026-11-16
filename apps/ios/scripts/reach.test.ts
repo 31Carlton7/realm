@@ -44,8 +44,11 @@ describe("thumb reach on a tall phone", () => {
     expect(home).toMatch(/\.onScrollGeometryChange\(for: CGFloat\.self\) \{ geometry in\s*geometry\.containerSize\.height - geometry\.contentInsets\.top - geometry\.contentInsets\.bottom - geometry\.contentSize\.height/);
     expect(home).toContain("resultsLift = matches == nil ? 0 : max(0, resultsLift + room)");
     expect(home).toContain(".contentMargins(.bottom, searching ? 0 : 72, for: .scrollContent)");
-    expect(home).toContain(".defaultScrollAnchor(matches == nil ? nil : .bottom, for: .initialOffset)");
-    expect(home).toContain("searched: matches != nil");
+    // More than fit open at the best, scrolled to the foot whenever new results come.
+    expect(home).toContain(".modifier(BestResultInView(best: matches?.hits.first?.id))");
+    expect(body(read("HomeView.swift"), "private struct BestResultInView: ViewModifier")).toMatch(
+      /content\.onChange\(of: best, initial: true\) \{\s*if let best \{ proxy\.scrollTo\(best, anchor: \.bottom\) \}/,
+    );
     expect(body(read("SearchViews.swift"), "struct SearchHitsSection: View")).toContain("ForEach(found.hits.reversed())");
   });
 
