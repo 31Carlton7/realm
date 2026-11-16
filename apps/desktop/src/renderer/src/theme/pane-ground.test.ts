@@ -27,10 +27,15 @@ function repoFile(rel: string): string {
 }
 const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
 
-/** The thin end of `--pane-alpha`, as a fraction — what a pane's ground comes to with its
- *  translucency slider pushed all the way down. Read from the range the control is clamped to rather
- *  than restated: the point of this suite is to fail when that number moves. */
-const PANE_ALPHA = PANE_ALPHA_RANGE.min / 100;
+/** The DEFAULT `--pane-alpha`, as a fraction: the promise that body text clears AA over any desktop
+ *  is the default's (the owner, 11-15, let the range run to 0). Read from the default rather than
+ *  restated: the point of this suite is to fail when that number moves. */
+const PANE_ALPHA = DEFAULT_PANE_ALPHA / 100;
+
+/** A ground's opacity rule from tokens.css, `calc(…)` or `min(calc(…), calc(…))` over a slider's
+ *  `var(--ground-alpha)` or `var(--pane-alpha)`, evaluated at a slider value in %. */
+const at = (expr: string, v: number) =>
+  Function("g", `return ${expr.replace(/var\(--(?:ground|pane)-alpha\)/g, "g").replace(/%/g, "").replace(/\bmin\(/g, "Math.min(").replace(/\bcalc\(/g, "(")};`)(v) as number;
 
 /** What the eye actually receives: the ground painted at `alpha` over a desktop of `behind`.
  *  Composited on the ENCODED channels, because that is where a compositor does it — mixing linear
@@ -117,11 +122,8 @@ describe("the pane ground, with the desktop showing through it", () => {
    mode into a grey-blue wash; Codex's light window, measured beside it, shows almost none. */
 describe("the light face is nearly opaque", () => {
   const light = tokensCss.slice(tokensCss.indexOf("The LIGHT face shows far less of the desktop"));
-  // calc(A% + var(--x) * B) or calc(A% + (var(--x) - C%) * B), evaluated at a slider value in %.
-  const at = (expr: string, v: number) =>
-    Function("g", `return ${expr.replace(/var\(--(?:ground|pane)-alpha\)/g, "g").replace(/%/g, "")};`)(v) as number;
-  const sidebar = /--sidebar-ground: color-mix\(in srgb, var\(--page\) calc\(([^;]+)\), transparent\);/.exec(light)![1]!;
-  const pane = /--pane-ground: color-mix\(in srgb, var\(--canvas\) calc\(([^;]+)\), transparent\);/.exec(light)![1]!;
+  const sidebar = /--sidebar-ground: color-mix\(in srgb, var\(--page\) (.+), transparent\);/.exec(light)![1]!;
+  const pane = /--pane-ground: color-mix\(in srgb, var\(--canvas\) (.+), transparent\);/.exec(light)![1]!;
 
   it("at the defaults the light sidebar is ~80% and the panes 92%, against the dark 55% and 84%", () => {
     expect(at(sidebar, DEFAULT_GROUND_ALPHA)).toBeCloseTo(79.75, 1);
@@ -131,6 +133,15 @@ describe("the light face is nearly opaque", () => {
   it("fully opaque still means opaque, in the light face too", () => {
     expect(at(sidebar, 100)).toBeCloseTo(100, 1);
     expect(at(pane, PANE_ALPHA_RANGE.max)).toBeCloseTo(100, 1);
+  });
+
+  it("runs on down to bare material at 0, and is what it was at and above the default (11-15)", () => {
+    // THE mutants: the light face floored again (55% sidebar, 50% pane at slider 0), or the new line
+    // taking over above the default and moving what everyone already sees.
+    expect(at(sidebar, PANE_ALPHA_RANGE.min)).toBeCloseTo(0, 1);
+    expect(at(pane, PANE_ALPHA_RANGE.min)).toBeCloseTo(0, 1);
+    for (const v of [DEFAULT_GROUND_ALPHA, 70, 90]) expect(at(sidebar, v)).toBeCloseTo(55 + v * 0.45, 1);
+    for (const v of [DEFAULT_PANE_ALPHA, 90, 96]) expect(at(pane, v)).toBeCloseTo(92 + (v - 84) * 0.5, 1);
   });
 
   it("Reduce Transparency still wins over the light rule — it is more specific than a bare :root", () => {
@@ -146,9 +157,7 @@ describe("the light face is nearly opaque", () => {
    panes wore (reported 10-04). Realm's own near-grey dark ground is the one the 55% was drawn for. */
 describe("a themed palette's sidebar wears the theme", () => {
   const themed = tokensCss.slice(tokensCss.indexOf("A THEMED palette's sidebar starts where the light face's does"));
-  const at = (expr: string, v: number) =>
-    Function("g", `return ${expr.replace(/var\(--ground-alpha\)/g, "g").replace(/%/g, "")};`)(v) as number;
-  const rule = /:root\[data-mode="dark"\]\[data-theme\]:not\(\[data-theme="realm"\]\) \{\s*--sidebar-ground: color-mix\(in srgb, var\(--page\) calc\(([^;]+)\), transparent\);/.exec(themed);
+  const rule = /:root\[data-mode="dark"\]\[data-theme\]:not\(\[data-theme="realm"\]\) \{\s*--sidebar-ground: color-mix\(in srgb, var\(--page\) (.+), transparent\);/.exec(themed);
 
   it("starts the sidebar's range where the light face does: ~80% at the default, opaque at the top", () => {
     // THE mutants: the rule dropped (a themed dark sidebar back on Realm's 55%), or aimed at Realm's

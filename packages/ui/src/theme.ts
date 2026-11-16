@@ -49,18 +49,15 @@ export function spaceColor(hex: string, mode: Mode): string {
     : { h: h.h, s, l: Math.min(55, Math.max(35, h.l)) });
 }
 
-/** Fully opaque at the top — which is what "off" means, since covering the material is the same as
- *  not having asked for it. The floor is where the ground stops carrying the sidebar's own text:
- *  screenshotting the built app over a bright desktop, the nav labels wash out somewhere below 55%,
- *  because past that point their legibility is a property of the user's wallpaper rather than of the
- *  palette. Apple's own sidebars go all the way to bare material and stay readable, so this is a
- *  judgement about Realm's denser sidebar and not a limit of the material — but it is a floor,
- *  because a control that can make the app's navigation unreadable is not a preference.
+/** Fully opaque at the top, which is what "off" means, and bare material at the bottom: the owner,
+ *  11-15, "should be able to be very very transparent, instead of it being capped". 0 is not a hole,
+ *  the window's material is still behind it. Over a bright desktop the nav labels wash out somewhere
+ *  below 55%, which is why the DEFAULT stays there; past it, legibility is the person's wallpaper and
+ *  their call, said in the control's tooltip rather than enforced by its range.
  *
  *  It cannot be checked automatically: the material is composited by the window server BELOW the web
- *  contents, so a CDP screenshot never sees it (see transparency-live.mjs). This number came from
- *  looking. */
-export const GROUND_ALPHA_RANGE = { min: 55, max: 100 } as const;
+ *  contents, so a CDP screenshot never sees it (see transparency-live.mjs). */
+export const GROUND_ALPHA_RANGE = { min: 0, max: 100 } as const;
 
 /** How much of the window ground the sidebar paints over the macOS material, as a percentage. It
  *  lives here rather than in the stylesheet so there is exactly one of it. tokens.css declares 100%
@@ -73,7 +70,7 @@ export const GROUND_ALPHA_RANGE = { min: 55, max: 100 } as const;
  *  round number, so the answer is the most transparent value the app will let the sidebar be rather
  *  than a floor lowered to meet a request. A user who wants less can move the slider; there is
  *  nothing below 55 to move it to. */
-export const DEFAULT_GROUND_ALPHA = GROUND_ALPHA_RANGE.min;
+export const DEFAULT_GROUND_ALPHA = 55;
 
 
 
@@ -84,26 +81,31 @@ export const clampGroundAlpha = (pct: number): number =>
  * The panes' share of the same material, over their OWN range — and since Plan 26, their own control.
  *
  * The sidebar holds short labels and the panes hold the reading, and a pane's ground is whatever the
- * desktop behind the window happens to be. 84 is measured, not chosen (`pane-ground.test.ts` walks
- * it): composite each face's `--canvas` over a white desktop and over a black one and 84% opacity is
- * the thinnest at which `--ink` still clears WCAG AA on every face. Below it, body text on a light
- * face over a dark desktop goes under 4.5:1, and body text is the one thing here that may never be
- * a judgement call — which is why the pane's control stops there however far the sidebar's goes.
+ * desktop behind the window happens to be. The DEFAULT, 84, is measured, not chosen
+ * (`pane-ground.test.ts` walks it): composite each face's `--canvas` over a white desktop and over a
+ * black one and 84% opacity is the thinnest at which `--ink` still clears WCAG AA on every face. That
+ * is the default's promise. The range itself runs to 0 (the owner, 11-15): below 84, body text over a
+ * bright or busy desktop gets harder to read, and the control says so instead of stopping there.
  */
 /* 84 since the light ramp moved to near-white paper (canvas 0.985): every light face gained headroom,
    and Rosé Pine's light face is now the one that binds. It was 86. */
-export const PANE_ALPHA_RANGE = { min: 84, max: 100 } as const;
-export const DEFAULT_PANE_ALPHA = PANE_ALPHA_RANGE.min;
+export const PANE_ALPHA_RANGE = { min: 0, max: 100 } as const;
+export const DEFAULT_PANE_ALPHA = 84;
 
 export const clampPaneAlpha = (pct: number): number =>
   Math.round(Math.min(PANE_ALPHA_RANGE.max, Math.max(PANE_ALPHA_RANGE.min, pct)));
 
+/** The two ranges as they were when one control moved both, before they ran to 0. */
+const SPLIT_GROUND = { min: 55, max: 100 } as const;
+const SPLIT_PANE = { min: 84, max: 100 } as const;
 /** What the panes were at when one control moved both: the sidebar's value mapped onto the pane's
- *  range, 55 → 84 at the thin end and 100 → 100 at the other. Kept only to carry a home saved before
- *  the split forward to the pane it was already looking at. */
-export const paneAlphaFromGround = (ground: number): number =>
-  clampPaneAlpha(PANE_ALPHA_RANGE.min + (clampGroundAlpha(ground) - GROUND_ALPHA_RANGE.min)
-    * (PANE_ALPHA_RANGE.max - PANE_ALPHA_RANGE.min) / (GROUND_ALPHA_RANGE.max - GROUND_ALPHA_RANGE.min));
+ *  range of that time, 55 → 84 at the thin end and 100 → 100 at the other. Kept only to carry a home
+ *  saved before the split forward to the pane it was already looking at, so it maps on those ranges
+ *  and not today's. */
+export const paneAlphaFromGround = (ground: number): number => {
+  const g = Math.min(SPLIT_GROUND.max, Math.max(SPLIT_GROUND.min, Math.round(ground)));
+  return Math.round(SPLIT_PANE.min + (g - SPLIT_GROUND.min) * (SPLIT_PANE.max - SPLIT_PANE.min) / (SPLIT_GROUND.max - SPLIT_GROUND.min));
+};
 
 /** Writes the runtime tokens and stamps the mode and theme on the root. `data-mode` is what flips the
  *  CSS token blocks (and Tailwind's `dark:` variant, remapped onto it) between the dark and light BUI

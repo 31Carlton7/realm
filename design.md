@@ -401,10 +401,13 @@ Rules:
   scroller's mask, which paints nothing. A wash to a fixed tone is wrong for the same reason — it
   stripes a translucent surface with a colour the material shows straight through.
 - Translucency is not free and is not uniform. What shows through a pane is the desktop, which nobody
-  chose, so the alpha is derived from the type it has to carry rather than picked by eye: the sidebar
-  holds labels and goes to 55%, a pane holds the reading and stops where body text would cross WCAG
-  AA over the worst desktop. Each has its own control over its own range (`pane-ground.test.ts`): a
-  see-through sidebar beside solid reading is a reasonable thing to want, and one control could not say it.
+  chose, so the DEFAULT alpha is derived from the type it has to carry rather than picked by eye: the
+  sidebar holds labels and starts at 55%, a pane holds the reading and starts where body text would
+  cross WCAG AA over the worst desktop (`pane-ground.test.ts`). The default is the promise; the range
+  is the person's (the owner, 11-15: "very very transparent, instead of it being capped"), so both
+  controls run to bare material at 0, and past the default the control says in words that text gets
+  harder to read over a bright or busy desktop rather than stopping there. Each has its own control:
+  a see-through sidebar beside solid reading is a reasonable thing to want, and one control could not say it.
   A claim about what the material does to contrast is a real screen capture, never a CDP screenshot —
   the material is not in the DOM.
 - The material is the system's grey, so an alpha is drawn for a palette, not for every palette.
