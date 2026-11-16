@@ -7778,7 +7778,7 @@ select { appearance: none; padding-right: 22px;
    wears the danger tone; a success is deliberately quiet (§3: nothing routine wears a success color),
    which is also why "Testing…" and "reached" share the faint default. */
 .mcp-test { flex-basis: 100%; color: var(--rl-danger); }
-.mcp-test[data-reached="true"] { color: var(--rl-text-faint); }
+.mcp-test[data-reached="true"], .mcp-test[data-waiting] { color: var(--rl-text-faint); }
 .mcp-error { margin: 0; font-size: 11px; color: var(--rl-danger); }
 .mcp-circuit { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 11px; color: var(--rl-danger); }
 .mcp-circuit span { flex: 1; }

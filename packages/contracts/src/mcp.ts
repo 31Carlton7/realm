@@ -5,14 +5,36 @@ import { ItemScopeSchema } from "./scoping";
 import type { AgentKind } from "./entities";
 
 /**
- * A server's **name** is what every agent keys it by on the wire — a record key for Claude, a
- * `[mcp_servers.NAME]` TOML table for Codex, a `name` field for ACP. So it has to survive being a TOML
- * bare key, which is the narrowest of the three: letters, digits, `_` and `-`, nothing else.
+ * The longest tool name a model API takes: the Claude API's `^[a-zA-Z0-9_-]{1,128}$`. OpenAI's and
+ * Gemini's function names stop at 64, and Codex and the Gemini CLI shorten a longer MCP name
+ * themselves; the Claude CLI drops a tool whose `mcp__<server>__<tool>` passes 128, without a word.
+ */
+export const MCP_TOOL_NAME_MAX = 128;
+
+/** The one MCP server every agent is handed: Realm's gateway, which re-exports each server's tools as
+ *  `<server>__<tool>`. An engine prefixes those again, so Claude sees `mcp__realm__<server>__<tool>`. */
+export const MCP_GATEWAY_SERVER_NAME = "realm";
+
+/** The longest `<server>__<tool>` the gateway lists: what is left of `MCP_TOOL_NAME_MAX` after the
+ *  engine's `mcp__realm__`. A longer one is shortened, keeping a hash of the whole (`mcp/gateway.ts`). */
+export const MCP_GATEWAY_TOOL_NAME_MAX = MCP_TOOL_NAME_MAX - `mcp__${MCP_GATEWAY_SERVER_NAME}__`.length;
+
+/** How many characters of a hash name a shortened tool. */
+export const MCP_TOOL_NAME_HASH_LENGTH = 8;
+
+/** The longest server name: one that still leaves `__` and a shortened tool's hash inside
+ *  `MCP_GATEWAY_TOOL_NAME_MAX`, so every tool of every server can be named to every engine. */
+export const MCP_SERVER_NAME_MAX = MCP_GATEWAY_TOOL_NAME_MAX - "__".length - MCP_TOOL_NAME_HASH_LENGTH;
+
+/**
+ * A server's **name** is the prefix of each of its tools' names on the gateway's wire, so it takes a
+ * tool name's characters: letters, digits, `_` and `-`, nothing else — the model APIs' rule — and is
+ * as long as still leaves room for a tool (`MCP_SERVER_NAME_MAX`).
  *
  * It is separate from the row's `id` because the user can rename a server, and a rename must not look
  * like a delete-plus-add to the per-space enable sets that point at it.
  */
-export const McpServerNameSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/,
+export const McpServerNameSchema = z.string().min(1).max(MCP_SERVER_NAME_MAX).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/,
   "server name must be letters, digits, underscore or hyphen");
 
 /**
@@ -75,7 +97,8 @@ export const McpSignInOptionsSchema = z.object({
 export type McpSignInOptions = z.infer<typeof McpSignInOptionsSchema>;
 
 /** The hub's live connection state for a server row. `circuit_open` is distinct from `error`: it means
- *  three consecutive failures tripped the breaker, and calls fail fast until `mcp.retry` or a row edit. */
+ *  three consecutive failures tripped the breaker, and calls fail fast through a short cool-off, after
+ *  which the hub tries the server again by itself — or at once on `mcp.retry` or a row edit. */
 export const McpServerStatusSchema = z.enum(["idle", "connected", "error", "circuit_open"]);
 export type McpServerStatus = z.infer<typeof McpServerStatusSchema>;
 

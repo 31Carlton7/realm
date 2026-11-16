@@ -500,6 +500,7 @@ export function registerMethods(d: Deps): void {
   });
   // No broadcast and no write: a probe, not a mutation.
   reg("mcp.test", (p) => d.mcp.test(p.id));
+  reg("mcp.testCancel", (p) => ({ cancelled: d.mcp.cancelTest(p.id) }));
   reg("mcp.setEnabled", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setEnabled(p.spaceId, p.id, p.enabled);

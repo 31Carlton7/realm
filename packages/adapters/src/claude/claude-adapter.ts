@@ -154,6 +154,22 @@ export function claudeMcpServers(servers: readonly McpServerConfig[]): Record<st
 }
 
 /**
+ * The most of one MCP tool result the CLI puts in the conversation, in tokens (`MAX_MCP_OUTPUT_TOKENS`).
+ * Every tool reaches Claude through the gateway, Realm's own included, so this is the cap on all of
+ * them. The CLI's own default is 25,000; past the cap it writes the whole result to a file in the
+ * session's folder and gives the model the path to read it from (a result with images is cut instead).
+ * A second threshold, in characters, does the same; the gateway lifts that one on each tool it lists
+ * (`RESULT_SIZE_META` in apps/server's `mcp/gateway.ts`).
+ *
+ * Half of the smallest window Realm runs Claude in (Haiku 4.5's 200,000): a result that size still
+ * leaves room for the system prompt, the tools and the reply, and a compaction can make room for the
+ * rest of the conversation. Past the window itself a result could not be sent at all, and the turn
+ * would end; the file keeps anything larger readable. A value the user set in the environment wins.
+ */
+export const CLAUDE_MCP_OUTPUT_TOKENS = 100_000;
+const MCP_OUTPUT_ENV = { MAX_MCP_OUTPUT_TOKENS: String(CLAUDE_MCP_OUTPUT_TOKENS) };
+
+/**
  * W4's double-prompt fix, read-only half ONLY. The SDK asks `canUseTool` for every MCP tool — which
  * Realm bridges to an ApprovalCard — so a `browser_snapshot` that Realm's own broker lets run free
  * would still raise a card from Claude's side. Pre-allowing Realm's READ-ONLY gateway tools via
@@ -450,7 +466,7 @@ export class ClaudeAdapter implements AgentAdapter {
       return result;
     };
 
-    const env = { ...process.env, ...opts.env };
+    const env = { ...MCP_OUTPUT_ENV, ...process.env, ...opts.env };
     const switchable = bypassSwitchable(env);
     const options: Options = {
       cwd: opts.cwd,
@@ -712,7 +728,7 @@ export class ClaudeAdapter implements AgentAdapter {
         // Here rather than beside the `env` above because `start` is synchronous and the helper is a
         // child process; the first prompt waits on the input queue either way. ONLY the skills case:
         // everyone else's CLI reads the file itself, and their env must stay byte-for-byte what it was.
-        if (opts.skills) options.env = { ...process.env, ...(await carrySettingsAuth({ env: { ...process.env, ...opts.env }, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
+        if (opts.skills) options.env = { ...MCP_OUTPUT_ENV, ...process.env, ...(await carrySettingsAuth({ env: { ...process.env, ...opts.env }, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
         if (disposed) return; // dispose stopped waiting mid-carry; a dead session must not spawn a CLI
         q = this.queryFn({ prompt: input, options });
         qSpawned();

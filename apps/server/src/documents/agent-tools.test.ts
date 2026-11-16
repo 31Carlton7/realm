@@ -162,6 +162,19 @@ describe("realm-docs provider", () => {
     expect((await h.call("docs_read", { path: "long.md", offset: 999 })).text).toBe("long.md has 450 lines, so there is nothing from line 999.");
   });
 
+  it("docs_read reads the rest of a line too long for one page, from the column it says", async () => {
+    // THE MUTANT: clip the line with no column to read on from, and the rest of a minified file is
+    // unreadable through this tool.
+    const h = harness();
+    const long = Array.from({ length: 12_000 }, (_, i) => String.fromCharCode(97 + (i % 26))).join("");
+    writeFileSync(join(h.root, "min.csv"), `${long}\nshort\n`);
+    const first = await h.call("docs_read", { path: "min.csv" });
+    expect(first.text).toContain(`    1| ${long.slice(0, 2_000)} … line 1 goes on: docs_read with offset 1, column 2001.\n    2| short`);
+    const rest = await h.call("docs_read", { path: "min.csv", offset: 1, column: 2001 });
+    expect(rest.text).toContain(`    1| ${long.slice(2_000)}\n    2| short`);
+    expect(rest.text).not.toContain("goes on");
+  });
+
   it("docs_read reads a PDF's text, refuses an image with where to look instead, and a path outside the folder", async () => {
     const h = harness();
     writeFileSync(join(h.root, "deck.pdf"), "%PDF-1.4");

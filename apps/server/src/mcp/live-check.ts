@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { killTree, spawnTarget } from "@realm/adapters";
 import type { McpServerRow } from "../store/mcp";
 
@@ -17,7 +18,15 @@ import type { McpServerRow } from "../store/mcp";
  */
 export type McpTestResult = { reached: boolean; detail: string };
 
-export const MCP_TEST_TIMEOUT_MS = 5000;
+/** As long as a real connect gets: the hub's handshake is an SDK request, on the SDK's own clock. A
+ *  first `npx -y` or `uvx` run downloads the server before it says anything, and a shorter test read
+ *  such a server as broken while a session would have reached it. */
+export const MCP_TEST_TIMEOUT_MS = DEFAULT_REQUEST_TIMEOUT_MSEC;
+
+/** What a test the user stopped says. */
+const CANCELLED = "cancelled before the server answered";
+
+type CheckOptions = { timeoutMs?: number; signal?: AbortSignal };
 
 /** MCP's own hello. Any JSON-RPC answer to it — result or error — proves an MCP endpoint is there. */
 const initializeRequest = JSON.stringify({
@@ -27,18 +36,20 @@ const initializeRequest = JSON.stringify({
   params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "realm-connection-test", version: "0" } },
 });
 
-export async function liveCheck(row: McpServerRow, timeoutMs: number = MCP_TEST_TIMEOUT_MS): Promise<McpTestResult> {
-  return row.transport === "stdio" ? stdioCheck(row, timeoutMs) : remoteCheck(row, timeoutMs);
+export async function liveCheck(row: McpServerRow, { timeoutMs = MCP_TEST_TIMEOUT_MS, signal }: CheckOptions = {}): Promise<McpTestResult> {
+  return row.transport === "stdio" ? stdioCheck(row, timeoutMs, signal) : remoteCheck(row, timeoutMs, signal);
 }
 
 /** Spawn the command, send `initialize` (newline-delimited JSON, MCP's stdio framing), await any reply. */
-function stdioCheck(row: McpServerRow, timeoutMs: number): Promise<McpTestResult> {
+function stdioCheck(row: McpServerRow, timeoutMs: number, signal?: AbortSignal): Promise<McpTestResult> {
   return new Promise((resolve) => {
     let settled = false;
+    const cancel = () => done({ reached: false, detail: CANCELLED });
     const done = (r: McpTestResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
       try { killTree(child, "SIGTERM"); } catch { /* already gone */ }
       resolve(r);
     };
@@ -51,6 +62,7 @@ function stdioCheck(row: McpServerRow, timeoutMs: number): Promise<McpTestResult
       ...target.options,
     });
     const timer = setTimeout(() => done({ reached: false, detail: `started, but no response to the MCP initialize request within ${Math.round(timeoutMs / 1000)}s` }), timeoutMs);
+    signal?.addEventListener("abort", cancel);
     child.on("error", (e) => done({ reached: false, detail: `could not start: ${e.message}` }));
     child.on("exit", (code) => done({ reached: false, detail: `the command exited (code ${code ?? "unknown"}) before answering the initialize request` }));
     let buf = "";
@@ -84,9 +96,11 @@ function stdioCheck(row: McpServerRow, timeoutMs: number): Promise<McpTestResult
 }
 
 /** POST initialize (http) or open the stream (sse). Any HTTP response at all means the host is there. */
-async function remoteCheck(row: McpServerRow, timeoutMs: number): Promise<McpTestResult> {
+async function remoteCheck(row: McpServerRow, timeoutMs: number, signal?: AbortSignal): Promise<McpTestResult> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const cancel = () => ctl.abort();
+  signal?.addEventListener("abort", cancel);
   try {
     const res = row.transport === "http"
       ? await fetch(row.url, {
@@ -100,10 +114,12 @@ async function remoteCheck(row: McpServerRow, timeoutMs: number): Promise<McpTes
     const auth = res.status === 401 || res.status === 403 ? " — it refused the credentials" : "";
     return { reached: true, detail: `reached — HTTP ${res.status}${auth}` };
   } catch (e) {
+    if (signal?.aborted) return { reached: false, detail: CANCELLED };
     if (ctl.signal.aborted) return { reached: false, detail: `no response within ${Math.round(timeoutMs / 1000)}s` };
     const cause = e instanceof Error && e.cause instanceof Error ? e.cause.message : e instanceof Error ? e.message : String(e);
     return { reached: false, detail: `could not connect: ${cause}` };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
   }
 }

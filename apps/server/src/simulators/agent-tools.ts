@@ -294,7 +294,10 @@ const TOOLS: Tool[] = [
       "What is on a simulator's screen, by name: the foreground app's accessibility tree, one line per element with the [number] the input tools take it by, its role, the label and value the app gives it, its id when the app sets one, and its frame. Read this to find out what a screen says and to check that a step worked; a screenshot is for how it looks. Read-only.",
     inputSchema: {
       type: "object",
-      properties: { simulatorId: { type: "string", description: "from simulator_open or simulator_list" } },
+      properties: {
+        simulatorId: { type: "string", description: "from simulator_open or simulator_list" },
+        offset: { type: "number", description: `how many elements to skip — a read lists ${ELEMENTS_MAX} and says where the rest starts (default 0)` },
+      },
       required: ["simulatorId"],
       additionalProperties: false,
     },
@@ -444,6 +447,7 @@ function touchSchema(extra: Record<string, unknown>): Tool["inputSchema"] {
 }
 
 const SimulatorIdArgs = z.object({ simulatorId: z.string().min(1) });
+const ElementsArgs = SimulatorIdArgs.extend({ offset: z.number().int().min(0).default(0) });
 const OpenArgs = z.object({ udid: z.string().min(1).max(128) });
 const ScreenshotArgs = SimulatorIdArgs.extend({ save: z.boolean().optional() });
 const InstallArgs = SimulatorIdArgs.extend({ path: z.string().min(1) });
@@ -652,13 +656,17 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   simulator_elements: async ({ d, ctx, reads }, raw) => {
-    const args = parseArgs(SimulatorIdArgs, raw); if ("error" in args) return args.error;
+    const args = parseArgs(ElementsArgs, raw); if ("error" in args) return args.error;
     const row = requireRunning(d, ctx, args.value.simulatorId); if ("error" in row) return row.error;
     const tree = await d.simulators.ax(row.value.id);
-    const shown = tree.elements.slice(0, ELEMENTS_MAX);
+    const { offset } = args.value;
+    const shown = tree.elements.slice(offset, offset + ELEMENTS_MAX);
     // What this session was shown is what its element numbers mean from now on — see `DeviceReads`.
     const first = reads.remember(ctx.sessionId, row.value.id, shown, tree.app);
-    const more = tree.elements.length > shown.length ? ` The first ${ELEMENTS_MAX} are listed.` : "";
+    const rest = tree.elements.length - offset - shown.length;
+    const more = shown.length < tree.elements.length
+      ? ` Elements ${offset + 1}–${offset + shown.length} are listed${rest > 0 ? `; simulator_elements with offset ${offset + shown.length} lists the next` : ""}.`
+      : "";
     const head = `${tree.elements.length} element(s) on ${clip(row.value.name, 60)}. Frames are "(x,y width×height)" in ${tree.units}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen with the origin at the top-left.${more}`
       + " The input tools take an element by its [number] in this list — a later read numbers them again — or a point measured the same way.";
     // SpringBoard names itself nothing — the home screen's root arrives blank — so a blank is said as one.

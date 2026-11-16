@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MCP_SECRET_STORAGE_NOTE } from "@realm/contracts";
 import { SpacePage } from "../../panes/space/SpacePage";
+import { MCP_STILL_STARTING_MS } from "./McpSection";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, mcpServer, mcpTool, session } from "../../state/store.test-fakes";
 
@@ -156,7 +157,7 @@ describe("McpSection", () => {
     const srv = mcpServer("m7", { name: "srv7", status: "circuit_open", enabled: true });
     const { api } = await mount({ mcpServers: [srv] });
     const row = (await screen.findByText("srv7")).closest(".mcp-row") as HTMLElement;
-    expect(within(row).getByText(/Retry reconnects and refreshes the connection\./)).toBeInTheDocument();
+    expect(within(row).getByText(/tries it again on its own after a short wait; Retry tries now and refreshes the connection\./)).toBeInTheDocument();
     fireEvent.click(within(row).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(api.calls).toContain("retryMcpServer:m7"));
   });
@@ -214,6 +215,19 @@ describe("McpSection", () => {
     expect(await within(row).findByText("could not start: spawn nope ENOENT")).toBeInTheDocument();
     expect(api.calls).toContain("testMcpServer:m20");
   });
+
+  it("says a server is still starting after a few seconds, and lets the test be cancelled", async () => {
+    // A first `npx -y` run downloads the server before it answers; "Testing…" forever read as broken.
+    const srv = mcpServer("m21", { name: "srv21", enabled: true });
+    const { api } = await mount({ mcpServers: [srv] });
+    api.delays["testMcpServer:m21"] = 60_000;
+    const row = (await screen.findByText("srv21")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Test" }));
+    expect(within(row).getByText("Testing…")).toBeInTheDocument();
+    expect(await within(row).findByText(/^Still starting/, {}, { timeout: MCP_STILL_STARTING_MS + 2_000 })).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(api.calls).toContain("cancelMcpTest:m21"));
+  }, MCP_STILL_STARTING_MS + 5_000);
 
   it("refuses a name the wire would reject, naming the rule rather than failing on save", async () => {
     const { api } = await mount();

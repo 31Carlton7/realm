@@ -1121,9 +1121,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       // again, which could trigger another re-list... `hub.ts`'s `CIRCUIT_THRESHOLD` is why that chain
       // terminates rather than spinning agent + gateway + hub in a feedback loop: two failed relists emit
       // `"error"` here, the third emits `"circuit_open"`, and every attempt AFTER that fails fast inside
-      // `ensureClient` — before `recordFailure` ever runs — so it emits no status event at all. A future
-      // change to that fast-fail path must preserve "no event on an already-open circuit," or this loop
-      // stops self-extinguishing.
+      // `ensureClient` — before `recordFailure` ever runs — so it emits no status event at all. Once a
+      // cool-off is over the hub tries once itself; a failed try opens the circuit again with a longer
+      // wait and the same one event, so the chain still ends. A future change to that fast-fail path
+      // must preserve "no event on an already-open circuit," or this loop stops self-extinguishing.
       gateway?.notifyToolsChanged();
     },
   });

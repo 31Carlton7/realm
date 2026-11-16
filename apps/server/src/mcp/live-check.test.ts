@@ -58,9 +58,23 @@ describe("stdio live check", () => {
   });
 
   it("times out a command that starts but never speaks", async () => {
-    const r = await liveCheck(row({ command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"] }), 300);
+    const r = await liveCheck(row({ command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"] }), { timeoutMs: 300 });
     expect(r.reached).toBe(false);
     expect(r.detail).toContain("no response");
+  });
+
+  it("waits as long as a real connect gets — a server still starting after 5 s is reached, not broken", async () => {
+    // THE MUTANT: the old 5 s clock. A first `npx -y` run that takes six seconds read as broken.
+    const slowStart = `setTimeout(() => {${ECHO_SERVER}}, 5_500);`;
+    const r = await liveCheck(row({ command: process.execPath, args: ["-e", slowStart] }));
+    expect(r).toEqual({ reached: true, detail: "reached — fake-mcp 9.9" });
+  }, 15_000);
+
+  it("stops when cancelled, and says so", async () => {
+    const ctl = new AbortController();
+    const pending = liveCheck(row({ command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"] }), { signal: ctl.signal });
+    setTimeout(() => ctl.abort(), 100);
+    expect(await pending).toEqual({ reached: false, detail: "cancelled before the server answered" });
   });
 
   it("hands the stored env to the child — the check runs with the session's credentials", async () => {

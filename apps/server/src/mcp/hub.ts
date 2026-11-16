@@ -38,9 +38,6 @@ export type McpLiveTool = { name: string; description: string; inputSchema: Tool
  *  domains, `prefersBorder`) — the content item's own, else its entry in `resources/list`. */
 export type McpUiResource = { html: string; ui: Record<string, unknown> | null };
 
-/** The most HTML a view may be. A bundled app is a few megabytes at most; past this a resource is
- *  not something to hand a frame. */
-export const UI_RESOURCE_MAX_BYTES = 5 * 1024 * 1024;
 /** How long a read template is kept before the next view reads it again. A server that changes a
  *  template says so (`resources/updated`), and a reconnect forgets them all; this bounds the rest. */
 const UI_RESOURCE_TTL_MS = 10 * 60_000;
@@ -52,39 +49,20 @@ const UI_RESOURCE_TTL_MS = 10 * 60_000;
  *  success, of any kind, resets the count to zero. */
 const CIRCUIT_THRESHOLD = 3;
 
-/** How long a server has to answer a call, counting only the time it is working — the SDK's own
- *  default, kept. Time the user spends answering the server's question is not the server's. */
-const CALL_TIMEOUT_MS = 60_000;
-/** The SDK's own clock for a call, which knows nothing of questions: a ceiling behind ours, so a call
- *  that asks twice and waits on both is not cut off by it. */
+/** How long one call may run — the SDK's own clock for it, an hour, so a server that is working is
+ *  never cut off by Realm. Paired with the engines' `GATEWAY_TOOL_TIMEOUT_MS`, a minute longer, so
+ *  this answer is the one that lands. A server whose process dies or whose connection closes fails
+ *  the call at once: the SDK rejects every request still open when its transport closes. */
 const CALL_CEILING_MS = 60 * 60_000;
 
-/**
- * A call's working time: runs while the server works, stops while the user answers its question,
- * and fires once the server has had its whole allowance. Pauses nest — a server may ask twice.
- */
-class CallClock {
-  private timer: NodeJS.Timeout | null = null;
-  private left: number;
-  private since = 0;
-  private paused = 0;
-  private stopped = false;
-  constructor(ms: number, private readonly expire: () => void) { this.left = ms; this.run(); }
-  pause(): void {
-    if (this.stopped || this.paused++ > 0 || !this.timer) return;
-    clearTimeout(this.timer); this.timer = null;
-    this.left -= Date.now() - this.since;
-  }
-  resume(): void {
-    if (this.stopped || this.paused === 0 || --this.paused > 0) return;
-    this.run();
-  }
-  stop(): void { this.stopped = true; if (this.timer) clearTimeout(this.timer); this.timer = null; }
-  private run(): void { this.since = Date.now(); this.timer = setTimeout(this.expire, Math.max(0, this.left)); }
-}
+/** How long a tripped breaker waits before the next call may try the server again, doubling with
+ *  each trip in a row up to `CIRCUIT_COOLOFF_MAX_MS`. The hub tries once itself when the wait ends,
+ *  so a server that comes back is back for every session, including one whose list it dropped out of. */
+export const CIRCUIT_COOLOFF_MS = 30_000;
+const CIRCUIT_COOLOFF_MAX_MS = 5 * 60_000;
 
 /** One call on its way to a server, and who made it — what an elicitation is routed by. */
-type OpenCall = { serverId: string; sessionId: string | null; clock: CallClock };
+type OpenCall = { serverId: string; sessionId: string | null };
 
 /** What the hub hands a server's question to (`elicitation.ts`): the server, the session whose call
  *  it interrupted, the request itself, and the server withdrawing it. */
@@ -97,6 +75,11 @@ type Entry = {
    *  connection attempt instead of racing two SDK `Client`s onto the same process or socket. */
   connecting: Promise<Client> | null;
   failures: number;
+  /** While the breaker is open: when the next call may try the server again, and the timer that tries
+   *  it then. `trips` counts the breaker's openings since the last success — what the wait doubles by. */
+  retryAt: number;
+  trips: number;
+  cooloff: NodeJS.Timeout | null;
   /** The last live `tools/list`, by name — what `toolOf` answers from without a round trip. Null until
    *  this client has listed once. */
   tools: Map<string, McpLiveTool> | null;
@@ -171,8 +154,6 @@ export class McpHub {
      * can ask the user and then cannot is worse than one that says nothing.
      */
     elicit?: HubElicit;
-    /** Test seam for `CALL_TIMEOUT_MS`. */
-    callTimeoutMs?: number;
     /** Whether `sleepIdle` may stop this server (`McpService.stopsWhenIdle`); absent, any may go. */
     stopsWhenIdle?: (id: string) => boolean;
   }) {}
@@ -218,14 +199,11 @@ export class McpHub {
   async call(id: string, tool: string, args: unknown, caller?: { sessionId: string }): Promise<CallToolResult> {
     const { client, entry } = await this.ensureClient(id);
     entry.usedAt = Date.now();
-    const ms = this.d.callTimeoutMs ?? CALL_TIMEOUT_MS;
-    const abort = new AbortController();
-    const clock = new CallClock(ms, () => abort.abort(new Error(`the server did not answer ${tool} within ${Math.round(ms / 1000)}s`)));
-    const open: OpenCall = { serverId: id, sessionId: caller?.sessionId ?? null, clock };
+    const open: OpenCall = { serverId: id, sessionId: caller?.sessionId ?? null };
     this.open.add(open);
     try {
       const result = (await client.callTool({ name: tool, arguments: args as Record<string, unknown> | undefined }, undefined,
-        { signal: abort.signal, timeout: CALL_CEILING_MS })) as CallToolResult;
+        { timeout: CALL_CEILING_MS })) as CallToolResult;
       // `isError: true` is a normal, successfully round-tripped MCP result (the tool ran and reported a
       // problem) — it counts as a working connection, same as any other resolved call. Only a REJECTED
       // `callTool()` (transport/protocol failure, not a tool-level error) reaches the catch below and
@@ -237,7 +215,6 @@ export class McpHub {
       this.recordFailure(id, entry);
       throw sanitize(id, err, entry.redact);
     } finally {
-      clock.stop();
       this.open.delete(open);
       // The idle window runs from the end of the last call: a call of twenty minutes is twenty minutes of use.
       entry.usedAt = Date.now();
@@ -259,10 +236,12 @@ export class McpHub {
    * A `ui://` resource read for a view: `resources/read`, as the spec has a host fetch one, then held
    * for the rest of this connection (bounded by `UI_RESOURCE_TTL_MS`).
    *
-   * Only an MCP App's own content type is accepted, as text or base64, and only up to
-   * `UI_RESOURCE_MAX_BYTES`: anything else is not a view and is refused with a reason rather than
-   * framed. The resource's `_meta.ui` is the content item's, falling back to its `resources/list`
-   * entry — both places a server may put its CSP, the item winning where both say something.
+   * Only an MCP App's own content type is accepted, as text or base64: anything else is not a view
+   * and is refused with a reason rather than framed. There is no size cap: the HTML reaches the frame
+   * over Realm's own loopback listener, which serves any length, and what bounds it is the JSON-RPC
+   * message it arrived in — a string, so V8's longest (`buffer.constants.MAX_STRING_LENGTH`, ~512 MiB).
+   * The resource's `_meta.ui` is the content item's, falling back to its `resources/list` entry —
+   * both places a server may put its CSP, the item winning where both say something.
    *
    * A failed read does not count against the breaker. A view is a picture of a tool's result; a server
    * that mislabels one still answers its tools, and must not be cut off for it.
@@ -280,7 +259,6 @@ export class McpHub {
     if (!isAppMime(item.mimeType)) throw new RpcError("MCP_NOT_A_VIEW", `mcp server ${id}: ${uri} is ${typeof item.mimeType === "string" ? item.mimeType : "untyped"}, not ${MCP_APP_MIME}`);
     const html = typeof item.text === "string" ? item.text : typeof item.blob === "string" ? Buffer.from(item.blob, "base64").toString("utf8") : null;
     if (html === null) throw new RpcError("MCP_NOT_A_VIEW", `mcp server ${id}: ${uri} carries no HTML`);
-    if (Buffer.byteLength(html) > UI_RESOURCE_MAX_BYTES) throw new RpcError("MCP_NOT_A_VIEW", `mcp server ${id}: ${uri} is larger than a view may be (${Math.round(UI_RESOURCE_MAX_BYTES / 1024 / 1024)} MB)`);
     const resource: McpUiResource = { html, ui: uiMetaOf(item._meta) ?? await this.listedUiMeta(client, uri) };
     entry.resources.set(uri, { at: Date.now(), resource });
     return resource;
@@ -308,18 +286,15 @@ export class McpHub {
    * The protocol does not say which call a question belongs to, and one client serves every session,
    * so the question goes to the session with a call open on this server — and only when there is
    * exactly one. Two sessions mid-call, or a call nobody owns, and Realm cannot tell whose question
-   * it is: it declines rather than put it in front of the wrong person. While it waits, the calls it
-   * interrupts stop their clocks, so a person thinking is not a server timing out.
+   * it is: it declines rather than put it in front of the wrong person.
    */
   private async onElicit(id: string, params: ElicitRequest["params"], signal: AbortSignal): Promise<ElicitResult> {
     const calls = [...this.open].filter((c) => c.serverId === id);
     const sessions = new Set(calls.map((c) => c.sessionId));
     const [sessionId] = sessions;
     if (!this.d.elicit || sessions.size !== 1 || !sessionId) return { action: "decline" };
-    for (const c of calls) c.clock.pause();
     try { return await this.d.elicit({ serverId: id, sessionId, params, signal }); }
     catch { return { action: "cancel" }; }
-    finally { for (const c of calls) c.clock.resume(); }
   }
 
   /**
@@ -366,6 +341,7 @@ export class McpHub {
     const entry = this.entries.get(id);
     if (!entry) return;
     this.entries.delete(id);
+    clearCooloff(entry);
     if (entry.client) { try { await entry.client.close(); } catch { /* best-effort; retry must never throw */ } }
     this.d.onStatus(id, "idle");
   }
@@ -380,6 +356,7 @@ export class McpHub {
     const entry = this.entries.get(id);
     if (!entry) return;
     this.entries.delete(id);
+    clearCooloff(entry);
     if (entry.client) void entry.client.close().catch(() => {});
     this.d.onStatus(id, "idle");
   }
@@ -401,13 +378,14 @@ export class McpHub {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { status: "idle", client: null, connecting: null, failures: 0, tools: null, resources: new Map(), redact: [], transport: null, usedAt: Date.now(), asleep: false }; this.entries.set(id, e); }
+    if (!e) { e = { status: "idle", client: null, connecting: null, failures: 0, retryAt: 0, trips: 0, cooloff: null, tools: null, resources: new Map(), redact: [], transport: null, usedAt: Date.now(), asleep: false }; this.entries.set(id, e); }
     return e;
   }
 
   /**
    * Get-or-create the shared client for a row: an existing client is reused, an in-flight connect is
-   * awaited (never restarted), a tripped circuit fails fast without touching the network, and a closed
+   * awaited (never restarted), a tripped circuit fails fast without touching the network until its
+   * cool-off is over (then this call is the one that tries again), and a closed
    * hub refuses new work outright rather than starting a connect it will only have to reap.
    *
    * Returns the `Entry` alongside the `Client` — `tools()`/`call()` need it for `recordSuccess`/
@@ -419,7 +397,7 @@ export class McpHub {
   private async ensureClient(id: string): Promise<{ client: Client; entry: Entry }> {
     if (this.closed) throw supersededError(id);
     const entry = this.entry(id);
-    if (entry.status === "circuit_open") throw circuitOpenError(id);
+    if (entry.status === "circuit_open" && Date.now() < entry.retryAt) throw circuitOpenError(id, entry.retryAt);
     if (entry.client) return { client: entry.client, entry };
     if (!entry.connecting) {
       const row = this.d.servers.get(id);
@@ -564,6 +542,8 @@ export class McpHub {
 
   private recordSuccess(id: string, entry: Entry): void {
     entry.failures = 0;
+    entry.trips = 0;
+    clearCooloff(entry);
     if (entry.status !== "connected") { entry.status = "connected"; this.d.onStatus(id, "connected"); }
   }
 
@@ -571,6 +551,19 @@ export class McpHub {
     entry.failures += 1;
     if (entry.failures >= CIRCUIT_THRESHOLD) {
       if (entry.client) { const c = entry.client; entry.client = null; void c.close().catch(() => {}); }
+      // Open, or open again after a try that failed: wait, then try once more without waiting for a
+      // caller. A session whose tool list was read while the circuit was open has no tool of this
+      // server's to call, so nothing else would ever try it; a success re-lists for every session.
+      const wait = Math.min(CIRCUIT_COOLOFF_MS * 2 ** entry.trips, CIRCUIT_COOLOFF_MAX_MS);
+      entry.trips += 1;
+      entry.retryAt = Date.now() + wait;
+      clearCooloff(entry);
+      entry.cooloff = setTimeout(() => {
+        entry.cooloff = null;
+        if (this.closed || this.entries.get(id) !== entry) return;
+        void this.tools(id).catch(() => {});
+      }, wait);
+      entry.cooloff.unref?.();
       entry.status = "circuit_open";
       this.d.onStatus(id, "circuit_open");
     } else {
@@ -621,11 +614,16 @@ function sanitize(id: string, err: unknown, redact: string[]): RpcError {
   return new RpcError("MCP_UPSTREAM_ERROR", `mcp server ${id}: ${redactValues(raw, redact)}`);
 }
 
-/** Names `mcp.retry` in the message itself, per the plan's error-handling table, so a caller that only
- *  surfaces `.message` (a tool-call error handed back to an agent, say) still tells the human what to
- *  do about it. */
-function circuitOpenError(id: string): RpcError {
-  return new RpcError("MCP_CIRCUIT_OPEN", `mcp server ${id} is unavailable after repeated failures — retry from settings (mcp.retry)`);
+/** Says when Realm tries again, and names `mcp.retry` for trying now, so a caller that only surfaces
+ *  `.message` (a tool-call error handed back to an agent, say) still tells the human what happens. */
+function circuitOpenError(id: string, retryAt: number): RpcError {
+  const secs = Math.max(1, Math.ceil((retryAt - Date.now()) / 1000));
+  return new RpcError("MCP_CIRCUIT_OPEN", `mcp server ${id} is unavailable after repeated failures — Realm tries it again in ${secs}s, or retry from settings now (mcp.retry)`);
+}
+
+function clearCooloff(entry: Entry): void {
+  if (entry.cooloff) clearTimeout(entry.cooloff);
+  entry.cooloff = null;
 }
 
 /** A 401 from the server: the SDK's own `UnauthorizedError`, or a transport error carrying the status

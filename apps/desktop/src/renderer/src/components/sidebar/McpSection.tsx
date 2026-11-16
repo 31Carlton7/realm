@@ -1,4 +1,4 @@
-import { MCP_SECRET_STORAGE_NOTE, SYSTEM_BROWSER_FRAME, McpServerNameSchema, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { MCP_SECRET_STORAGE_NOTE, MCP_SERVER_NAME_MAX, SYSTEM_BROWSER_FRAME, McpServerNameSchema, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { useEffect, useState, type FormEvent } from "react";
 import { Icon } from "@realm/ui";
 import { McpSignInSheet } from "./McpSignInSheet";
@@ -12,9 +12,13 @@ const STATUS_LABEL: Record<McpServerStatus, string> = {
   idle: "Not checked yet", connected: "Connected", error: "Error", circuit_open: "Circuit open",
 };
 /** Binding note 1 (W5 review): mid-session token expiry surfaces as failing calls → circuit_open, and
- *  Retry is the one-click fix (it reconnects AND silently refreshes OAuth). The copy has to say both. */
-const CIRCUIT_OPEN_COPY = "This server's connection keeps failing, so calls are blocked. Retry reconnects and refreshes the connection.";
+ *  Retry is the one-click fix (it reconnects AND silently refreshes OAuth). The breaker also closes by
+ *  itself once the server answers again, so the copy says that a wait is all it needs too. */
+const CIRCUIT_OPEN_COPY = "This server's connection keeps failing. Realm tries it again on its own after a short wait; Retry tries now and refreshes the connection.";
 const isAcpKind = (k: AgentKind) => k.startsWith("acp:");
+/** How long a Test waits before it says the server is still starting, and offers to stop. Most
+ *  servers answer well inside it; a first `npx -y` or `uvx` run is downloading the server first. */
+export const MCP_STILL_STARTING_MS = 4_000;
 
 /** One row of a server's env/header secrets being entered — new key/value pairs only. Existing keys are
  *  named (never their values, which Realm never receives back) so touching this section is an honest
@@ -175,6 +179,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
   const removeMcpServer = useApp((s) => s.removeMcpServer);
   const retryMcpServer = useApp((s) => s.retryMcpServer);
   const testMcpServer = useApp((s) => s.testMcpServer);
+  const cancelMcpTest = useApp((s) => s.cancelMcpTest);
   const promoteMcpServer = useApp((s) => s.promoteMcpServer);
   const demoteMcpServer = useApp((s) => s.demoteMcpServer);
   const openProfilePage = useApp((s) => s.openProfilePage);
@@ -183,7 +188,13 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmMove, setConfirmMove] = useState(false);
-  const [test, setTest] = useState<McpTestResult | "testing" | null>(null);
+  const [test, setTest] = useState<McpTestResult | "testing" | "starting" | null>(null);
+  const waiting = test === "testing" || test === "starting";
+  useEffect(() => {
+    if (test !== "testing") return;
+    const t = setTimeout(() => setTest((now) => (now === "testing" ? "starting" : now)), MCP_STILL_STARTING_MS);
+    return () => clearTimeout(t);
+  }, [test]);
 
   const endpoint = server.transport === "stdio" ? [server.command, ...server.args].filter(Boolean).join(" ") : server.url;
   // MCP Apps: a server whose tools draw their results in views of their own. Read off the cached
@@ -226,8 +237,10 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <code className="env-path">{endpoint || "(no endpoint set)"}</code>
         {/* `detail` is built server-side from things that cannot be secrets (see live-check.ts), so it
             renders verbatim — same rule as the tools error below. */}
-        {test && <span className="mcp-test" data-reached={test !== "testing" && test.reached ? "true" : undefined}>
-          {test === "testing" ? "Testing…" : test.detail}
+        {test && <span className="mcp-test" data-waiting={waiting || undefined} data-reached={!waiting && test.reached ? "true" : undefined}>
+          {test === "testing" ? "Testing…"
+            : test === "starting" ? "Still starting — a first run of npx or uvx downloads the server before it answers."
+            : test.detail}
         </span>}
       </div>
       <div className="env-actions">
@@ -239,7 +252,9 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
             onChange={(e) => run(() => setMcpEnabled(spaceId, server.id, e.target.checked))} />
           Enabled
         </label>
-        <button type="button" className="btn-quiet" onClick={runTest}>Test</button>
+        {waiting
+          ? <button type="button" className="btn-quiet" onClick={() => run(() => cancelMcpTest(server.id))}>Cancel</button>
+          : <button type="button" className="btn-quiet" onClick={runTest}>Test</button>}
         {/* Never a bare "Edit" on an inherited row — in-place editing is the mutant §2 forbids. Since
             Plan 14 W2 the defining scope has a real page, so "Edit in profile" JUMPS there (primary);
             the banner-wearing inline form survives as the fallback behind "Edit here…" — the same
@@ -416,7 +431,9 @@ export function McpServerForm({ spaceId, server, onDone, scopeNote }: { spaceId:
       <label className="field"><span>Name</span>
         <input aria-label="Server name" value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
-      {name.trim().length > 0 && !nameOk && <p className="mcp-error">Letters, digits, underscore or hyphen only.</p>}
+      {name.trim().length > 0 && !nameOk && <p className="mcp-error">
+        {name.trim().length > MCP_SERVER_NAME_MAX ? `At most ${MCP_SERVER_NAME_MAX} characters.` : "Letters, digits, underscore or hyphen only."}
+      </p>}
       <label className="field"><span>Transport</span>
         <select aria-label="Transport" value={transport} onChange={(e) => setTransport(e.target.value as McpTransport)}>
           <option value="stdio">stdio</option>

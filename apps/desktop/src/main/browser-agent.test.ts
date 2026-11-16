@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { UPLOAD_DROP_MAX_BYTES, type BrowserAction, type BrowserRefusal } from "@realm/contracts";
 import { buildSnapshot, CODE_HIDDEN, hideCodes, MAX_ELEMENTS, performAct, performAutofill, performCodeFill, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
-import { tickStylesFor } from "./browser-agent";
+import { readPageText, tickStylesFor } from "./browser-agent";
 
 /**
  * The executor mutants, killed against fake CDP payloads:
@@ -1353,3 +1353,11 @@ describe("performUpload", () => {
   });
 });
 
+
+describe("readPageText", () => {
+  it("hands back the whole page — browser_read pages it, so nothing past 40,000 characters is lost", async () => {
+    const page = "p".repeat(120_000);
+    const send = (async () => ({ result: { value: page } })) as unknown as CdpSend;
+    expect(await readPageText(send)).toBe(page);
+  });
+});

@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, type ServerNotification, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "@realm/adapters";
-import { REALM_READ_ONLY_TOOLS, callableByApp, visibleToModel } from "@realm/contracts";
+import { MCP_GATEWAY_SERVER_NAME, MCP_GATEWAY_TOOL_NAME_MAX, MCP_TOOL_NAME_HASH_LENGTH, REALM_READ_ONLY_TOOLS, callableByApp, visibleToModel } from "@realm/contracts";
 import type { DrawnView } from "../apps/views";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
@@ -25,6 +25,15 @@ const RELIST_WAIT_MS = 1_500;
  *  progress for 300s"; once every 25 s keeps a long `agent_wait` well inside that, at a cost of one small
  *  message per call per 25 s. */
 export const HEARTBEAT_MS = 25_000;
+
+/**
+ * Put on every tool the gateway lists. The Claude CLI moves any tool result longer than a threshold
+ * out of the conversation into a file, and for an MCP tool that threshold is 50,000 characters unless
+ * the tool says otherwise here — up to the CLI's own ceiling, 500,000. The token cap the adapter lifts
+ * (`MAX_MCP_OUTPUT_TOKENS`) is the other half; either alone still sends a large result to a file.
+ * Every other engine ignores a `_meta` key it does not know.
+ */
+export const RESULT_SIZE_META = { "anthropic/maxResultSizeChars": 500_000 } as const;
 
 /**
  * Who is calling a provider tool — the gateway's own session attribution, handed through so a
@@ -319,7 +328,7 @@ export class McpGateway {
     const token = randomBytes(32).toString("base64url");
     this.sessions.set(sessionId, { token, spaceId, ...(instructions ? { instructions } : {}), server: null, transport: null, connecting: null });
     this.tokenToSession.set(token, sessionId);
-    return { name: "realm", transport: "http", url: `http://127.0.0.1:${this.port}/mcp`, headers: { Authorization: `Bearer ${token}` } };
+    return { name: MCP_GATEWAY_SERVER_NAME, transport: "http", url: `http://127.0.0.1:${this.port}/mcp`, headers: { Authorization: `Bearer ${token}` } };
   }
 
   /** Revoke this session's token and close its SDK `Server`/transport, if any were ever created. A
@@ -545,7 +554,8 @@ export class McpGateway {
         return tools.map((t): Tool => {
           const name = `${p.name}__${t.name}`;
           // Codex asks before any MCP tool not marked read-only; these change nothing, so it need not.
-          return READ_ONLY_TOOLS.has(name) ? { ...t, name, annotations: { ...t.annotations, readOnlyHint: true } } : { ...t, name };
+          const listed = { ...t, name, _meta: { ...t._meta, ...RESULT_SIZE_META } };
+          return READ_ONLY_TOOLS.has(name) ? { ...listed, annotations: { ...t.annotations, readOnlyHint: true } } : listed;
         });
       } catch { return []; }
     }));
@@ -559,7 +569,7 @@ export class McpGateway {
       // A tool only its view may call is never the agent's to see (MCP Apps: the host MUST leave a
       // tool out of the agent's list when its visibility does not include the model).
       const visible = tools.filter((t) => visibleToModel(t.ui) && (!allowed || allowed.includes(t.name)));
-      return visible.map((t): Tool => ({ name: `${row.name}__${t.name}`, description: t.description, inputSchema: t.inputSchema ?? { type: "object" } }));
+      return visible.map((t): Tool => ({ name: gatewayToolName(row.name, t.name), description: t.description, inputSchema: t.inputSchema ?? { type: "object" }, _meta: RESULT_SIZE_META }));
     }));
     this.relisted(sessionId);
     return { tools: [...perProvider.flat(), ...perServer.flat()] };
@@ -654,7 +664,8 @@ export class McpGateway {
         `mcp: no MCP server enabled in this space provides "${fullName}" — check Space Settings → MCP.`,
         `blocked: no server provides "${fullName}"`);
     }
-    const { serverId, serverName, tool } = resolved;
+    const { serverId, serverName } = resolved;
+    const tool = await this.listedToolName(serverId, serverName, resolved.tool);
     const allowed = this.d.mcp.allowedTools(spaceId, serverId);
     if (allowed && !allowed.includes(tool)) {
       return this.blocked(sessionId, serverId, serverName, tool, argsJson,
@@ -844,6 +855,15 @@ export class McpGateway {
     return match ? { serverId: match.row.id, serverName: match.row.name, tool: match.tool } : null;
   }
 
+  /** The server's own name for a tool the agent called by its gateway name — the same, unless
+   *  `gatewayToolName` shortened it, which only a name at the full length can have been. */
+  private async listedToolName(serverId: string, serverName: string, tool: string): Promise<string> {
+    if (`${serverName}__${tool}`.length !== MCP_GATEWAY_TOOL_NAME_MAX) return tool;
+    if (await this.d.hub.toolOf(serverId, tool).catch(() => null)) return tool;
+    const listed = await this.d.hub.tools(serverId).catch(() => []);
+    return listed.find((t) => gatewayToolName(serverName, t.name) === `${serverName}__${tool}`)?.name ?? tool;
+  }
+
   /** Same longest-prefix match as `resolveCall`, but over EVERY known server row regardless of
    *  enablement — used only to attribute a blocked-call log entry to a real (if disabled) server, never
    *  for routing. Keeping this a separate method (rather than an "include disabled" flag on `resolveCall`)
@@ -852,6 +872,20 @@ export class McpGateway {
   private resolveAnyServer(fullName: string): { row: McpServerRow; tool: string } | null {
     return longestPrefixMatch(fullName, this.d.servers.list());
   }
+}
+
+/**
+ * The name the gateway lists a server's tool under: `<server>__<tool>`, or, where that is longer than
+ * `MCP_GATEWAY_TOOL_NAME_MAX` (the Claude CLI would drop the tool without a word), as much of it as fits
+ * followed by `_` and a hash of the tool's name, so two long names that start alike stay apart. The
+ * `<server>__` prefix always survives — `MCP_SERVER_NAME_MAX` leaves room for it — so the call still
+ * routes, and `listedToolName` maps the short name back.
+ */
+export function gatewayToolName(server: string, tool: string): string {
+  const full = `${server}__${tool}`;
+  if (full.length <= MCP_GATEWAY_TOOL_NAME_MAX) return full;
+  const hash = createHash("sha256").update(tool).digest("hex").slice(0, MCP_TOOL_NAME_HASH_LENGTH);
+  return `${full.slice(0, MCP_GATEWAY_TOOL_NAME_MAX - hash.length - 1)}_${hash}`;
 }
 
 /** The longest `"<row.name>__"` prefix of `fullName` among `rows`, or null if none matches. Shared by
