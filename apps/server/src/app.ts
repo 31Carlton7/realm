@@ -103,6 +103,7 @@ import { SessionService, resolveDefaultPermissionMode } from "./sessions/service
 import { TabContextReader } from "./sessions/tab-context";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
+import { ToolResultFiles } from "./mcp/tool-results";
 import { AccountsService, type AccountsDeps } from "./accounts/service";
 import { AccountsStore } from "./store/accounts";
 import { PlanLimitsService } from "./limits/service";
@@ -1161,7 +1162,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // it — each mounted view on an origin of its own.
   const appViews = new AppViews({ store: new AppViewsStore(db) });
   const appViewServer = new AppViewServer();
-  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url), views: appViews,
+  /* A tool result longer than Codex keeps, saved whole for the session to read (`ToolResultFiles`). */
+  const toolResults = new ToolResultFiles({ home: opts.home });
+  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url), views: appViews, toolResults,
     // The live check shortens the heartbeat to watch several go by in one scripted wait; nothing
     // else sets it.
     heartbeatMs: heartbeatOverride(),
@@ -1491,7 +1494,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); team?.release(id); void handoffNotes.release(id).catch(() => {}); },
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); team?.release(id); void handoffNotes.release(id).catch(() => {}); void toolResults.release(id).catch(() => {}); },
       extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
@@ -1952,6 +1955,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));
   // Copies removed from the Library while the last run was up, whose Undo went with it.
   void libraryFiles.sweep();
+  // Saved tool results past their week.
+  void toolResults.sweep();
   terminals.restoreAll();
   // Brings laya-serve back only if the user left Laya on and an install is on disk.
   laya.boot();

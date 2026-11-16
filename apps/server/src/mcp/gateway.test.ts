@@ -1,4 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -19,6 +20,7 @@ import { waitFor } from "../test-utils";
 import { McpHub } from "./hub";
 import { McpService } from "./service";
 import { McpGateway, gatewayToolName, type ProviderCallContext } from "./gateway";
+import { ToolResultFiles, toolResultsRoot } from "./tool-results";
 import { makeStubServer, type StubServer, type StubServerOptions } from "./fixtures/stub-server";
 import type { DrawnView } from "../apps/views";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -72,6 +74,9 @@ async function setupApp(opts: {
   views?: { drew(sessionId: string, v: DrawnView): void };
   /** Shrinks the gateway's heartbeat so a test can watch several go by. */
   heartbeatMs?: number;
+  /** Where an over-long result is saved, and the scrub a saved one goes through. */
+  toolResults?: ToolResultFiles;
+  redact?: (sessionId: string, text: string) => string;
 } = {}): Promise<App> {
   const home = tempDir("realm-mcp-gw-");
   const db = openDatabase(join(home, "realm.db"));
@@ -112,7 +117,7 @@ async function setupApp(opts: {
     },
   });
   const rpc = new RecordingRpc();
-  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback, sessionToolset: opts.sessionToolset, views: opts.views, heartbeatMs: opts.heartbeatMs });
+  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback, sessionToolset: opts.sessionToolset, views: opts.views, heartbeatMs: opts.heartbeatMs, toolResults: opts.toolResults, redact: opts.redact });
   const port = await gateway.listen();
 
   const app: App = {
@@ -298,6 +303,45 @@ describe("tools/list — namespacing and policy", () => {
     app.mcp.setEnabled(app.spaceId, alpha.id, false);
     expect((await client.listTools()).tools).toEqual([]);
     await client.close();
+  });
+});
+
+describe("tools/call — a result longer than the calling engine keeps", () => {
+  // Pretty-printed, so compression has something to take: what is saved must be what is left after it.
+  const rows = Array.from({ length: 700 }, (_, i) => ({ i, id: `r${i}`, n: [i, i * 2, i * 3], note: "the masked answer is hunter2-secret" }));
+  const pretty = JSON.stringify(rows, null, 2);
+  const minified = JSON.stringify(rows);
+  const big: CallToolResult = { content: [{ type: "text", text: pretty }], isError: false };
+
+  async function callAs(agentKind: "codex" | "claude") {
+    const home = tempDir("realm-mcp-gw-results-");
+    const app = await setupApp({ toolResults: new ToolResultFiles({ home }), redact: (_id, text) => text.split("hunter2-secret").join("[secret]") });
+    new SessionsStore(app.db).update({ id: app.sessionId, agentKind });
+    const { row } = app.addServer("alpha", { results: { echo: big } });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    const { client } = await connectClient(app);
+    const answer = asText(await client.callTool({ name: "alpha__echo", arguments: { message: "all" } }) as CallToolResult);
+    await client.close();
+    const dir = join(toolResultsRoot(home), app.sessionId);
+    return { app, answer, dir };
+  }
+
+  it("saves a Codex session's result after compression, scrubbed, and answers with where it is", async () => {
+    const { app, answer, dir } = await callAs("codex");
+    const [file] = readdirSync(dir);
+    const saved = readFileSync(join(dir, file!), "utf8");
+    expect(saved).toBe(minified.split("hunter2-secret").join("[secret]"));
+    expect(answer).toContain(join(dir, file!));
+    expect(answer).not.toContain("hunter2-secret");
+    expect(answer.length).toBeLessThan(minified.length);
+    // Activity keeps what the agent was handed: the answer, not the payload it points at.
+    expect(app.calls.list({ sessionId: app.sessionId })[0]!.resultSummary.startsWith("[Realm: this result is")).toBe(true);
+  });
+
+  it("returns a Claude session's result whole and saves nothing — Claude keeps its own", async () => {
+    const { answer, dir } = await callAs("claude");
+    expect(answer).toBe(minified);
+    expect(existsSync(dir)).toBe(false);
   });
 });
 
