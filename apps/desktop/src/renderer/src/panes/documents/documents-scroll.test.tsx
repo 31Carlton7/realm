@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Item } from "@realm/contracts";
 
 /** The pane subscribes to `documents.fileChanged` through the rpc singleton, which needs a real
@@ -86,6 +86,22 @@ describe("a Quick Look render's scroll position", () => {
 
     const reborn = await screen.findByAltText("Preview of report.docx");
     await waitFor(() => expect(staged.topOf(reborn.closest(".ql-view") as HTMLElement)).toBe(900));
+  });
+});
+
+describe("where a Quick Look render sits in the pane", () => {
+  it("marks a picture for centring, and leaves a document drawn as a page at the top", async () => {
+    /* The centring itself is layout (styles.css, and docs-picture-live.mjs measures it); this holds the
+       hook it hangs on. THE MUTANTS: the mark on every render, which would float a page in the middle
+       of the pane; the mark on none, which leaves a picture against the top. */
+    const store = makeStore({ "shot.png": "", "report.docx": "" }, ["shot.png", "report.docx"], "shot.png");
+    render(pane(store));
+    const picture = await screen.findByAltText("Preview of shot.png");
+    expect(picture.closest(".ql-view")).toHaveAttribute("data-picture");
+    cleanup();
+    render(pane(makeStore({ "report.docx": "" }, ["report.docx"], "report.docx")));
+    const page = await screen.findByAltText("Preview of report.docx");
+    expect(page.closest(".ql-view")).not.toHaveAttribute("data-picture");
   });
 });
 

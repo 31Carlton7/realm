@@ -9,6 +9,9 @@
  * no empty state left over. A unit test can say the kind is `preview`; only the running app says
  * the server's render reached the screen.
  *
+ * A picture shorter than the pane is centred in it, and one taller than the pane starts at its own top
+ * and scrolls; only real layout can say either, so both are measured here.
+ *
  * Ports: env-overridable (8966 server, 9366 CDP). Touches only a scratch dir; stops the daemon it
  * started and kills only the process it spawned.
  */
@@ -176,6 +179,24 @@ async function main() {
     documentNote: !!p.querySelector('.ql-note') }; })()`);
   // The note under a document's render (no selectable text, maybe one page) is untrue of a picture.
   check("no empty state, failure or document's note is left on the pane", !empty.nothingOpen && !empty.unavailable && !empty.documentNote, empty);
+
+  // A picture shorter than the pane sits in its middle: the space above it matches the space below.
+  const PLACE = `(() => {
+    const v = document.querySelector('.documents-pane .ql-view'), i = v?.querySelector('img.ql-page');
+    if (!v || !i || !i.complete || i.naturalWidth === 0) return null;
+    const vr = v.getBoundingClientRect(), ir = i.getBoundingClientRect();
+    return { above: Math.round(ir.top - vr.top), below: Math.round(vr.bottom - ir.bottom), left: Math.round(ir.left - vr.left),
+      right: Math.round(vr.right - ir.right), scrolls: v.scrollHeight > v.clientHeight + 1, scrollTop: v.scrollTop, src: i.src.split('/').pop() }; })()`;
+  const short = await evalIn(c, PLACE);
+  check("a picture shorter than the pane sits in its middle, not against its top", short && short.above > 40 && Math.abs(short.above - short.below) <= 2, short);
+  check("and in the middle across", short && Math.abs(short.left - short.right) <= 2, short);
+
+  // A picture taller than the pane starts at its own top and scrolls from there: nothing cut off above.
+  const tall = path.join(space.folderPath, "tall.png");
+  fs.writeFileSync(tall, gradientPng(400, 2400));
+  await api.call("documents.openPath", { spaceId: space.id, path: tall });
+  const tallPlace = await until(async () => { const p = await evalIn(c, PLACE); return p && p.src.startsWith("tall.png") ? p : null; }, 30000, "the tall picture");
+  check("a picture taller than the pane starts at its top and scrolls", tallPlace.scrolls && tallPlace.scrollTop === 0 && tallPlace.above >= 0 && tallPlace.above <= 16, tallPlace);
 
   const shot = await c.send("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(SHOT, Buffer.from(shot.data, "base64"));
