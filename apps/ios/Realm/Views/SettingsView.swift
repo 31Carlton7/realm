@@ -229,7 +229,7 @@ extension View {
 
 /// A row that opens one of the Mac's pages: its glyph and name, what waits there, and the chevron on the
 /// name's line. At the accessibility sizes what waits goes under the name, since beside it the chevron
-/// was pushed onto a line of its own.
+/// is pushed onto a line of its own.
 struct SettingsPageRow: View {
     let page: WorkPage
     let note: String?

@@ -369,7 +369,7 @@ enum ComposerPart: LayoutValueKey {
 struct ComposerLayout: Layout {
     var card: Bool
     /// The card's chips take a row of their own across it, over `+` and the button: at the accessibility
-    /// sizes, where between the two they had room for a word or two a line.
+    /// sizes, where between the two there is room for a word or two a line.
     var chipsRow = false
 
     /// A button's side, and the toolbar's height until its chips' words need more.

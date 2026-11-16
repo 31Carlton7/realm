@@ -210,8 +210,6 @@ struct ChipLabel<Icon: View>: View {
                 Text(text)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(tone ?? (emphasised ? Palette.ink : Palette.ink2))
-                    // One line, except where a chip alone is wider than its row at the accessibility
-                    // sizes: there its words wrap.
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)

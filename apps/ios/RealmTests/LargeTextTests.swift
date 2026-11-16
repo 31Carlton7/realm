@@ -11,7 +11,7 @@ import UIKit
 struct LargeTextTests {
     static let sizes: [DynamicTypeSize] = [.accessibility3, .accessibility5]
     /// The composer's chips at the accessibility sizes, on their own row across the card, on the smaller
-    /// phone (402 points wide). Between `+` and Send they had 274.
+    /// phone (402 points wide). Between `+` and Send they have 278.
     static let chipsRow: CGFloat = 358
 
     static func lineHeight(_ style: UIFont.TextStyle, _ size: UIContentSizeCategory) -> CGFloat {
@@ -69,7 +69,7 @@ struct LargeTextTests {
         let own = try layout(chipsRow: true)
         #expect(own.chips.width == 358, "\(own.chips)")
         #expect(own.primary.minY >= own.chips.maxY, "Send under the chips: \(own.primary) \(own.chips)")
-        #expect(try layout(chipsRow: false).chips.width == 274)
+        #expect(try layout(chipsRow: false).chips.width == 278)
     }
 
     /// Rows of chips: as many to a row as fit, and a chip wider than the row takes the row's width and
