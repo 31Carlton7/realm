@@ -228,7 +228,8 @@ struct FindBar: View {
                     .foregroundStyle(Palette.ink2)
                     .padding(.trailing, 6)
                     .accessibilityHidden(true)
-                TextField("Find in session", text: $query)
+                TextField("Find in session", text: $query,
+                          prompt: Text("Find in session").foregroundStyle(Palette.ink3))
                     .focused($focused)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -244,7 +245,7 @@ struct FindBar: View {
                     Text(place.words)
                         .font(.subheadline)
                         .monospacedDigit()
-                        .foregroundStyle(Palette.ink3)
+                        .foregroundStyle(Palette.ink2)
                         .lineLimit(1)
                         .fixedSize()
                         .padding(.leading, 6)

@@ -286,7 +286,8 @@ private struct PasteLinkSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("https://realm.computer/pair#1.…", text: $link, axis: .vertical)
+                    TextField("Pairing link", text: $link,
+                              prompt: Text("https://realm.computer/pair#1.…").foregroundStyle(Palette.ink3), axis: .vertical)
                         .tint(Palette.accent)
                         .lineLimit(1...4)
                         .textInputAutocapitalization(.never)
@@ -297,6 +298,7 @@ private struct PasteLinkSheet: View {
                         .accessibilityLabel("Pairing link")
                 } footer: {
                     Text("The link your Mac shows under the code, in Settings\u{00A0}▸ Devices.")
+                        .foregroundStyle(Palette.ink2)
                 }
                 Section {
                     PasteButton(payloadType: String.self) { strings in

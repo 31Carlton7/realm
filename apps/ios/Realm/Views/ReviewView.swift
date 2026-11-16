@@ -636,13 +636,14 @@ private struct DecisionNoteSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField(note.prompt, text: $text, axis: .vertical)
+                    TextField(note.prompt, text: $text,
+                              prompt: Text(note.prompt).foregroundStyle(Palette.ink3), axis: .vertical)
                         .tint(Palette.accent)
                         .lineLimit(3...10)
                         .focused($focused)
                         .listRowBackground(Fill.card)
                 } footer: {
-                    Text(note.footer)
+                    Text(note.footer).foregroundStyle(Palette.ink2)
                 }
             }
             .scrollContentBackground(.hidden)

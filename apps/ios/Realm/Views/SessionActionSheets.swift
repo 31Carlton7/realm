@@ -177,9 +177,10 @@ struct MoveToSpaceSheet: View {
                     .accessibilityAddTraits(space.id == row.spaceId ? .isSelected : [])
                 }
             } header: {
-                Text("Move “\(row.displayTitle)” to…")
+                Text("Move “\(row.displayTitle)” to…").foregroundStyle(Palette.ink2)
             } footer: {
                 Text("A session that has run takes its checkout along, so the transcript still names the tree it ran in.")
+                    .foregroundStyle(Palette.ink2)
             }
         }
     }
@@ -242,7 +243,7 @@ struct SwitchAgentSheet: View {
                     .listRowBackground(Fill.card)
                 }
             }
-            Section("Agent") {
+            Section(head: "Agent") {
                 ForEach(agents, id: \.kind) { agent in
                     ChoiceRow(title: agent.name, line: agent.available ? nil : agent.note, chosen: agent.kind == row.agent, busy: false) {
                         refusal = nil
@@ -260,9 +261,9 @@ struct SwitchAgentSheet: View {
                         .disabled(choosingAccount != nil || switching || !model.isConnected)
                     }
                 } header: {
-                    Text("Account")
+                    Text("Account").foregroundStyle(Palette.ink2)
                 } footer: {
-                    if let accountRefusal { Text(accountRefusal) }
+                    if let accountRefusal { Text(accountRefusal).foregroundStyle(Palette.ink2) }
                 }
             }
         }

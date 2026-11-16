@@ -25,6 +25,7 @@ struct ChangesSheet: View {
                         } footer: {
                             if changes.totalFiles > changes.files.count {
                                 Text("\(changes.totalFiles - changes.files.count) more on your Mac.")
+                                    .foregroundStyle(Palette.ink2)
                             }
                         }
                         Section {
@@ -34,6 +35,7 @@ struct ChangesSheet: View {
                             .listRowBackground(Fill.card)
                         } footer: {
                             Text("The checkout as it is now, to stage, commit and push.")
+                                .foregroundStyle(Palette.ink2)
                         }
                     }
                     .listStyle(.insetGrouped)

@@ -245,7 +245,7 @@ private struct HandleField: View {
         LabeledContent {
             HStack(spacing: 0) {
                 Text("@").foregroundStyle(Palette.ink3)
-                TextField(derived, text: $handle)
+                TextField(derived, text: $handle, prompt: Text(derived).foregroundStyle(Palette.ink3))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.asciiCapable)
@@ -287,20 +287,21 @@ private struct TeammateForm<Handle: View, Place: View>: View {
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
             }
-            Section("Name") {
-                TextField("e.g. CTO", text: $draft.name)
+            Section(head: "Name") {
+                TextField("e.g. CTO", text: $draft.name, prompt: Text("e.g. CTO").foregroundStyle(Palette.ink3))
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("teammate-name")
                 handle
             }
-            Section("What it does") {
-                TextField("What it owns, how it works, and what it brings back.", text: $draft.brief, axis: .vertical)
+            Section(head: "What it does") {
+                TextField("What it owns, how it works, and what it brings back.", text: $draft.brief,
+                          prompt: Text("What it owns, how it works, and what it brings back.").foregroundStyle(Palette.ink3), axis: .vertical)
                     .lineLimit(3...8)
                     .accessibilityIdentifier("teammate-brief")
             }
             place
-            Section("Runs on") {
+            Section(head: "Runs on") {
                 if agents.isEmpty {
                     LabeledContent("Agent", value: draft.agentKind.map(AgentNames.label) ?? "—")
                 } else {
@@ -328,9 +329,9 @@ private struct TeammateForm<Handle: View, Place: View>: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } header: {
-                Text("Permissions")
+                Text("Permissions").foregroundStyle(Palette.ink2)
             } footer: {
-                Text("The sessions it starts run this way.")
+                Text("The sessions it starts run this way.").foregroundStyle(Palette.ink2)
             }
             Section {
                 Toggle(isOn: $draft.lead) {
@@ -346,7 +347,7 @@ private struct TeammateForm<Handle: View, Place: View>: View {
                 if let failure {
                     Text(failure).foregroundStyle(Tone.failed.agentColor)
                 } else {
-                    Text(note)
+                    Text(note).foregroundStyle(Palette.ink2)
                 }
             }
         }

@@ -48,7 +48,7 @@ struct SessionInfoSheet: View {
                     RunsOnSection(runsOn: runsOn, move: model.moveOptions[sessionId] == nil ? nil : { moveShown = true })
                 }
                 if let usage = info?.usage {
-                    Section("Usage") {
+                    Section(head: "Usage") {
                         LabeledContent("Cost", value: SessionInfoWords.cost(usage))
                             .monospacedDigit()
                         LabeledContent("Tokens", value: SessionInfoWords.tokens(usage))
@@ -70,7 +70,7 @@ struct SessionInfoSheet: View {
                     .listRowBackground(Fill.card)
                 }
                 if let files = info?.files, !files.isEmpty {
-                    Section("Files") {
+                    Section(head: "Files") {
                         ForEach(files) { file in
                             Button {
                                 previewing = file
@@ -85,7 +85,7 @@ struct SessionInfoSheet: View {
                 PanesSection(sessionId: sessionId, opening: $openPane)
                 if !subagents.isEmpty {
                     let prefix = SubagentWords.sharedPrefix(subagents)
-                    Section("Sub-agents") {
+                    Section(head: "Sub-agents") {
                         // The sheet's order without its heads: the failed first, the done last.
                         ForEach(SubagentGroup.ordered(subagents)) { subagent in
                             SubagentRow(subagent: subagent, title: SubagentWords.title(subagent, dropping: prefix),
@@ -147,7 +147,7 @@ struct RunsOnSection: View {
     var move: (() -> Void)?
 
     var body: some View {
-        Section("Runs on") {
+        Section(head: "Runs on") {
             LabeledContent("Mac") {
                 Label(runsOn.machine, systemImage: "laptopcomputer")
                     .labelStyle(.titleAndIcon)

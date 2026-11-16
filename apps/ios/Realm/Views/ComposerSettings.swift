@@ -389,7 +389,7 @@ struct SettingsForm: View {
     @State private var picks = 0
 
     var body: some View {
-        Section("Model") {
+        Section(head: "Model") {
             ForEach(Array(options.agent.models.enumerated()), id: \.offset) { _, choice in
                 // The agent's own default reads as Default, with the model it is under it.
                 let title = choice.id == nil ? "Default" : choice.label
@@ -432,12 +432,13 @@ struct SettingsForm: View {
                     Text("Mode")
                     if busy == .mode { ProgressView().controlSize(.mini) }
                 }
+                .foregroundStyle(Palette.ink2)
             } footer: {
-                Text(SettingWords.line(options.mode))
+                Text(SettingWords.line(options.mode)).foregroundStyle(Palette.ink2)
             }
         }
         if options.mode == .build, !options.agent.permissions.isEmpty {
-            Section("Permissions") {
+            Section(head: "Permissions") {
                 ForEach(options.agent.permissions) { choice in
                     row(choice.label, line: SettingWords.line(permission: choice.id), chosen: options.permissionMode == choice.id,
                         busy: busy == .permission) {
@@ -451,6 +452,7 @@ struct SettingsForm: View {
             // The one view the form always has, so a pick is felt once rather than once a row.
             Text(footer)
                 .sensoryFeedback(.selection, trigger: picks)
+                .foregroundStyle(Palette.ink2)
         }
     }
 

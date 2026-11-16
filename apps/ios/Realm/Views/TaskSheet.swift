@@ -316,11 +316,12 @@ struct TaskSheet: View {
     private var words: some View {
         Section {
             if !draft.isCheckIn {
-                TextField("Task name", text: $draft.title)
+                TextField("Task name", text: $draft.title, prompt: Text("Task name").foregroundStyle(Palette.ink3))
                     .listRowBackground(Fill.card)
                     .accessibilityIdentifier("task-name")
             }
-            TextField(draft.isCheckIn ? "What it is told" : "Instructions…", text: $draft.goal, axis: .vertical)
+            TextField(draft.isCheckIn ? "What it is told" : "Instructions…", text: $draft.goal,
+                      prompt: Text(draft.isCheckIn ? "What it is told" : "Instructions…").foregroundStyle(Palette.ink3), axis: .vertical)
                 .lineLimit(4...10)
                 .listRowBackground(Fill.card)
                 .accessibilityIdentifier("task-goal")
@@ -329,6 +330,7 @@ struct TaskSheet: View {
                 Text(failure).foregroundStyle(Tone.failed.agentColor)
             } else if draft.isCheckIn {
                 Text("Its chat gets this message at these times, and it reports there.")
+                    .foregroundStyle(Palette.ink2)
             }
         }
     }
@@ -385,7 +387,7 @@ struct TaskSheet: View {
         }
         if draft.every == .custom {
             LabeledContent("Expression") {
-                TextField("0 9 * * *", text: $draft.cron)
+                TextField("0 9 * * *", text: $draft.cron, prompt: Text("0 9 * * *").foregroundStyle(Palette.ink3))
                     .mono(.body)
                     .multilineTextAlignment(.trailing)
                     .textInputAutocapitalization(.never)
@@ -416,7 +418,7 @@ struct TaskSheet: View {
     private var runsOn: some View {
         let agents = model.agentList.map(NewSessionDefaults.agents) ?? []
         let agent = agents.first { $0.kind == draft.agentKind }
-        Section("Runs on") {
+        Section(head: "Runs on") {
             if !draft.isCheckIn, !spaces.isEmpty {
                 Picker("Space", selection: spaceChoice) {
                     ForEach(spaces) { space in Text(space.name).tag(space.id) }
@@ -430,7 +432,7 @@ struct TaskSheet: View {
                         Text(option.name).tag("agent:\(option.kind)")
                     }
                     if !teammates.isEmpty {
-                        Section("Teammates") {
+                        Section(head: "Teammates") {
                             ForEach(teammates) { teammate in Text(teammate.name).tag("teammate:\(teammate.id)") }
                         }
                     }

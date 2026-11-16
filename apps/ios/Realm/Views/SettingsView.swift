@@ -96,7 +96,7 @@ struct SettingsView: View {
                         .profileRow()
                     }
                 } header: {
-                    Text("Realm")
+                    Text("Realm").foregroundStyle(Palette.ink2)
                 }
             }
 
@@ -127,9 +127,9 @@ struct SettingsView: View {
                 .tint(Palette.accent)
                 .profileRow()
             } header: {
-                Text("Session list")
+                Text("Session list").foregroundStyle(Palette.ink2)
             } footer: {
-                Text(style.explanation)
+                Text(style.explanation).foregroundStyle(Palette.ink2)
             }
 
             Section {
@@ -163,9 +163,10 @@ struct SettingsView: View {
                     if !on { model.activities.endAll() }
                 }
             } header: {
-                Text("General")
+                Text("General").foregroundStyle(Palette.ink2)
             } footer: {
                 Text("Your Mac sends a notification when a session waits on you, finishes or fails, and holds it back while you are at the Mac. A session you start here stays on the Lock Screen while it works, for as long as Realm is open or was just closed.")
+                    .foregroundStyle(Palette.ink2)
             }
 
             Section {
@@ -187,7 +188,7 @@ struct SettingsView: View {
                     .profileRow()
                 }
             } header: {
-                Text("Other")
+                Text("Other").foregroundStyle(Palette.ink2)
             } footer: {
                 // The version at the foot, as Manus signs its own.
                 VStack(spacing: 10) {
@@ -200,6 +201,7 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 12)
                 }
+                .foregroundStyle(Palette.ink2)
             }
         }
         // A group's note belongs to the group over it, not to the head under it.

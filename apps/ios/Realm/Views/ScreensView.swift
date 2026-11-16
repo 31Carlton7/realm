@@ -143,14 +143,14 @@ struct ScreensSheet: View {
                             }
                             // The space's other panes, grouped as the desktop names them: each opens its viewer.
                             if let others, !others.browsers.isEmpty {
-                                Section("Browsers") {
+                                Section(head: "Browsers") {
                                     ForEach(others.browsers) { pane in
                                         Button(pane.name, systemImage: PaneWords.browserGlyph) { browser = pane }
                                     }
                                 }
                             }
                             if let others, !others.terminals.isEmpty {
-                                Section("Terminals") {
+                                Section(head: "Terminals") {
                                     ForEach(others.terminals) { pane in
                                         Button(pane.name, systemImage: PaneWords.terminalGlyph) { terminal = pane }
                                     }

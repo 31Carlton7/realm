@@ -124,6 +124,7 @@ struct WorkingChangesView: View {
             if tree.truncated {
                 Section {} footer: {
                     Text("Showing \(tree.files.count) of \(tree.totalFiles) changed files — too many to list at once.")
+                        .foregroundStyle(Palette.ink2)
                 }
             }
         }
@@ -314,9 +315,10 @@ struct CommitSheet: View {
                 } footer: {
                     if let tree {
                         Text("\(CheckoutWords.staged(tree)) on \(tree.branch ?? "a detached HEAD").")
+                            .foregroundStyle(Palette.ink2)
                     }
                 }
-                Section("Pull request") {
+                Section(head: "Pull request") {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(draft.title)
                             .font(.subheadline.weight(.semibold))

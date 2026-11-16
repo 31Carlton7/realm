@@ -65,7 +65,7 @@ struct PanesSection: View {
         let browsers = panes?.browsers ?? []
         let terminals = panes?.terminals ?? []
         if !screens.isEmpty || !browsers.isEmpty || !terminals.isEmpty {
-            Section("Panes") {
+            Section(head: "Panes") {
                 ForEach(screens) { item in
                     Button { opening = .screen(item) } label: {
                         PaneRow(glyph: ScreenWords.glyph(item.kind), name: item.name, line: item.detail ?? "", state: item.live ? nil : "Not running")

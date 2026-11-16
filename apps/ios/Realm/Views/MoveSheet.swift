@@ -72,7 +72,7 @@ struct MoveSheet: View {
 
     @ViewBuilder
     private func content(_ options: MoveOptions, agent: String, pending: PendingMove?) -> some View {
-        Section("Runs on") {
+        Section(head: "Runs on") {
             place(title: options.from.name, line: MoveWords.detail(options.from), symbol: Self.symbol(options.from), mono: true)
                 .accessibilityElement(children: .combine)
                 .listRowBackground(Fill.card)
@@ -104,7 +104,7 @@ struct MoveSheet: View {
                 .accessibilityIdentifier("move-queued")
             }
         } else if options.blocked == nil {
-            Section("Move to") {
+            Section(head: "Move to") {
                 destination(.worktree, title: "New worktree",
                             line: options.worktree.available ? "A new branch off \(options.from.branch ?? "this checkout"), with your changes" : options.worktree.reason.map(MoveWords.sentence),
                             symbol: "arrow.triangle.branch", enabled: options.worktree.available)
@@ -115,7 +115,7 @@ struct MoveSheet: View {
             }
         }
         if options.blocked == nil {
-            Section("Goes with it") {
+            Section(head: "Goes with it") {
                 Group {
                     Text(MoveWords.conversation(options.conversation, agent: agent))
                     if let changes = MoveWords.changes(options.changedFiles) { Text(changes) }
@@ -131,9 +131,10 @@ struct MoveSheet: View {
                     }
                     .listRowBackground(Fill.card)
                 } header: {
-                    Text("Stops")
+                    Text("Stops").foregroundStyle(Palette.ink2)
                 } footer: {
                     Text("\(agent) is still running this. Stop and move stops it; it does not go with the session.")
+                        .foregroundStyle(Palette.ink2)
                 }
             }
             if !options.leftBehind.isEmpty {
@@ -144,9 +145,9 @@ struct MoveSheet: View {
                     }
                     .listRowBackground(Fill.card)
                 } header: {
-                    Text("Stays here")
+                    Text("Stays here").foregroundStyle(Palette.ink2)
                 } footer: {
-                    Text("Your checkout is left as it is.")
+                    Text("Your checkout is left as it is.").foregroundStyle(Palette.ink2)
                 }
             }
         }

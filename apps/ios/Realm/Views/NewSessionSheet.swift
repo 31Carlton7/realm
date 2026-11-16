@@ -136,7 +136,8 @@ struct NewSessionSheet: View {
                                             cancelExport: { model.cancelExport($0) })
                                 .layoutValue(key: ComposerPart.self, value: .strip)
                         }
-                        TextField(agent.map { "Message \($0.name)" } ?? "Message", text: draft, axis: .vertical)
+                        TextField(agent.map { "Message \($0.name)" } ?? "Message", text: draft,
+                                  prompt: Text(agent.map { "Message \($0.name)" } ?? "Message").foregroundStyle(Palette.ink3), axis: .vertical)
                             .tint(Palette.accent)
                             .font(.body)
                             .foregroundStyle(Palette.ink)

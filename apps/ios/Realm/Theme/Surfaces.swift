@@ -390,6 +390,26 @@ enum DestructiveInk {
     static let color = Palette.red
 }
 
+/// A grouped list's quiet words in the secondary ink. iOS draws a section's head and footer, and a value
+/// beside its label, in its own grey, which measured 3.3:1 on the light grouped ground; `Palette.ink2`
+/// reads at 6.5:1 there and on every card.
+extension Section where Parent == Text, Content: View, Footer == EmptyView {
+    init(head: String, @ViewBuilder content: () -> Content) {
+        self.init(content: content, header: { Text(head).foregroundStyle(Palette.ink2) })
+    }
+}
+
+struct ValueInk: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        LabeledContent {
+            configuration.content.foregroundStyle(Palette.ink2)
+        } label: {
+            configuration.label
+        }
+        .labeledContentStyle(.automatic)
+    }
+}
+
 private struct GlyphColumn: ViewModifier {
     @ScaledMetric private var width: CGFloat
 

@@ -144,7 +144,8 @@ struct ComposerView: View {
                     .layoutValue(key: ComposerPart.self, value: .strip)
                     .transition(.opacity)
             }
-            TextField(placeholder(session), text: draft, selection: $selection, axis: .vertical)
+            TextField(placeholder(session), text: draft, selection: $selection,
+                      prompt: Text(placeholder(session)).foregroundStyle(Palette.ink3), axis: .vertical)
                 .tint(Palette.accent)
                 .font(.body)
                 .foregroundStyle(Palette.ink)

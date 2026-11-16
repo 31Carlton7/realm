@@ -41,7 +41,7 @@ struct SuggestionPanel: View {
                         if let head = row.head {
                             Text(head)
                                 .font(.caption)
-                                .foregroundStyle(Palette.ink3)
+                                .foregroundStyle(Palette.ink2)
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 4)
                                 .frame(height: headHeight, alignment: .bottomLeading)
@@ -129,9 +129,11 @@ private struct MentionRowView: View {
             case .skill:
                 Image(systemName: "sparkles").font(.system(size: 15)).foregroundStyle(Palette.ink2)
             case .tab(let tab):
-                Image(systemName: TabWords.glyph(tab.kind)).font(.system(size: 15)).foregroundStyle(Palette.ink2)
+                Image(systemName: TabWords.glyph(tab.kind)).font(.system(size: 15))
+                    .foregroundStyle(Palette.ink2)
             case .file(let file):
-                Image(systemName: FileKind.symbol(file.rel)).font(.system(size: 15)).foregroundStyle(Palette.ink2)
+                Image(systemName: FileKind.symbol(file.rel)).font(.system(size: 15))
+                    .foregroundStyle(Palette.ink2)
             }
         } name: {
             Text(row.name).font(.body.weight(.medium))
@@ -174,7 +176,7 @@ private struct SuggestionLine<Mark: View, Name: View>: View {
                 .layoutPriority(1)
             Text(detail)
                 .font(.subheadline)
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(Palette.ink2)
                 .lineLimit(1)
                 .truncationMode(detailCut)
             Spacer(minLength: 0)

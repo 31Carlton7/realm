@@ -562,7 +562,7 @@ struct ViewOptionsMenu: View {
 
     var body: some View {
         Menu {
-            Section("List") {
+            Section(head: "List") {
                 ForEach(ListStyle.allCases) { option in
                     Toggle(isOn: $style.isChosen(option)) {
                         Label(option.title, systemImage: option.symbol)
@@ -570,7 +570,7 @@ struct ViewOptionsMenu: View {
                 }
             }
             if style == .bySpace {
-                Section("Order spaces") {
+                Section(head: "Order spaces") {
                     ForEach(SpaceOrder.allCases) { order in
                         Toggle(isOn: $spaceOrder.isChosen(order)) {
                             Label(order.title, systemImage: order.symbol)
@@ -640,7 +640,7 @@ struct SearchBar: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(Palette.ink2)
                     .accessibilityHidden(true)
-                TextField(prompt, text: $query)
+                TextField(prompt, text: $query, prompt: Text(prompt).foregroundStyle(Palette.ink3))
                     .focused($focused)
                     .submitLabel(.search)
                     .autocorrectionDisabled()
@@ -977,6 +977,7 @@ private struct LoadingSections: View {
                 Text("A space")
                     .font(.subheadline.weight(.semibold))
                     .textCase(nil)
+                    .foregroundStyle(Palette.ink2)
             }
         }
         .redacted(reason: .placeholder)

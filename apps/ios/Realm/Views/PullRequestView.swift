@@ -75,10 +75,10 @@ struct PullRequestView: View {
                 .padding(.vertical, 4)
                 .listRowBackground(Fill.card)
             }
-            Section("Merge status") {
+            Section(head: "Merge status") {
                 FactRow(fact: merge).listRowBackground(Fill.card)
             }
-            Section("Checks") {
+            Section(head: "Checks") {
                 FactRow(fact: checks).listRowBackground(Fill.card)
                 ForEach(Array(pr.checks.enumerated()), id: \.offset) { _, check in
                     CheckRow(check: check).listRowBackground(Fill.card)
@@ -91,9 +91,9 @@ struct PullRequestView: View {
                         .listRowBackground(Fill.card)
                 }
             } header: {
-                Text("Files changed · \(pr.changedFiles)")
+                Text("Files changed · \(pr.changedFiles)").foregroundStyle(Palette.ink2)
             } footer: {
-                if pr.filesTruncated { Text("GitHub lists the first 3,000.") }
+                if pr.filesTruncated { Text("GitHub lists the first 3,000.").foregroundStyle(Palette.ink2) }
             }
             Section(pr.comments.total > 0 ? "Comments · \(pr.comments.total)" : "Comments") {
                 if pr.comments.recent.isEmpty {
@@ -112,7 +112,7 @@ struct PullRequestView: View {
                     .listRowBackground(Fill.card)
                 }
             }
-            Section("Reviews") {
+            Section(head: "Reviews") {
                 if pr.reviewers.isEmpty {
                     Text("Nobody yet").foregroundStyle(Palette.ink2).listRowBackground(Fill.card)
                 }
@@ -128,7 +128,7 @@ struct PullRequestView: View {
                     .listRowBackground(Fill.card)
                 }
             }
-            Section("Description") {
+            Section(head: "Description") {
                 Group {
                     if body.isEmpty {
                         Text("No description provided.").foregroundStyle(Palette.ink2)
