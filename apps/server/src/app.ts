@@ -1100,6 +1100,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     authHeaders: (row) => oauth.headers(row),
     // A 401: a GitHub CLI token is read again, a pasted one flags the row for the user.
     reauthorize: (row) => oauth.reauthorize(row),
+    onTools: (id, tools) => rpc.broadcast("mcp.serverTools", { id, tools }),
     onStatus: (id, status) => {
       mcpStatus.set(id, status);
       // `oauthStatusOf` is the ONE place `oauthJson` → `oauthStatus` derivation lives (see its own doc

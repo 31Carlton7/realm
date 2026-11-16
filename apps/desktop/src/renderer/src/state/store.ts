@@ -3192,6 +3192,9 @@ export type AppState = TeammatesSlice & {
    *  payload twice (the event can repeat, and can arrive without a matching `mcp.changed`) leaves the
    *  same state, and a server not currently in `mcpServers` is a no-op rather than an error. */
   applyMcpServerStatus(payload: { id: string; status: McpServerStatus; oauthStatus: McpOauthStatus }): void;
+  /** Replace one server's tools from an `mcp.serverTools` broadcast, and drop the row's last refresh
+   *  error: a list just came back, so whatever failed before is no longer the news. */
+  applyMcpServerTools(payload: { id: string; tools: McpServer["tools"] }): void;
   /** Open the Activity sheet (McpSection's "Activity" button, the palette's "MCP Activity"): resets any
    *  filter left over from a previous visit — Activity always opens showing everything, per binding
    *  rule 5 — and loads the first page. Replaces whatever sheet was open (ruling 4: one sheet slot). */
@@ -8772,6 +8775,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const patch = (x: McpServer) => (x.id === id ? { ...x, status, oauthStatus } : x);
         set({ mcpServers: get().mcpServers.map(patch),
           connectors: Object.fromEntries(Object.entries(get().connectors).map(([sid, list]) => [sid, list.map(patch)])) });
+      },
+      applyMcpServerTools({ id, tools }) {
+        const patch = (x: McpServer) => (x.id === id ? { ...x, tools } : x);
+        set({ mcpServers: get().mcpServers.map(patch),
+          connectors: Object.fromEntries(Object.entries(get().connectors).map(([sid, list]) => [sid, list.map(patch)])),
+          mcpToolsError: { ...get().mcpToolsError, [id]: null } });
       },
       async openActivity() {
         // Always opens showing everything (binding rule 5) — a filter left over from a previous visit

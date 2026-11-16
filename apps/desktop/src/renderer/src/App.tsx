@@ -813,6 +813,7 @@ export function App() {
     // An account added, renamed or removed in any window, or a CLI saying something new about one.
     const offAcc = rpc().on("accounts.changed", () => { const st = store.getState(); st.run(() => st.refreshAccounts()); });
     const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
+    const offMT = rpc().on("mcp.serverTools", (payload) => store.getState().applyMcpServerTools(payload));
     // Laya's status, whole: an install narrating its steps, the runtime coming up or going down, and
     // the step count while agents work — all of it the Settings section's one state line.
     const offLaya = rpc().on("laya.changed", (status) => store.getState().applyLaya(status));
@@ -831,7 +832,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offTeamAccess(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offTeamAccess(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offMT(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();

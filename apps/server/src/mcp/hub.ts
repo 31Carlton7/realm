@@ -122,6 +122,9 @@ export class McpHub {
   constructor(private readonly d: {
     servers: McpServersStore;
     onStatus: (id: string, status: UpstreamStatus) => void;
+    /** A server's cached tool list was just written: Settings draws a row's tools from it, and a
+     *  connect Realm made on its own (a cool-off try) has no caller waiting to show them. */
+    onTools?: (id: string, tools: McpToolRow[]) => void;
     /**
      * The OAuth seam (`McpOauth.headers`). Returns the credential headers to merge on top of
      * `row.secrets` for an http/sse row — `{}` for a row with no OAuth connection.
@@ -180,7 +183,7 @@ export class McpHub {
       // Cache write: name + description ONLY, and whether the tool has a view. Deliberately a separate
       // projection from the return value below, not one derived from it, so it stays obviously correct
       // even if `McpLiveTool` grows another field later.
-      this.d.servers.setTools(id, tools.map(cachedTool));
+      this.cacheTools(id, tools);
       this.recordSuccess(id, entry);
       const live = tools.map(liveTool);
       entry.tools = new Map(live.map((t) => [t.name, t]));
@@ -531,13 +534,19 @@ export class McpHub {
       if (!entry?.client) return;
       try {
         const { tools } = await entry.client.listTools();
-        this.d.servers.setTools(id, tools.map(cachedTool));
+        this.cacheTools(id, tools);
         entry.tools = new Map(tools.map(liveTool).map((t) => [t.name, t]));
         entry.failures = 0;
         entry.status = "connected";
         this.d.onStatus(id, "connected");
       } catch { /* see doc comment above: swallowed, not counted against the breaker */ }
     })();
+  }
+
+  private cacheTools(id: string, tools: Tool[]): void {
+    const cached = tools.map(cachedTool);
+    this.d.servers.setTools(id, cached);
+    this.d.onTools?.(id, cached);
   }
 
   private recordSuccess(id: string, entry: Entry): void {
