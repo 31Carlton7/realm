@@ -225,6 +225,8 @@ private struct GalleryPage: View {
                 }
             } catch ChannelError.rpc(let refusal) where refusal.code == "METHOD_NOT_FOUND" {
                 problem = "Update Realm on your Mac to open this file here."
+            } catch ChannelError.rpc(let refusal) where refusal.code == "NOT_FOUND" && kind == .video {
+                problem = "This video is no longer on your Mac."
             } catch is CancellationError {
             } catch {
                 problem = AppModel.describe(error)

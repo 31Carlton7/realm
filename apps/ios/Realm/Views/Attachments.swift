@@ -321,29 +321,53 @@ struct VideoExport: Identifiable, Equatable {
     let id: UUID
     var progress: Double
     var sending = false
+    /// The exported video while it goes ahead, whose frame the tile shows under its ring.
+    var movie: URL?
 }
 
-/// A video's tile while it is exported or sent ahead: a ring that fills as it goes.
+/// A video's tile while it is exported or sent ahead: a ring that fills as it goes, over the video's
+/// frame once it goes ahead.
 private struct ExportTile: View {
     let progress: Double
     let sending: Bool
+    let movie: URL?
+    @Environment(\.displayScale) private var displayScale
+    @State private var frame: UIImage?
 
     var body: some View {
+        // Over a frame, white on the darkened frame, as a video tile's length is.
+        let ink = frame == nil ? Palette.ink2 : .white
         ZStack {
             Circle()
-                .stroke(Palette.line, lineWidth: 3)
+                .stroke(frame == nil ? Palette.line : .white.opacity(0.35), lineWidth: 3)
             Circle()
                 .trim(from: 0, to: max(0.03, progress))
-                .stroke(Palette.ink2, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(ink, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             Image(systemName: sending ? "arrow.up" : "video.fill")
                 .font(.system(size: 9, weight: sending ? .bold : .regular))
-                .foregroundStyle(Palette.ink2)
+                .foregroundStyle(ink)
         }
         .frame(width: 24, height: 24)
         .animation(.linear(duration: 0.1), value: progress)
         .frame(width: AttachmentStrip.side, height: AttachmentStrip.side)
-        .background(Palette.mark, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+        .background {
+            ZStack {
+                Rectangle().fill(Palette.mark)
+                if let frame {
+                    Image(uiImage: frame)
+                        .resizable()
+                        .scaledToFill()
+                    Rectangle().fill(.black.opacity(0.4))
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+        }
+        .animation(.easeOut(duration: 0.2), value: frame != nil)
+        .task(id: movie) {
+            guard let movie else { return }
+            frame = await GalleryCover.image(of: movie, kind: .video, side: AttachmentStrip.side, scale: displayScale)
+        }
         .accessibilityElement()
         .accessibilityLabel(sending ? "Sending the video to your Mac" : "Making the video ready to send")
         .accessibilityValue(progress.formatted(.percent.precision(.fractionLength(0))))
@@ -354,6 +378,8 @@ private struct ExportTile: View {
 struct VideoThumbnail: View {
     let url: URL
     let side: CGFloat
+    /// Where to keep the frame once drawn, for a tile that must outlast the file.
+    var poster: URL?
     @Environment(\.displayScale) private var displayScale
     @State private var frame: UIImage?
     @State private var duration: Duration?
@@ -386,6 +412,10 @@ struct VideoThumbnail: View {
         .animation(.easeOut(duration: 0.2), value: frame != nil)
         .task(id: url) {
             frame = await GalleryCover.image(of: url, kind: .video, side: side, scale: displayScale)
+            if let poster, let data = frame?.jpegData(compressionQuality: 0.8) {
+                try? FileManager.default.createDirectory(at: poster.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? data.write(to: poster, options: .atomic)
+            }
             if let length = try? await AVURLAsset(url: url).load(.duration) {
                 duration = .seconds(length.seconds.rounded())
             }
@@ -476,7 +506,7 @@ struct AttachmentStrip: View {
                     }
                 }
                 ForEach(exports) { export in
-                    ExportTile(progress: export.progress, sending: export.sending)
+                    ExportTile(progress: export.progress, sending: export.sending, movie: export.movie)
                         .overlay(alignment: .topTrailing) {
                             removeButton("Stop adding the video") { cancelExport(export) }
                         }
@@ -664,19 +694,28 @@ struct SentPicture: View {
 }
 
 /// A video sent with a message: a frame from it and how long it runs, drawn from the file itself once
-/// this phone has it, which is the one the gallery plays. Until then, its kind's glyph.
+/// this phone has it, which is the one the gallery plays. Gone from the Mac and this phone's cache, the
+/// frame kept when it was drawn; never drawn, its kind's glyph.
 struct SentVideo: View {
     let file: SentFile
     let sessionId: String
     @Environment(AppModel.self) private var model
     @ScaledMetric(relativeTo: .body) private var side: CGFloat = SentPicture.side
     @State private var kept: URL?
+    @State private var poster: UIImage?
 
     var body: some View {
         let side = min(self.side, SentPicture.largest)
+        let posterFile = AppModel.poster(file.path, in: sessionId)
         Group {
             if let kept {
-                VideoThumbnail(url: kept, side: side)
+                VideoThumbnail(url: kept, side: side, poster: posterFile)
+            } else if let poster {
+                Image(uiImage: poster)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: side, height: side)
+                    .clipped()
             } else {
                 Image(systemName: "video")
                     .font(.title3)
@@ -689,6 +728,7 @@ struct SentVideo: View {
         // Asked again once the Mac is there: a transcript kept from before draws before it connects.
         .task(id: model.isConnected) {
             guard kept == nil else { return }
+            if poster == nil { poster = UIImage(contentsOfFile: posterFile.path) }
             kept = try? await model.wholeFile(file.path, name: file.name, in: .session(sessionId)) { _ in }
         }
     }

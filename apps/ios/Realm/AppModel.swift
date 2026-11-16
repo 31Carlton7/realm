@@ -1247,7 +1247,7 @@ final class AppModel {
             show(toast: "That video could not be made ready to send.")
             return
         }
-        exportSending(id, in: sessionId)
+        exportSending(id, movie: exported, in: sessionId)
         let upload = Task {
             try await ChunkedUpload.send(exported, size: size, sha256: sha256, connect: {
                 try await self.connectedAPI(within: .seconds(30))
@@ -1327,9 +1327,10 @@ final class AppModel {
         costlyUploadAnswer = nil
     }
 
-    private func exportSending(_ id: UUID, in sessionId: String) {
+    private func exportSending(_ id: UUID, movie: URL, in sessionId: String) {
         guard let index = videoExports[sessionId]?.firstIndex(where: { $0.id == id }) else { return }
         videoExports[sessionId]?[index].sending = true
+        videoExports[sessionId]?[index].movie = movie
         videoExports[sessionId]?[index].progress = 0
     }
 
@@ -1662,6 +1663,14 @@ final class AppModel {
     }
 
     private static let wholeFiles = URL.cachesDirectory.appending(path: "Files", directoryHint: .isDirectory)
+    /// A frame of each sent video this phone has drawn, kept outside the cache: the Mac sweeps a sent
+    /// video after a day, and its tile still shows it.
+    private static let posters = URL.applicationSupportDirectory.appending(path: "Posters", directoryHint: .isDirectory)
+
+    static func poster(_ path: String, in sessionId: String) -> URL {
+        let digest = SHA256.hash(data: Data(previewKey(path, sessionId).utf8)).map { String(format: "%02x", $0) }.joined()
+        return posters.appending(path: "\(digest).jpg")
+    }
 
     private static func wholeFile(_ path: String, name: String, in source: FileSource) -> URL {
         let digest = SHA256.hash(data: Data(sourceKey(path, source).utf8)).map { String(format: "%02x", $0) }.joined()
@@ -1765,6 +1774,7 @@ final class AppModel {
         previews = [:]
         previewOrder = []
         try? FileManager.default.removeItem(at: Self.wholeFiles)
+        try? FileManager.default.removeItem(at: Self.posters)
         askedThumbnails = []
         turnChanges = [:]
         workingSince = [:]
