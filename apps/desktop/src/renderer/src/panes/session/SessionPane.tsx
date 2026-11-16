@@ -723,7 +723,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
-      {hero && !peek && <SessionBackdrop sessionId={id} />}
+      {!peek && <SessionBackdrop sessionId={id} hero={hero} />}
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track teammates={spaceTeammates}
         saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken} onEarlier={onEarlier}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}

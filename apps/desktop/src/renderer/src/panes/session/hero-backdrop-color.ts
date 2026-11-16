@@ -111,7 +111,7 @@ export function coverFit(w: number, h: number, iw: number, ih: number): Rect {
 }
 
 /** The image screened at `w`×`h` device px, cover-fit: worked out the first time and kept after. */
-async function screened(pic: Picture, look: ColorLook, w: number, h: number): Promise<Screened & { cached: boolean }> {
+export async function screened(pic: Picture, look: ColorLook, w: number, h: number): Promise<Screened & { cached: boolean }> {
   const cols = Math.ceil(w / look.cell), rows = Math.ceil(h / look.cell);
   const key = `${pic.key}|${look.cell}|${look.depth}|${cols}x${rows}`;
   const hit = cache.get(key);
