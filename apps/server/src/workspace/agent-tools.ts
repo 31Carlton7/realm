@@ -7,7 +7,7 @@ import {
   type SessionEvent, type Space, type StoredSessionEvent, type StoredView,
 } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
-import { clip, err, ok, parseArgs } from "../mcp/tool-result";
+import { err, head, ok, parseArgs } from "../mcp/tool-result";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -97,6 +97,8 @@ const SessionReadArgs = z.object({
   sinceSeq: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(200).default(40),
   kinds: z.array(z.enum(["user", "assistant", "tools"])).min(1).default(["user", "assistant", "tools"]),
+  entry: z.number().int().min(0).optional(),
+  from: z.number().int().min(1).default(1),
 }).strict();
 
 const TOOLS: Tool[] = [
@@ -148,6 +150,8 @@ const TOOLS: Tool[] = [
         sinceSeq: { type: "number", description: "read the entries after this seq, oldest first; omit for the latest entries" },
         limit: { type: "number", description: "entries per page, 1–200 (default 40)" },
         kinds: { type: "array", items: { type: "string", enum: ["user", "assistant", "tools"] }, description: "which entries to include (default all three)" },
+        entry: { type: "number", description: `one message's seq, to read it whole — a page shows ${ENTRY_MAX} characters of each and says when one goes on` },
+        from: { type: "number", description: "with entry: the character to start from, from 1 (default 1)" },
       },
       required: ["sessionId"],
       additionalProperties: false,
@@ -287,6 +291,7 @@ const HANDLERS: Record<string, Handler> = {
       const here = d.spaces.get(ctx.spaceId)?.name;
       return err(`session ${sessionId} belongs to another space, and session_read only reads sessions in this one${here ? ` ("${here}")` : ""}. sessions_list lists those. If the user wants you to see that work, ask them to paste what matters or move the session here.`);
     }
+    if (args.value.entry !== undefined) return readEntry(d, sessionId, sessionId === ctx.sessionId, args.value.entry, args.value.from);
     const types = [...new Set(kinds)].map((k) => READ_KINDS[k]);
     const forward = sinceSeq !== undefined;
     const rows = d.events.listOfTypes(sessionId, types, { ...(forward ? { afterSeq: sinceSeq } : {}), limit: limit + 1 });
@@ -446,7 +451,27 @@ async function mountedBrowsers(d: WorkspaceToolsDeps, items: Item[]): Promise<Ma
 
 type Entry = { text: string; lastSeq: number };
 
-/** The page as lines: what was said, clipped, and each run of tool calls folded into one line of names. */
+/** One message of a session, whole: `PAGE_MAX` characters of it from `from`, and where the rest starts. */
+function readEntry(d: WorkspaceToolsDeps, sessionId: string, own: boolean, seq: number, from: number): CallToolResult {
+  const [row] = d.events.listOfTypes(sessionId, ["user_message", "assistant_text"], { afterSeq: seq - 1, limit: 1 });
+  if (!row || row.seq !== seq || (row.event.type !== "user_message" && row.event.type !== "assistant_text")) {
+    return err(`seq ${seq} of session ${sessionId} is not a message — session_read lists each message with its seq.`);
+  }
+  const text = row.event.payload.text;
+  const shown = head(text.slice(from - 1), PAGE_MAX);
+  const end = from - 1 + shown.length;
+  const tail = end < text.length ? `More: session_read with entry ${seq} and from ${end + 1}.` : `That is the end of entry ${seq}.`;
+  const body = own ? shown : fenceAgentOutput(shown, "ANOTHER SESSION'S MESSAGE — what the user or that session's agent said in it");
+  return ok([`Entry ${seq} of session ${sessionId}, characters ${from}–${end} of ${text.length}:`, body, tail].join("\n"));
+}
+
+/** A message on a page: the first `ENTRY_MAX` characters, and how to read the rest when it goes on. */
+function entryText(seq: number, text: string): string {
+  const shown = head(text, ENTRY_MAX);
+  return shown.length < text.length ? `${shown} … ${text.length - shown.length} more characters: session_read with entry ${seq}.` : text;
+}
+
+/** The page as lines: what was said, the start of each long message, and each run of tool calls folded into one line of names. */
 function transcriptEntries(rows: StoredSessionEvent[]): Entry[] {
   const out: Entry[] = [];
   let tools: { names: string[]; seq: number; lastSeq: number } | null = null;
@@ -464,9 +489,9 @@ function transcriptEntries(rows: StoredSessionEvent[]): Entry[] {
     flush();
     if (event.type === "user_message") {
       const who = event.payload.goal ? "Realm (continuing the goal)" : event.payload.from ? `session "${event.payload.from.title}"` : "user";
-      out.push({ text: `[${seq}] ${who}: ${clip(event.payload.text, ENTRY_MAX)}`, lastSeq: seq });
+      out.push({ text: `[${seq}] ${who}: ${entryText(seq, event.payload.text)}`, lastSeq: seq });
     } else if (event.type === "assistant_text") {
-      out.push({ text: `[${seq}] assistant: ${clip(event.payload.text, ENTRY_MAX)}`, lastSeq: seq });
+      out.push({ text: `[${seq}] assistant: ${entryText(seq, event.payload.text)}`, lastSeq: seq });
     }
   }
   flush();

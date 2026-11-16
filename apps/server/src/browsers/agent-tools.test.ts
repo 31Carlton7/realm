@@ -313,6 +313,22 @@ describe("results and scoping", () => {
     expect(t).toContain('[ref=11] button "Submit order"');
   });
 
+  it("browser_read pages a long page's text instead of cutting it off", async () => {
+    // THE MUTANT: hand back only the first 40,000 characters, as the app's reader used to — the rest
+    // of a long article or a log could never be read.
+    const page = Array.from({ length: 20_000 }, (_, i) => `w${i} `).join("").slice(0, 100_000);
+    const { call } = setup({ bridgeResults: { read: { text: page } } });
+    const first = text(await call("browser_read", { browserId: "b1" }));
+    expect(first).toContain("(characters 1–40000 of 100000)");
+    expect(first).toContain(page.slice(0, 40_000));
+    expect(first).not.toContain(page.slice(40_000, 40_100));
+    expect(first).toContain("More: browser_read with offset 40001.");
+    const last = text(await call("browser_read", { browserId: "b1", offset: 80_001 }));
+    expect(last).toContain(page.slice(80_000));
+    expect(last).not.toContain(page.slice(0, 100));
+    expect(last).not.toContain("More:");
+  });
+
   it("browser_read output is fenced for every kind — console and network are page-influenced too", async () => {
     const { call } = setup();
     for (const kind of ["text", "console", "network"]) {

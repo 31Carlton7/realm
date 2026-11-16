@@ -1367,6 +1367,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       await wait(`testMcpServer:${id}`);
       return data.mcpTest[id] ?? { reached: false, detail: "no test result configured" };
     },
+    cancelMcpTest: async (id) => { calls.push(`cancelMcpTest:${id}`); },
     getMemory: async (spaceId) => { calls.push(`getMemory:${spaceId}`); return memState(spaceId); },
     setMemory: async (spaceId, doc) => {
       calls.push(`setMemory:${spaceId}:${doc.length}`);

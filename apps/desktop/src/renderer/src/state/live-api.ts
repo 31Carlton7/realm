@@ -143,6 +143,7 @@ export const liveApi = (): Api => ({
   promoteSkill: async (spaceId, id) => { await rpc().call("skills.promote", { spaceId, id }); },
   demoteSkill: async (spaceId, id) => { await rpc().call("skills.demote", { spaceId, id }); },
   testMcpServer: (id) => rpc().call("mcp.test", { id }),
+  cancelMcpTest: async (id) => { await rpc().call("mcp.testCancel", { id }); },
   getMemory: (spaceId) => rpc().call("memory.get", { spaceId }),
   setMemory: (spaceId, doc) => rpc().call("memory.set", { spaceId, doc }),
   setAgentsFile: (spaceId, enabled) => rpc().call("memory.setAgentsFile", { spaceId, enabled }),

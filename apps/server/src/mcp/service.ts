@@ -93,6 +93,9 @@ export type McpServerFields = {
  * `oauthJson` again. `list` returns key names. Nothing here logs, broadcasts, or returns a secret value.
  */
 export class McpService {
+  /** The `mcp.test` running for each server, so the user can stop it. */
+  private readonly tests = new Map<string, AbortController>();
+
   /** `statusOf` is the hub's live connection state, injected rather than imported: `McpService` has no
    *  business knowing `McpHub` exists, and a caller that doesn't wire one (older tests, a stripped
    *  harness) gets the W1-era "always idle" behavior for free. Wired for real in `app.ts` from the hub's
@@ -399,10 +402,22 @@ export class McpService {
    * readout is unhappy. A hub connection that is already `circuit_open` would fail fast and tell them
    * nothing about the row they just edited.
    */
-  test(id: string): Promise<McpTestResult> {
+  async test(id: string): Promise<McpTestResult> {
     const row = this.d.servers.get(id);
     if (!row) throw new RpcError("NOT_FOUND", `mcp server ${id} not found`);
-    return liveCheck(row);
+    this.tests.get(id)?.abort();
+    const ctl = new AbortController();
+    this.tests.set(id, ctl);
+    try { return await liveCheck(row, { signal: ctl.signal }); }
+    finally { if (this.tests.get(id) === ctl) this.tests.delete(id); }
+  }
+
+  /** `mcp.testCancel` — stop a test still waiting on its server (a first run still downloading, say);
+   *  it answers "cancelled". False when no test of this server is running. */
+  cancelTest(id: string): boolean {
+    const ctl = this.tests.get(id);
+    ctl?.abort();
+    return ctl !== undefined;
   }
 
   private statusOf(id: string): McpServerStatus {

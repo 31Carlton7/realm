@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeModels, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
+import { CLAUDE_MCP_OUTPUT_TOKENS, ClaudeAdapter, claudeAllowedTools, claudeModels, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import { GATEWAY_TOOL_TIMEOUT_MS, RestartRequiredError, type StartOptions } from "../types";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -1214,14 +1214,33 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
-  it("leaves a non-skills session's env byte-for-byte what it always was, settings file or not", async () => {
+  it("leaves a non-skills session's env what it always was, settings file or not", async () => {
     // The CLI reads the file itself here, so carrying it too would apply every entry twice — and run
     // a token-minting helper on sessions that never lost their login.
     settingsFile({ env: { REALM_PROBE_FROM_SETTINGS: "yes" }, apiKeyHelper: "printf sk-never-minted" });
     const { handle, options } = capture({ env: { REALM_PROBE_OWN: "v" } });
     await handle.send({ text: "hi", attachments: [] });
-    expect((await options()).env).toEqual({ ...process.env, REALM_PROBE_OWN: "v" });
+    expect((await options()).env).toEqual({ MAX_MCP_OUTPUT_TOKENS: String(CLAUDE_MCP_OUTPUT_TOKENS), ...process.env, REALM_PROBE_OWN: "v" });
     await handle.dispose();
+  });
+
+  it("lifts the CLI's 25,000-token cap on one MCP result, skills or not, unless the user set their own", async () => {
+    // THE MUTANT: leave MAX_MCP_OUTPUT_TOKENS unset, and every tool through the gateway, Realm's own
+    // included, is cut at 25,000 tokens into a file the model has to go and read.
+    expect(CLAUDE_MCP_OUTPUT_TOKENS).toBe(100_000);
+    const plain = capture({});
+    await plain.handle.send({ text: "hi", attachments: [] });
+    expect(((await plain.options()).env as Record<string, string>).MAX_MCP_OUTPUT_TOKENS).toBe("100000");
+    await plain.handle.dispose();
+    settingsFile({});
+    const skills = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await skills.handle.send({ text: "hi", attachments: [] });
+    expect(((await skills.options()).env as Record<string, string>).MAX_MCP_OUTPUT_TOKENS).toBe("100000");
+    await skills.handle.dispose();
+    const own = capture({ env: { MAX_MCP_OUTPUT_TOKENS: "40000" } });
+    await own.handle.send({ text: "hi", attachments: [] });
+    expect(((await own.options()).env as Record<string, string>).MAX_MCP_OUTPUT_TOKENS).toBe("40000");
+    await own.handle.dispose();
   });
 });
 

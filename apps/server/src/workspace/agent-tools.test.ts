@@ -316,7 +316,23 @@ describe("session_read", () => {
     // THE MUTANT: no cap. Twenty five-thousand-character messages are a hundred thousand characters
     // poured into the reader's context for one call.
     expect(t.length).toBeLessThan(26_000);
-    expect(t).toContain("x…");
+    expect(t).toContain(`${"x".repeat(2_000)} … 3000 more characters: session_read with entry 1.`);
     expect(t).toMatch(/More: call session_read with sinceSeq \d+\./);
+  });
+
+  it("reads a long message whole by its seq, a page at a time", async () => {
+    // THE MUTANT: no `entry`. A message past two thousand characters could only ever be read cut.
+    const long = Array.from({ length: 30_000 }, (_, i) => String(i % 10)).join("");
+    const s = setup({ events: { [PEER]: [said("user", "short"), said("assistant", long)] } });
+    const first = text(await s.call("session_read", { sessionId: PEER, entry: 2 }));
+    expect(first).toContain("Entry 2 of session");
+    expect(first).toContain("characters 1–24000 of 30000:");
+    expect(first).toContain(long.slice(0, 24_000));
+    expect(first).toContain("More: session_read with entry 2 and from 24001.");
+    const rest = text(await s.call("session_read", { sessionId: PEER, entry: 2, from: 24_001 }));
+    expect(rest).toContain(long.slice(24_000));
+    expect(rest).toContain("That is the end of entry 2.");
+    const bad = await s.call("session_read", { sessionId: PEER, entry: 9 });
+    expect(bad.isError).toBe(true);
   });
 });

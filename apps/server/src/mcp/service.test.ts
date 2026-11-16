@@ -470,3 +470,14 @@ function setupViews() {
   const settings = new SettingsStore(db);
   return { svc: new McpService({ servers, settings }), servers, settings };
 }
+
+describe("mcp.test", () => {
+  it("can be cancelled while the server is still starting, and says there was nothing to cancel after", async () => {
+    const s = mcp.add({ name: "slow", transport: "stdio", command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"], env: {} }, WORK);
+    const pending = mcp.test(s.id);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(mcp.cancelTest(s.id)).toBe(true);
+    expect(await pending).toEqual({ reached: false, detail: "cancelled before the server answered" });
+    expect(mcp.cancelTest(s.id)).toBe(false);
+  });
+});

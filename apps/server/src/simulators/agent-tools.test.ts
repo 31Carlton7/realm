@@ -510,6 +510,21 @@ describe("simulator_elements and simulator_apps", () => {
     expect(appAt).toBeGreaterThan(fenceAt);
   });
 
+  it("lists a screen past 300 elements a page at a time, saying where the next page starts", async () => {
+    // THE MUTANT: list the first 300 and stop. Element 301 on could never be read, or tapped.
+    const many: SimulatorAxTree = { ...TREE, elements: Array.from({ length: 650 }, (_, i) => ({ ...TREE.elements[0]!, path: `0.${i}`, label: `Row ${i + 1}`, id: null })) };
+    const { call, running } = setup({ serveSim: { ax: async () => many } });
+    const simulatorId = await running();
+    const first = text(await call("simulator_elements", { simulatorId }));
+    expect(first).toContain("650 element(s)");
+    expect(first).toContain("Elements 1–300 are listed; simulator_elements with offset 300 lists the next.");
+    expect(first).not.toContain('"Row 301"');
+    const last = text(await call("simulator_elements", { simulatorId, offset: 600 }));
+    expect(last).toContain("Elements 601–650 are listed.");
+    expect(last).toContain('"Row 650"');
+    expect(last).not.toContain('"Row 600"');
+  });
+
   it("says so when the foreground app names itself nothing, as the home screen does", async () => {
     // MEASURED: SpringBoard's root node arrives with a blank label, which printed as `app:  `.
     const { call, running } = setup({ serveSim: { ax: async () => ({ ...TREE, app: " " }) } });

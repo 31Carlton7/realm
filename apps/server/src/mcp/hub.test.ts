@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
 import { dirname, join } from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -8,7 +8,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { openDatabase } from "../db/database";
 import { McpServersStore, type McpServerRow } from "../store/mcp";
 import { waitFor } from "../test-utils";
-import { McpHub, type HubElicit } from "./hub";
+import { CIRCUIT_COOLOFF_MS, McpHub, type HubElicit } from "./hub";
 import { makeStubServer, type StubResource, type StubServer } from "./fixtures/stub-server";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
@@ -239,6 +239,123 @@ describe("circuit breaker", () => {
     try { await hub.tools(row.id); } catch (e) { err = e; }
     expect((err as Error).message).toBe(`mcp server ${row.id}: server row not found`);
   });
+});
+
+describe("a circuit that closes by itself", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** A hub whose connects fail `failing` times and then succeed. */
+  const flaky = (failing: number, statuses: string[]) => {
+    const stub = makeStubServer();
+    let attempts = 0;
+    const hub = new McpHub({
+      servers, onStatus: (_id, s) => statuses.push(s), authHeaders: noAuth,
+      makeTransport: () => { attempts += 1; if (attempts <= failing) throw new Error("refused"); return stub.connectInMemory(); },
+    });
+    return { hub, attempts: () => attempts };
+  };
+
+  it("tries the server again on its own once the cool-off is over, and is connected when it answers", async () => {
+    // THE MUTANT: no timer when the breaker opens. The server stays circuit_open until Retry, and a
+    // session whose tool list it dropped out of never calls it again — lost for the night.
+    vi.useFakeTimers();
+    const row = newRow();
+    const statuses: string[] = [];
+    const { hub, attempts } = flaky(3, statuses);
+    for (let i = 0; i < 3; i++) await expect(hub.tools(row.id)).rejects.toThrow();
+    expect(statuses).toEqual(["error", "error", "circuit_open"]);
+    await expect(hub.call(row.id, "echo", {})).rejects.toThrow(/tries it again in 30s/);
+    expect(attempts()).toBe(3);
+    await vi.advanceTimersByTimeAsync(CIRCUIT_COOLOFF_MS);
+    await vi.waitFor(() => expect(statuses.at(-1)).toBe("connected"));
+    expect(attempts()).toBe(4);
+    expect((await hub.call(row.id, "echo", { back: true })).isError).toBeUndefined();
+    await hub.close();
+  });
+
+  it("lets the next call try once the cool-off is over, before the hub's own try", async () => {
+    // THE MUTANT: fail fast on circuit_open whatever the time, as before.
+    vi.useFakeTimers();
+    const row = newRow();
+    const { hub, attempts } = flaky(3, []);
+    for (let i = 0; i < 3; i++) await expect(hub.tools(row.id)).rejects.toThrow();
+    vi.setSystemTime(Date.now() + CIRCUIT_COOLOFF_MS);
+    expect(await hub.call(row.id, "echo", { now: 1 })).toMatchObject({ content: [{ type: "text", text: JSON.stringify({ now: 1 }) }] });
+    expect(attempts()).toBe(4);
+    await hub.close();
+  });
+
+  it("waits twice as long after a try that failed, and stops trying once retry() or close() runs", async () => {
+    vi.useFakeTimers();
+    const row = newRow();
+    const statuses: string[] = [];
+    const { hub, attempts } = flaky(100, statuses);
+    for (let i = 0; i < 3; i++) await expect(hub.tools(row.id)).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(CIRCUIT_COOLOFF_MS);
+    expect(attempts()).toBe(4); // the hub's own try, which failed: one event, the circuit open again
+    expect(statuses).toEqual(["error", "error", "circuit_open", "circuit_open"]);
+    await vi.advanceTimersByTimeAsync(CIRCUIT_COOLOFF_MS);
+    expect(attempts()).toBe(4);
+    await vi.advanceTimersByTimeAsync(CIRCUIT_COOLOFF_MS);
+    expect(attempts()).toBe(5);
+    await hub.close();
+    await vi.advanceTimersByTimeAsync(10 * CIRCUIT_COOLOFF_MS);
+    expect(attempts()).toBe(5);
+  });
+});
+
+describe("a long call", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("is not cut off at a minute — a server that is working runs to the hour", async () => {
+    // THE MUTANT: put the 60 s working-time clock back. The call rejects at 60 s with the server
+    // still working.
+    const row = newRow();
+    const stub = makeStubServer({ delayMs: 61_000 });
+    const { hub } = hubFor(stub);
+    await hub.tools(row.id);
+    vi.useFakeTimers();
+    const call = hub.call(row.id, "echo", { slow: true });
+    const settled = call.then(() => "answered", () => "rejected");
+    await vi.advanceTimersByTimeAsync(60_500);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await settled).toBe("answered");
+    expect(await call).toMatchObject({ content: [{ type: "text", text: JSON.stringify({ slow: true }) }] });
+  });
+
+  it("fails at once when the server's connection closes mid-call", async () => {
+    const row = newRow();
+    const stub = makeStubServer({ delayMs: 10 * 60_000 });
+    const { hub } = hubFor(stub);
+    await hub.tools(row.id);
+    const started = Date.now();
+    const call = hub.call(row.id, "echo", {});
+    await new Promise((r) => setTimeout(r, 50));
+    await stub.close();
+    await expect(call).rejects.toThrow(/Connection closed/);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    await hub.close();
+  });
+
+  it("fails at once when the server's process dies mid-call", async () => {
+    // What makes the hour safe: a stdio server that crashes takes its call down with it, at once,
+    // rather than leaving the agent waiting out the ceiling.
+    const row = newRow({ STUB_DELAY_MS: String(10 * 60_000) });
+    servers.update(row.id, { command: process.execPath, args: [join(HERE, "fixtures", "limits-stdio.mjs")] });
+    const hub = new McpHub({ servers, onStatus: () => {}, authHeaders: noAuth });
+    try {
+      await hub.tools(row.id);
+      const [proc] = hub.processes();
+      const call = hub.call(row.id, "slow", {});
+      await new Promise((r) => setTimeout(r, 200));
+      const killed = Date.now();
+      process.kill(proc!.pid, "SIGKILL");
+      await expect(call).rejects.toThrow(/Connection closed/);
+      expect(Date.now() - killed).toBeLessThan(3_000);
+    } finally {
+      await hub.close();
+    }
+  }, 20_000);
 });
 
 describe("authHeaders seam (http/sse)", () => {
@@ -501,9 +618,9 @@ describe("stdio integration (real process)", () => {
 
 describe("a server asking the user mid-call (MCP elicitation)", () => {
   const form = { mode: "form", message: "Which team?", requestedSchema: { type: "object", properties: { team: { type: "string", enum: ["eng", "design"] } }, required: ["team"] } };
-  const asking = (elicit?: HubElicit, o: { callTimeoutMs?: number } = {}) => {
+  const asking = (elicit?: HubElicit) => {
     const stub = makeStubServer({ elicitation: form });
-    return new McpHub({ servers, onStatus: () => {}, authHeaders: noAuth, makeTransport: () => stub.connectInMemory(), ...(elicit ? { elicit } : {}), ...o });
+    return new McpHub({ servers, onStatus: () => {}, authHeaders: noAuth, makeTransport: () => stub.connectInMemory(), ...(elicit ? { elicit } : {}) });
   };
   const answerOf = (r: { content: unknown[] }) => JSON.parse((r.content[0] as { text: string }).text) as { action: string; content?: unknown };
 
@@ -538,13 +655,6 @@ describe("a server asking the user mid-call (MCP elicitation)", () => {
   it("says it cannot elicit when there is nowhere to send a question", async () => {
     const row = newRow();
     await expect(asking().call(row.id, "ask", {}, { sessionId: "s1" })).rejects.toThrow(/does not support form elicitation/);
-  });
-
-  it("stops the call's clock while the user is answering — a person thinking is not a server timing out", async () => {
-    // THE MUTANT: leave the clocks running. The call is cut off at its allowance while the card is up.
-    const row = newRow();
-    const hub = asking(() => new Promise((res) => setTimeout(() => res({ action: "accept", content: { team: "eng" } }), 250)), { callTimeoutMs: 100 });
-    expect(answerOf(await hub.call(row.id, "ask", {}, { sessionId: "s1" }))).toMatchObject({ action: "accept" });
   });
 });
 
@@ -593,6 +703,19 @@ describe("MCP Apps: what a server says about its views", () => {
     const { hub } = hubFor(stub);
     expect(await hub.uiResource(row.id, "ui://stub/chart")).toEqual({ html: HTML, ui });
     expect((await hub.uiResource(row.id, "ui://stub/blob")).html).toBe(HTML);
+  });
+
+  it("reads a view of any size — one past the old 5 MB cap comes back whole, as text or base64", async () => {
+    // THE MUTANT: put a byte cap back on `uiResource`, and a bundled app past it is refused.
+    const row = newRow();
+    const big = `<div>${"x".repeat(12 * 1024 * 1024)}</div>`;
+    const stub = makeStubServer({ resources: [
+      { uri: "ui://stub/big", mimeType: "text/html;profile=mcp-app", text: big },
+      { uri: "ui://stub/big-blob", mimeType: "text/html;profile=mcp-app", blob: Buffer.from(big).toString("base64") },
+    ] });
+    const { hub } = hubFor(stub);
+    expect((await hub.uiResource(row.id, "ui://stub/big")).html.length).toBe(big.length);
+    expect((await hub.uiResource(row.id, "ui://stub/big-blob")).html.length).toBe(big.length);
   });
 
   it("falls back to the resource's resources/list entry for its _meta.ui, and the item wins where both speak", async () => {

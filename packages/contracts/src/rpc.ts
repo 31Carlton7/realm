@@ -1371,6 +1371,9 @@ export const Methods = {
    * already saying `error`. The hub's cached status is the steady-state readout; this is the probe.
    */
   "mcp.test": { params: z.object({ id: IdSchema }), result: z.object({ reached: z.boolean(), detail: z.string() }) },
+  /** Stop that server's running `mcp.test`, which then answers "cancelled". `cancelled` is false when
+   *  none was running (it had already answered). */
+  "mcp.testCancel": { params: z.object({ id: IdSchema }), result: z.object({ cancelled: z.boolean() }) },
   /** The server's live tool list — triggers the hub's lazy connect (W2+). A connect failure comes back
    *  as `error` naming what went wrong, NOT a thrown RPC error: the list is still a renderable result,
    *  just an empty one with a reason attached. `tools` mirrors `mcp.list`'s cache on success. */

@@ -1447,17 +1447,15 @@ export async function setFileChooserInterception(send: CdpSend, enabled: boolean
 
 /* ------------------------------------ read ------------------------------------ */
 
-const PAGE_TEXT_MAX = 40_000;
-
-/** Article-first page text: the reader's priority order, falling back to body. */
+/** Article-first page text, all of it: the reader's priority order, falling back to body. The agent
+ *  tool pages it (`browser_read`'s `offset`), and a message's tab context caps its own. */
 export async function readPageText(send: CdpSend): Promise<string> {
   const expression = `(() => {
     const pick = document.querySelector("article") ?? document.querySelector("main") ?? document.querySelector("[role=main]") ?? document.body;
     return pick ? pick.innerText : "";
   })()`;
   const result = (await send("Runtime.evaluate", { expression, returnByValue: true })) as { result?: { value?: unknown } };
-  const text = typeof result.result?.value === "string" ? result.result.value : "";
-  return text.length > PAGE_TEXT_MAX ? `${text.slice(0, PAGE_TEXT_MAX)}\n…(truncated at ${PAGE_TEXT_MAX} chars)` : text;
+  return typeof result.result?.value === "string" ? result.result.value : "";
 }
 
 /** How many of a page's fields a read lists, and how much of each value. A form is a few dozen at

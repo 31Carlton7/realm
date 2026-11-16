@@ -43,6 +43,15 @@ describe("the views listener", () => {
     expect(r.headers["set-cookie"]).toBeUndefined();
   });
 
+  it("serves a view of any size whole — the frame's delivery path has no cap of its own", async () => {
+    const { s, port } = await boot();
+    const html = `<div>${"x".repeat(12 * 1024 * 1024)}</div>`;
+    const { url } = s.serve({ html, csp: "" });
+    const r = await get(port, where(url).path, where(url).host);
+    expect(r.status).toBe(200);
+    expect(r.body.length).toBe(html.length);
+  });
+
   it("gives every serve an origin of its own, even of the same HTML", async () => {
     const { s } = await boot();
     const a = s.serve({ html: "x", csp: "" }), b = s.serve({ html: "x", csp: "" });

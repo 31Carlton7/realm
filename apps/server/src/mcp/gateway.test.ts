@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { LoggingMessageNotificationSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { McpCallSchema, type EventName, type EventPayload } from "@realm/contracts";
+import { MCP_SERVER_NAME_MAX, MCP_TOOL_NAME_MAX, McpCallSchema, type EventName, type EventPayload } from "@realm/contracts";
 import type { McpServerConfig } from "@realm/adapters";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
@@ -18,7 +18,7 @@ import { RpcServer } from "../rpc/server";
 import { waitFor } from "../test-utils";
 import { McpHub } from "./hub";
 import { McpService } from "./service";
-import { McpGateway, type ProviderCallContext } from "./gateway";
+import { McpGateway, gatewayToolName, type ProviderCallContext } from "./gateway";
 import { makeStubServer, type StubServer, type StubServerOptions } from "./fixtures/stub-server";
 import type { DrawnView } from "../apps/views";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -177,6 +177,41 @@ describe("tools/list — namespacing and policy", () => {
     const { client } = await connectClient(app);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(["alpha__boom", "alpha__echo", "beta__boom", "beta__echo"]);
+    await client.close();
+  });
+
+  it("lists every one of 300 tools on one server — Realm drops none", async () => {
+    const app = await setupApp();
+    const tools = Array.from({ length: 300 }, (_, i) => ({ name: `tool_${i}`, description: `tool ${i}`, inputSchema: { type: "object" as const } }));
+    const { row } = app.addServer("many", { tools });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    const { client } = await connectClient(app);
+    expect((await client.listTools()).tools.filter((t) => t.name.startsWith("many__"))).toHaveLength(300);
+    expect(asText(await client.callTool({ name: "many__tool_299", arguments: { n: 299 } }) as CallToolResult)).toBe(JSON.stringify({ n: 299 }));
+    await client.close();
+  });
+
+  it("names a tool short enough for Claude's 128 characters, and the short name still reaches the tool", async () => {
+    // THE MUTANT: list `<server>__<tool>` whatever its length. With the longest server name and a
+    // long tool, Claude's `mcp__realm__…` passes 128 and the CLI drops the tool without a word.
+    const app = await setupApp();
+    const server = "s".repeat(MCP_SERVER_NAME_MAX);
+    const long = `fetch_${"x".repeat(80)}`;
+    const { row } = app.addServer(server, { tools: [
+      { name: long, description: "long", inputSchema: { type: "object" } },
+      { name: `${long}_2`, description: "long too", inputSchema: { type: "object" } },
+      { name: "echo", description: "short", inputSchema: { type: "object" } },
+    ] });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    const { client } = await connectClient(app);
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    for (const n of names) expect(`mcp__realm__${n}`.length).toBeLessThanOrEqual(MCP_TOOL_NAME_MAX);
+    expect(names).toContain(`${server}__echo`);
+    expect(new Set(names).size).toBe(3);
+    const short = names.find((n) => n === gatewayToolName(server, long))!;
+    expect(short).not.toBe(`${server}__${long}`);
+    expect(asText(await client.callTool({ name: short, arguments: { which: 1 } }) as CallToolResult)).toBe(JSON.stringify({ which: 1 }));
+    expect(app.calls.list({ sessionId: app.sessionId }).at(-1)).toMatchObject({ tool: long, ok: true });
     await client.close();
   });
 
@@ -627,6 +662,20 @@ describe("in-process providers (Plan 11 W3)", () => {
     const { client } = await connectClient(app);
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual(["alpha__boom", "alpha__echo", "realm-browser__ping"]);
+    await client.close();
+  });
+
+  it("tells Claude every tool, a server's and Realm's own, may answer at its largest in the conversation", async () => {
+    // THE MUTANT: list the tools without the key. The CLI then moves any result past 50,000
+    // characters into a file, whatever MAX_MCP_OUTPUT_TOKENS says.
+    const app = await setupApp();
+    const { row } = app.addServer("alpha");
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    app.gateway.registerProvider(fakeProvider("realm-browser"));
+    const { client } = await connectClient(app);
+    const tools = (await client.listTools()).tools;
+    expect(tools).toHaveLength(3);
+    for (const t of tools) expect(t._meta).toMatchObject({ "anthropic/maxResultSizeChars": 500_000 });
     await client.close();
   });
 

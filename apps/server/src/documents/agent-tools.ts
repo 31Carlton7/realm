@@ -1,7 +1,7 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { GUIDES_DIR, LECTURES_DIR, isVideoFile, progressSidecarPath, weakTopics, type DocumentEntry, type GuideProgress } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
-import { clip, err, ok } from "../mcp/tool-result";
+import { clip, err, head, ok } from "../mcp/tool-result";
 import type { McpService } from "../mcp/service";
 import { searchDocs, SEARCH_MAX_LIMIT } from "./docs-search";
 import { namedFile } from "./paths";
@@ -14,6 +14,7 @@ export const DOCS_PROVIDER_NAME = "realm-docs";
 const READ_LINES = 200;
 const READ_LINES_MAX = 1_000;
 const READ_CHARS_MAX = 40_000;
+/** How much of one line a page shows; the rest is read with `column`, a page's worth at a time. */
 const LINE_MAX = 2_000;
 
 /**
@@ -126,6 +127,7 @@ const TOOLS: Tool[] = [
         path: { type: "string", description: "the file, e.g. \"lectures/04.md\" or a path docs_search returned" },
         offset: { type: "number", description: "the first line to read, from 1 (default 1)" },
         limit: { type: "number", description: `how many lines (default ${READ_LINES}, max ${READ_LINES_MAX})` },
+        column: { type: "number", description: `where to start in the first line, from 1 (default 1) — for the rest of a line longer than ${LINE_MAX} characters` },
       },
       required: ["path"], additionalProperties: false,
     },
@@ -204,6 +206,7 @@ const HANDLERS: Record<string, Handler> = {
     const whole = (n: unknown, fallback: number) => (typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : fallback);
     const offset = Math.max(1, whole(a.offset, 1));
     const limit = Math.min(READ_LINES_MAX, Math.max(1, whole(a.limit, READ_LINES)));
+    const column = Math.max(1, whole(a.column, 1));
     let file;
     try { file = await d.readForSpace(ctx.spaceId, path); } catch (e) { return err(`${e instanceof Error ? e.message : String(e)} — docs_list shows the files in this space's folder.`); }
     if (file.text === null) return err(`${file.path} cannot be read as text — it is an image or another binary file, or too large. docs_open shows it to the user in the Documents pane.`);
@@ -213,7 +216,12 @@ const HANDLERS: Record<string, Handler> = {
     const out: string[] = [];
     let used = 0, last = offset - 1;
     for (let i = offset - 1; i < Math.min(lines.length, offset - 1 + limit); i++) {
-      const line = `${String(i + 1).padStart(5)}| ${clip(lines[i]!, LINE_MAX)}`;
+      // Read on from `column`: that first line then has a whole page to itself.
+      const from = i === offset - 1 ? column - 1 : 0;
+      const rest = lines[i]!.slice(from);
+      const shown = head(rest, from > 0 ? READ_CHARS_MAX : LINE_MAX);
+      const goesOn = shown.length < rest.length ? ` … line ${i + 1} goes on: docs_read with offset ${i + 1}, column ${from + shown.length + 1}.` : "";
+      const line = `${String(i + 1).padStart(5)}| ${shown}${goesOn}`;
       if (used + line.length > READ_CHARS_MAX && out.length > 0) break;
       out.push(line); used += line.length + 1; last = i + 1;
     }

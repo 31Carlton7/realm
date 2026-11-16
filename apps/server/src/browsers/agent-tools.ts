@@ -11,7 +11,7 @@ import {
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
-import { clip, err, ok, parseArgs } from "../mcp/tool-result";
+import { clip, err, head, ok, parseArgs } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { BrowsersStore } from "../store/browsers";
 import type { McpService } from "../mcp/service";
@@ -145,6 +145,8 @@ export function createBrowserAgentProvider(d: BrowserAgentToolsDeps): RealmToolP
 /* ---------------------------------- tool definitions ---------------------------------- */
 
 const READ_ONLY_TOOLS = new Set<string>(BROWSER_READ_ONLY_TOOLS);
+/** How much of a read one answer carries; `offset` reads on from where it stopped. */
+const READ_PAGE_MAX = 40_000;
 
 const TOOLS: Tool[] = [
   {
@@ -170,7 +172,7 @@ const TOOLS: Tool[] = [
   {
     name: "browser_read",
     description: "Read a pane's page text (article-first), console output, or a network request summary. Read-only.",
-    inputSchema: { type: "object", properties: { browserId: { type: "string" }, kind: { type: "string", enum: ["text", "console", "network"], description: "what to read (default: text)" } }, required: ["browserId"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { browserId: { type: "string" }, kind: { type: "string", enum: ["text", "console", "network"], description: "what to read (default: text)" }, offset: { type: "number", description: `the character to start from, from 1 (default 1) — an answer carries ${READ_PAGE_MAX} and says where the rest starts` } }, required: ["browserId"], additionalProperties: false },
   },
   {
     name: "browser_screenshot",
@@ -350,7 +352,7 @@ const OpenArgs = z.object({ url: z.string().min(1) });
 const NavigateArgs = z.object({ browserId: z.string().min(1), url: z.string().min(1) });
 const BrowserIdArgs = z.object({ browserId: z.string().min(1) });
 const SnapshotArgs = BrowserIdArgs.merge(BrowserSnapshotScopeSchema);
-const ReadArgs = z.object({ browserId: z.string().min(1), kind: BrowserReadKindSchema.default("text") });
+const ReadArgs = z.object({ browserId: z.string().min(1), kind: BrowserReadKindSchema.default("text"), offset: z.number().int().min(1).default(1) });
 /** `intent` is optional, as it is on `computer_act`: required, every call from an agent that has not
  *  learned the field would become a refusal — a change to the act path for a feature that promises
  *  never to touch it. It is the goal Laya's `target` question is asked against. */
@@ -461,7 +463,13 @@ const HANDLERS: Record<string, Handler> = {
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const result = (await d.bridge.call("read", { browserId: row.value.id, kind: args.value.kind })) as BrowserReadResult;
     if (result.loadError) return ok(loadErrorReport(result.loadError, false));
-    return ok(`${args.value.kind} of browser ${row.value.id}:\n${fenceUntrusted(result.text || "(empty)")}`);
+    const { offset } = args.value;
+    const all = result.text;
+    const shown = head(all.slice(offset - 1), READ_PAGE_MAX);
+    const end = offset - 1 + shown.length;
+    const where = offset > 1 || end < all.length ? ` (characters ${offset}–${end} of ${all.length})` : "";
+    const more = end < all.length ? `\nMore: browser_read with offset ${end + 1}.` : "";
+    return ok(`${args.value.kind} of browser ${row.value.id}${where}:\n${fenceUntrusted(shown || "(empty)")}${more}`);
   },
 
   browser_screenshot: async (d, ctx, rawArgs) => {

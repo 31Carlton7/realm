@@ -398,6 +398,8 @@ export type Api = TeammatesApi & {
   /** `mcp.test` — a live connection attempt from realm-server; resolves reached/failed with a sentence.
    *  The rest of the MCP surface is declared with the gateway methods further down. */
   testMcpServer(id: string): Promise<McpTestResult>;
+  /** `mcp.testCancel` — stop that test; the pending `testMcpServer` then resolves "cancelled". */
+  cancelMcpTest(id: string): Promise<void>;
   /** `memory.get` — this space's Realm memory document and its AGENTS.md state. */
   getMemory(spaceId: string): Promise<MemoryState>;
   /** `memory.set` — replaces the document; the server refuses past MEMORY_DOC_MAX rather than truncate. */
@@ -2553,6 +2555,7 @@ export type AppState = TeammatesSlice & {
   /** `mcp.test`, resolved to the caller: the result is per-click UI state, not store state. The rest of
    *  the MCP actions live with the gateway slice below (`refreshMcpServers` and friends). */
   testMcpServer(id: string): Promise<McpTestResult>;
+  cancelMcpTest(id: string): Promise<void>;
   /** Fetch a space's memory document + AGENTS.md state into `spaceMemory`. */
   refreshMemory(spaceId: string): Promise<void>;
   /** Replace the memory document. The caller must already be under MEMORY_DOC_MAX — the panel refuses
@@ -7226,6 +7229,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().refreshSkills(spaceId);
       },
       testMcpServer: (id) => api.testMcpServer(id),
+      cancelMcpTest: (id) => api.cancelMcpTest(id),
       async refreshMemory(spaceId) {
         const state = await api.getMemory(spaceId);
         set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });

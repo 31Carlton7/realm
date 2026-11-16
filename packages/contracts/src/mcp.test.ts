@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MCP_SECRET_STORAGE_NOTE, McpServerNameSchema, McpServerSchema, mcpSupportNote } from "./mcp";
+import { MCP_SECRET_STORAGE_NOTE, MCP_SERVER_NAME_MAX, McpServerNameSchema, McpServerSchema, mcpSupportNote } from "./mcp";
 import { AGENT_META } from "./presets";
 import { Methods } from "./rpc";
 import type { AgentKind } from "./entities";
@@ -28,11 +28,17 @@ describe("mcpSupportNote", () => {
 describe("McpServerNameSchema", () => {
   it("accepts what every agent can key a server by, and rejects what one of them cannot", () => {
     for (const ok of ["realm", "realm-mcp", "realm_mcp", "v2", "A1_b-c"]) expect(McpServerNameSchema.safeParse(ok).success).toBe(true);
-    // A dot would open a nested TOML table under Codex's `[mcp_servers.NAME]`; a space or quote breaks
-    // the key outright; the rest are not addressable.
-    for (const bad of ["", "has space", "dot.ted", "-leading", 'quo"te', "sla/sh", "x".repeat(65)]) {
+    // Outside the model APIs' tool-name characters, a server's tools cannot be named at all.
+    for (const bad of ["", "has space", "dot.ted", "-leading", 'quo"te', "sla/sh", "x".repeat(MCP_SERVER_NAME_MAX + 1)]) {
       expect(McpServerNameSchema.safeParse(bad).success).toBe(false);
     }
+  });
+
+  it("is as long as still leaves a tool room on Claude's 128-character wire — not the old 64", () => {
+    // THE MUTANT: `.max(64)` back. A 100-character name fits `mcp__realm__<name>__<hash>` in 128.
+    expect(MCP_SERVER_NAME_MAX).toBe(106);
+    expect(McpServerNameSchema.safeParse("s".repeat(MCP_SERVER_NAME_MAX)).success).toBe(true);
+    expect(`mcp__realm__${"s".repeat(MCP_SERVER_NAME_MAX)}__${"h".repeat(8)}`.length).toBe(128);
   });
 });
 

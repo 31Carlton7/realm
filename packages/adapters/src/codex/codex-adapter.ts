@@ -186,12 +186,22 @@ export function codexMcpConfig(servers: readonly McpServerConfig[]): Bag | undef
  */
 export const CODEX_MEMORIES_OFF = { features: { memories: false }, memories: { generate_memories: false, use_memories: false } } as const;
 
-/** `thread/start`'s `config` for one session: Realm's MCP servers, and — where Realm keeps the
- *  session's memory — Codex's own memories off for the thread. */
+/**
+ * The most of one tool result Codex keeps in the thread, in tokens (`tool_output_token_limit`). Its
+ * models default to 10,000, and past it Codex cuts the middle out of the result for good — there is no
+ * file to read the rest from. Half of the smallest window Codex runs here (272,000): a result that
+ * size leaves the thread room to go on, and a larger one would leave none. Codex counts every tool's
+ * output against the same knob, its shell's included, so this lifts those too.
+ */
+export const CODEX_TOOL_OUTPUT_TOKENS = 136_000;
+
+/** `thread/start`'s `config` for one session: Realm's MCP servers and how much of a tool's result
+ *  the thread keeps, and — where Realm keeps the session's memory — Codex's own memories off. */
 export function codexThreadConfig(servers: readonly McpServerConfig[], o: { memoriesOff?: boolean } = {}): Bag | undefined {
   const mcp = codexMcpConfig(servers);
   const memory = o.memoriesOff ? CODEX_MEMORIES_OFF : {};
-  return (mcp || o.memoriesOff) ? { ...mcp, ...memory } : undefined;
+  if (!mcp && !o.memoriesOff) return undefined;
+  return { ...mcp, ...(mcp ? { tool_output_token_limit: CODEX_TOOL_OUTPUT_TOKENS } : {}), ...memory };
 }
 
 /**
