@@ -32,7 +32,7 @@ export const entries: Entry[] = [
     body: [
       { kind: "ul", items: [
         "**Resizing the window no longer stutters with a picture behind a chat.** The picture holds still while you drag and is drawn again once the size settles.",
-        "**The greeting on a new session steps aside while a list is open over it, so the commands, mentions, skills and agents lists no longer cut its text in half.**",
+        "**The greeting on a new session steps aside while a list is open over it,** so the commands, mentions, skills and agents lists no longer cut its text in half.",
       ] },
     ],
   },
