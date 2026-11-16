@@ -474,11 +474,11 @@ struct WorkHeadTests {
         #expect(WorkHead.lines(reviews: nil, schedules: tasks + [Work.task("v", run: Work.run("Failed"))]).map(\.words) == ["2 scheduled results"])
     }
 
-    /// The bar's menu: Review, Scheduled, Usage and Saved, each a page of its own, Review and Scheduled
-    /// with what waits there under their names.
+    /// The Mac's pages: Library, Memory and Scheduled on Home, Review and Usage in the Mac's sheet, each
+    /// a page of its own, Review and Scheduled with what waits there under their names.
     @Test func theMenuOffersThePagesAndWhatWaitsInThem() {
-        #expect(WorkPage.allCases.map(\.title) == ["Review", "Scheduled", "Usage", "Saved", "Library", "Memory"])
-        #expect(WorkPage.allCases.map(\.route) == [.reviews, .scheduled, .usage, .saved, .library, .memory])
+        #expect((WorkPage.onHome + WorkPage.inSettings).map(\.title) == ["Library", "Memory", "Scheduled", "Review", "Usage"])
+        #expect((WorkPage.onHome + WorkPage.inSettings).map(\.route) == [.library, .memory, .scheduled, .reviews, .usage])
         let reviews = [Work.review("a"), Work.review("b")]
         let tasks = [Work.task("t", run: Work.run("Finished")), Work.task("u", run: Work.run("Expired"))]
         #expect(WorkPage.reviews.note(reviews: reviews, schedules: tasks) == "2 to review")

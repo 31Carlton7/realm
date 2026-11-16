@@ -287,6 +287,31 @@ struct SessionRowTests {
         #expect(SessionRowView.spoken(quiet, now: now) == "Untitled session, Realm, Codex, 2m ago")
     }
 
+    /// A scheduled task's run and the session it is named like read apart: the run says so, drawn and
+    /// spoken, after its state, and the session the person started says nothing of schedules.
+    @Test func aScheduledRunSaysSo() throws {
+        let failed = { (id: String, scheduled: Bool?) in
+            SessionRow(id: id, title: "Check the build", spaceId: "sp1", spaceName: "Realm", agent: "claude", model: nil,
+                       status: .error, needsYou: true, unread: false, updatedAt: 1_790_000_000_000, scheduled: scheduled)
+        }
+        let run = try Drawing.words(SessionRowView(row: failed("run", true), space: nil).environment(AppModel()))
+        #expect(run.contains("Failed") && run.contains("Scheduled run"), "\(run)")
+        let byHand = try Drawing.words(SessionRowView(row: failed("own", nil), space: nil).environment(AppModel()))
+        #expect(byHand.contains("Failed") && !byHand.contains("Scheduled"), "\(byHand)")
+        let now = Date(timeIntervalSince1970: 1_790_000_120)
+        #expect(SessionRowView.spoken(failed("run", true), now: now) == "Check the build, Failed, Scheduled run, Realm, Claude, 2m ago")
+        let large = try Drawing.words(SessionRowView(row: failed("run", true), space: nil).environment(AppModel()), size: .accessibility5)
+        #expect(large.contains("Scheduled run"), "\(large)")
+    }
+
+    @Test func aRowReadsWhetherAScheduleStartedIt() throws {
+        let json = #"{"id":"s","title":"T","spaceId":"sp","spaceName":"","agent":"claude","status":"idle","needsYou":false,"unread":false,"updatedAt":0,"scheduled":true}"#
+        let row = try JSONDecoder().decode(SessionRow.self, from: Data(json.utf8))
+        #expect(row.scheduled == true)
+        let again = try JSONDecoder().decode(SessionRow.self, from: JSONEncoder().encode(row))
+        #expect(again.scheduled == true)
+    }
+
     /// A row says the state a person would act on or want to know, and nothing for one at rest.
     @Test func aRowSaysOnlyTheStateWorthSaying() {
         let make = { (status: SessionStatus, unread: Bool) in
@@ -997,5 +1022,20 @@ struct AppResourceTests {
     @Test func everyKindOfPushHasACategory() {
         #expect(Set(NotificationKinds.categories.map(\.identifier)) == ["permission", "question", "finished", "failed", "blocked", "test",
                                                                           "permission.space", "permission.site", "reply"])
+    }
+}
+
+@MainActor
+@Suite("Where the Mac's pages are", .serialized)
+struct HomePlacesTests {
+    /// Home names the Library, Memory and Scheduled, at every size; the Mac's sheet keeps only the pages
+    /// Home does not show, so each is listed once.
+    @Test func homeNamesTheLibraryMemoryAndScheduled() throws {
+        for size in [DynamicTypeSize.large, .accessibility5] {
+            let words = try Drawing.words(HomePlaces().environment(AppModel()), size: size)
+            #expect(words.contains("Library") && words.contains("Memory") && words.contains("Scheduled"), "\(words)")
+        }
+        #expect(Set(WorkPage.onHome).isDisjoint(with: WorkPage.inSettings))
+        #expect(WorkPage.inSettings.map(\.title) == ["Review", "Usage"])
     }
 }

@@ -82,6 +82,9 @@ export const SessionRowSchema = z.object({
   subagentsWaiting: z.number().int().optional(),
   /** On a listed lead: the sub-agent that has waited longest, which its row opens on. */
   subagentWaiting: Id.optional(),
+  /** A scheduled task's run started it, so it wears the schedule's mark beside a session the person
+   *  started with the same title, as the desktop's sidebar row wears its clock. */
+  scheduled: z.boolean().optional(),
   /** Being moved to another checkout. `status` says `running` meanwhile, which is all a phone from
    *  before moves knows to wait on. */
   moving: z.boolean().optional(),

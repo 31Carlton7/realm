@@ -166,6 +166,20 @@ describe("home.get lists sessions as the sidebar does", () => {
     // Its sub-agents wait under it, not in Needs you.
     expect(h.needsYou).toEqual([]);
   });
+
+  it("says which rows a schedule started, so a run reads apart from the session it is named like", async () => {
+    const lists: Lists = {
+      sessions: [
+        session("by-hand", "s1", { activityAt: 10 }),
+        session("run", "s1", { activityAt: 20, dispatchedBy: { kind: "run", sessionId: null } }),
+        session("sub-agent", "s1", { activityAt: 5, dispatchedBy: { kind: "agent_run", sessionId: "gone" } }),
+      ],
+      items: [item("by-hand", "s1", "Check the build"), item("run", "s1", "Check the build"), item("sub-agent", "s1", "sub-agent")],
+    };
+    const h = HomeSchema.parse(await api().handle(channel(fakeRpc(lists)), "home.get", {}));
+    // THE MUTANTS: mark every dispatched session, or none.
+    expect(h.spaces[0]!.sessions.map((r) => [r.id, r.scheduled])).toEqual([["run", true], ["by-hand", undefined], ["sub-agent", undefined]]);
+  });
 });
 
 describe("session.seen", () => {

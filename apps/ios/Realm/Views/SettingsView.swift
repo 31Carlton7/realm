@@ -70,10 +70,10 @@ struct SettingsView: View {
                 }
             }
 
-            // The Mac's pages beyond Home, which the bar's menu used to offer.
+            // The Mac's pages Home does not show.
             if !model.work.unsupported {
                 Section {
-                    ForEach(WorkPage.allCases, id: \.self) { page in
+                    ForEach(WorkPage.inSettings, id: \.self) { page in
                         Button {
                             model.settingsShown = false
                             model.path.append(page.route)

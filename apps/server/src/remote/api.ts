@@ -526,6 +526,7 @@ export class MobileApi {
       modelLabel: meta ? sessionModelLabel(s.agentKind, s.model, probe, ran) : s.model ?? "",
       createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt, pinned: item?.pinned ?? false,
       ...(isChild(s) && s.dispatchedBy?.sessionId ? { leadId: s.dispatchedBy.sessionId } : {}),
+      ...(s.dispatchedBy?.kind === "run" ? { scheduled: true } : {}),
       ...(s.status === "moving" ? { moving: true } : {}),
       ...(goal ? { goal: { status: goal.status, objective: goal.objective } } : {}),
     };

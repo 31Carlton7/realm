@@ -26,16 +26,21 @@ enum WorkHead {
     }
 }
 
-/// The Mac's pages beyond Home that the phone shows, as the profile sheet offers them.
-enum WorkPage: CaseIterable {
-    case reviews, scheduled, usage, saved, library, memory
+/// The Mac's pages beyond Home that the phone shows.
+enum WorkPage {
+    case reviews, scheduled, usage, library, memory
+
+    /// On Home, where the desktop's rail keeps them beside Home: the Library (its Saved turns and its
+    /// files), what agents have learned, and the scheduled tasks.
+    static let onHome: [WorkPage] = [.library, .memory, .scheduled]
+    /// In the Mac's sheet, the rest.
+    static let inSettings: [WorkPage] = [.reviews, .usage]
 
     var title: String {
         switch self {
         case .reviews: "Review"
         case .scheduled: "Scheduled"
         case .usage: "Usage"
-        case .saved: "Saved"
         case .library: "Library"
         case .memory: "Memory"
         }
@@ -46,7 +51,6 @@ enum WorkPage: CaseIterable {
         case .reviews: "tray.full"
         case .scheduled: "calendar.badge.clock"
         case .usage: "gauge.with.needle"
-        case .saved: "bookmark"
         case .library: "books.vertical"
         case .memory: "text.book.closed"
         }
@@ -57,7 +61,6 @@ enum WorkPage: CaseIterable {
         case .reviews: .reviews
         case .scheduled: .scheduled
         case .usage: .usage
-        case .saved: .saved
         case .library: .library
         case .memory: .memory
         }
@@ -72,9 +75,58 @@ enum WorkPage: CaseIterable {
         case .scheduled:
             let count = ScheduleWords.unreadResults(schedules ?? [])
             return count > 0 ? (count == 1 ? "1 unread result" : "\(count) unread results") : nil
-        case .usage, .saved, .library, .memory:
+        case .usage, .library, .memory:
             return nil
         }
+    }
+}
+
+/// Library, Memory and Scheduled at Home's head, a card each with its glyph and its name, side by side
+/// and one under another at the accessibility sizes. The cards rest on the list, so they cast no shadow.
+struct HomePlaces: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { places }
+            VStack(spacing: 8) { places }
+        }
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    private var places: some View {
+        ForEach(WorkPage.onHome, id: \.self) { page in
+            Button {
+                model.path.append(page.route)
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: page.symbol)
+                        .font(.body)
+                        .foregroundStyle(Palette.ink2)
+                        .accessibilityHidden(true)
+                    Text(page.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(1)
+                }
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: 64)
+            }
+            .buttonStyle(PlaceButtonStyle())
+            .accessibilityIdentifier("place-\(page)")
+        }
+    }
+}
+
+/// A place's card: the card's fill, a step down while pressed, and nothing round it.
+private struct PlaceButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Palette.hover : Fill.card,
+                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 }
 
