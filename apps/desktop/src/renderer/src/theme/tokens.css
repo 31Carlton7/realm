@@ -815,16 +815,15 @@ a {
  * dark card is 16% and the light one 17.5%. At the default it is opaque on both faces (84 + 16 is
  * 100, and the light line reaches 100 at the same point), and above it nothing moves.
  *
- * There is no floor (the owner, 11-16: "whether there's a picture or not, the prompter should become
- * more transparent with the pane"). Its words hold by moving their ink instead (styles.css, the
- * prompter on a thinned pane). The lift is gone by `--prompter-lift-until`. No blur: the picture is
- * already softened where it sits behind the chat, and a blur measured no gain. */
+ * It moves with the pane the whole way, from 40% at pane 0 to solid at the default pane of 84, in a
+ * straight line, the same in both faces (the owner, 11-16: "whether there's a picture or not, the
+ * prompter should become more transparent with the pane", then "too transparent, it should be
+ * slightly less but adjust with the transparency"). Its words hold by moving their ink as well
+ * (styles.css, the prompter on a thinned pane). The lift is gone by `--prompter-lift-until`. No blur:
+ * the picture is already softened where it sits behind the chat, and a blur measured no gain. */
 :root {
   --prompter-lift-until: 72%;
-  --prompter-alpha: min(100%, calc(var(--pane-alpha) + 16%));
-}
-:root[data-mode="light"] {
-  --prompter-alpha: min(100%, calc(92% + (var(--pane-alpha) + 16% - 84%) * 0.5), calc((var(--pane-alpha) + 16%) * 92 / 84));
+  --prompter-alpha: min(100%, calc(40% + var(--pane-alpha) * 60 / 84));
 }
 
 @media (prefers-reduced-transparency: reduce) {

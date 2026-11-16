@@ -24,7 +24,8 @@ const at = (expr: string, v: number) =>
 
 const prompterBlock = tokensCss.slice(tokensCss.indexOf("The prompter thins with the pane"));
 const dark = /:root \{[^}]*--prompter-alpha: (.+);/.exec(prompterBlock)![1]!;
-const light = /:root\[data-mode="light"\] \{[^}]*--prompter-alpha: (.+);/.exec(prompterBlock)![1]!;
+// One line for both faces: 40% at pane 0 to solid at the default (the owner, 11-16).
+const light = dark;
 const lightPane = /:root\[data-mode="light"\] \{[^}]*--pane-ground: color-mix\(in srgb, var\(--canvas\) (.+), transparent\);/.exec(tokensCss)![1]!;
 const pane = { dark: (v: number) => v, light: (v: number) => at(lightPane, v) };
 const prompter = { dark: (v: number) => at(dark, v), light: (v: number) => at(light, v) };
@@ -36,8 +37,10 @@ describe("the prompter's fill follows Pane translucency", () => {
     // THE mutants: a floor put back (the card a solid slab over the window material at 0), or a rule
     // back on the opaque `--surface` / `--rl-frame`.
     expect(prompterBlock.slice(0, prompterBlock.indexOf("@media"))).not.toMatch(/max\(|--prompter-floor/);
-    expect(prompter.dark(PANE_ALPHA_RANGE.min)).toBeCloseTo(16, 5);
-    expect(prompter.light(PANE_ALPHA_RANGE.min)).toBeCloseTo(17.52, 1);
+    // 40% at pane 0: thin enough to follow the pane, solid enough to read as the place you type.
+    expect(prompter.dark(PANE_ALPHA_RANGE.min)).toBeCloseTo(40, 5);
+    expect(prompter.light(PANE_ALPHA_RANGE.min)).toBeCloseTo(40, 5);
+    expect(prompter.dark(40)).toBeCloseTo(40 + 40 * 60 / 84, 5);
     for (const face of faces) {
       expect(prompter[face](DEFAULT_PANE_ALPHA)).toBeCloseTo(100, 5);
       expect(prompter[face](PANE_ALPHA_RANGE.max)).toBeCloseTo(100, 5);
@@ -49,14 +52,14 @@ describe("the prompter's fill follows Pane translucency", () => {
   });
 
   it("thins with every step of the slider below the default, always a step denser than the pane", () => {
-    // THE mutants: the +16 dropped (the card as thin as the pane, so it stops reading as the place you
-    // type), a flat stretch anywhere below the default, or the light face left on the dark line.
+    // THE mutants: the line flattened onto the pane (the card as thin as the pane, so it stops reading as
+    // the place you type), a flat stretch anywhere below the default, or a floor or a different start.
     for (const face of faces) for (const v of slider) {
       const p = pane[face](v), c = prompter[face](v);
       if (v >= DEFAULT_PANE_ALPHA) { expect(c, `${face} at ${v}`).toBeCloseTo(100, 5); continue; }
       expect(c - p, `${face} at ${v}`).toBeGreaterThanOrEqual(8);
       expect(c, `${face} at ${v}`).toBeLessThan(prompter[face](v + 1));
-      expect(c, `${face} at ${v}`).toBeCloseTo(face === "dark" ? v + 16 : pane.light(v + 16), 5);
+      expect(c, `${face} at ${v}`).toBeCloseTo(40 + v * 60 / 84, 5);
     }
   });
 
