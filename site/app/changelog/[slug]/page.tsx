@@ -3,11 +3,12 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { Onward } from "@/components/changelog/Onward"
-import { Prose } from "@/components/changelog/Prose"
+import { inline, Prose } from "@/components/changelog/Prose"
 import { Rail } from "@/components/changelog/Rail"
 import { ArrowIcon } from "@/components/icons"
 import { Subpage } from "@/components/landing/Subpage"
 import { changelog, entryBySlug, formatDate, isWithdrawn, outline, releaseOf } from "@/lib/changelog"
+import { plainText } from "@/lib/docs"
 
 type Params = { params: Promise<{ slug: string }> }
 
@@ -22,11 +23,11 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
   return {
     title: entry.title,
-    description: entry.summary,
+    description: plainText(entry.summary),
     openGraph: {
       type: "article",
       title: entry.title,
-      description: entry.summary,
+      description: plainText(entry.summary),
       publishedTime: entry.date,
     },
   }
@@ -71,7 +72,7 @@ export default async function ChangelogEntryPage({ params }: Params) {
           <h1 id="entry-title" className="mt-3 text-[clamp(2.25rem,4.4vw,3.25rem)] leading-[1.04] font-[500] tracking-[-0.045em] text-balance text-ink">
             {entry.title}
           </h1>
-          <p className="mt-5 max-w-[60ch] text-[18px] leading-[1.6] text-ink-2">{entry.summary}</p>
+          <p className="mt-5 max-w-[60ch] text-[18px] leading-[1.6] text-ink-2">{inline(entry.summary)}</p>
           {!entry.version && release ? (
             <p className="mt-5 text-[14px] text-ink-2">
               Shipped in{" "}
