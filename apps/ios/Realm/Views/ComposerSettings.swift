@@ -185,8 +185,8 @@ struct SettingChips: View {
 /// The chip that says where a session runs, and opens where it could be moved to.
 struct PlaceChip {
     let label: String
-    /// What the chip says at the accessibility sizes, where "On Carlton's M4 MacBook Pro" ran to five
-    /// lines: "Mac" beside the laptop. VoiceOver still reads the label.
+    /// What the chip says at the accessibility sizes, where a Mac's whole name ran to five lines: "Mac"
+    /// beside the laptop. VoiceOver still reads the label.
     var short: String?
     /// A laptop on the Mac's own folder, a branch in a worktree or another checkout.
     let symbol: String

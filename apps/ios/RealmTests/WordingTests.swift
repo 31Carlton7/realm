@@ -124,6 +124,12 @@ struct WordingTests {
     /// Home's chips grow with the text at the accessibility sizes and wrap rather than scroll, so every
     /// one is on screen.
     @Test func homesChipsGrowAtTheAccessibilitySizes() throws {
+        // All alone never wraps, so only its words growing makes it taller.
+        let all = HomeChips(filter: .constant(.all), needsYou: 0, pinned: 0).environment(AppModel())
+        let allCapped = LargeTextTests.height(all, size: .xxxLarge)
+        for size in LargeTextTests.sizes {
+            #expect(LargeTextTests.height(all, size: size) > allCapped + 10, "\(size)")
+        }
         let chips = HomeChips(filter: .constant(.all), needsYou: 2, pinned: 3).environment(AppModel())
         let capped = LargeTextTests.height(chips, size: .xxxLarge)
         for size in LargeTextTests.sizes {
