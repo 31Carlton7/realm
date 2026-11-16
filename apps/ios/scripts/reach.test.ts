@@ -29,6 +29,11 @@ describe("thumb reach on a tall phone", () => {
     expect(dock).toMatch(/Button \{\s*model\.submit\(OneTapQuestion\.answer\(option/);
   });
 
+  it("lets only the dock's card cast its shadow, not each option on it", () => {
+    const dock = body(read("RequestViews.swift"), "struct WaitingDock: View");
+    expect(dock).toMatch(/\.compositingGroup\(\)\s*\.shadow\(/);
+  });
+
   it("keeps the question sheet's Send at its foot", () => {
     const sheet = body(read("RequestViews.swift"), "struct QuestionSheet: View");
     expect(sheet).not.toContain(".confirmationAction");

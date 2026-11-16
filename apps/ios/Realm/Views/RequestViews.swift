@@ -276,6 +276,8 @@ struct WaitingDock: View {
         .padding(Radius.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
+        // One shadow, the card's: without the group every pill and word on it casts its own.
+        .compositingGroup()
         .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
         .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
         .sheet(isPresented: $answering) {
