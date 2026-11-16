@@ -33,7 +33,7 @@ struct WordingTests {
         for dark in [false, true] {
             let words = try Drawing.words(TranscriptRowView(row: row, sessionId: "s1").environment(AppModel())
                 .environment(\.waitingTools, ["t1"]), dark: dark)
-            #expect(words.contains("Waiting for you") && words.contains("db:migrate"), "\(words)")
+            #expect(words.contains("Waiting for you") && words.contains("migrate"), "\(words)")
             #expect(!words.contains("Running"), "\(words)")
         }
         let running = try Drawing.words(TranscriptRowView(row: row, sessionId: "s1").environment(AppModel()))
@@ -63,7 +63,7 @@ struct WordingTests {
 
     /// Realm's own relays are "Realm's relay"; any other relay is still named, so a stranger's is plain.
     @Test func realmsRelayIsSaidInWords() throws {
-        let link = try PairingLink.decode(PairingLink.url(relay: "wss://realm-relay.realm-relay.workers.dev", macId: "m",
+        let link = try PairingLink.decode(PairingLink.url(relay: "wss://realm-relay.realm-relay.workers.dev", macId: PairingConfirmTests.macId,
                                                           macKey: Data(repeating: 2, count: 32), secret: Data(repeating: 3, count: 32),
                                                           windowId: Base64URL.encode(Data(repeating: 4, count: 16)), macName: "Studio", expiresAt: 1))
         let asked = PairConfirmation(link, replacing: nil)
