@@ -71,8 +71,9 @@ struct VideoPrepTests {
     static let limits = SendLimits(maxCount: 6, maxBytes: 8 * 1024 * 1024, maxTotalBytes: 10 * 1024 * 1024)
 
     /// A film comes down to H.264 at 1280 by 720, and nothing in the file says where it was filmed
-    /// or on what: not the metadata the asset reads, and not the bytes.
-    @Test func aVideoGoesAsH264At720pWithoutWhereItWasFilmed() async throws {
+    /// or on what: not the metadata the asset reads, and not the bytes. By hand too, as where the
+    /// system offers no such export (the iOS 27.0 simulator).
+    @Test(arguments: [false, true]) func aVideoGoesAsH264At720pWithoutWhereItWasFilmed(byHand: Bool) async throws {
         let film = try await Films.filmed(seconds: 2)
         defer { try? FileManager.default.removeItem(at: film) }
         let filmed = try await AVURLAsset(url: film).load(.metadata)
@@ -80,7 +81,11 @@ struct VideoPrepTests {
 
         let exported = URL.temporaryDirectory.appending(path: "exported-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: exported) }
-        try await VideoPrep.export(film, to: exported, fitting: Self.limits.maxBytes) { _ in }
+        if byHand {
+            try await VideoPrep.transcode(film, to: exported, fitting: Self.limits.maxBytes) { _ in }
+        } else {
+            try await VideoPrep.export(film, to: exported, fitting: Self.limits.maxBytes) { _ in }
+        }
 
         let asset = AVURLAsset(url: exported)
         let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
@@ -120,12 +125,36 @@ struct VideoPrepTests {
         #expect(!FileManager.default.fileExists(atPath: film.path))
     }
 
-    /// The export is asked to come out under the Mac's limit, so the encoder lowers the bitrate to fit.
+    /// The export is asked to come out under the Mac's limit, so the encoder lowers the bitrate to fit:
+    /// the system's by its length limit, where it offers a 1280 by 720 export, and the one by hand by
+    /// a bitrate that spreads the limit over the film.
     @Test func theExportIsAskedToFitTheLimit() async throws {
         let film = try await Films.filmed(seconds: 1)
         defer { try? FileManager.default.removeItem(at: film) }
-        let session = try #require(VideoPrep.session(for: film, fitting: Self.limits.maxBytes))
-        #expect(session.fileLengthLimit > 0 && session.fileLengthLimit < Int64(Self.limits.maxBytes), "\(session.fileLengthLimit)")
+        if let session = VideoPrep.session(for: film, fitting: Self.limits.maxBytes) {
+            #expect(session.fileLengthLimit > 0 && session.fileLengthLimit < Int64(Self.limits.maxBytes), "\(session.fileLengthLimit)")
+        }
+        let limit = Self.limits.maxBytes
+        for seconds in [10.0, 25, 35] {
+            let bits = Double(VideoPrep.bitRate(lasting: seconds, fitting: limit) + VideoPrep.soundBitRate) * seconds
+            #expect(bits / 8 < Double(limit), "\(seconds) s")
+        }
+        #expect(VideoPrep.bitRate(lasting: 2, fitting: limit) == 5_000_000, "a short film is not blown up to fill the limit")
+        #expect(VideoPrep.bitRate(lasting: 120, fitting: limit) == 1_600_000, "a long one is not starved to fit")
+    }
+
+    /// Stopping an export by hand leaves nothing where it was writing, not even the writer's working copy.
+    @Test func aCancelledTranscodeLeavesNothing() async throws {
+        let film = try await Films.filmed(seconds: 20)
+        defer { try? FileManager.default.removeItem(at: film) }
+        let exported = VideoPrep.folder.appending(path: "\(UUID().uuidString).mp4")
+        let moved = Mutex(0.0)
+        let transcoding = Task { try await VideoPrep.transcode(film, to: exported, fitting: Self.limits.maxBytes) { share in moved.withLock { $0 = share } } }
+        let deadline = ContinuousClock.now + .seconds(30)
+        while moved.withLock({ $0 }) == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        transcoding.cancel()
+        await #expect(throws: CancellationError.self) { try await transcoding.value }
+        #expect(Films.working().isEmpty, "\(Films.working())")
     }
 
     /// A video over a minute is refused by its length before any export starts: no export, nothing in
