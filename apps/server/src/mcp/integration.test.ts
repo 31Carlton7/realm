@@ -1,4 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import WebSocket from "ws";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
@@ -6,6 +8,8 @@ import { sessionEvent, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { makeStubAuthServer, type StubAuthServer } from "./fixtures/stub-auth-server";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 let app: App;
 const authServers: StubAuthServer[] = [];
@@ -101,6 +105,18 @@ describe("mcp over rpc", () => {
     expect(listed.result.servers[0].envKeys).toEqual(["AIRTABLE_API_KEY"]);
     c.close();
   });
+
+  it("broadcasts the tools a connect lists, for every window holding the row", async () => {
+    const { c, work } = await boot();
+    const tsx = join(HERE, "..", "..", "node_modules", ".bin", "tsx");
+    const added = await c.call("mcp.add", { spaceId: work.id, name: "stub", transport: "stdio", command: tsx, args: [join(HERE, "fixtures", "stub-stdio.ts")], env: { PATH: process.env.PATH ?? "" } });
+    const id = added.result.id;
+    expect((await c.call("mcp.tools.list", { id })).result.error).toBeNull();
+    await waitFor(() => c.events.some((e: Any) => e.event === "mcp.serverTools" && e.payload.id === id));
+    const sent = c.events.find((e: Any) => e.event === "mcp.serverTools" && e.payload.id === id);
+    expect(sent.payload.tools.map((t: Any) => t.name).sort()).toEqual(["boom", "echo"]);
+    c.close();
+  }, 20_000);
 
   it("returns the storage note on every list, so a key-taking UI cannot forget it", async () => {
     const { c, work } = await boot();

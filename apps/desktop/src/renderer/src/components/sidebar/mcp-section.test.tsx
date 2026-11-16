@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MCP_SECRET_STORAGE_NOTE } from "@realm/contracts";
 import { SpacePage } from "../../panes/space/SpacePage";
 import { MCP_STILL_STARTING_MS } from "./McpSection";
@@ -122,6 +122,25 @@ describe("McpSection", () => {
     const twice = store.getState().mcpServers.find((s) => s.id === "m4");
     expect(once).toEqual(twice);
     await waitFor(() => expect(screen.getByText("Connected")).toBeInTheDocument());
+  });
+
+  it("a connect nobody clicked for lists the row's tools as it turns Connected", async () => {
+    // THE MUTANT: the tools broadcast is dropped (or patches nothing). The row reads Connected over
+    // "Not connected yet — Refresh tools to connect" — what a circuit closing after its cool-off did.
+    const srv = mcpServer("m8", { name: "srv8", status: "circuit_open", enabled: true, tools: [] });
+    const { store, api } = await mount({ mcpServers: [srv], mcpToolsError: { m8: "connection refused" } });
+    const row = (await screen.findByText("srv8")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByText(/Not connected yet/)).toBeInTheDocument();
+    act(() => {
+      store.getState().applyMcpServerStatus({ id: "m8", status: "connected", oauthStatus: "unconfigured" });
+      store.getState().applyMcpServerTools({ id: "m8", tools: [mcpTool("echo"), mcpTool("boom")] });
+    });
+    expect(within(row).getByText("Connected")).toBeInTheDocument();
+    expect(within(row).getByRole("checkbox", { name: /echo/ })).toBeChecked();
+    expect(within(row).getByRole("checkbox", { name: /boom/ })).toBeChecked();
+    expect(within(row).queryByText(/Not connected yet/)).toBeNull();
+    expect(within(row).queryByText("connection refused")).toBeNull();
+    expect(api.calls.some((c) => c.startsWith("mcpToolsList"))).toBe(false);
   });
 
   it("shows the secret storage note on the key form", async () => {

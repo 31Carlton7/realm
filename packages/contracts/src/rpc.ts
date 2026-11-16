@@ -2388,6 +2388,9 @@ export const Events = {
   /** A server row's hub connection state or OAuth status changed. Carries both together because a
    *  status flip is often the direct result of an OAuth transition (e.g. reconnect_needed → error). */
   "mcp.serverStatus": z.object({ id: IdSchema, status: McpServerStatusSchema, oauthStatus: McpOauthStatusSchema }),
+  /** A server row's cached tool list was just rewritten from a successful `tools/list`, whoever asked
+   *  for it — a Refresh, a session, or the hub's own try after a cool-off. Same shape as `mcp.list`'s. */
+  "mcp.serverTools":  z.object({ id: IdSchema, tools: z.array(McpToolSchema) }),
   /** A space's Realm memory document or its managed `AGENTS.md` changed. Clients holding the memory
    *  pane re-fetch; sessions already running keep the context they started with. */
   "memory.changed":   z.object({ spaceId: IdSchema }),

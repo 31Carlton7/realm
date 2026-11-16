@@ -245,11 +245,12 @@ describe("a circuit that closes by itself", () => {
   afterEach(() => { vi.useRealTimers(); });
 
   /** A hub whose connects fail `failing` times and then succeed. */
-  const flaky = (failing: number, statuses: string[]) => {
+  const flaky = (failing: number, statuses: string[], listed: string[][] = []) => {
     const stub = makeStubServer();
     let attempts = 0;
     const hub = new McpHub({
       servers, onStatus: (_id, s) => statuses.push(s), authHeaders: noAuth,
+      onTools: (_id, tools) => listed.push(tools.map((t) => t.name)),
       makeTransport: () => { attempts += 1; if (attempts <= failing) throw new Error("refused"); return stub.connectInMemory(); },
     });
     return { hub, attempts: () => attempts };
@@ -270,6 +271,20 @@ describe("a circuit that closes by itself", () => {
     await vi.waitFor(() => expect(statuses.at(-1)).toBe("connected"));
     expect(attempts()).toBe(4);
     expect((await hub.call(row.id, "echo", { back: true })).isError).toBeUndefined();
+    await hub.close();
+  });
+
+  it("hands on the tools its own try lists, so a row drawn from them is not left empty", async () => {
+    // THE MUTANT: the cool-off try caches the list without telling anyone. Settings shows the row
+    // Connected over "Not connected yet" until someone clicks Refresh tools.
+    vi.useFakeTimers();
+    const row = newRow();
+    const listed: string[][] = [];
+    const { hub } = flaky(3, [], listed);
+    for (let i = 0; i < 3; i++) await expect(hub.tools(row.id)).rejects.toThrow();
+    expect(listed).toEqual([]);
+    await vi.advanceTimersByTimeAsync(CIRCUIT_COOLOFF_MS);
+    await vi.waitFor(() => expect(listed).toEqual([["echo", "boom"]]));
     await hub.close();
   });
 
