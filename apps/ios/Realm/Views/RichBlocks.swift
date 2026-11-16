@@ -95,7 +95,7 @@ struct MathBlockView: View {
                 // Until it is drawn, or if it never parses, the TeX as written.
                 Text("$$\(tex)$$")
                     .mono(.footnote)
-                    .foregroundStyle(drawing == nil ? Palette.ink3 : Palette.orange)
+                    .foregroundStyle(drawing == nil ? Palette.ink3 : Tone.failed.agentColor)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }

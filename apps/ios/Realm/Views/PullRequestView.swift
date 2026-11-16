@@ -127,7 +127,7 @@ struct PullRequestView: View {
                             .foregroundStyle(Palette.ink)
                         Spacer()
                         Text(PullRequestWords.reviewer(reviewer.state))
-                            .foregroundStyle(reviewer.state == "changes_requested" ? Palette.orange : Palette.ink2)
+                            .foregroundStyle(reviewer.state == "changes_requested" ? Tone.waiting.agentColor : Palette.ink2)
                     }
                     .font(.subheadline)
                     .listRowBackground(Fill.card)
@@ -181,10 +181,10 @@ private struct FactRow: View {
 
     var body: some View {
         Label {
-            Text(fact.text).foregroundStyle(fact.tone == .bad ? Palette.orange : Palette.ink)
+            Text(fact.text).foregroundStyle(fact.tone == .bad ? Tone.failed.agentColor : Palette.ink)
         } icon: {
             Image(systemName: Self.symbol(fact.tone))
-                .foregroundStyle(fact.tone == .bad ? Palette.orange : Palette.ink2)
+                .foregroundStyle(fact.tone == .bad ? Tone.failed.agentColor : Palette.ink2)
         }
         .font(.subheadline)
     }
@@ -207,13 +207,13 @@ private struct CheckRow: View {
         let failed = check.state == "failure"
         HStack(spacing: 10) {
             Image(systemName: Self.symbol(check.state))
-                .foregroundStyle(failed ? Palette.orange : Palette.ink3)
+                .foregroundStyle(failed ? Tone.failed.agentColor : Palette.ink3)
                 .frame(width: 24)
             Text(check.name)
-                .foregroundStyle(failed ? Palette.orange : Palette.ink)
+                .foregroundStyle(failed ? Tone.failed.agentColor : Palette.ink)
             Spacer()
             Text(Self.word(check.state))
-                .foregroundStyle(failed ? Palette.orange : Palette.ink2)
+                .foregroundStyle(failed ? Tone.failed.agentColor : Palette.ink2)
             if let url = check.url.flatMap(URL.init(string:)) {
                 Link(destination: url) {
                     Image(systemName: "arrow.up.right").font(.caption)

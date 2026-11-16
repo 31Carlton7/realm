@@ -77,7 +77,7 @@ private struct LineTotals: ViewModifier {
 
     func body(content: Content) -> some View {
         if changes.countsLines {
-            content.navigationSubtitle(Text("\(Text("+\(changes.additions)").foregroundStyle(Palette.green))  \(Text("−\(changes.deletions)").foregroundStyle(Palette.red))"))
+            content.navigationSubtitle(Text("\(Text("+\(changes.additions)").foregroundStyle(DiffInk.added))  \(Text("−\(changes.deletions)").foregroundStyle(DiffInk.removed))"))
         } else {
             content
         }
@@ -97,7 +97,7 @@ struct ChangedFileRow: View {
             Image(systemName: Self.symbol(file.status))
                 .font(.body)
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Self.tone(file.status).color)
+                .foregroundStyle(Self.ink(file.status))
                 .frame(width: 24)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
@@ -142,12 +142,13 @@ struct ChangedFileRow: View {
         }
     }
 
-    static func tone(_ status: String) -> Tone {
+    /// A new or deleted file keeps the diff's green and red; a conflict is a state, and waits on you.
+    static func ink(_ status: String) -> Color {
         switch status {
-        case "added", "untracked": .done
-        case "deleted": .failed
-        case "conflicted": .waiting
-        default: .quiet
+        case "added", "untracked": DiffInk.added
+        case "deleted": DiffInk.removed
+        case "conflicted": Tone.waiting.agentColor
+        default: Palette.ink2
         }
     }
 
@@ -390,8 +391,8 @@ struct DiffLines: View {
 
     static func wash(_ kind: DiffPage.LineKind) -> Color {
         switch kind {
-        case .added: Palette.greenTint
-        case .removed: Palette.redTint
+        case .added: DiffInk.addedWash
+        case .removed: DiffInk.removedWash
         case .hunkHeader: Palette.accentTint
         case .context, .fileHeader, .note: .clear
         }

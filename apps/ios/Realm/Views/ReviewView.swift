@@ -246,7 +246,7 @@ private struct ReviewRow: View {
         let ax = dynamicTypeSize.isAccessibilitySize
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Circle()
-                .fill(ReviewStage(review.state) == .waiting ? Palette.accent : .clear)
+                .fill(ReviewStage(review.state) == .waiting ? Tone.waiting.agentColor : .clear)
                 .frame(width: 9, height: 9)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
@@ -619,7 +619,7 @@ private struct DecisionDock: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .tint(Palette.red)
+        .tint(DestructiveInk.color)
     }
 }
 
@@ -666,7 +666,7 @@ private struct DecisionNoteSheet: View {
                     } label: {
                         if sending { ProgressView() } else { Text(note.confirm) }
                     }
-                    .tint(note.decision == .reject ? Palette.red : nil)
+                    .tint(note.decision == .reject ? DestructiveInk.color : nil)
                     .disabled(sending || !note.canSend(text))
                 }
                 .sharedBackgroundVisibility(.hidden)

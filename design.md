@@ -1227,6 +1227,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   the quieter words, the goal and the plan's count over its hairline. Each part opens its own thing:
   the goal its sheet, the plan its items in place. Between turns it is only the goal and the plan,
   and its one colour is amber for Blocked; working is the spinner, in ink.
+- On the phone amber is the only colour a state wears, and it comes from one place (`Tone.agentColor`;
+  `status-colour.test.ts` holds every view to it). Connected, Allowed, Answered and a plan's done step
+  are their words and glyphs in ink; a failed turn's card is amber, as Home's Failed row is, because a
+  red triangle over a session the list called Failed in amber said one state in two colours. Two kinds
+  of colour are not a state's and keep their hues: a diff's green and red — added and removed lines,
+  their counts, a new or deleted file's mark — and identity: a teammate's or a profile's colour says
+  who, so it never colours a status word, dot or hand, and status amber never colours an identity
+  mark. A row says it once: the word and its hand, with no dot on its tile and no hand on its
+  section's head, as the Mac's sidebar row says it with its one dot.
 - On the phone, no Liquid Glass and no material, anywhere: not on a bar or its buttons, the
   composer or the chips over it, a sheet's bar or its Close, the search field, a toast. A bar over
   scrolling content draws the Photos edge instead — what passes under it blurs softly and fades into

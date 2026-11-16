@@ -128,11 +128,11 @@ struct StepLine: View {
             if let label = state.label {
                 Text(label)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Palette.orange)
+                    .foregroundStyle(Tone.waiting.agentColor)
                     .fixedSize()
             }
             Text(state.step)
-                .foregroundStyle(state.phase == .failed ? Palette.orange : Palette.ink2)
+                .foregroundStyle(state.phase == .failed ? Tone.failed.agentColor : Palette.ink2)
                 .lineLimit(1)
         }
     }
@@ -215,8 +215,8 @@ struct StateGlyph: View {
     var body: some View {
         switch state.phase {
         case .working: EmptyView()
-        case .needsYou: Image(systemName: "hand.raised.fill").foregroundStyle(Palette.orange)
-        case .failed: Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Palette.orange)
+        case .needsYou: Image(systemName: "hand.raised.fill").foregroundStyle(Tone.waiting.agentColor)
+        case .failed: Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Tone.failed.agentColor)
         case .done: Image(systemName: "checkmark").foregroundStyle(Palette.ink2)
         }
     }

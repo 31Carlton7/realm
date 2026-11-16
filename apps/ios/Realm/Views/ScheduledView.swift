@@ -709,7 +709,7 @@ struct ScheduledTaskView: View {
                 }
             }
             if let missed = ScheduleWords.missed(task, now: .now) {
-                TaskFact(words: missed, tone: Palette.orange) { Image(systemName: "exclamationmark.triangle") }
+                TaskFact(words: missed, tone: Tone.failed.agentColor) { Image(systemName: "exclamationmark.triangle") }
             }
             let target = ScheduleWords.target(task, agents: model.agentList?.agents ?? [], teammate: teammate)
             if task.teammateId != nil {

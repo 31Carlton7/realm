@@ -244,7 +244,7 @@ private struct MemoryConfirm: View {
                     .tint(Palette.ink)
                 Button(go, action: onGo)
                     .buttonStyle(.bordered)
-                    .tint(destructive ? Palette.red : Palette.accent)
+                    .tint(destructive ? DestructiveInk.color : Palette.accent)
                     .accessibilityIdentifier("memory-confirm-go")
             }
         }
@@ -299,7 +299,7 @@ struct MemoryEditor: View {
                 }
                 Text(failure ?? status)
                     .font(.footnote)
-                    .foregroundStyle(failure == nil ? Palette.ink3 : Palette.orange)
+                    .foregroundStyle(failure == nil ? Palette.ink3 : Tone.failed.agentColor)
                     .padding(.horizontal, 16)
                     .accessibilityIdentifier("memory-editor-status")
                 TextEditor(text: $draft)
@@ -447,7 +447,7 @@ struct NewMemorySheet: View {
                     .accessibilityIdentifier("memory-new-description")
             } footer: {
                 Text(failure ?? "Saved as one commit, and listed in MEMORY.md")
-                    .foregroundStyle(failure == nil ? Palette.ink3 : Palette.orange)
+                    .foregroundStyle(failure == nil ? Palette.ink3 : Tone.failed.agentColor)
             }
             Section {
                 Picker("Where", selection: $whereTo) {

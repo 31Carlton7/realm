@@ -326,7 +326,7 @@ struct TaskSheet: View {
                 .accessibilityIdentifier("task-goal")
         } footer: {
             if let failure {
-                Text(failure).foregroundStyle(Palette.orange)
+                Text(failure).foregroundStyle(Tone.failed.agentColor)
             } else if draft.isCheckIn {
                 Text("Its chat gets this message at these times, and it reports there.")
             }
@@ -351,7 +351,7 @@ struct TaskSheet: View {
         } footer: {
             if answered {
                 Text(draft.whenLine(first: first, kept: kept))
-                    .foregroundStyle(first == nil && draft.expression != kept ? Palette.orange : Palette.ink2)
+                    .foregroundStyle(first == nil && draft.expression != kept ? Tone.failed.agentColor : Palette.ink2)
                     .accessibilityIdentifier("task-when-line")
             }
         }

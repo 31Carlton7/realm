@@ -85,7 +85,7 @@ struct MoveSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Palette.orange)
+                        .foregroundStyle(Tone.failed.agentColor)
                 }
                 .listRowBackground(Fill.card)
                 .accessibilityIdentifier("move-refusal")

@@ -421,7 +421,7 @@ private struct SessionPill: View {
                             ProgressView().controlSize(.small)
                         } else {
                             Image(systemName: away.glyph)
-                                .foregroundStyle(away.tone.color)
+                                .foregroundStyle(away.tone.agentColor)
                         }
                         // The dot keeps to the words before it, so a second line starts on Retry.
                         Text(PillWords.away(away, reconnecting: model.linkTroubled).replacingOccurrences(of: " · ", with: "\u{00A0}· "))
@@ -560,7 +560,7 @@ private struct FoldedRequest: View {
         Button(action: unfold) {
             HStack(spacing: 8) {
                 Image(systemName: "hand.raised.fill")
-                    .foregroundStyle(Palette.orange)
+                    .foregroundStyle(Tone.waiting.agentColor)
                 Text("\(Asker.name(pending.request, agent: session?.agent ?? "")) is waiting on you")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Palette.ink)
