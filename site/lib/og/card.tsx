@@ -228,9 +228,9 @@ export async function entryCard(slug: string): Promise<ImageResponse | null> {
   const date = formatDate(entry.date)
   if (entry.version) {
     const { title, subtitle } = releaseName({ ...entry, version: entry.version })
-    return draw({ sky: skyFor(slug, withdrawn), label: "Changelog", meta: `${date} · ${withdrawn ? "Withdrawn" : "Release"}`, title, size: 136, subtitle, summary: entry.summary })
+    return draw({ sky: skyFor(slug, withdrawn), label: "Changelog", meta: `${date} · ${withdrawn ? "Withdrawn" : "Release"}`, title, size: 136, subtitle, summary: plainText(entry.summary) })
   }
-  return draw({ sky: skyFor(slug, withdrawn), label: "Changelog", meta: `${date} · ${entry.area}`, title: entry.title, size: titleSize(keepWords(entry.title)), summary: entry.summary })
+  return draw({ sky: skyFor(slug, withdrawn), label: "Changelog", meta: `${date} · ${entry.area}`, title: entry.title, size: titleSize(keepWords(entry.title)), summary: plainText(entry.summary) })
 }
 
 export const INDEX_SUMMARY = "Every release of Realm, newest first, with the changes that shipped in each."

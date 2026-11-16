@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { inline } from "@/components/changelog/Prose"
 import { ArrowIcon } from "@/components/icons"
 import { formatDate, releaseNeighbours, releaseOf, shortTitle, type Entry } from "@/lib/changelog"
 
@@ -61,7 +62,7 @@ export function Onward({ entry }: { entry: Entry }) {
           <ArrowIcon className="nudge h-3.5 w-3.5 text-ink-2" />
         </span>
         <span className="mt-1 block font-mono text-[13px] text-ink-2">{formatDate(release.date)}</span>
-        <span className="mt-3 block text-[15px] leading-[1.55] text-ink-2">{release.summary}</span>
+        <span className="mt-3 block text-[15px] leading-[1.55] text-ink-2">{inline(release.summary)}</span>
       </Link>
       <Pair
         newer={newer ? { entry: newer, label: `Newer in ${release.version}` } : undefined}

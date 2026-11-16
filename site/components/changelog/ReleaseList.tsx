@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { inline } from "@/components/changelog/Prose"
 import { ArrowIcon } from "@/components/icons"
 import { formatDate, isWithdrawn, shortTitle, type Entry, type Release } from "@/lib/changelog"
 
@@ -56,7 +57,7 @@ function ReleaseHead({ release }: { release: Release }) {
           {shortTitle(release)}
         </Link>
       </h2>
-      <p className="mt-3.5 max-w-[60ch] text-[17px] leading-[1.6] text-ink-2">{release.summary}</p>
+      <p className="mt-3.5 max-w-[60ch] text-[17px] leading-[1.6] text-ink-2">{inline(release.summary)}</p>
       <p aria-hidden className="mt-4 inline-flex items-center gap-1.5 text-[14px] text-accent-ink">
         <span className="link-line">Read the notes</span>
         <ArrowIcon className="nudge h-3.5 w-3.5" />
