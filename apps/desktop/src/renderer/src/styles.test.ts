@@ -5663,14 +5663,15 @@ describe("a picture in the Documents pane", () => {
 });
 
 describe("ink over a picture behind the chat", () => {
-  it("deepens the light face's quiet text and links there, and leaves the dark face's alone", () => {
-    // THE MUTANTS: the rule on both faces (dark's picture already reads, and its inks would move), or
-    // the deeper link not reaching the transcript's links.
-    const scope = ':root[data-mode="light"] .session-pane:has(> .hero-backdrop[data-phase="chat"])';
+  it("moves quiet text and links toward body ink in both faces, from the theme's own inks", () => {
+    // THE mutants: the move left to one face (a dark theme whose link sits near 4.5:1 keeps no picture),
+    // or a step written as a fixed colour, which holds for one theme and not the next.
+    const scope = '.session-pane:has(> .hero-backdrop[data-phase="chat"])';
     expect(bodiesFor(scope).join(" ")).toContain("--rl-text-dim: var(--ink-2-over-picture)");
-    expect(bodiesFor(scope).join(" ")).toContain("--chat-link: var(--accent-ink)");
-    expect(bodiesFor(':root[data-mode="light"]').join(" ")).toContain("--ink-2-over-picture: color-mix(in oklab, var(--ink) 50%, var(--ink-2))");
-    expect(RULES.some((r) => r.selectors.some((x) => x.includes('[data-mode="dark"]') && x.includes("hero-backdrop")) && /--chat-link|--rl-text-dim/.test(r.body))).toBe(false);
-    expect(bodiesFor('.session-pane:has(> .hero-backdrop[data-phase="chat"]) .md a:not(.msg-chip)').join(" ")).toContain("color: var(--chat-link, var(--rl-accent))");
+    expect(bodiesFor(scope).join(" ")).toContain("--chat-link: var(--link-over-picture)");
+    expect(bodiesFor(":root").join(" ")).toContain("--ink-2-over-picture: color-mix(in oklab, var(--ink) 50%, var(--ink-2))");
+    expect(bodiesFor(':root[data-mode="light"]').join(" ")).toContain("--link-over-picture: var(--accent-ink)");
+    expect(bodiesFor(':root[data-mode="dark"]').join(" ")).toContain("--link-over-picture: color-mix(in oklab, var(--accent) 50%, var(--ink))");
+    expect(bodiesFor(scope + " .md a:not(.msg-chip)").join(" ")).toContain("color: var(--chat-link, var(--rl-accent))");
   });
 });

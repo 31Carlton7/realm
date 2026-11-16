@@ -316,16 +316,17 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
       const pal = readPalette(root);
       const style = getComputedStyle(root);
       const blur = parseFloat(style.getPropertyValue("--fade-blur-far")) || 0;
-      // The inks as the pane draws them: over a picture the light face deepens its quiet text and its
-      // links (styles.css), and the picture is hushed for those, not the root's.
+      // The inks as the pane draws them: over a picture each face moves its quiet text and its links
+      // toward body ink (styles.css), and the picture is hushed for those, not the root's. Links are
+      // held to 3:1 over it in both faces.
       // Each is read through a probe in the pane, so a `color-mix()` there arrives as a colour.
       const probe = document.createElement("span");
       probe.hidden = true;
       pane.appendChild(probe);
       const ink = (v: string) => { probe.style.color = `var(${v})`; return resolveColor(getComputedStyle(probe).color); };
-      const link = getComputedStyle(pane).getPropertyValue("--chat-link").trim();
-      const inks = ["--ink", "--rl-text-dim", ...(link ? [] : ["--rl-accent"])].map(ink);
-      const links = link ? [ink("--chat-link")] : [];
+      const link = getComputedStyle(pane).getPropertyValue("--chat-link").trim() ? "--chat-link" : "--rl-accent";
+      const inks = ["--ink", "--rl-text-dim"].map(ink);
+      const links = [ink(link)];
       probe.remove();
       const key = JSON.stringify([w, h, dpr, pal, blur, inks, links]);
       if (key === drawn) return;

@@ -72,4 +72,30 @@ describe("hush", () => {
     expect(contrast(deeper.quiet, now!)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(deeper.link, now!)).toBeGreaterThanOrEqual(3);
   });
+
+  it("keeps a picture in a dark theme whose link sits just over 4.5:1, by holding links to 3:1", () => {
+    // His GitHub dark in a white space: links a mid grey at about 4.8:1. Held to 4.5 over the
+    // picture, that alone pins every pixel to the ground. THE MUTANT: a link held to 4.5 again.
+    const ground = rgb(19, 23, 28);
+    const grey = rgb(132, 132, 132);
+    expect(contrast(grey, ground)).toBeGreaterThan(4.5);
+    const [lo, hi] = readableRange(ground, [rgb(232, 236, 240)], [grey]);
+    expect(hi).toBeGreaterThan(0.03);
+    expect(lo).toBeLessThanOrEqual(0.02);
+  });
+
+  it("is bound by the quiet ink where the quiet ink is the tightest, and moving it lifts the cap", () => {
+    // A dark theme whose quiet text is the binding ink: halfway to body ink frees the picture, and the
+    // quiet text still reads at 4.5 over it. THE MUTANT: the quiet ink ignored, so a pixel too bright
+    // for it is let through.
+    const ground = rgb(19, 23, 28), body = rgb(236, 239, 242), quiet = rgb(150, 156, 163), halfway = rgb(193, 197, 202);
+    const [, before] = readableRange(ground, [body, quiet], []);
+    const [, after] = readableRange(ground, [body, halfway], []);
+    expect(after).toBeGreaterThan(before * 1.5);
+    const px = picture([120, 140, 90]);
+    hush(px, ground, readableRange(ground, [body, halfway], []));
+    const [p] = pixels(px);
+    expect(contrast(halfway, p!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(body, p!)).toBeGreaterThanOrEqual(4.5);
+  });
 });
