@@ -20,7 +20,7 @@ struct MemoryFileView: View {
     var body: some View {
         Group {
             if let problem {
-                ContentUnavailableView(memory.title, systemImage: refused ? "lock" : WorkPage.memory.symbol, description: Text(problem))
+                EmptyState(memory.title, systemImage: refused ? "lock" : WorkPage.memory.symbol, description: problem)
             } else if let file {
                 reading(file)
             } else {
@@ -404,8 +404,7 @@ struct NewMemorySheet: View {
         NavigationStack {
             Group {
                 if homes.isEmpty {
-                    ContentUnavailableView("No memory repo to write in", systemImage: WorkPage.memory.symbol,
-                                           description: Text("New memories go in a Realm memory repo. Make one in Profile settings ▸ Memory on your Mac."))
+                    EmptyState("No memory repo to write in", systemImage: WorkPage.memory.symbol, description: "New memories go in a Realm memory repo. Make one in Profile settings ▸ Memory on your Mac.")
                 } else {
                     form
                 }
@@ -438,10 +437,11 @@ struct NewMemorySheet: View {
     private var form: some View {
         Form {
             Section {
-                TextField("Name", text: $name, prompt: Text("Spring creator campaign"))
+                TextField("Name", text: $name, prompt: Text("Spring creator campaign").foregroundStyle(Palette.ink3))
                     .listRowBackground(Fill.card)
                     .accessibilityIdentifier("memory-new-name")
-                TextField("Description", text: $description, prompt: Text("One line: what it is, so an agent knows when to read it"), axis: .vertical)
+                TextField("Description", text: $description,
+                          prompt: Text("One line: what it is, so an agent knows when to read it").foregroundStyle(Palette.ink3), axis: .vertical)
                     .lineLimit(1...4)
                     .listRowBackground(Fill.card)
                     .accessibilityIdentifier("memory-new-description")
@@ -463,7 +463,7 @@ struct NewMemorySheet: View {
                 }
                 .listRowBackground(Fill.card)
             }
-            Section("Text") {
+            Section(head: "Text") {
                 TextEditor(text: $text)
                     .font(RealmType.mono(.callout))
                     .frame(minHeight: 180)

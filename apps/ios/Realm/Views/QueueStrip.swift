@@ -493,7 +493,8 @@ struct QueueEditSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Message", text: $text, axis: .vertical)
+                    TextField("Message", text: $text,
+                              prompt: Text("Message").foregroundStyle(Palette.ink3), axis: .vertical)
                         .tint(Palette.accent)
                         .lineLimit(3...12)
                         .focused($focused)
@@ -502,6 +503,7 @@ struct QueueEditSheet: View {
                 } footer: {
                     Text(gone ? "It went while you were editing. Save puts your words in the message field."
                               : "Nothing in the queue goes until you save or cancel.")
+                        .foregroundStyle(Palette.ink2)
                 }
                 if !message.attachments.isEmpty {
                     Section {
@@ -511,9 +513,9 @@ struct QueueEditSheet: View {
                                 .listRowBackground(Fill.card)
                         }
                     } header: {
-                        Text("Files")
+                        Text("Files").foregroundStyle(Palette.ink2)
                     } footer: {
-                        Text("They go with it as they are.")
+                        Text("They go with it as they are.").foregroundStyle(Palette.ink2)
                     }
                 }
             }

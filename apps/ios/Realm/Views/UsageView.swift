@@ -142,6 +142,7 @@ struct UsageView: View {
                     } header: {
                         Text(reporting.isEmpty ? "Plans" : "Other agents")
                             .textCase(nil)
+                            .foregroundStyle(Palette.ink2)
                     }
                 }
             }
@@ -153,14 +154,9 @@ struct UsageView: View {
         .overlay {
             if usage == nil {
                 if model.work.unsupported || !model.isConnected {
-                    ContentUnavailableView {
-                        Label("Usage is on your Mac", systemImage: "laptopcomputer")
-                    } description: {
-                        Text(model.work.unsupported ? "Update Realm on your Mac to see it here."
-                             : "This iPhone shows it while your Mac is connected.")
-                    }
+                    EmptyState("Usage is on your Mac", systemImage: "laptopcomputer", description: model.work.unsupported ? "Update Realm on your Mac to see it here." : "This iPhone shows it while your Mac is connected.")
                 } else if let problem {
-                    ContentUnavailableView("Usage did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
+                    EmptyState("Usage did not load", systemImage: "exclamationmark.triangle", description: problem)
                 } else {
                     ProgressView()
                 }
@@ -214,13 +210,14 @@ private struct PlanSection: View {
             HStack(spacing: 6) {
                 AgentMark(kind: plan.agent, mark: plan.agentMark, colored: true, size: 17, relativeTo: .headline)
                 Text(PlanWords.title(plan))
+                    .foregroundStyle(Palette.ink2)
             }
             .textCase(nil)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
         } footer: {
             TimelineView(.periodic(from: .now, by: 30)) { context in
-                if let age = PlanWords.age(plan.at, now: context.date) { Text(age) }
+                if let age = PlanWords.age(plan.at, now: context.date) { Text(age).foregroundStyle(Palette.ink2) }
             }
         }
     }
@@ -309,6 +306,7 @@ private struct SpendSection: View {
         } header: {
             Text("\(Date().formatted(.dateTime.month(.wide))) so far")
                 .textCase(nil)
+                .foregroundStyle(Palette.ink2)
         }
         if !spend.topSessions.isEmpty {
             Section {
@@ -337,6 +335,7 @@ private struct SpendSection: View {
             } header: {
                 Text("Costliest sessions")
                     .textCase(nil)
+                    .foregroundStyle(Palette.ink2)
             }
         }
     }

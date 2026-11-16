@@ -72,6 +72,7 @@ struct RootView: View {
         // the accent kept for what it means — a selection, a link, a switch that is on, the one primary
         // action, the caret — each of which asks for it where it is drawn.
         .tint(Palette.ink)
+        .labeledContentStyle(ValueInk())
         .overlay(alignment: .top) { ToastView() }
         // Over the top, the pairing sheet asks it instead: one sheet cannot present over another from here.
         .pairConfirmation(shown: !pairingOverTheTop.wrappedValue)

@@ -20,8 +20,8 @@ struct ShareView: View {
                 if let targets {
                     picker(targets)
                 } else {
-                    ContentUnavailableView("Pair Realm first", systemImage: "laptopcomputer",
-                                           description: Text("Open Realm on this iPhone and pair it with your Mac, then share again."))
+                    EmptyState("Pair Realm first", systemImage: "laptopcomputer",
+                               description: "Open Realm on this iPhone and pair it with your Mac, then share again.")
                 }
             }
             .background(Ground.grouped)
@@ -45,17 +45,18 @@ struct ShareView: View {
         return List {
             Section {
                 ShareSummary(draft: draft)
-                TextField("Add a message", text: $draft.note, axis: .vertical)
+                TextField("Add a message", text: $draft.note,
+                          prompt: Text("Add a message").foregroundStyle(Palette.ink3), axis: .vertical)
                     .lineLimit(1...4)
             } footer: {
                 if let problem = draft.problem {
-                    Text(problem)
+                    Text(problem).foregroundStyle(Palette.ink2)
                 }
             }
             .listRowBackground(Fill.card)
             if let space, let agent = targets.agents.first(where: { $0.kind == agentKind }) ?? targets.agents.first {
                 let fresh = ShareTarget.newSession(agent: agent.kind, spaceId: space.id)
-                Section("New session") {
+                Section(head: "New session") {
                     TargetRow(title: "Start a new session", detail: "\(agent.name) in \(space.name)", chosen: target == fresh) {
                         target = fresh
                     }
@@ -69,7 +70,7 @@ struct ShareView: View {
                 .listRowBackground(Fill.card)
             }
             if let teammates = targets.teammates, !teammates.isEmpty {
-                Section("Teammates") {
+                Section(head: "Teammates") {
                     ForEach(teammates) { teammate in
                         let spaceName = targets.spaces.first { $0.id == teammate.spaceId }?.name
                         TargetRow(title: teammate.name, detail: spaceName.map { "@\(teammate.handle) · \($0)" } ?? "@\(teammate.handle)",
@@ -81,7 +82,7 @@ struct ShareView: View {
                 .listRowBackground(Fill.card)
             }
             if !targets.sessions.isEmpty {
-                Section("Sessions on \(targets.macName)") {
+                Section(head: "Sessions on \(targets.macName)") {
                     ForEach(targets.sessions) { session in
                         TargetRow(title: session.title, detail: [session.spaceName, session.agentName ?? session.agent].joined(separator: " · "),
                                   chosen: target == .session(id: session.id)) {

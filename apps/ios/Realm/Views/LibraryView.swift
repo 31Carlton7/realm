@@ -138,7 +138,7 @@ struct LibraryView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let problem, saved == nil, shelves.isEmpty {
-                ContentUnavailableView("Library", systemImage: "books.vertical", description: Text(problem))
+                EmptyState("Library", systemImage: "books.vertical", description: problem)
             } else if !words.isEmpty {
                 if let found, found.isEmpty {
                     NoResults(query: words, why: "This searches the names of the Library's files.")
@@ -146,8 +146,7 @@ struct LibraryView: View {
             } else if saved == nil || shelves.isEmpty {
                 Unreached(what: "The Library", working: model.isConnected)
             } else if saved?.entries.isEmpty == true, shelves.values.allSatisfy(\.files.isEmpty) {
-                ContentUnavailableView("Nothing here yet", systemImage: "books.vertical",
-                                       description: Text("Turns you save, and files your sessions make or are sent, are kept here."))
+                EmptyState("Nothing here yet", systemImage: "books.vertical", description: "Turns you save, and files your sessions make or are sent, are kept here.")
             }
         }
         .navigationTitle("Library")
@@ -283,7 +282,7 @@ struct LibraryShelfView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let problem, !pages.loaded {
-                ContentUnavailableView(shelf.title, systemImage: shelf.symbol, description: Text(problem))
+                EmptyState(shelf.title, systemImage: shelf.symbol, description: problem)
             } else if !pages.loaded {
                 Unreached(what: shelf.title, working: model.isConnected)
             }

@@ -65,7 +65,7 @@ struct PanesSection: View {
         let browsers = panes?.browsers ?? []
         let terminals = panes?.terminals ?? []
         if !screens.isEmpty || !browsers.isEmpty || !terminals.isEmpty {
-            Section("Panes") {
+            Section(head: "Panes") {
                 ForEach(screens) { item in
                     Button { opening = .screen(item) } label: {
                         PaneRow(glyph: ScreenWords.glyph(item.kind), name: item.name, line: item.detail ?? "", state: item.live ? nil : "Not running")
@@ -225,19 +225,11 @@ struct BrowserViewer: View {
                             .accessibilityLabel("\(pane.name), as it is on your Mac")
                             .accessibilityIdentifier("browser-picture")
                     } else if let resting {
-                        ContentUnavailableView {
-                            Label(pane.name, systemImage: PaneWords.browserGlyph)
-                        } description: {
-                            Text(resting)
-                        }
+                        EmptyState(pane.name, systemImage: PaneWords.browserGlyph, description: resting)
                     } else if !pane.live {
-                        ContentUnavailableView {
-                            Label(pane.name, systemImage: PaneWords.browserGlyph)
-                        } description: {
-                            Text("\(PaneWords.notOpen). Open its pane there to see it here.")
-                        }
+                        EmptyState(pane.name, systemImage: PaneWords.browserGlyph, description: "\(PaneWords.notOpen). Open its pane there to see it here.")
                     } else if let trouble {
-                        ContentUnavailableView(trouble, systemImage: "eye.slash")
+                        EmptyState(trouble, systemImage: "eye.slash")
                     } else {
                         ProgressView()
                     }
@@ -385,9 +377,9 @@ struct TerminalViewer: View {
             VStack(spacing: 0) {
                 ZStack {
                     if let gone {
-                        ContentUnavailableView(gone, systemImage: PaneWords.terminalGlyph)
+                        EmptyState(gone, systemImage: PaneWords.terminalGlyph)
                     } else if cursor == nil {
-                        if let trouble { ContentUnavailableView(trouble, systemImage: "exclamationmark.triangle") } else { ProgressView() }
+                        if let trouble { EmptyState(trouble, systemImage: "exclamationmark.triangle") } else { ProgressView() }
                     } else {
                         TerminalLines(lines: text.lines)
                     }

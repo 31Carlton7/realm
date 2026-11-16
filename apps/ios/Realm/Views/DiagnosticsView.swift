@@ -17,19 +17,20 @@ struct DiagnosticsView: View {
                 Stepper("Echoes: \(diagnostics.echoes)", value: $diagnostics.echoes, in: 1...20)
             } footer: {
                 Text("Pings your Mac \(diagnostics.pings) times, opens the session, then sends it \(diagnostics.echoes) short messages and times each one's echo. Use it with a session whose agent you do not mind receiving them.")
+                    .foregroundStyle(Palette.ink2)
             }
 
-            Section("Connection") {
+            Section(head: "Connection") {
                 LabeledContent("Handshake", value: Diagnostics.format(model.store.latency.handshake))
                 LabeledContent("Connect", value: Diagnostics.format(model.store.latency.connect))
             }
 
-            Section("Round trip, \(diagnostics.pingSamples.count) pings") {
+            Section(head: "Round trip, \(diagnostics.pingSamples.count) pings") {
                 LabeledContent("p50", value: Diagnostics.format(diagnostics.pingP50))
                 LabeledContent("p95", value: Diagnostics.format(diagnostics.pingP95))
             }
 
-            Section("Session") {
+            Section(head: "Session") {
                 LabeledContent("First row", value: Diagnostics.format(diagnostics.firstRow))
                 LabeledContent("Echo p50", value: Diagnostics.format(diagnostics.eventP50))
                 LabeledContent("Echo p95", value: Diagnostics.format(diagnostics.eventP95))
@@ -47,11 +48,11 @@ struct DiagnosticsView: View {
                 .disabled(diagnostics.report == nil || diagnostics.running)
                 .tint(Palette.accentInk)
             } footer: {
-                if let status = diagnostics.status { Text(status) }
+                if let status = diagnostics.status { Text(status).foregroundStyle(Palette.ink2) }
             }
 
             if !diagnostics.problems.isEmpty {
-                Section("Problems") {
+                Section(head: "Problems") {
                     ForEach(diagnostics.problems, id: \.self) { Text($0) }
                 }
             }

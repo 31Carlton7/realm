@@ -54,15 +54,13 @@ struct WorkingChangesView: View {
             if let tree {
                 list(tree)
             } else if noRepository {
-                ContentUnavailableView("No git repository", systemImage: "folder",
-                                       description: Text("There is no git repository here, so there is nothing to diff."))
+                EmptyState("No git repository", systemImage: "folder", description: "There is no git repository here, so there is nothing to diff.")
             } else if let problem {
-                ContentUnavailableView("The changes did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
+                EmptyState("The changes did not load", systemImage: "exclamationmark.triangle", description: problem)
             } else if model.isConnected {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView("The changes are on your Mac", systemImage: "laptopcomputer",
-                                       description: Text("This iPhone shows them while your Mac is connected."))
+                EmptyState("The changes are on your Mac", systemImage: "laptopcomputer", description: "This iPhone shows them while your Mac is connected.")
             }
         }
         .background(Ground.grouped)
@@ -126,6 +124,7 @@ struct WorkingChangesView: View {
             if tree.truncated {
                 Section {} footer: {
                     Text("Showing \(tree.files.count) of \(tree.totalFiles) changed files — too many to list at once.")
+                        .foregroundStyle(Palette.ink2)
                 }
             }
         }
@@ -164,6 +163,7 @@ struct WorkingChangesView: View {
         } header: {
             HStack {
                 Text(title)
+                    .foregroundStyle(Palette.ink2)
                 Spacer()
                 Button(all) { change(files.map(\.path), staged: !staged) }
                     .font(.footnote.weight(.medium))
@@ -316,9 +316,10 @@ struct CommitSheet: View {
                 } footer: {
                     if let tree {
                         Text("\(CheckoutWords.staged(tree)) on \(tree.branch ?? "a detached HEAD").")
+                            .foregroundStyle(Palette.ink2)
                     }
                 }
-                Section("Pull request") {
+                Section(head: "Pull request") {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(draft.title)
                             .font(.subheadline.weight(.semibold))

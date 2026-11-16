@@ -17,18 +17,13 @@ struct PullRequestView: View {
             if let pr = lookup?.pr {
                 page(pr)
             } else if let lookup {
-                ContentUnavailableView {
-                    Label("No pull request", systemImage: "arrow.triangle.pull")
-                } description: {
-                    Text(lookup.reason ?? "Nobody has opened a pull request for this branch yet. Commit, push & PR in Changes opens one.")
-                }
+                EmptyState("No pull request", systemImage: "arrow.triangle.pull", description: lookup.reason ?? "Nobody has opened a pull request for this branch yet. Commit, push & PR in Changes opens one.")
             } else if let problem {
-                ContentUnavailableView("The pull request did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
+                EmptyState("The pull request did not load", systemImage: "exclamationmark.triangle", description: problem)
             } else if model.isConnected {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView("The pull request is read on your Mac", systemImage: "laptopcomputer",
-                                       description: Text("This iPhone shows it while your Mac is connected."))
+                EmptyState("The pull request is read on your Mac", systemImage: "laptopcomputer", description: "This iPhone shows it while your Mac is connected.")
             }
         }
         .background(Ground.grouped)
@@ -80,10 +75,10 @@ struct PullRequestView: View {
                 .padding(.vertical, 4)
                 .listRowBackground(Fill.card)
             }
-            Section("Merge status") {
+            Section(head: "Merge status") {
                 FactRow(fact: merge).listRowBackground(Fill.card)
             }
-            Section("Checks") {
+            Section(head: "Checks") {
                 FactRow(fact: checks).listRowBackground(Fill.card)
                 ForEach(Array(pr.checks.enumerated()), id: \.offset) { _, check in
                     CheckRow(check: check).listRowBackground(Fill.card)
@@ -96,9 +91,9 @@ struct PullRequestView: View {
                         .listRowBackground(Fill.card)
                 }
             } header: {
-                Text("Files changed · \(pr.changedFiles)")
+                Text("Files changed · \(pr.changedFiles)").foregroundStyle(Palette.ink2)
             } footer: {
-                if pr.filesTruncated { Text("GitHub lists the first 3,000.") }
+                if pr.filesTruncated { Text("GitHub lists the first 3,000.").foregroundStyle(Palette.ink2) }
             }
             Section(pr.comments.total > 0 ? "Comments · \(pr.comments.total)" : "Comments") {
                 if pr.comments.recent.isEmpty {
@@ -117,7 +112,7 @@ struct PullRequestView: View {
                     .listRowBackground(Fill.card)
                 }
             }
-            Section("Reviews") {
+            Section(head: "Reviews") {
                 if pr.reviewers.isEmpty {
                     Text("Nobody yet").foregroundStyle(Palette.ink2).listRowBackground(Fill.card)
                 }
@@ -133,7 +128,7 @@ struct PullRequestView: View {
                     .listRowBackground(Fill.card)
                 }
             }
-            Section("Description") {
+            Section(head: "Description") {
                 Group {
                     if body.isEmpty {
                         Text("No description provided.").foregroundStyle(Palette.ink2)

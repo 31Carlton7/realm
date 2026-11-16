@@ -35,6 +35,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         VideoPrep.sweep()
         // Unattended runs read `print` from a file (`simctl launch --stdout`); line-buffer it.
         setvbuf(stdout, nil, _IOLBF, 0)
+        // A bar's subtitle in the secondary ink, where iOS draws it in its own grey at 3.4:1 on the light ground.
+        let bar = UINavigationBarAppearance()
+        bar.subtitleTextAttributes = [.foregroundColor: UIColor(Palette.ink2)]
+        UINavigationBar.appearance().standardAppearance = bar
         if !RealmType.isInstalled { model.log.error("JetBrains Mono did not register; the system's mono stands in.") }
         return true
     }

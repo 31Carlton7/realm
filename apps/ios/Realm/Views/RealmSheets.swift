@@ -80,7 +80,7 @@ struct RenameSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SheetHead(title: title, message: nil)
-            TextField("Title", text: $name)
+            TextField("Title", text: $name, prompt: Text("Title").foregroundStyle(Palette.ink3))
                 .focused($focused)
                 .submitLabel(.done)
                 .onSubmit { if canSave { save() } }

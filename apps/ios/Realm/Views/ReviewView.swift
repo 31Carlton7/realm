@@ -221,8 +221,7 @@ struct ReviewsView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let reviews, reviews.isEmpty {
-                ContentUnavailableView("Nothing to review", systemImage: "tray",
-                                       description: Text("When a team hands something back for you to approve, it shows here."))
+                EmptyState("Nothing to review", systemImage: "tray", description: "When a team hands something back for you to approve, it shows here.")
             } else if reviews == nil {
                 Unreached(what: "Review", working: model.isConnected && !model.work.unsupported)
             }
@@ -324,7 +323,7 @@ struct ReviewView: View {
         .overlay {
             if detail == nil {
                 if let problem {
-                    ContentUnavailableView("The review did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
+                    EmptyState("The review did not load", systemImage: "exclamationmark.triangle", description: problem)
                 } else {
                     Unreached(what: "This review", working: model.isConnected)
                 }
@@ -637,13 +636,14 @@ private struct DecisionNoteSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField(note.prompt, text: $text, axis: .vertical)
+                    TextField(note.prompt, text: $text,
+                              prompt: Text(note.prompt).foregroundStyle(Palette.ink3), axis: .vertical)
                         .tint(Palette.accent)
                         .lineLimit(3...10)
                         .focused($focused)
                         .listRowBackground(Fill.card)
                 } footer: {
-                    Text(note.footer)
+                    Text(note.footer).foregroundStyle(Palette.ink2)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -691,11 +691,7 @@ struct Unreached: View {
         if working {
             ProgressView()
         } else {
-            ContentUnavailableView {
-                Label("\(what) is on your Mac", systemImage: "laptopcomputer")
-            } description: {
-                Text(model.work.unsupported ? "Update Realm on your Mac to see it here." : "This iPhone shows it while your Mac is connected.")
-            }
+            EmptyState("\(what) is on your Mac", systemImage: "laptopcomputer", description: model.work.unsupported ? "Update Realm on your Mac to see it here." : "This iPhone shows it while your Mac is connected.")
         }
     }
 }

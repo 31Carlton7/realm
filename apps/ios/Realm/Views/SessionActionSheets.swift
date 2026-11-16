@@ -177,9 +177,10 @@ struct MoveToSpaceSheet: View {
                     .accessibilityAddTraits(space.id == row.spaceId ? .isSelected : [])
                 }
             } header: {
-                Text("Move “\(row.displayTitle)” to…")
+                Text("Move “\(row.displayTitle)” to…").foregroundStyle(Palette.ink2)
             } footer: {
                 Text("A session that has run takes its checkout along, so the transcript still names the tree it ran in.")
+                    .foregroundStyle(Palette.ink2)
             }
         }
     }
@@ -242,7 +243,7 @@ struct SwitchAgentSheet: View {
                     .listRowBackground(Fill.card)
                 }
             }
-            Section("Agent") {
+            Section(head: "Agent") {
                 ForEach(agents, id: \.kind) { agent in
                     ChoiceRow(title: agent.name, line: agent.available ? nil : agent.note, chosen: agent.kind == row.agent, busy: false) {
                         refusal = nil
@@ -260,9 +261,9 @@ struct SwitchAgentSheet: View {
                         .disabled(choosingAccount != nil || switching || !model.isConnected)
                     }
                 } header: {
-                    Text("Account")
+                    Text("Account").foregroundStyle(Palette.ink2)
                 } footer: {
-                    if let accountRefusal { Text(accountRefusal) }
+                    if let accountRefusal { Text(accountRefusal).foregroundStyle(Palette.ink2) }
                 }
             }
         }
@@ -340,8 +341,7 @@ struct SavedView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let saved, saved.entries.isEmpty {
-                ContentUnavailableView("Nothing saved yet", systemImage: "bookmark",
-                                       description: Text("Hold a message you sent in a session and choose Save turn."))
+                EmptyState("Nothing saved yet", systemImage: "bookmark", description: "Hold a message you sent in a session and choose Save turn.")
             } else if saved == nil {
                 Unreached(what: "Saved", working: model.isConnected)
             }

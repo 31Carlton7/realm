@@ -136,8 +136,7 @@ struct HomeView: View {
                 if listing.isFiltered {
                     NoResults(query: query, why: NoResults.words(style: style, pages: pages))
                 } else {
-                    ContentUnavailableView(choice.emptyWords(in: home), systemImage: "text.bubble",
-                                           description: Text("Start one in Realm on your Mac, and it shows here."))
+                    EmptyState(choice.emptyWords(in: home), systemImage: "text.bubble", description: "Start one in Realm on your Mac, and it shows here.")
                 }
             }
         }
@@ -563,7 +562,7 @@ struct ViewOptionsMenu: View {
 
     var body: some View {
         Menu {
-            Section("List") {
+            Section(head: "List") {
                 ForEach(ListStyle.allCases) { option in
                     Toggle(isOn: $style.isChosen(option)) {
                         Label(option.title, systemImage: option.symbol)
@@ -571,7 +570,7 @@ struct ViewOptionsMenu: View {
                 }
             }
             if style == .bySpace {
-                Section("Order spaces") {
+                Section(head: "Order spaces") {
                     ForEach(SpaceOrder.allCases) { order in
                         Toggle(isOn: $spaceOrder.isChosen(order)) {
                             Label(order.title, systemImage: order.symbol)
@@ -641,7 +640,7 @@ struct SearchBar: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(Palette.ink2)
                     .accessibilityHidden(true)
-                TextField(prompt, text: $query)
+                TextField(prompt, text: $query, prompt: Text(prompt).foregroundStyle(Palette.ink3))
                     .focused($focused)
                     .submitLabel(.search)
                     .autocorrectionDisabled()
@@ -978,6 +977,7 @@ private struct LoadingSections: View {
                 Text("A space")
                     .font(.subheadline.weight(.semibold))
                     .textCase(nil)
+                    .foregroundStyle(Palette.ink2)
             }
         }
         .redacted(reason: .placeholder)
@@ -996,44 +996,24 @@ private struct FirstLoad: View {
         case .connected, .connecting:
             EmptyView()
         case .asleep:
-            ContentUnavailableView {
-                Label(mac, systemImage: "laptopcomputer")
-            } description: {
-                Text("\(status.words). While your Mac sleeps, this iPhone cannot reach it.")
-            } actions: {
+            EmptyState(mac, systemImage: "laptopcomputer", description: "\(status.words). While your Mac sleeps, this iPhone cannot reach it.") {
                 RetryButton()
             }
         case .relayUnreachable:
-            ContentUnavailableView {
-                Label("Can't reach the relay", systemImage: "wifi.exclamationmark")
-            } description: {
-                Text("Check this iPhone's connection. Realm keeps trying.")
-            } actions: {
+            EmptyState("Can't reach the relay", systemImage: "wifi.exclamationmark", description: "Check this iPhone's connection. Realm keeps trying.") {
                 RetryButton()
             }
         case .notAnswering:
-            ContentUnavailableView {
-                Label("\(mac) is not answering", systemImage: "laptopcomputer.trianglebadge.exclamationmark")
-            } description: {
-                Text("The relay can reach it, and Realm on it did not answer. Realm keeps trying.")
-            } actions: {
+            EmptyState("\(mac) is not answering", systemImage: "laptopcomputer.trianglebadge.exclamationmark", description: "The relay can reach it, and Realm on it did not answer. Realm keeps trying.") {
                 RetryButton()
             }
         case .refused(let reason):
-            ContentUnavailableView {
-                Label(reason, systemImage: "xmark.octagon")
-            } description: {
-                Text("To see its sessions again, make a pairing code in Settings ▸ Devices on your Mac and scan it here.")
-            } actions: {
+            EmptyState(reason, systemImage: "xmark.octagon", description: "To see its sessions again, make a pairing code in Settings ▸ Devices on your Mac and scan it here.") {
                 Button("Pair again") { model.pairingRequested = true }
                     .buttonStyle(InkButtonStyle())
             }
         case .notConnected:
-            ContentUnavailableView {
-                Label("Not connected", systemImage: "pause.circle")
-            } description: {
-                Text("This iPhone connects to \(mac) while Realm is open.")
-            } actions: {
+            EmptyState("Not connected", systemImage: "pause.circle", description: "This iPhone connects to \(mac) while Realm is open.") {
                 RetryButton()
             }
         }
@@ -1069,11 +1049,7 @@ struct NoResults: View {
     let why: String
 
     var body: some View {
-        ContentUnavailableView {
-            Label("No results for “\(query)”", systemImage: "magnifyingglass")
-        } description: {
-            Text(why)
-        }
+        EmptyState("No results for “\(query)”", systemImage: "magnifyingglass", description: why)
     }
 
     /// The Mac's search found nothing.

@@ -544,11 +544,11 @@ private struct QuestionSection: View {
             .accessibilityAddTraits(.isHeader)
         } footer: {
             if !question.isAnswerableHere {
-                Text(MacOnlyKind.words(question.kind))
+                Text(MacOnlyKind.words(question.kind)).foregroundStyle(Palette.ink2)
             } else if question.secret {
                 Label("Your Mac keeps only a mark of this answer.", systemImage: "lock.fill")
             } else if question.multiSelect {
-                Text("Choose any that apply.")
+                Text("Choose any that apply.").foregroundStyle(Palette.ink2)
             }
         }
     }
@@ -612,7 +612,8 @@ private struct QuestionSection: View {
                     .focused($typing)
                     .accessibilityLabel(fieldLabel)
             } else {
-                TextField(placeholder, text: other, axis: .vertical)
+                TextField(placeholder, text: other,
+                          prompt: Text(placeholder).foregroundStyle(Palette.ink3), axis: .vertical)
                     .tint(Palette.accent)
                     .lineLimit(1...5)
                     .focused($typing)

@@ -86,8 +86,7 @@ struct SpaceView: View {
                           ? "This searches the sessions shown so far. Clear the search and scroll down for older ones."
                           : "This searches the sessions shown here.")
             } else if pages.loaded, rows.isEmpty {
-                ContentUnavailableView("No sessions here", systemImage: "text.bubble",
-                                       description: Text("Start one in this space in Realm on your Mac, and it shows here."))
+                EmptyState("No sessions here", systemImage: "text.bubble", description: "Start one in this space in Realm on your Mac, and it shows here.")
             }
         }
         .navigationTitle(space?.name ?? "Space")

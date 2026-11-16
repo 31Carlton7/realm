@@ -41,7 +41,7 @@ struct SuggestionPanel: View {
                         if let head = row.head {
                             Text(head)
                                 .font(.caption)
-                                .foregroundStyle(Palette.ink3)
+                                .foregroundStyle(Palette.ink2)
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 4)
                                 .frame(height: headHeight, alignment: .bottomLeading)
@@ -174,7 +174,7 @@ private struct SuggestionLine<Mark: View, Name: View>: View {
                 .layoutPriority(1)
             Text(detail)
                 .font(.subheadline)
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(Palette.ink2)
                 .lineLimit(1)
                 .truncationMode(detailCut)
             Spacer(minLength: 0)

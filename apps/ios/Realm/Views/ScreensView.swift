@@ -143,14 +143,14 @@ struct ScreensSheet: View {
                             }
                             // The space's other panes, grouped as the desktop names them: each opens its viewer.
                             if let others, !others.browsers.isEmpty {
-                                Section("Browsers") {
+                                Section(head: "Browsers") {
                                     ForEach(others.browsers) { pane in
                                         Button(pane.name, systemImage: PaneWords.browserGlyph) { browser = pane }
                                     }
                                 }
                             }
                             if let others, !others.terminals.isEmpty {
-                                Section("Terminals") {
+                                Section(head: "Terminals") {
                                     ForEach(others.terminals) { pane in
                                         Button(pane.name, systemImage: PaneWords.terminalGlyph) { terminal = pane }
                                     }
@@ -273,16 +273,11 @@ private struct ScreenStage: View {
                     .accessibilityLabel(screen.map { "\($0.name), as it is on your Mac" } ?? "Screen")
                     .transition(.opacity)
             } else if let screen, !screen.live || resting {
-                ContentUnavailableView {
-                    Label("\(screen.name) isn't running", systemImage: ScreenWords.glyph(screen.kind))
-                } description: {
-                    Text("Open it on your Mac to see it here.")
-                }
+                EmptyState("\(screen.name) isn't running", systemImage: ScreenWords.glyph(screen.kind), description: "Open it on your Mac to see it here.")
             } else if screen == nil {
-                ContentUnavailableView("Nothing to show", systemImage: "rectangle.on.rectangle",
-                                       description: Text("This session's space has no simulator or machine open."))
+                EmptyState("Nothing to show", systemImage: "rectangle.on.rectangle", description: "This session's space has no simulator or machine open.")
             } else if let trouble {
-                ContentUnavailableView(trouble, systemImage: "exclamationmark.triangle")
+                EmptyState(trouble, systemImage: "exclamationmark.triangle")
             } else {
                 ProgressView()
             }

@@ -242,7 +242,7 @@ private struct GalleryPage: View {
     @ViewBuilder
     private var waiting: some View {
         if let problem {
-            ContentUnavailableView(file.name, systemImage: FileKind.symbol(file.name), description: Text(problem))
+            EmptyState(file.name, systemImage: FileKind.symbol(file.name), description: problem)
         } else {
             VStack(spacing: 14) {
                 Image(systemName: FileKind.symbol(file.name))

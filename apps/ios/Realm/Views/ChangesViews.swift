@@ -25,6 +25,7 @@ struct ChangesSheet: View {
                         } footer: {
                             if changes.totalFiles > changes.files.count {
                                 Text("\(changes.totalFiles - changes.files.count) more on your Mac.")
+                                    .foregroundStyle(Palette.ink2)
                             }
                         }
                         Section {
@@ -34,6 +35,7 @@ struct ChangesSheet: View {
                             .listRowBackground(Fill.card)
                         } footer: {
                             Text("The checkout as it is now, to stage, commit and push.")
+                                .foregroundStyle(Palette.ink2)
                         }
                     }
                     .listStyle(.insetGrouped)
@@ -44,8 +46,7 @@ struct ChangesSheet: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .task { await model.loadChanges(checkpointId, in: sessionId) }
                 } else {
-                    ContentUnavailableView("The changes are on your Mac", systemImage: "laptopcomputer",
-                                           description: Text("This iPhone shows them while your Mac is connected."))
+                    EmptyState("The changes are on your Mac", systemImage: "laptopcomputer", description: "This iPhone shows them while your Mac is connected.")
                 }
             }
             .background(Ground.grouped)
@@ -252,19 +253,14 @@ struct DiffView: View {
     var body: some View {
         Group {
             if let page, page.binary {
-                ContentUnavailableView("A binary file", systemImage: "doc.badge.gearshape",
-                                       description: Text("It can only be compared on your Mac."))
+                EmptyState("A binary file", systemImage: "doc.badge.gearshape", description: "It can only be compared on your Mac.")
             } else if let page, page.truncated, !showingStart {
                 // Past the desktop's ceiling the Mac sends only the start: said first, and shown on asking.
-                ContentUnavailableView {
-                    Label("Too big to show", systemImage: "doc.text.magnifyingglass")
-                } description: {
-                    Text(DiffWords.tooBig(page))
-                } actions: {
+                EmptyState("Too big to show", systemImage: "doc.text.magnifyingglass", description: DiffWords.tooBig(page)) {
                     Button("Show the start") { showingStart = true }
                 }
             } else if let problem, lines.isEmpty {
-                ContentUnavailableView("The diff did not load", systemImage: "exclamationmark.triangle", description: Text(problem))
+                EmptyState("The diff did not load", systemImage: "exclamationmark.triangle", description: problem)
             } else if lines.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -583,6 +579,6 @@ struct FilePreviewSheet: View {
     }
 
     private func unavailable(_ reason: String) -> some View {
-        ContentUnavailableView(name, systemImage: FileKind.symbol(path), description: Text(reason))
+        EmptyState(name, systemImage: FileKind.symbol(path), description: reason)
     }
 }

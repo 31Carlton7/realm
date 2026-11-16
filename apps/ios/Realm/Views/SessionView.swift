@@ -645,8 +645,7 @@ private struct EmptyTranscript: View {
         let status = model.linkStatus
         Group {
             if isLoaded {
-                ContentUnavailableView("Nothing here yet", systemImage: "text.bubble",
-                                       description: Text("Send the first message."))
+                EmptyState("Nothing here yet", systemImage: "text.bubble", description: "Send the first message.")
             } else if status.kind == .connecting || status.kind == .connected {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -657,11 +656,7 @@ private struct EmptyTranscript: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                ContentUnavailableView {
-                    Label(status.words, systemImage: status.symbol)
-                } description: {
-                    Text("This session shows here once your Mac is there.")
-                }
+                EmptyState(status.words, systemImage: status.symbol, description: "This session shows here once your Mac is there.")
             }
         }
     }

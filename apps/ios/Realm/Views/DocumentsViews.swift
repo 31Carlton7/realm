@@ -262,7 +262,7 @@ struct FolderView: View {
         .softEdges(ground: Ground.transcript)
         .overlay {
             if let problem, !pages.loaded {
-                ContentUnavailableView("Documents", systemImage: "folder", description: Text(problem))
+                EmptyState("Documents", systemImage: "folder", description: problem)
             } else if !words.isEmpty {
                 if let found, found.entries.isEmpty, found.withheld == nil {
                     NoResults(query: words, why: "This searches the files in \(pages.folder ?? "this folder").")
@@ -270,8 +270,7 @@ struct FolderView: View {
             } else if !pages.loaded {
                 Unreached(what: "This folder", working: model.isConnected)
             } else if pages.rows.isEmpty, recent.isEmpty {
-                ContentUnavailableView("Nothing here", systemImage: "folder",
-                                       description: Text("Files you and your agents make in this folder show here."))
+                EmptyState("Nothing here", systemImage: "folder", description: "Files you and your agents make in this folder show here.")
             }
         }
         .navigationTitle(dir.isEmpty ? "Documents" : (dir as NSString).lastPathComponent)
