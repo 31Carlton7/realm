@@ -273,6 +273,20 @@ struct VideoAheadTests {
         #expect(AttachmentLimits.refusal(videoAhead: 20 * 1024 * 1024, joining: full, limits: limits) == "Up to 6 files in one message.")
     }
 
+    /// THE MUTANT: keep only the frame, and a sent video's tile loses its length once the Mac sweeps the file.
+    @Test func aTileFromAKeptFrameSaysHowLongTheVideoRuns() async throws {
+        let film = try await Films.filmed(seconds: 3)
+        let file = URL.temporaryDirectory.appending(path: "poster-\(UUID().uuidString)/poster.jpg")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let drawn = await VideoPoster.draw(film, side: 64, scale: 3, keepingAt: file)
+        try FileManager.default.removeItem(at: film)
+
+        let kept = try #require(VideoPoster.kept(at: file))
+        #expect(kept.frame != nil)
+        #expect(drawn.duration == .seconds(3))
+        #expect(kept.duration == drawn.duration)
+    }
+
     /// THE MUTANTS: ask on Wi-Fi, ask at 25 MB, or never ask.
     @Test func cellularAsksOnlyPastTwentyFiveMegabytesAndWiFiNever() {
         let over = CostlyUpload.over

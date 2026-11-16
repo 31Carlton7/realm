@@ -402,7 +402,51 @@ struct VideoThumbnail: View {
         }
         .frame(width: side, height: side)
         .clipped()
-        .overlay(alignment: .bottomLeading) {
+        .videoLength(duration)
+        .animation(.easeOut(duration: 0.2), value: frame != nil)
+        .task(id: url) {
+            let drawn = await VideoPoster.draw(url, side: side, scale: displayScale, keepingAt: poster)
+            frame = drawn.frame
+            duration = drawn.duration
+        }
+    }
+}
+
+/// A sent video's frame and how long it runs, kept beside each other so its tile reads the same once
+/// the file is gone.
+struct VideoPoster {
+    var frame: UIImage?
+    var duration: Duration?
+
+    /// The frame and length of the video at `url`; the first drawn is kept at `file`.
+    static func draw(_ url: URL, side: CGFloat, scale: CGFloat, keepingAt file: URL?) async -> VideoPoster {
+        let frame = await GalleryCover.image(of: url, kind: .video, side: side, scale: scale)
+        let length = try? await AVURLAsset(url: url).load(.duration)
+        let drawn = VideoPoster(frame: frame, duration: length.map { .seconds($0.seconds.rounded()) })
+        if let file, !FileManager.default.fileExists(atPath: file.path), let data = frame?.jpegData(compressionQuality: 0.8) {
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: file, options: .atomic)
+            if let seconds = drawn.duration?.components.seconds {
+                try? Data(String(seconds).utf8).write(to: lengthFile(file), options: .atomic)
+            }
+        }
+        return drawn
+    }
+
+    /// The one kept at `file`; nil for a video whose frame was never drawn.
+    static func kept(at file: URL) -> VideoPoster? {
+        guard let frame = UIImage(contentsOfFile: file.path) else { return nil }
+        let seconds = (try? String(contentsOf: lengthFile(file), encoding: .utf8)).flatMap { Int64($0) }
+        return VideoPoster(frame: frame, duration: seconds.map { .seconds($0) })
+    }
+
+    private static func lengthFile(_ file: URL) -> URL { file.deletingPathExtension().appendingPathExtension("length") }
+}
+
+extension View {
+    /// How long a video runs, along the foot of its tile.
+    func videoLength(_ duration: Duration?) -> some View {
+        overlay(alignment: .bottomLeading) {
             if let duration {
                 Text(duration.formatted(.time(pattern: .minuteSecond)))
                     .font(.caption2.weight(.semibold))
@@ -413,18 +457,6 @@ struct VideoThumbnail: View {
                     .padding(.bottom, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
-            }
-        }
-        .animation(.easeOut(duration: 0.2), value: frame != nil)
-        .task(id: url) {
-            frame = await GalleryCover.image(of: url, kind: .video, side: side, scale: displayScale)
-            if let poster, !FileManager.default.fileExists(atPath: poster.path),
-               let data = frame?.jpegData(compressionQuality: 0.8) {
-                try? FileManager.default.createDirectory(at: poster.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? data.write(to: poster, options: .atomic)
-            }
-            if let length = try? await AVURLAsset(url: url).load(.duration) {
-                duration = .seconds(length.seconds.rounded())
             }
         }
     }
@@ -709,7 +741,7 @@ struct SentVideo: View {
     @Environment(AppModel.self) private var model
     @ScaledMetric(relativeTo: .body) private var side: CGFloat = SentPicture.side
     @State private var kept: URL?
-    @State private var poster: UIImage?
+    @State private var poster: VideoPoster?
 
     var body: some View {
         let side = min(self.side, SentPicture.largest)
@@ -717,12 +749,13 @@ struct SentVideo: View {
         Group {
             if let kept {
                 VideoThumbnail(url: kept, side: side, poster: posterFile)
-            } else if let poster {
-                Image(uiImage: poster)
+            } else if let poster, let frame = poster.frame {
+                Image(uiImage: frame)
                     .resizable()
                     .scaledToFill()
                     .frame(width: side, height: side)
                     .clipped()
+                    .videoLength(poster.duration)
             } else {
                 Image(systemName: "video")
                     .font(.title3)
@@ -735,7 +768,7 @@ struct SentVideo: View {
         // Asked again once the Mac is there: a transcript kept from before draws before it connects.
         .task(id: model.isConnected) {
             guard kept == nil else { return }
-            if poster == nil { poster = UIImage(contentsOfFile: posterFile.path) }
+            if poster == nil { poster = VideoPoster.kept(at: posterFile) }
             kept = try? await model.wholeFile(file.path, name: file.name, in: .session(sessionId)) { _ in }
         }
     }
