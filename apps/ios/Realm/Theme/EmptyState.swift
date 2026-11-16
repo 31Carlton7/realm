@@ -1,9 +1,8 @@
 import SwiftUI
 
 /// What a page or a sheet shows when it has nothing to show, as the Mac's `EmptyState` draws it: a
-/// glyph, a title in ink, one line in the secondary ink, and at most one action. Every empty view on
-/// the phone draws through this rather than `ContentUnavailableView`, whose bold title and system grey
-/// line were the one screen on the phone not in Realm's ink.
+/// glyph, a title in ink, one line in the secondary ink, and at most one action. Not
+/// `ContentUnavailableView`: its line is the system grey, 3.3:1 on the light grouped ground.
 struct EmptyState<Actions: View>: View {
     let title: String
     let systemImage: String
