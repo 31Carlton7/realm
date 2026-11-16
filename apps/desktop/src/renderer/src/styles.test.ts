@@ -3740,10 +3740,19 @@ describe("light mode", () => {
        being just a flat square. And also it should have a light border. Look at the simulator and the
        bar that has the live indicator… That should be the shadow and border used for any library item."
        So the toolbar and the items all wear ONE token — and since 10-19 ("I don't like having borders")
-       that token is a card's lift, with no edge. THE MUTANTS: an item put back on a
-       flat inset rim, an item given the stack copied rather than named, the toolbar moved to another
-       stack on its own, a ring back in the token, and a picture tile's ring traced inside it. */
-    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--card-lift)");
+       that token is a lift with no edge. Cards lost theirs on 11-15; an object did not. THE MUTANTS: an
+       item put back on a flat inset rim, an item given the stack copied rather than named, the toolbar
+       moved to another stack on its own, a ring back in the token, the object handed the card's (now
+       empty) lift, and a picture tile's ring traced inside it. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--object-lift)");
+    const objectLifts = [...tokensCss.matchAll(/--object-lift: ([^;]+);/g)].map((m) => m[1]!.trim());
+    expect(objectLifts, "one per face").toHaveLength(2);
+    for (const lift of objectLifts) for (const layer of lift.split(",")) {
+      expect(layer, "no layer is inset").not.toContain("inset");
+      // Blurred, and falling: a layer with no blur is a ring, and one with no offset a line round all four edges.
+      expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
+      expect(Number.parseFloat(layer.trim().split(/\s+/)[1]!), layer).toBeGreaterThan(0);
+    }
     expect(RULES.filter((r) => /(^|[;\s])--rl-object-shadow\s*:/.test(r.body)), "defined once, so there is one place to change it").toHaveLength(1);
     for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".docs-home-glyph[data-type]", ".attach-art"]) {
       const body = bodiesFor(sel).join(" ");

@@ -128,10 +128,10 @@
   /* What an OBJECT rests on — a file's tile and its square in a row, a saved turn, a file on a message
      or in the prompter, and the device's toolbar: one surface for all of them (the owner, 10-05, of
      the toolbar: "That should be the shadow and border used for any library item"), and since 10-19
-     ("I don't like having borders") that surface is a card's — its lift, with no edge
-     drawn round it. Named once for all of them, so the toolbar pointed at and the files it was
-     pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
-  --rl-object-shadow: var(--card-lift);
+     ("I don't like having borders") with no edge drawn round it. Cards lost their lift on 11-15; an
+     object keeps it (`--object-lift`). Named once for all of them, so the toolbar pointed at and the
+     files it was pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
+  --rl-object-shadow: var(--object-lift);
   /* …and the lift as a filter, for a surface the worklet paints inside a clip of its own (the
      prompter's file well), where a box-shadow would trace the square border box. */
   --rl-object-lift-filter: var(--shadow-card-lift-filter);
