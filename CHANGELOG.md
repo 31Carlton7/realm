@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.15.1 - 2026-11-16
+
+- Resizing the window no longer stutters with a picture behind a chat. The picture holds still while you drag and is drawn again once the size settles.
+- The greeting on a new session steps aside while a list is open over it, so the commands, mentions, skills and agents lists no longer cut its text in half.
+
 ## v2.15.0 - 2026-11-16
 
 Your background stays with you for the whole chat, and the window can be as see-through as you like.
