@@ -47,6 +47,31 @@ struct LargeTextTests {
         }
     }
 
+    /// On their own row the chips take the card's width less its insets, and `+` and Send sit under them;
+    /// in the toolbar they have what is left between the two.
+    @Test func theChipsRowTakesTheCardsWidth() throws {
+        final class Placed { var chips = CGRect.zero, primary = CGRect.zero }
+        func layout(chipsRow: Bool) throws -> Placed {
+            let placed = Placed()
+            let composer = ComposerLayout(card: true, chipsRow: chipsRow) {
+                Color.clear.frame(height: 40).layoutValue(key: ComposerPart.self, value: .field)
+                Color.clear.layoutValue(key: ComposerPart.self, value: .add)
+                Color.clear.frame(height: 120)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { placed.chips = $0 }
+                    .layoutValue(key: ComposerPart.self, value: .chips)
+                Color.clear
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { placed.primary = $0 }
+                    .layoutValue(key: ComposerPart.self, value: .primary)
+            }
+            _ = try Drawing.image(of: composer, width: 378, size: .accessibility5)
+            return placed
+        }
+        let own = try layout(chipsRow: true)
+        #expect(own.chips.width == 358, "\(own.chips)")
+        #expect(own.primary.minY >= own.chips.maxY, "Send under the chips: \(own.primary) \(own.chips)")
+        #expect(try layout(chipsRow: false).chips.width == 274)
+    }
+
     /// Rows of chips: as many to a row as fit, and a chip wider than the row takes the row's width and
     /// wraps its words inside it.
     @Test func chipRowsWrapAndNeverRunWide() {
