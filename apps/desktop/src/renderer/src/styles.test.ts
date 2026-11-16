@@ -3759,6 +3759,12 @@ describe("light mode", () => {
       expect(body, sel).toContain("box-shadow: var(--rl-object-shadow)");
       expect(body, `${sel} keeps a rim of its own as well`).not.toMatch(/border: var\(--hairline-w\) solid|inset 0 0 0 var\(--hairline-w\)/);
     }
+    /* Painted too: the card family's shared painted rule hands each member the card's lift (none), and
+       the two objects in the family win theirs back after it. THE MUTANT: a painted object left on none. */
+    for (const sel of [".library-tile", ".saved-turn-open"]) {
+      const shadows = bodiesFor(`:root[data-squircle] ${sel}`).filter((b) => b.includes("box-shadow"));
+      expect(shadows.at(-1), `painted ${sel}`).toContain("box-shadow: var(--rl-object-shadow)");
+    }
     // One ring round a picture: the tile's, outside it. A second traced inside sat half a pixel off it.
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".library-tile[data-thumb]::after")))).toEqual([]);
     expect(bodiesFor(".library-tile").join(" ")).toContain("overflow: hidden");

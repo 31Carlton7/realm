@@ -6718,6 +6718,9 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .app-view-request { --sq-fill: var(--surface); }
 :root[data-squircle] .library-tile,
 :root[data-squircle] .agent-card { --sq-fill: var(--rl-tile); }
+/* The two objects in the family keep an object's lift, which a card no longer has. */
+:root[data-squircle] .saved-turn-open,
+:root[data-squircle] .library-tile { box-shadow: var(--rl-object-shadow); }
 :root[data-squircle] .stat-tile,
 :root[data-squircle] .usage-card,
 :root[data-squircle] .usage-figures,
