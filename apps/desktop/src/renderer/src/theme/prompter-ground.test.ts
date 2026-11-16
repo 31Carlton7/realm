@@ -107,7 +107,7 @@ describe("the prompter's words move their ink as it thins", () => {
     expect(thin(100)).toBe(0);
     expect(thin(16)).toBeCloseTo(100, 5);
     expect(thin(58)).toBeCloseTo(50, 5);
-    // At the thinnest the hints ARE the quiet ink, and the quiet ink is halfway to body ink.
+    // Fully thin (past the 40% floor, so never reached) the hints would BE the quiet ink, and the quiet ink halfway to body ink.
     expect(faint.share(100)).toBeCloseTo(1, 5);
     expect(dim.share(100)).toBeCloseTo(0.5, 5);
     // Opaque, nothing moves: the default looks exactly as it did.

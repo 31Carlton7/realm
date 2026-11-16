@@ -810,13 +810,8 @@ a {
 }
 
 /* The prompter thins with the pane (the owner, 11-16: an opaque card on a see-through pane "sticks
- * out like a sore thumb"). Its alpha is the pane's own mapping read 16 points further up the slider,
- * so it is always a step denser than the ground it stands on, down the whole range: at slider 0 the
- * dark card is 16% and the light one 17.5%. At the default it is opaque on both faces (84 + 16 is
- * 100, and the light line reaches 100 at the same point), and above it nothing moves.
- *
- * It moves with the pane the whole way, from 40% at pane 0 to solid at the default pane of 84, in a
- * straight line, the same in both faces (the owner, 11-16: "whether there's a picture or not, the
+ * out like a sore thumb"). It moves with the pane the whole way, from 40% at pane 0 to solid at the
+ * default pane of 84, in a straight line, the same in both faces (the owner, 11-16: "whether there's a picture or not, the
  * prompter should become more transparent with the pane", then "too transparent, it should be
  * slightly less but adjust with the transparency"). Its words hold by moving their ink as well
  * (styles.css, the prompter on a thinned pane). The lift is gone by `--prompter-lift-until`. No blur:

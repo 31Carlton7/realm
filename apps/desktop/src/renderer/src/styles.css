@@ -6938,8 +6938,9 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   clip-path: none; --sq-seat: top; --sq-seat-radius: var(--r-squircle); --sq-seat-inset: 10px; }
 /* The words hold by moving their ink, not by holding the fill (the way the chat does over a picture):
    as the prompter thins, the hints (the placeholder, the strips' labels) step toward the quiet ink,
-   reaching it at the thinnest, and the quiet ink steps halfway to body ink. `--prompter-thin` is 0% while the card is opaque and 100% at the
-   dark face's thinnest, 16%. Set on the dock, not :root, so quick chat's opaque prompter reads 0%. */
+   and the quiet ink steps toward body ink at half that rate. `--prompter-thin` is 0% while the card is opaque and
+   about 71% at its 40% floor, so the hints go about 71% of the way and the quiet ink about 36%. Set on
+   the dock, not :root, so quick chat's opaque prompter reads 0%. */
 .composer-dock {
   --prompter-thin: calc((100% - var(--prompter-alpha)) * 100 / 84);
   --rl-text-faint: color-mix(in oklab, var(--ink-2) var(--prompter-thin), var(--ink-3));
