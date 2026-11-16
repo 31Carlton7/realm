@@ -46,8 +46,8 @@ describe("Sidebar and pane translucency", () => {
     try {
       const { api, store } = await appearance();
       const before = store.getState().groundAlpha;
-      // 90 on a slider that reads as transparency is 94% opaque on a range of 84–100.
-      fireEvent.change(screen.getByRole("slider", { name: "Pane transparency" }), { target: { value: "90" } });
+      // 6 on a slider that reads as transparency is 94% opaque on a range of 0–100.
+      fireEvent.change(screen.getByRole("slider", { name: "Pane transparency" }), { target: { value: "6" } });
       await waitFor(() => expect(store.getState().paneAlpha).toBe(94));
       // THE one-control mutant: the pane's slider writes the sidebar's number again.
       expect(store.getState().groundAlpha).toBe(before);
@@ -58,7 +58,7 @@ describe("Sidebar and pane translucency", () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it("the pane's control stops where the reading would, and its readout is the pane's own", async () => {
+  it("the pane's control runs the whole way, and its readout is the pane's own", async () => {
     vi.stubGlobal("realm", { platform: "darwin" });
     try {
       const { store } = await appearance();

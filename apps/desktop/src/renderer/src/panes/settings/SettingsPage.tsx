@@ -1113,7 +1113,7 @@ function AppearanceTab() {
         <TranslucencyRow id="sidebar-translucency" label="Sidebar translucency" amount="Sidebar transparency"
           alpha={groundAlpha} range={GROUND_ALPHA_RANGE} fallback={DEFAULT_GROUND_ALPHA} material={material}
           onChange={(v) => run(() => setGroundAlpha(v))}
-          title="The sidebar shows the desktop behind the window as thinly as its labels allow. Realm also follows the system's Reduce Transparency setting — with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
+          title="How much of the desktop behind the window shows through the sidebar, all the way to none of the sidebar at all. Past the default its labels get harder to read over a bright or busy desktop. Realm also follows the system's Reduce Transparency setting: with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
           /* Off macOS both controls are inert, and a disabled control with no reason beside it is
              the one case where the sentence has to stay on the page. Once, on the first of the two:
              the second is disabled for the same reason, directly under it. */
@@ -1121,7 +1121,7 @@ function AppearanceTab() {
         <TranslucencyRow id="pane-translucency" label="Pane translucency" amount="Pane transparency"
           alpha={paneAlpha} range={PANE_ALPHA_RANGE} fallback={DEFAULT_PANE_ALPHA} material={material}
           onChange={(v) => run(() => setPaneAlpha(v))}
-          title="A pane holds the reading, so it goes only as thin as body text can stay above the contrast every theme here is held to over the worst desktop — 14% at most. Reduce Transparency makes it opaque as well." />
+          title="How much of the desktop behind the window shows through the panes, all the way to none of the pane at all. At the default, body text keeps its contrast over any desktop; past it, text gets harder to read over a bright or busy one. Reduce Transparency makes the panes opaque as well." />
 
         {/* The app's one motion mechanism is the system's `prefers-reduced-motion`, and this is an
             answer to that same question rather than a second one: main has the window report the

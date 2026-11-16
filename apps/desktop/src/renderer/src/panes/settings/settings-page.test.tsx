@@ -456,7 +456,7 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     fireEvent.click(screen.getByRole("switch", { name: "Sidebar translucency" }));
     await waitFor(() => expect(store.getState().groundAlpha).toBe(DEFAULT_GROUND_ALPHA));
     // Dragging the amount to fully opaque turns the switch off, because that IS off.
-    fireEvent.change(slider, { target: { value: "55" } });
+    fireEvent.change(slider, { target: { value: String(GROUND_ALPHA_RANGE.min) } });
     await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
     expect(screen.getByRole("switch", { name: "Sidebar translucency" })).not.toBeChecked();
   });

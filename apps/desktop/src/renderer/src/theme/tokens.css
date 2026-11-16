@@ -789,10 +789,13 @@ a {
  * ends (fully opaque still means opaque), but the light ranges start much higher: at the defaults the
  * sidebar is ~80% and the panes 92%, where the dark face is 55% and 84%. Composed here rather than in
  * applyTheme for the reason `--sidebar-ground` is: the media query below has to be able to win. The
- * pane's is mapped off the pane slider's own range, 84 → 92 and 100 → 100. */
+ * pane's is mapped off the pane slider's own range, 84 → 92 and 100 → 100.
+ * Below the defaults each runs straight on down to bare material at 0 (the owner, 11-15: "very very
+ * transparent"): `min()` takes that line only below the default, where the two meet exactly, so the
+ * default and everything above it are what they were. */
 :root[data-mode="light"] {
-  --sidebar-ground: color-mix(in srgb, var(--page) calc(55% + var(--ground-alpha) * 0.45), transparent);
-  --pane-ground: color-mix(in srgb, var(--canvas) calc(92% + (var(--pane-alpha) - 84%) * 0.5), transparent);
+  --sidebar-ground: color-mix(in srgb, var(--page) min(calc(55% + var(--ground-alpha) * 0.45), calc(var(--ground-alpha) * 1.45)), transparent);
+  --pane-ground: color-mix(in srgb, var(--canvas) min(calc(92% + (var(--pane-alpha) - 84%) * 0.5), calc(var(--pane-alpha) * 92 / 84)), transparent);
 }
 
 /* A THEMED palette's sidebar starts where the light face's does, for the same reason in another
@@ -803,7 +806,7 @@ a {
  * default the column is ~80% the theme's and only a fifth the material's. Realm's own dark face
  * keeps the range it was drawn for. */
 :root[data-mode="dark"][data-theme]:not([data-theme="realm"]) {
-  --sidebar-ground: color-mix(in srgb, var(--page) calc(55% + var(--ground-alpha) * 0.45), transparent);
+  --sidebar-ground: color-mix(in srgb, var(--page) min(calc(55% + var(--ground-alpha) * 0.45), calc(var(--ground-alpha) * 1.45)), transparent);
 }
 
 @media (prefers-reduced-transparency: reduce) {

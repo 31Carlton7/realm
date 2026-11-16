@@ -482,19 +482,21 @@ describe("app store", () => {
     await vi.waitFor(() => expect(set).toContain("ui.groundAlpha=62"));
     expect(set.filter((k) => k.startsWith("ui.groundAlpha="))).toEqual(["ui.groundAlpha=62"]);
 
-    // THE unclamped-setter mutant: store whatever the caller passed. The slider's min/max cannot be
-    // the guard — this is the store's API, and a 5 written here is a sidebar nobody can read a
-    // control off to undo it with.
+    // The range runs to 0 now (11-15), so a 5 is kept as asked. THE unclamped-setter mutant: store
+    // whatever the caller passed, and a -20 or a 400 would reach the window as it is.
     await store.getState().setGroundAlpha(5);
-    expect(store.getState().groundAlpha).toBe(55);
-    await vi.waitFor(() => expect(set).toContain("ui.groundAlpha=55"));
+    expect(store.getState().groundAlpha).toBe(5);
+    await vi.waitFor(() => expect(set).toContain("ui.groundAlpha=5"));
+    await store.getState().setGroundAlpha(-20);
+    expect(store.getState().groundAlpha).toBe(0);
 
     const read = async (v: unknown) => {
       const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.groundAlpha" ? v : null) });
       await s.getState().boot(); return s.getState().groundAlpha;
     };
     expect(await read(64)).toBe(64);
-    expect(await read(0)).toBe(55);   // clamped on the way in, not only on the way out
+    expect(await read(0)).toBe(0);
+    expect(await read(-10)).toBe(0);   // clamped on the way in, not only on the way out
     expect(await read("very")).toBe(DEFAULT_GROUND_ALPHA);  // junk falls back to the default
   });
 

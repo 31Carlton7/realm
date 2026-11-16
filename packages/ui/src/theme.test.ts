@@ -114,21 +114,19 @@ describe("the adjustable ground", () => {
     const root = { style: { setProperty: (k: string, v: string) => { props[k] = v; }, removeProperty: () => {} }, dataset: {} } as unknown as HTMLElement;
     applyTheme({ space: "#7c6cff", mode: "dark" }, root);
     expect(props["--ground-alpha"]).toBe(`${DEFAULT_GROUND_ALPHA}%`);
-    // The default is the floor: the most transparent the sidebar is allowed to be, because the
-    // floor is where its own labels stop being legible over a bright desktop.
-    expect(DEFAULT_GROUND_ALPHA).toBe(GROUND_ALPHA_RANGE.min);
+    // The default did not move when the range ran to 0 (11-15): it is still where the sidebar's labels
+    // stay legible over a bright desktop, and nobody's window changes until they drag the slider.
+    expect(DEFAULT_GROUND_ALPHA).toBe(55);
   });
 
-  it("clamps, so no stored or hand-edited value can make the sidebar unreadable or negative", () => {
-    // THE unclamped mutant: pass the stored number straight through. `ui.groundAlpha` is a settings
-    // row like any other — a 0 in it would make the app's own navigation a window onto the desktop,
-    // with no control on screen able to explain what happened.
-    expect(clampGroundAlpha(0)).toBe(GROUND_ALPHA_RANGE.min);
-    expect(clampGroundAlpha(-40)).toBe(GROUND_ALPHA_RANGE.min);
-    expect(clampGroundAlpha(1000)).toBe(GROUND_ALPHA_RANGE.max);
+  it("runs the whole way to bare material, and clamps only what is not an opacity at all", () => {
+    // The owner, 11-15: "very very transparent, instead of it being capped". THE mutants: a floor above
+    // 0 again, or no clamp, so a negative or a hand-edited 1000 passes straight through.
+    expect(GROUND_ALPHA_RANGE).toEqual({ min: 0, max: 100 }); // 100 has to be reachable: that is "off"
+    expect(clampGroundAlpha(0)).toBe(0);
+    expect(clampGroundAlpha(-40)).toBe(0);
+    expect(clampGroundAlpha(1000)).toBe(100);
     expect(clampGroundAlpha(63.4)).toBe(63);
-    expect(GROUND_ALPHA_RANGE.min).toBe(55);
-    expect(GROUND_ALPHA_RANGE.max).toBe(100); // fully opaque has to be reachable — that is "off"
   });
 
 });
@@ -150,12 +148,14 @@ describe("the panes' own ground", () => {
     expect(props["--pane-alpha"]).toBe("90%");
   });
 
-  it("never goes thinner than the reading allows, whatever is stored", () => {
-    expect(PANE_ALPHA_RANGE).toEqual({ min: 84, max: 100 });
-    expect(clampPaneAlpha(0)).toBe(84);
-    expect(clampPaneAlpha(55)).toBe(84);
+  it("runs the whole way to bare material, with the default still where the reading holds", () => {
+    // THE mutants: a floor above 0 again (40 would come back as 84), or the default moved with it.
+    expect(PANE_ALPHA_RANGE).toEqual({ min: 0, max: 100 });
+    expect(DEFAULT_PANE_ALPHA).toBe(84);
+    expect(clampPaneAlpha(0)).toBe(0);
+    expect(clampPaneAlpha(-5)).toBe(0);
     expect(clampPaneAlpha(400)).toBe(100);
-    expect(write({ paneAlpha: 40 })["--pane-alpha"]).toBe("84%");
+    expect(write({ paneAlpha: 40 })["--pane-alpha"]).toBe("40%");
   });
 
   it("carries a home saved under one control to the pane it was already looking at", () => {
