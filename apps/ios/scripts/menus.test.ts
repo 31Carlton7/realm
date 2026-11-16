@@ -57,6 +57,26 @@ describe("menus on the phone", () => {
     ]);
   });
 
+  it("draw a bar's menu as a view of their own, which the bar cannot turn into its own item", () => {
+    // A bar draws a button whose label is a bare Label as a native item that never reaches a window,
+    // so the menu has nothing to open beside and a tap does nothing.
+    const bare: string[] = [];
+    for (const { path, text } of sources) {
+      for (const match of text.matchAll(/RealmMenu\(/g)) {
+        const label = text.slice(match.index).match(/\} label: \{\s*(\S+)/);
+        if (label?.[1]?.startsWith("Label(")) bare.push(path);
+      }
+    }
+    expect(bare).toEqual([]);
+  });
+
+  it("leave Home's subtitle to the profile switcher, which draws it under its own title", () => {
+    // Set on the bar as well, the bar draws the Mac's line a second time under the switcher.
+    expect(sites(/\.navigationSubtitle\(/).filter((site) => site.startsWith("Views/HomeView.swift"))).toEqual([
+      "Views/HomeView.swift ProfileSwitcher",
+    ]);
+  });
+
   it("finds the menus it checks", () => {
     // The checks above pass on files they cannot read; this fails when the pattern stops matching.
     const opened = sites(/\bRealmMenu\(/);

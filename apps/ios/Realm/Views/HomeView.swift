@@ -158,7 +158,6 @@ struct HomeView: View {
         }
         .navigationTitle(choice.title(in: home))
         .navigationBarTitleDisplayMode(.inline)
-        .navigationSubtitle(MacLine.text(model: model, compact: dynamicTypeSize.isAccessibilitySize))
         .modifier(ProfileSwitcher(home: home, choice: choice,
                                   subtitle: MacLine.text(model: model, compact: dynamicTypeSize.isAccessibilitySize)))
         .sensoryFeedback(.selection, trigger: model.keptProfile)
@@ -483,6 +482,7 @@ struct ElsewhereRow: View {
 /// The title opens the menu of profiles while the Mac has more than one; with one, or none it says,
 /// there is nothing to switch, and no chevron says otherwise. The whole title, its name and the line
 /// under it, is the control, at least 44 points tall: the name alone was 63 by 18 (the audit's HOME-08).
+/// The bar's own subtitle is only set without it, or the bar draws the line a second time under it.
 private struct ProfileSwitcher: ViewModifier {
     let home: Home?
     let choice: ProfileChoice
@@ -502,7 +502,7 @@ private struct ProfileSwitcher: ViewModifier {
                 }
             }
         } else {
-            content
+            content.navigationSubtitle(subtitle)
         }
     }
 }
