@@ -258,7 +258,15 @@ Rules:
   glass like nav background anywhere else in the app"). A bar, a menu, a sheet, a card or a button
   never wears a backdrop blur or a see-through fill of its own. The window's material shows through
   two grounds only, each on its own control: the frame (the rail, the sidebar's column and the strip
-  across the window's top), and the panes' one ground under the rim. The strip over the panes once
+  across the window's top), and the panes' one ground under the rim. The prompter is the one surface that
+  follows a ground rather than standing on its own: an opaque card on a pane thinned by its slider
+  "sticks out like a sore thumb" (the owner, 11-16), so the card and the tabs above and below it take
+  the pane's alpha a step denser, all the way down with it, and go solid with the pane under Reduce
+  Transparency. Its words hold by moving their ink, not by holding the fill: as it thins, the hints
+  step toward the quiet ink and the quiet ink toward body ink. The tab that touches the card is
+  seated on the card's own curve, so see-through pieces meet along one edge, with no band and no
+  notch. It stays the same quiet fill, with no blur, no sheen and no bright edge; its lift fades as it
+  thins, because a dark halo round a card you can see through reads as dirt rather than height. The strip over the panes once
   read as a frosted band because the reading dissolved up into it; nothing scrolls under it now.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
@@ -457,7 +465,7 @@ Rules:
   picture at all. The picture is printed, not pasted: a gallery look or a person's own image goes through a
   dither in the theme's tones, or a colour-kept dither, so it changes with the face and the theme.
   A person's own picture may be shown as it is, and even then it is under the same two rules as every
-  look: the prompter stays its opaque card with the picture feathered out round it, never glass over
+  look: the prompter stays its card, as solid as the pane rule above makes it, with the picture feathered out round it, never glass over
   it, and a guard measures every run of text against the worst pixel behind it and lowers the picture
   there until the greeting holds 3:1 and every other run holds what it had on the plain ground. A
   busy picture costs the picture, never the words. The picture fills the pane to its bottom edge with

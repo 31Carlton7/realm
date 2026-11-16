@@ -48,18 +48,38 @@ function sweep(ctx, cx, cy, r, t0, t1, n) {
   }
 }
 
+/** The closed outline of a box at (x, y), as one subpath of whatever path is being built. */
+function outline(ctx, x, y, w, h, rTop, rBot, n) {
+  ctx.moveTo(x + rTop, y);
+  ctx.lineTo(x + w - rTop, y);
+  sweep(ctx, x + w - rTop, y + rTop, rTop, -Math.PI / 2, 0, n);
+  ctx.lineTo(x + w, y + h - rBot);
+  sweep(ctx, x + w - rBot, y + h - rBot, rBot, 0, Math.PI / 2, n);
+  ctx.lineTo(x + rBot, y + h);
+  sweep(ctx, x + rBot, y + h - rBot, rBot, Math.PI / 2, Math.PI, n);
+  ctx.lineTo(x, y + rTop);
+  sweep(ctx, x + rTop, y + rTop, rTop, Math.PI, (3 * Math.PI) / 2, n);
+  ctx.closePath();
+}
+
 function trace(ctx, w, h, rTop, rBot, n) {
   ctx.beginPath();
-  ctx.moveTo(rTop, 0);
-  ctx.lineTo(w - rTop, 0);
-  sweep(ctx, w - rTop, rTop, rTop, -Math.PI / 2, 0, n);
-  ctx.lineTo(w, h - rBot);
-  sweep(ctx, w - rBot, h - rBot, rBot, 0, Math.PI / 2, n);
-  ctx.lineTo(rBot, h);
-  sweep(ctx, rBot, h - rBot, rBot, Math.PI / 2, Math.PI, n);
-  ctx.lineTo(0, rTop);
-  sweep(ctx, rTop, rTop, rTop, Math.PI, (3 * Math.PI) / 2, n);
-  ctx.closePath();
+  outline(ctx, 0, 0, w, h, rTop, rBot, n);
+}
+
+/* A tab SEATED on the card: it tucks `inset` px behind the card, which is `inset` px wider on each
+ * side, and nothing is painted where the card is. Its fill runs down to the card's own corner curve and
+ * stops there, so a see-through tab meets a see-through card along one shared edge: no denser band
+ * where the two overlap, and no notch where the card's corner has curved away from a straight cut.
+ * Clips to everything outside the card, by even-odd against a box round both. `bottom` is a tab
+ * above the card (its bottom sits on the card's top); `top` the strip under it. */
+function clipOutsideCard(ctx, w, h, seat, r, inset, n) {
+  const tall = h + 2 * r;
+  ctx.beginPath();
+  ctx.rect(-inset - 1, -tall, w + 2 * inset + 2, h + 2 * tall);
+  if (seat === "bottom") outline(ctx, -inset, h - inset, w + 2 * inset, tall, r, 0, n);
+  else outline(ctx, -inset, inset - tall, w + 2 * inset, tall, 0, r, n);
+  ctx.clip("evenodd");
 }
 
 /* The same outline with its top left OPEN: down the right side, round the bottom, up the left — for
@@ -81,7 +101,8 @@ registerPaint(
   "rl-squircle",
   class {
     static get inputProperties() {
-      return ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-ring-open", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"];
+      return ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-ring-open", "--sq-radius-top", "--sq-radius-bottom", "--sq-n",
+        "--sq-seat", "--sq-seat-radius", "--sq-seat-inset"];
     }
 
     paint(ctx, size, props) {
@@ -102,6 +123,11 @@ registerPaint(
       rTop *= f;
       rBot *= f;
       const n = Math.min(N_MAX, Math.max(N_MIN, px(props.get("--sq-n")) || N_DEFAULT));
+      const seat = String(props.get("--sq-seat")).trim();
+      ctx.save();
+      if (seat === "top" || seat === "bottom") {
+        clipOutsideCard(ctx, w, h, seat, Math.max(0, px(props.get("--sq-seat-radius"))), Math.max(0, px(props.get("--sq-seat-inset"))), n);
+      }
       trace(ctx, w, h, rTop, rBot, n);
 
       const fill = String(props.get("--sq-fill")).trim();
@@ -125,6 +151,7 @@ registerPaint(
         ctx.stroke();
         ctx.restore();
       }
+      ctx.restore();
     }
   },
 );

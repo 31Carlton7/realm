@@ -2048,7 +2048,8 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
 describe("Plan 9 W3 — composer + chrome in BUI language", () => {
   it("the composer wears PromptBar's field card: surface on shadow-card, focus = the line-strong border-brighten (the 30% accent glow is gone)", () => {
     const card = bodiesFor(".composer").join(" ");
-    expect(card).toContain("background: var(--surface)");
+    // The surface at the prompter's own alpha, which is opaque at the default (prompter-ground.test.ts).
+    expect(card).toContain("background: color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent)");
     expect(card).toContain("box-shadow: var(--shadow-card)");
     const focus = bodiesFor(".composer:focus-within").join(" ");
     // A brighter hairline in place of the card's own, not a second, wider ring stacked over it.

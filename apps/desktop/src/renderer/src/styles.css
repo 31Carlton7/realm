@@ -5435,7 +5435,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    which states the shape declaratively and draws from Chromium 139 (Electron 45 ships 156). The
    curve itself is still drawn by the paint worklet, which predates that; see the squircle block
    further down. */
-.composer { width: 100%; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface);
+.composer { width: 100%; border-radius: var(--r-squircle); corner-shape: squircle;
+  background: color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent);
   box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
   box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift); }
@@ -5451,11 +5452,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    The tint is a hairline ring plus a wash at the ~6% the app uses everywhere it tints a surface by
    state, and the mode chip's own fill follows it, so the two agree instead of competing. Never
    colour alone: the chip beside it still reads "Ask" / "Plan" in words. */
-.composer[data-mode="ask"] { background: color-mix(in srgb, var(--rl-success) 6%, var(--surface));
+.composer[data-mode="ask"] { background: color-mix(in srgb, color-mix(in srgb, var(--rl-success) 6%, var(--surface)) var(--prompter-alpha), transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 34%, transparent), var(--shadow-card); }
 .composer[data-mode="ask"]:focus-within {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 60%, transparent), var(--shadow-card); }
-.composer[data-mode="plan"] { background: color-mix(in srgb, var(--rl-warning) 6%, var(--surface));
+.composer[data-mode="plan"] { background: color-mix(in srgb, color-mix(in srgb, var(--rl-warning) 6%, var(--surface)) var(--prompter-alpha), transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-warning) 34%, transparent), var(--shadow-card); }
 .composer[data-mode="plan"]:focus-within {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-warning) 60%, transparent), var(--shadow-card); }
@@ -5463,11 +5464,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* The painted card reads its fill from a custom property, not from `background`, so the worklet path
    needs the same three tones or the tint would vanish the moment the squircle gate turns on. */
 :root[data-squircle] .composer[data-mode="ask"] {
-  --sq-fill: color-mix(in srgb, var(--rl-success) 6%, var(--surface));
+  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--rl-success) 6%, var(--surface)) var(--prompter-alpha), transparent);
   --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent); }
 :root[data-squircle] .composer[data-mode="ask"]:focus-within { --sq-ring: color-mix(in srgb, var(--rl-success) 60%, transparent); }
 :root[data-squircle] .composer[data-mode="plan"] {
-  --sq-fill: color-mix(in srgb, var(--rl-warning) 6%, var(--surface));
+  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--rl-warning) 6%, var(--surface)) var(--prompter-alpha), transparent);
   --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); }
 :root[data-squircle] .composer[data-mode="plan"]:focus-within { --sq-ring: color-mix(in srgb, var(--rl-warning) 60%, transparent); }
 /* The provider's limit warning, above the queue: it is about whether the next message will be
@@ -6097,7 +6098,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    its dot alone, and the strip's own ground never changes. A strip that turned red would be the
    loudest thing on the prompter for a state whose whole content is "waiting for you". */
 .composer-goal { display: flex; flex-direction: column; gap: 4px; min-width: 0;
-  margin: 0 10px -10px; padding: 9px 14px 18px; background: var(--rl-frame);
+  margin: 0 10px -10px; padding: 9px 14px 18px; background: var(--prompter-strip);
   border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
 .composer-goal-head { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; }
 .composer-goal-label { font-weight: var(--fw-medium); color: var(--rl-text-dim); }
@@ -6113,7 +6114,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .composer-goal-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); }
 
 .composer-todos { display: flex; flex-direction: column; min-width: 0;
-  margin: 0 10px -10px; padding: 10px 14px 20px; background: var(--rl-frame);
+  margin: 0 10px -10px; padding: 10px 14px 20px; background: var(--prompter-strip);
   border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
 .composer-todos-head { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; font-size: 12px; }
 .composer-todos-caret { flex: none; margin-left: auto; align-self: center; color: var(--rl-text-faint);
@@ -6146,7 +6147,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    Nothing in it is selectable, for the under-strip's reason: dragging across it to reach the review
    would leave the strip highlighted behind the pane that just opened. */
 .composer-overstrip { display: flex; align-items: center; justify-content: center; gap: 2px; min-width: 0;
-  margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--rl-frame);
+  margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--prompter-strip);
   user-select: none; -webkit-user-select: none;
   border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
 .composer-overstrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
@@ -6236,7 +6237,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    otherwise leave the whole strip highlighted behind the pane that opened. The one thing a reader
    might genuinely want to copy, the branch name, is on the button's own tooltip. */
 .composer-understrip { display: flex; align-items: center; gap: 2px; min-width: 0;
-  margin: -10px 10px 0; padding: 16px 10px 6px; background: var(--rl-frame);
+  margin: -10px 10px 0; padding: 16px 10px 6px; background: var(--prompter-strip);
   user-select: none; -webkit-user-select: none;
   border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
@@ -6583,6 +6584,18 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   background: paint(rl-squircle);
   filter: var(--shadow-card-lift-filter);
 }
+/* The prompter's lift casts from a box with no fill, because its face may be see-through and a
+   filled layer under it would show through as a second, solid card. An outer box-shadow paints
+   only outside its box, and a circle of half the curve's radius holds the superellipse (the card rule
+   above), so the shadow keeps to the card's shape and nothing lands under the face. Inset 0 for the
+   same reason: inset 2px, the shadow's inner edge showed through a thinned face as a dark rim.
+   The lift fades out as the card thins, gone by `--prompter-lift-until`: a dark halo under a card you
+   can see through reads as dirt round it rather than as height. */
+:root[data-squircle] .composer::before {
+  inset: 0; background: none; filter: none;
+  border-radius: calc(var(--r-squircle) / 2); box-shadow: var(--shadow-card-lift);
+  opacity: calc((var(--prompter-alpha) - var(--prompter-lift-until)) / (100% - var(--prompter-lift-until)));
+}
 /* The face: fill and ring, over the lift and under the content. It takes the card's inputs by an
    explicit `inherit` — they are registered non-inheriting — so every state rule written against the
    card itself (a mode's tint, focus, a drop target) still drives what is painted. */
@@ -6608,6 +6621,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   box-shadow: none;
 }
+:root[data-squircle] .composer { --sq-fill: color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent); }
 /* The attachment tile's well. An uploaded file is a picture the eye rests on rather than a row it
    scans past, which is the test design.md sets for the signature curve — and it was declaring
    `corner-shape: squircle` without being painted, so it rendered the plain rounded rect the
@@ -6835,7 +6849,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .composer-todos,
 :root[data-squircle] .composer-overstrip,
 :root[data-squircle] .cr-ask-where {
-  --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
+  --sq-fill: var(--prompter-strip); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   --sq-radius-bottom: 0px;
 }
 
@@ -6897,9 +6911,43 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-open: top; }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
 :root[data-squircle] .composer-understrip {
-  --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
+  --sq-fill: var(--prompter-strip); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   --sq-radius-top: 0px; --sq-radius-bottom: var(--r-squircle);
 }
+
+/* ── The prompter on a thinned pane ──
+   The tabs above and below the card wear the frame's tone at the card's own alpha (tokens.css).
+
+   Each tucks 10px behind the card. See-through, the overlap shows as a denser band, and a cut at the
+   card's line leaves a notch where the card's corner has curved away from it. So the tab touching the
+   card is painted SEATED on it (squircle-paint.js, `clipOutsideCard`); opaque, that draws exactly
+   what the tuck drew.
+
+   Without the painter, and between two stacked tabs (whose join is a straight line), the tuck is
+   simply cut at the line. While the card is opaque that clip stands 24px outside every edge and cuts
+   nothing: the `* 1000` turns any alpha under 100% into the full 10px. */
+.composer-dock, .cr-ask-where { --prompter-strip: color-mix(in srgb, var(--rl-frame) var(--prompter-alpha), transparent); }
+.composer-dock { --tuck: min(10px, calc((100% - var(--prompter-alpha)) * 1000 - 24px)); }
+.composer-goal, .composer-todos, .composer-overstrip { clip-path: inset(-24px -24px var(--tuck) -24px); }
+.composer-understrip { clip-path: inset(var(--tuck) -24px -24px -24px); }
+:root[data-squircle] .composer-goal:has(+ .composer),
+:root[data-squircle] .composer-todos:has(+ .composer),
+:root[data-squircle] .composer-overstrip:has(+ .composer) {
+  clip-path: none; --sq-seat: bottom; --sq-seat-radius: var(--r-squircle); --sq-seat-inset: 10px; }
+:root[data-squircle] .composer + .composer-understrip {
+  clip-path: none; --sq-seat: top; --sq-seat-radius: var(--r-squircle); --sq-seat-inset: 10px; }
+/* The words hold by moving their ink, not by holding the fill (the way the chat does over a picture):
+   as the prompter thins, the hints (the placeholder, the strips' labels) step toward the quiet ink,
+   and the quiet ink steps toward body ink at half that rate. `--prompter-thin` is 0% while the card is opaque and
+   about 71% at its 40% floor, so the hints go about 71% of the way and the quiet ink about 36%. Set on
+   the dock, not :root, so quick chat's opaque prompter reads 0%. */
+.composer-dock {
+  --prompter-thin: calc((100% - var(--prompter-alpha)) * 100 / 84);
+  --rl-text-faint: color-mix(in oklab, var(--ink-2) var(--prompter-thin), var(--ink-3));
+  --rl-text-dim: color-mix(in oklab, var(--ink) calc(var(--prompter-thin) / 2), var(--ink-2)); }
+/* Quick chat floats on its own surface and the viewer's ground is opaque, so their prompters stay
+   solid; so does code review's question box. */
+.quick-chat, .media-viewer, .cr-ask { --prompter-alpha: 100%; }
 :root[data-squircle] .install-card {
   --sq-fill: var(--rl-raised); --sq-ring: var(--line); --sq-ring-w: var(--hairline-w);
   box-shadow: var(--rl-shadow);
@@ -8896,7 +8944,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
    fill, 10px inset, sliding 10px under the card), which is Codex's "Choose project". It floats over
    the request, so it needs a ground of its own as the card does. */
 .cr-ask-where { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0;
-  margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--rl-frame); font-size: 12px; color: var(--rl-text-faint);
+  margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--prompter-strip); font-size: 12px; color: var(--rl-text-faint);
   border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; user-select: none; -webkit-user-select: none; }
 .cr-ask .composer-dock { position: relative; z-index: 1; }
 .cr-ask-place { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 60%; padding: 2px 6px; border-radius: var(--r-chip);

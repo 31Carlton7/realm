@@ -809,12 +809,26 @@ a {
   --sidebar-ground: color-mix(in srgb, var(--page) min(calc(55% + var(--ground-alpha) * 0.45), calc(var(--ground-alpha) * 1.45)), transparent);
 }
 
+/* The prompter thins with the pane (the owner, 11-16: an opaque card on a see-through pane "sticks
+ * out like a sore thumb"). It moves with the pane the whole way, from 40% at pane 0 to solid at the
+ * default pane of 84, in a straight line, the same in both faces (the owner, 11-16: "whether there's a picture or not, the
+ * prompter should become more transparent with the pane", then "too transparent, it should be
+ * slightly less but adjust with the transparency"). Its words hold by moving their ink as well
+ * (styles.css, the prompter on a thinned pane). The lift is gone by `--prompter-lift-until`. No blur:
+ * the picture is already softened where it sits behind the chat, and a blur measured no gain. */
+:root {
+  --prompter-lift-until: 72%;
+  --prompter-alpha: min(100%, calc(40% + var(--pane-alpha) * 60 / 84));
+}
+
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being
    * see-through, and it outranks a setting the user may have left on months ago. Both of them, not
    * just the column: a pane still showing the desktop through itself beside an opaque sidebar
    * answers the preference by half. */
   :root, :root[data-mode="light"] { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }
+  /* The prompter with them, or it would be the one thing left showing through. */
+  :root, :root[data-mode="light"] { --prompter-alpha: 100%; }
   /* The themed rule above outranks a bare :root, so it is named here too, or the preference would
    * leave a themed sidebar see-through. */
   :root[data-mode="dark"][data-theme]:not([data-theme="realm"]) { --sidebar-ground: var(--page); }
