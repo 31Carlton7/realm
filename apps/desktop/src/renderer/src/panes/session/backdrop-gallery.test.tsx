@@ -112,20 +112,26 @@ describe("SessionBackdrop", () => {
   // jsdom draws nothing; the canvas is what is under test, and the renderer stands down without WebGL.
   beforeEach(() => { vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null); });
   afterEach(() => { cleanup(); resetYourBackgrounds(); vi.restoreAllMocks(); });
-  const mount = async (settings: Record<string, unknown>) => {
+  const mount = async (settings: Record<string, unknown>, hero = true) => {
     const store = createAppStore(fakeApi({ settings }));
     await store.getState().boot();
-    return render(<StoreContext.Provider value={store}><SessionBackdrop sessionId="s1" /></StoreContext.Provider>);
+    return render(<StoreContext.Provider value={store}><SessionBackdrop sessionId="s1" hero={hero} /></StoreContext.Provider>);
   };
 
-  it("draws the default painting for a home that never chose", async () => {
+  it("draws the default painting for a home that never chose, empty or mid-chat", async () => {
     const { container } = await mount({});
     expect(container.querySelector("canvas.hero-backdrop")?.getAttribute("data-look")).toBe("sky-and-cliffs");
+    cleanup();
+    const chat = await mount({}, false);
+    expect(chat.container.querySelector("canvas.hero-backdrop[data-phase=chat]")?.getAttribute("data-look")).toBe("sky-and-cliffs");
   });
 
-  it("draws nothing at all when Off", async () => {
+  it("draws nothing at all when Off, empty or mid-chat", async () => {
     const { container } = await mount({ [BACKGROUND_SETTING]: "off", [BACKGROUND_MOTION_SETTING]: true });
     expect(container.innerHTML).toBe("");
+    cleanup();
+    const chat = await mount({ [BACKGROUND_SETTING]: "off" }, false);
+    expect(chat.container.innerHTML).toBe("");
   });
 });
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, AGENT_NOTES, DIRECTORY_MIME, MODEL_DEFAULTS_KEY, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type DiffFileStatus, type DiffSummary, type Environment } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_NOTES, BACKGROUND_SETTING, DIRECTORY_MIME, MODEL_DEFAULTS_KEY, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type DiffFileStatus, type DiffSummary, type Environment } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } from "../../state/store.test-fakes";
@@ -145,6 +145,38 @@ describe("SessionPane", () => {
     expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "docked");
     expect(document.querySelector(".hero-greeting")).toBeNull();
     expect(document.querySelector(".suggestions")).toBeNull();
+  });
+
+  it("keeps the background for the life of the chat: the first message settles it behind the transcript", async () => {
+    const { store } = await mount("idle", reduceAll([]));
+    const hero = document.querySelector(".session-pane > canvas.hero-backdrop");
+    expect(hero).not.toHaveAttribute("data-phase");
+    act(() => store.setState({ transcripts: { se1: { lastSeq: 1, t: reduceAll([sessionEvent("user_message", { text: "go", attachments: [] })]) } } }));
+    const chat = document.querySelector(".session-pane > canvas.hero-backdrop[data-phase=chat]");
+    expect(chat).toHaveAttribute("data-look", "sky-and-cliffs");
+    // It fades in over the empty session's picture, which holds still under it until then.
+    expect(chat).toHaveAttribute("data-settle");
+    expect(document.querySelector(".session-pane > canvas.hero-backdrop:not([data-phase])")).toBe(hero);
+  });
+
+  it("a chat opened with messages already in it shows its background at once, with no settle", async () => {
+    await mount("idle");
+    const chat = document.querySelector(".session-pane > canvas.hero-backdrop[data-phase=chat]");
+    expect(chat).toHaveAttribute("data-look", "sky-and-cliffs");
+    expect(chat).not.toHaveAttribute("data-settle");
+    expect(document.querySelectorAll(".session-pane > canvas.hero-backdrop")).toHaveLength(1);
+  });
+
+  it("shows no background at all when it is Off, empty or mid-chat", async () => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })], settings: { [BACKGROUND_SETTING]: "off" } });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
+    expect(document.querySelector(".hero-backdrop")).toBeNull();
+    act(() => store.setState({ transcripts: { se1: { lastSeq: 1, t: reduceAll([sessionEvent("user_message", { text: "go", attachments: [] })]) } } }));
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "docked");
+    expect(document.querySelector(".hero-backdrop")).toBeNull();
   });
 
   it("permission chip carries data-warning only in bypassPermissions (reached via the confirm); menu selections call setSessionOptions with the right key", async () => {
