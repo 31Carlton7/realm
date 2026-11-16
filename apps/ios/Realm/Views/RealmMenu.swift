@@ -61,9 +61,15 @@ struct RealmMenu<Label: View, Content: View>: View {
     }
 }
 
-/// Where a menu was opened from: the control's own view, read for its frame on screen.
+/// Where a menu was opened from: the control's own view, read for its frame on screen. At the
+/// accessibility sizes SwiftUI draws a label a second time, for the large-content viewer, in a view
+/// that never reaches a window: the one in a window is the control.
 final class MenuAnchor {
-    weak var view: UIView?
+    private let views = NSHashTable<UIView>.weakObjects()
+
+    func add(_ view: UIView) { views.add(view) }
+
+    var view: UIView? { views.allObjects.first { $0.window != nil } }
 }
 
 private struct MenuAnchorProbe: UIViewRepresentable {
@@ -73,12 +79,12 @@ private struct MenuAnchorProbe: UIViewRepresentable {
         let view = UIView()
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = false
-        anchor.view = view
+        anchor.add(view)
         return view
     }
 
     func updateUIView(_ view: UIView, context: Context) {
-        anchor.view = view
+        anchor.add(view)
     }
 }
 
@@ -541,5 +547,27 @@ struct MenuMark: View {
             .resizable()
             .scaledToFit()
             .frame(width: size, height: size)
+    }
+}
+
+/// A menu's glyph in a bar. A bar draws a plain button with a bare `Label` as its own item, which never
+/// reaches a window, so the menu would have nowhere to open: the glyph is drawn here instead, a touch
+/// wide, and its button takes the plain style.
+struct BarMenuLabel: View {
+    let title: String
+    let systemImage: String
+
+    init(_ title: String, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .labelStyle(.iconOnly)
+            .font(.body.weight(.medium))
+            .foregroundStyle(Palette.ink)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
     }
 }

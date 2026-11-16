@@ -646,8 +646,9 @@ struct ScheduledTaskView: View {
                     RealmMenu("More") {
                         TaskMenuItems(task: task, actions: TaskActions(model: model), edit: { editing = .edit(task) }) { deleting = true }
                     } label: {
-                        Label("More", systemImage: "ellipsis")
+                        BarMenuLabel("More", systemImage: "ellipsis")
                     }
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("task-more")
                 }
                 .sharedBackgroundVisibility(.hidden)

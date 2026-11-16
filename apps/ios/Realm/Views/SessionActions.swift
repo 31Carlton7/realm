@@ -384,8 +384,9 @@ struct SessionMenu: View {
                 if action == .archive { dismiss() }
             }
         } label: {
-            Label("More", systemImage: "ellipsis")
+            BarMenuLabel("More", systemImage: "ellipsis")
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("session-menu")
     }
 }

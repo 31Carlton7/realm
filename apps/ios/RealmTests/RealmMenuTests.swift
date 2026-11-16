@@ -47,6 +47,20 @@ struct RealmMenuTests {
         #expect(tall.minY == Self.room.minY, "takes the room above, and scrolls: \(tall)")
     }
 
+    /// At the accessibility sizes the label is drawn twice, once for the large-content viewer off screen;
+    /// the menu opens from the copy in a window, whichever was drawn last.
+    @Test func itOpensFromTheControlOnScreen() throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let onScreen = UIView()
+        window.addSubview(onScreen)
+        let offScreen = UIView()
+        let anchor = MenuAnchor()
+        anchor.add(onScreen)
+        anchor.add(offScreen)
+        #expect(anchor.view === onScreen)
+    }
+
     /// A menu open over a screen, from a control at its middle.
     static func opened(_ haptics: inout Int) throws -> (window: UIWindow, menu: UIWindow, controller: RealmMenuController) {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

@@ -134,8 +134,9 @@ struct ScreensSheet: View {
                                 }
                             }
                         } label: {
-                            Label(screen.name, systemImage: ScreenWords.glyph(screen.kind))
+                            BarMenuLabel(screen.name, systemImage: ScreenWords.glyph(screen.kind))
                         }
+                        .buttonStyle(.plain)
                         .accessibilityLabel("Screen, \(screen.name)")
                         .accessibilityIdentifier("screen-picker")
                     }
