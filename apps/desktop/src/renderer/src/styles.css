@@ -3501,6 +3501,10 @@ body { --focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, tr
    under the pane's own ground. The prompter over it stays the opaque card it is. */
 .session-pane:is([data-composer="hero"], :has(> .hero-backdrop)) { isolation: isolate; }
 .hero-backdrop { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; pointer-events: none; }
+/* While the pane is resized the empty session's picture keeps its last frame until the size settles,
+   laid as the paint lays the picture (coverFit: across the middle, from the top), so it crops and
+   grows rather than squeezing. The chat's is softened enough to simply stretch. */
+.hero-backdrop:not([data-phase="chat"]) { object-fit: cover; object-position: top; }
 /* The chat's picture is clear until drawn, and settles in over the empty session's on the dock's own
    move, so the picture and the prompter arrive together. Reduce motion's global kill makes it a cut. */
 .hero-backdrop[data-phase="chat"]:not([data-drawn]) { opacity: 0; }
