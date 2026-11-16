@@ -99,6 +99,13 @@ describe("UserCommandsService.list", () => {
     expect(service.expand(SPACE, "git:commit", "now").text).toContain("Do the thing.");
   });
 
+  it("does not walk node_modules, at any depth", () => {
+    cmd(spaceDir(), "deploy.md", template("Deploy"));
+    cmd(spaceDir(), "node_modules/pkg/README.md", template("d"));
+    cmd(spaceDir(), "tools/node_modules/pkg/CHANGELOG.md", template("d"));
+    expect(names()).toEqual(["deploy"]);
+  });
+
   it("reads a folder reached twice through symlinks once, and does not loop on a cycle", () => {
     cmd(userDir(), "real/one.md", template("d"));
     symlinkSync(join(userDir(), "real"), join(userDir(), "alias"));

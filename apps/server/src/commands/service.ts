@@ -152,9 +152,10 @@ export class UserCommandsService {
 }
 
 /** Every `*.md` under `dir`, as `/`-separated paths relative to it, sorted. Sub-folders are walked,
- *  because `commands/git/commit.md` is Claude's `/git:commit`; hidden ones are not. A folder reached
- *  twice through symlinks is read once. An unreadable or absent directory is an empty one, never an
- *  exception. */
+ *  because `commands/git/commit.md` is Claude's `/git:commit`; hidden ones and `node_modules` are not,
+ *  since `<space>/commands` is a common name for a source folder and a dependency tree is never a
+ *  command source. A folder reached twice through symlinks is read once. An unreadable or absent
+ *  directory is an empty one, never an exception. */
 function files(dir: string, rel = "", seen = new Set<string>()): string[] {
   let real: string;
   try { real = realpathSync(dir); } catch { return []; }
@@ -164,7 +165,7 @@ function files(dir: string, rel = "", seen = new Set<string>()): string[] {
   try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return []; }
   const out: string[] = [];
   for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (e.name.startsWith(".")) continue;
+    if (e.name.startsWith(".") || e.name === "node_modules") continue;
     const path = join(dir, e.name);
     const isFolder = e.isDirectory() || (e.isSymbolicLink() && isDir(path));
     if (isFolder) out.push(...files(path, `${rel}${e.name}/`, seen));
