@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, open, readdir, readFile, realpath, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readdir, readFile, realpath, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prefixedAttachmentName, sweepTempAttachments, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { UPLOAD_LIMITS } from "@realm/remote";
@@ -79,12 +79,7 @@ export class ChunkedUploads {
       if (bytes.toString("base64") !== data) throw new UploadRefused("That chunk did not arrive as base64.");
       if (bytes.length > UPLOAD_LIMITS.chunkBytes) throw new UploadRefused(`A chunk is at most ${UPLOAD_LIMITS.chunkBytes / 1024} KB.`);
       if (received + bytes.length > declared.size) throw new UploadRefused(`That chunk would take the video past the ${declared.size} bytes it was said to be.`);
-      const file = await open(this.part(uploadId), "a");
-      try {
-        await file.write(bytes);
-      } finally {
-        await file.close();
-      }
+      await appendFile(this.part(uploadId), bytes);
       return { received: received + bytes.length };
     });
   }
