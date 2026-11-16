@@ -149,10 +149,8 @@ final class RealmMenuHost {
         let window = UIWindow(windowScene: scene)
         window.frame = parent.frame
         window.windowLevel = .alert
-        window.overrideUserInterfaceStyle = parent.traitCollection.userInterfaceStyle
         let panel = RealmMenuPanel(title: title, close: MenuClose { [weak self] in self?.dismiss() }, content: content())
-        let root = environment.map { AnyView(panel.environment(\.self, $0)) } ?? AnyView(panel)
-        window.rootViewController = RealmMenuController(panel: root, anchor: anchor, keyboard: keyboard) { [weak self] in
+        window.rootViewController = RealmMenuController(panel: AnyView(MenuRoot(opener: environment, panel: panel)), anchor: anchor, keyboard: keyboard) { [weak self] in
             self?.dismiss()
         }
         window.isHidden = false
@@ -174,6 +172,26 @@ final class RealmMenuHost {
         UIView.animate(withDuration: 0.12, animations: { window.alpha = 0 }) { _ in
             window.isHidden = true
             UIAccessibility.post(notification: .screenChanged, argument: nil)
+        }
+    }
+}
+
+/// The menu under the environment of the control that opened it, but for the face and the text size,
+/// which follow the screen while the menu is up.
+private struct MenuRoot<Panel: View>: View {
+    let opener: EnvironmentValues?
+    let panel: Panel
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if let opener {
+            panel
+                .environment(\.self, opener)
+                .environment(\.colorScheme, colorScheme)
+                .environment(\.dynamicTypeSize, dynamicTypeSize)
+        } else {
+            panel
         }
     }
 }

@@ -91,31 +91,8 @@ struct ScreensSheet: View {
                 }
                 ScreenStatus(screen: screen, picture: shown, paused: paused, trouble: trouble)
                 if let screen, screen.live {
-                    HStack(spacing: 12) {
-                        Button {
-                            paused.toggle()
-                        } label: {
-                            Label(paused ? "Jump to live" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Palette.ink)
-                                .padding(.horizontal, 20)
-                                .frame(minHeight: 44)
-                                .background(Fill.card, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityHint(paused ? "Asks your Mac for the picture again" : "Holds the picture still")
-                        if let shown {
-                            ShareLink(item: Image(uiImage: shown.image), preview: SharePreview(screen.name, image: Image(uiImage: shown.image))) {
-                                Image(systemName: "square.and.arrow.up")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(Palette.ink)
-                                    .frame(width: 44, height: 44)
-                                    .background(Fill.card, in: Circle())
-                            }
-                            .accessibilityLabel("Share")
-                        }
-                    }
-                    .padding(.bottom, 8)
+                    ScreenControls(screen: screen, picture: shown?.image, paused: $paused)
+                        .padding(.bottom, 8)
                 }
             }
             .padding(.horizontal, 16)
@@ -217,6 +194,41 @@ struct ScreensSheet: View {
                     return
                 }
                 try? await Task.sleep(for: .seconds(3))
+            }
+        }
+    }
+}
+
+/// Under a live screen: Pause or Jump to live, and Share once there is a picture. They rest at the
+/// sheet's foot on the card's fill, under the picture rather than over it, so they cast no shadow.
+struct ScreenControls: View {
+    let screen: SessionScreen
+    let picture: UIImage?
+    @Binding var paused: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button {
+                paused.toggle()
+            } label: {
+                Label(paused ? "Jump to live" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+                    .padding(.horizontal, 20)
+                    .frame(minHeight: 44)
+                    .background(Fill.card, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(paused ? "Asks your Mac for the picture again" : "Holds the picture still")
+            if let picture {
+                ShareLink(item: Image(uiImage: picture), preview: SharePreview(screen.name, image: Image(uiImage: picture))) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 44, height: 44)
+                        .background(Fill.card, in: Circle())
+                }
+                .accessibilityLabel("Share")
             }
         }
     }
