@@ -54,6 +54,13 @@ function inkAfter(path: string, anchor: string): string {
   return text.slice(at).match(/\.foregroundStyle\(Palette\.(\w+)\)/)![1];
 }
 
+/** Whether a `Text(` and the modifier lines under it set a `foregroundStyle`. */
+function inkedChain(from: string): boolean {
+  const [first, ...rest] = from.split("\n");
+  const end = rest.findIndex((line) => !/^\s*\./.test(line));
+  return /\.foregroundStyle\(/.test([first, ...rest.slice(0, end < 0 ? rest.length : end)].join("\n"));
+}
+
 describe("quiet text on the phone", () => {
   it("reads at 4.5:1 or better in Ink and Ink2, on every ground, in both faces", () => {
     expect(below("Ink")).toEqual([]);
@@ -84,9 +91,8 @@ describe("quiet text on the phone", () => {
         if (/SectionHead/.test(body)) return [];
         const indent = body.match(/\n( *)[^ \n/]/)?.[1] ?? "";
         const inkedWhole = new RegExp(`\\n${indent}\\.foregroundStyle\\(Palette\\.ink2\\)`).test(body);
-        const texts = body.match(/\bText\(/g)?.length ?? 0;
-        const inks = body.match(/\.foregroundStyle\(/g)?.length ?? 0;
-        return inkedWhole || inks >= texts ? [] : [`${path}:${text.slice(0, m.index).split("\n").length} ${m[1]}`];
+        const bareText = [...body.matchAll(/\bText\(/g)].some((t) => !inkedChain(body.slice(t.index)));
+        return inkedWhole || !bareText ? [] : [`${path}:${text.slice(0, m.index).split("\n").length} ${m[1]}`];
       }));
     expect(bare).toEqual([]);
   });
