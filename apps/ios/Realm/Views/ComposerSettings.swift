@@ -250,36 +250,32 @@ private struct ModeMenu: View {
         let chip = SettingWords.chip(options)
         Menu {
             if options.agent.modes.count > 1 {
-                Section(head: "Mode") {
-                    Picker("Mode", selection: mode) {
-                        ForEach(options.agent.modes) { choice in
-                            if let mode = SessionMode(rawValue: choice.id) {
-                                Label(choice.label, systemImage: SettingWords.symbol(mode)).tag(mode)
-                            }
+                Picker("Mode", selection: mode) {
+                    ForEach(options.agent.modes) { choice in
+                        if let mode = SessionMode(rawValue: choice.id) {
+                            Label(choice.label, systemImage: SettingWords.symbol(mode)).tag(mode)
                         }
                     }
-                    .pickerStyle(.inline)
                 }
+                .pickerStyle(.inline)
             }
             if options.mode == .build, !options.agent.permissions.isEmpty {
-                Section(head: "Permissions") {
-                    Picker("Permissions", selection: permission) {
-                        ForEach(options.agent.permissions) { choice in
-                            // A menu draws its icons in the tint; the rung that removes the gate keeps its tone.
-                            Label {
-                                Text(choice.label)
-                            } icon: {
-                                if SettingWords.removesGate(permission: choice.id) {
-                                    ProfileMark.tinted(UIImage(systemName: SettingWords.symbol(permission: choice.id)), UIColor(Tone.waiting.agentColor))
-                                } else {
-                                    Image(systemName: SettingWords.symbol(permission: choice.id))
-                                }
+                Picker("Permissions", selection: permission) {
+                    ForEach(options.agent.permissions) { choice in
+                        // A menu draws its icons in the tint; the rung that removes the gate keeps its tone.
+                        Label {
+                            Text(choice.label)
+                        } icon: {
+                            if SettingWords.removesGate(permission: choice.id) {
+                                ProfileMark.tinted(UIImage(systemName: SettingWords.symbol(permission: choice.id)), UIColor(Tone.waiting.agentColor))
+                            } else {
+                                Image(systemName: SettingWords.symbol(permission: choice.id))
                             }
-                            .tag(Optional(choice.id))
                         }
+                        .tag(Optional(choice.id))
                     }
-                    .pickerStyle(.inline)
                 }
+                .pickerStyle(.inline)
             }
         } label: {
             let warns = SettingWords.warns(options)
