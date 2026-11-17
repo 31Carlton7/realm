@@ -129,7 +129,7 @@ const PERSON_OPS: ReadonlySet<string> = new Set(["fillCredential", "fillCode", "
 export const PANE_RESTARTED_ERROR =
   "The page in the browser pane crashed and was reloaded, so the refs you had are gone. Open the page again: browser_snapshot to read it as it is now, or browser_navigate to load a page.";
 export const PANE_NOT_RESPONDING_ERROR =
-  "The page is not responding: it did not answer a quick check. Realm left it as it is, so nothing on it is lost, and each call checks it again and goes through once it answers. browser_navigate reloads it, dropping anything on it that was not saved.";
+  "The page is not responding: it did not answer a quick check. Realm left it as it is, so nothing on it is lost, and each call checks it again and goes through once it answers. browser_navigate starts it over in a fresh page, dropping anything on it that was not saved.";
 export const PANE_GONE_ERROR = "The browser pane's host is gone; reopen the page with browser_open.";
 export const HOST_HUNG_ERROR =
   `Realm's browser host is not answering — a check on the pane got no reply in ${HEALTH_TIMEOUT_MS / 1000}s — so no browser tool can reach a pane. Ask the user to quit and reopen Realm, then try again.`;
