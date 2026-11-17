@@ -137,7 +137,7 @@ function setup(opts: {
     ...(opts.revived ? { revived: opts.revived } : {}),
     ...(opts.typed ? { typed: opts.typed } : {}),
     ...(opts.health ? { health: opts.health } : {}),
-    endRenderer: (id) => { ended.push(id); },
+    endRenderer: async (id) => { ended.push(id); },
   });
   return { host, calls, liveViews, audit, minted, grants, touched, attached, ended, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }

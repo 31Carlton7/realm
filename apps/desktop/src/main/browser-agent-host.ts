@@ -96,7 +96,7 @@ export type BrowserAgentHostDeps = {
   health?(browserId: string): Promise<PaneHealth>;
   /** End the view's renderer, so the navigation after it loads in a new one rather than queueing
    *  behind a page that is not answering. Asked only by a `navigate` on a pane marked unresponsive. */
-  endRenderer?(browserId: string): void;
+  endRenderer?(browserId: string): Promise<void>;
   /** This view is in use right now. `BrowserPaneHost.touch` — it keeps the off-screen budget from
    *  evicting a browser an agent is working in while the user reads something in another space. */
   touch(browserId: string): void;
@@ -571,7 +571,7 @@ export class BrowserAgentHost {
       }
       case "navigate": {
         if (params.restart === true) {
-          this.d.endRenderer?.(browserId);
+          await this.d.endRenderer?.(browserId);
           this.release(browserId);
         }
         // Straight to the pane host: normalization and the per-space origin allowlist live there,

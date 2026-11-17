@@ -12,7 +12,7 @@ import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
 import { cookieToSet, siteCookies, siteOf } from "./cookie-share";
-import { checkPaneHealth } from "./pane-health";
+import { checkPaneHealth, endRenderer } from "./pane-health";
 
 /*
  * The browser views' session partitions. Persistent and Realm's own: never the user's daily Chrome
@@ -353,8 +353,8 @@ export type BrowserPane = {
   hasView(id: string): boolean;
   /** Whether the view's page answers, reloaded when its renderer crashed (`checkPaneHealth`). */
   health(id: string): Promise<PaneHealth>;
-  /** End the view's renderer; the next load starts a new one. */
-  endRenderer(id: string): void;
+  /** End the view's renderer (`endRenderer`); the next load starts a new one. */
+  endRenderer(id: string): Promise<void>;
   /** Trustworthy page identity, straight off the webContents — never page-authored text — whether it
    *  is still loading, which is what the pane's own spinner shows, and why it did not load, if it did
    *  not: the page Realm draws in its place is not in the page's DOM for an agent to read. `popups` are
@@ -454,7 +454,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     hasView: (id) => { const wc = views.get(id); return (!!wc && !wc.isDestroyed()) || host.isDiscarded(id); },
     // A discarded view has no renderer to ask; it comes back when an op needs its page.
     health: (id) => (host.isDiscarded(id) ? Promise.resolve("ok") : checkPaneHealth(views.get(id))),
-    endRenderer: (id) => { const wc = views.get(id); if (wc && !wc.isDestroyed()) wc.forcefullyCrashRenderer(); },
+    endRenderer: (id) => endRenderer(views.get(id)),
     pageState: (id) => {
       const wc = views.get(id);
       if (wc && !wc.isDestroyed()) return { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id), popups: host.popupsOf(id) };

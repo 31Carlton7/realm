@@ -790,7 +790,7 @@ const agentHost = new BrowserAgentHost({
   typed: (id) => paneFor(id)?.markTyped(id),
   hasView: (id) => paneFor(id) !== null,
   health: async (id) => (await paneFor(id)?.health(id)) ?? "gone",
-  endRenderer: (id) => paneFor(id)?.endRenderer(id),
+  endRenderer: async (id) => { await paneFor(id)?.endRenderer(id); },
   touch: (id) => paneFor(id)?.host.touch(id),
   navigate: (id, url) => paneFor(id)?.host.navigate(id, url) ?? null,
   pageState: (id) => paneFor(id)?.pageState(id) ?? null,

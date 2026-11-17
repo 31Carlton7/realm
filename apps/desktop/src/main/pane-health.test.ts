@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkPaneHealth, PAGE_ANSWER_MS, type PageProcess } from "./pane-health";
+import { checkPaneHealth, endRenderer, PAGE_ANSWER_MS, RENDERER_END_MS, type EndableProcess, type PageProcess } from "./pane-health";
 
 /** A view's renderer: alive and answering, crashed, or alive and hung. */
 function page(o: { crashed?: boolean; destroyed?: boolean; evaluate?: () => Promise<unknown>; reloadThrows?: boolean } = {}) {
@@ -52,5 +52,43 @@ describe("checkPaneHealth", () => {
     expect(await checkPaneHealth(undefined)).toBe("gone");
     expect(await checkPaneHealth(page({ destroyed: true }).wc)).toBe("gone");
     expect(await checkPaneHealth(page({ crashed: true, reloadThrows: true }).wc)).toBe("gone");
+  });
+});
+
+describe("endRenderer", () => {
+  /** A renderer that reports `render-process-gone` some time after it is told to end. */
+  function dying(goneAfterMs: number | null) {
+    const did: string[] = [];
+    let gone: (() => void) | null = null;
+    const wc = {
+      isDestroyed: () => false,
+      forcefullyCrashRenderer: () => { did.push("crash"); if (goneAfterMs !== null) setTimeout(() => gone?.(), goneAfterMs); },
+      once: (_event: string, fn: () => void) => { gone = fn; },
+      off: () => { gone = null; },
+    } as unknown as EndableProcess;
+    return { wc, did };
+  }
+
+  it("resolves only once the renderer has gone, so the load after it is not dropped", async () => {
+    // THE MUTANT: resolve as soon as the crash is asked for. Electron drops a load started then, and the
+    // view stays on the page that was not answering.
+    vi.useFakeTimers();
+    const { wc, did } = dying(300);
+    let ended = false;
+    void endRenderer(wc).then(() => { ended = true; });
+    await vi.advanceTimersByTimeAsync(299);
+    expect(did).toEqual(["crash"]);
+    expect(ended).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ended).toBe(true);
+  });
+
+  it("does not wait past its limit for a renderer that never says it went", async () => {
+    vi.useFakeTimers();
+    const { wc } = dying(null);
+    let ended = false;
+    void endRenderer(wc).then(() => { ended = true; });
+    await vi.advanceTimersByTimeAsync(RENDERER_END_MS);
+    expect(ended).toBe(true);
   });
 });

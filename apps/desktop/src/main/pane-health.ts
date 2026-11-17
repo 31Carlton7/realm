@@ -35,3 +35,24 @@ export async function checkPaneHealth(wc: PageProcess | undefined, answerMs = PA
   }
   return "restarted";
 }
+
+/** The parts of a view's `WebContents` ending its renderer touches. */
+export type EndableProcess = Pick<WebContents, "isDestroyed" | "forcefullyCrashRenderer" | "once" | "off">;
+
+/** How long ending a renderer waits to hear it has gone. */
+export const RENDERER_END_MS = 2_000;
+
+/**
+ * End a view's renderer, for a navigation the agent asked for on a page that is not answering. Resolves
+ * once the process is gone: a load started before that is dropped with the dying renderer, and the
+ * view stays on the page it was on.
+ */
+export function endRenderer(wc: EndableProcess | undefined, waitMs = RENDERER_END_MS): Promise<void> {
+  if (!wc || wc.isDestroyed()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); wc.off("render-process-gone", done); resolve(); };
+    const timer = setTimeout(done, waitMs);
+    wc.once("render-process-gone", done);
+    wc.forcefullyCrashRenderer();
+  });
+}
