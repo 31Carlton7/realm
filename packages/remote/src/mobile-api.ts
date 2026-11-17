@@ -828,8 +828,6 @@ export const SessionAccountSchema = z.object({
 });
 export type SessionAccount = z.infer<typeof SessionAccountSchema>;
 
-/** A turn saved from a session, as the desktop's Library ▸ Saved lists it: the prompt, the start of
- *  its answer, and whose session it was. */
 /** The picture behind a session (`ui.background` on the Mac, resolved there): how it is printed, and
  *  each face's still key for `backgrounds.still`. `asIs` is a person's own picture shown with no
  *  print. A look that moves is sent as its poster; a phone draws no loops. */
@@ -848,6 +846,8 @@ export const BackgroundStillSchema = z.object({
   data: z.string(),
 });
 
+/** A turn saved from a session, as the desktop's Library ▸ Saved lists it: the prompt, the start of
+ *  its answer, and whose session it was. */
 export const SavedTurnEntrySchema = z.object({
   sessionId: Id,
   /** The prompt's row's `seq`. */

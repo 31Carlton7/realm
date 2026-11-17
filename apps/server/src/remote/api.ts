@@ -1339,7 +1339,6 @@ export class MobileApi {
     }
   }
 
-  /** A space's own picture: the icon the person uploaded or had made for it, and only that. */
   private get gallery(): string | null {
     return this.o.galleryDir === undefined ? galleryDir() : this.o.galleryDir;
   }
@@ -1364,6 +1363,7 @@ export class MobileApi {
     }
   }
 
+  /** A space's own picture: the icon the person uploaded or had made for it, and only that. */
   private async spaceIcon(rpc: RpcPort, id: string): Promise<MobileResult<"space.icon">> {
     const space = (await rpc.call("spaces.list", {})).find((s) => s.id === id);
     if (!space) throw new MobileError("NOT_FOUND", "No such space.");
