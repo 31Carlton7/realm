@@ -1942,16 +1942,23 @@ export class SessionService {
    * agent's own events take — so a generated summary is stored, replayed on load and fanned out to
    * every open pane without a channel of its own. Silently drops when the session has been deleted
    * underneath a call that was already in flight, which is the ordinary end of a long one.
+   *
+   * `keepsRead`: an event that only describes the session (its recap, its hint) leaves a session that
+   * was read to its last event read. The recap lands after ten quiet minutes, by which time the person
+   * has usually read the reply, and without this it marked the session unread again: "Done" on the
+   * phone's Home and the sidebar's dot, for nothing new.
    */
-  publishServerEvent(id: string, ev: SessionEvent): void {
+  publishServerEvent(id: string, ev: SessionEvent, o: { keepsRead?: boolean } = {}): void {
     const row = this.d.sessions.get(id);
     if (!row) return;
+    const wasRead = o.keepsRead === true && row.seenSeq >= row.lastEventSeq;
     const stored = this.persist(id, ev);
     // The same hook the agent's own events go through. A generated event that skipped it would be on
     // the rail for the panes and invisible to everything that LISTENS to the rail — which is how the
     // summary would have reached the transcript and never reached the notification about it.
     this.d.notifications?.handleSessionEvent(row, ev);
     this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
+    if (wasRead) this.markSeen(id, stored.seq);
   }
 
   /** The first message names an untitled session (and its sidebar item) — and, when that session
