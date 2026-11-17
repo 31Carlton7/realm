@@ -2221,6 +2221,10 @@ export class SessionService {
     // fine: the child has exec'd, and the inode survives `install-local.mjs` deleting the bundle
     // under it. Starting a cold one is not — it would exec a path that no longer exists.
     if (this.draining) throw new RpcError("DAEMON_DRAINING", "Realm is finishing an update — this session will start again in a moment");
+    // `closeAll` stops the sessions that were live when it began. A message already on its way — a
+    // task an agent_start is handing its goal to — must not start an engine after that, or the engine
+    // outlives the app and its pump writes to a closed database.
+    if (this.closing) throw new RpcError("DAEMON_CLOSING", "Realm is shutting down");
     const row = this.get(id);
     const s = at ? { ...row, environmentId: at.id, cwd: at.path } : row;
     const adapter = this.d.adapters[s.agentKind];
