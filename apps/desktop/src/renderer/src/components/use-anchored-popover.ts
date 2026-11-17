@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { placeAnchored } from "../state/no-overlay";
+import { placeAnchored, roomAround } from "../state/no-overlay";
 import { useBrowserRects } from "../state/store";
 import { prefersReducedMotion } from "../reduced-motion";
 
@@ -11,6 +11,9 @@ export type AnchoredPopover = {
   closing: boolean;
   /** Dismiss. Where the surface has an exit this holds it on screen for `EXIT_MS` first. */
   close: () => void;
+  /** The height free on each side of the anchor, inside the same bounds the placement keeps to.
+   *  `null` until placed, and for a surface placed at a point. */
+  room: { above: number; below: number } | null;
 };
 
 const MARGIN = 6;
@@ -59,7 +62,7 @@ function holds(s: Open, target: Node): boolean {
  * still hit-testable is worse than no exit at all. Surfaces that enter instantly close instantly:
  * enter and exit are one decision per surface, not two.
  */
-export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placement = "down", onClose, returnFocusRef, exit = false, onPlace }: {
+export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placement = "down", onClose, returnFocusRef, exit = false, onPlace, withinPane = false }: {
   ref: RefObject<HTMLElement | null>;
   anchorRef?: RefObject<HTMLElement | null>;
   /** Place at a point instead of against an anchor (context menus). */
@@ -71,9 +74,13 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
   exit?: boolean;
   /** Told which side of its anchor the surface landed on, each time it is placed. */
   onPlace?: (above: boolean) => void;
+  /** Keep to the anchor's pane: never above the top of its `.panel-body`, so a picker opened upward
+   *  from a prompter stops under the pane's bar. Everything else keeps to the window. */
+  withinPane?: boolean;
 }): AnchoredPopover {
   const [pos, setPos] = useState<PopoverPosition | null>(null);
   const [closing, setClosing] = useState(false);
+  const [room, setRoom] = useState<{ above: number; below: number } | null>(null);
   const closingRef = useRef(false);
   const self = useRef<Open>({ surface: ref, anchor: anchorRef }).current;
   self.anchor = anchorRef;
@@ -106,13 +113,18 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
       const width = el.offsetWidth || box.width, height = el.offsetHeight || box.height;
       const a = at ? { x: at.x, y: at.y, width: 0, height: 0 } : anchorRef?.current?.getBoundingClientRect();
       if (!a) { setPos({ left: MARGIN, top: MARGIN, origin: "top left" }); return; }
+      const top = withinPane && !at ? anchorRef?.current?.closest(".panel-body")?.getBoundingClientRect().top ?? 0 : 0;
       const placed = placeAnchored({
         anchor: { x: a.x, y: a.y, width: a.width, height: a.height },
         size: { width, height },
         win: { width: window.innerWidth, height: window.innerHeight },
         align, placement: at ? "down" : placement, gap: at ? 0 : 4, margin: MARGIN,
-        avoid: browserRects,
+        avoid: browserRects, top,
       });
+      if (!at) {
+        const r = roomAround(a, window.innerHeight, 4, MARGIN, top);
+        setRoom((prev) => prev && prev.above === r.above && prev.below === r.below ? prev : r);
+      }
       // §6: the 140ms scale-in is origin-aware — the surface grows out of the corner nearest its
       // trigger. The vertical half flips with the surface itself (one that flipped above its anchor
       // grows upward); the horizontal half follows `align`. A point-placed menu grows from its point.
@@ -131,7 +143,7 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
     const ro = new ResizeObserver(place);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [ref, at, anchorRef, align, placement, browserRects]);
+  }, [ref, at, anchorRef, align, placement, browserRects, withinPane]);
 
   // Focus restore. The target is captured once at mount, before any roving focus moves into the
   // surface, so it is the trigger unless the caller overrides it. It runs exactly once: an exiting
@@ -224,5 +236,5 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
     return () => { clearTimeout(id); window.removeEventListener("pointerdown", onDown); window.removeEventListener("keydown", onKey, true); };
   }, [ref, close, flush, anchorRef, self]);
 
-  return { pos, closing, close };
+  return { pos, closing, close, room };
 }

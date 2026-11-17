@@ -213,16 +213,12 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Right-aligned, opening upward from the chip, which sits at the right end of the control row.
-  const { pos, closing } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true });
-  /* No taller than the roomier side of the chip, less the placement's margins. A brand-new session's
-     prompter sits mid-window, where neither side held the whole list, and the picker either landed on
-     the chip that opened it or ran off the bottom of the window. Capped, the list — the one part
-     that can give — gives, and the popover opens whole beside its chip. */
-  const [room, setRoom] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const a = anchorRef.current?.getBoundingClientRect();
-    if (a) setRoom(Math.floor(Math.max(a.top, window.innerHeight - a.bottom)) - 10);
-  }, [anchorRef]);
+  const { pos, closing, room } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true, withinPane: true });
+  /* No taller than the roomier side of the chip, inside its pane and the placement's margins. A
+     brand-new session's prompter sits mid-window, where neither side held the whole list, and the
+     picker either landed on the chip that opened it or ran off the bottom of the window. Capped, the
+     list, the one part that can give, gives, and the popover opens whole beside its chip. */
+  const cap = room ? Math.max(room.above, room.below) : null;
   const [query, setQuery] = useState("");
   /** The highlighted row by id, starting on the current model. Anchored to the ROW rather than an
    *  index: ⌥↩ re-sorts a starred row into Favourites from under the highlight. Null with an empty
@@ -395,7 +391,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
   const hasFoot = runs || (overflow?.length ?? 0) > 0 || !!account;
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
-      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: room ?? undefined,
+      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: cap ?? undefined,
         height: height ?? undefined, "--mp-floor": `${floor}px`, "--mp-slack": `${slack}px`,
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom right" } as CSSProperties}
       data-held={height !== null || undefined} data-closing={closing || undefined} data-eggs={eggs || undefined} inert={closing}>

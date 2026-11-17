@@ -6,6 +6,7 @@ import type { RefObject } from "react";
 import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
+import { pickerMaxHeight } from "./MentionPicker";
 
 /**
  * Rank a skill against a query. Higher is better; `null` is "does not match at all".
@@ -93,7 +94,7 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace });
+  const { pos, room } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace, withinPane: true });
   useAutoHideScrollbar(list);
   /* The list runs out into the search field above it and the footer below it, rather than stopping
      at either edge: a row sliced in half by "Manage skills & folders…" read as the list being
@@ -141,7 +142,7 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
 
   return createPortal(
     <div ref={ref} className="skill-picker" role="dialog" aria-label="Skills"
-      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
+      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: pickerMaxHeight(room),
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}
       onKeyDown={onKeyDown}>
       <div className="skill-picker-search">

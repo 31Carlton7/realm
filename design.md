@@ -851,6 +851,11 @@ acronym that is uppercase anyway (a file extension on a tile).
   arriving lifted the bolt out from under the pointer, and the press meant to switch it off landed on
   the effort track. And it is placed by its laid-out size, never one read mid-entrance: measured
   through its .97 scale-in, the picker sat 3% off its chip until its content next moved.
+- A prompter's picker keeps to its pane: the pane's top is its ceiling, never the window's, because
+  the `/` list opened from a new session's centred card rose over the bar's crumb. A list typed into
+  keeps the side it opens on while that side holds a few rows and gives up rows rather than its side,
+  so it rises from the prompter in a new session as it does under a chat; below that it takes the
+  roomier side. Menus and everything else keep to the window.
 - A picker that sets several things stays open while they are set. A pick in the model picker
   changes the model and leaves the card under it to set the level and the speed in the same visit;
   a click outside, the chip, or Escape put it away (the owner, 10-05). Picked, the list holds still —

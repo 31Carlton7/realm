@@ -74,6 +74,9 @@ export type AnchoredInput = {
   margin: number;
   /** Browser view rects. Empty reproduces the pre-W2 behavior exactly. */
   avoid: readonly Rect[];
+  /** The highest the surface may reach, as the window's top would be. A picker opened from a session's
+   *  prompter stops at its pane's top rather than climbing over the bar above it. Default 0. */
+  top?: number;
 };
 export type AnchoredPlacement = {
   left: number; top: number;
@@ -93,12 +96,13 @@ export type AnchoredPlacement = {
 export function placeAnchored(i: AnchoredInput): AnchoredPlacement {
   const { anchor: a, size, win, margin, gap } = i;
   const clampX = (x: number) => Math.max(margin, Math.min(x, win.width - size.width - margin));
-  const clampY = (y: number) => Math.max(margin, Math.min(y, win.height - size.height - margin));
+  const minY = (i.top ?? 0) + margin;
+  const clampY = (y: number) => Math.max(minY, Math.min(y, win.height - size.height - margin));
   const baseLeft = clampX(i.align === "right" ? a.x + a.width - size.width : a.x);
   const below = { top: a.y + a.height + gap, above: false };
   const above = { top: a.y - size.height - gap, above: true };
   const fitsBelow = below.top + size.height <= win.height - margin;
-  const fitsAbove = above.top >= margin;
+  const fitsAbove = above.top >= minY;
   const primary = i.placement === "down" ? (fitsBelow || !fitsAbove ? below : above)
     : (fitsAbove || !fitsBelow ? above : below);
   const secondary = primary === below ? above : below;
@@ -131,6 +135,25 @@ export function placeAnchored(i: AnchoredInput): AnchoredPlacement {
     top: clampY((win.height - size.height) / 2),
     above: false, fallback: true,
   };
+}
+
+/** The whole pixels free above and below an anchor: inside the window's margins, and under `top`.
+ *  Whole, because a surface capped at a fraction lays out a pixel taller and no longer fits. */
+export function roomAround(anchor: Rect, winHeight: number, gap: number, margin: number, top = 0): { above: number; below: number } {
+  return {
+    above: Math.max(0, Math.floor(anchor.y - gap - top - margin)),
+    below: Math.max(0, Math.floor(winHeight - margin - anchor.y - anchor.height - gap)),
+  };
+}
+
+/**
+ * How tall a surface whose list can give way may be. It keeps its preferred side while that side
+ * holds `floor`, and the list loses rows rather than the surface jumping across its anchor; with
+ * less than that it takes the roomier side, as a picker that does not fit either way does.
+ */
+export function listCap(room: { above: number; below: number }, placement: "down" | "up", floor: number): number {
+  const preferred = placement === "up" ? room.above : room.below;
+  return preferred >= floor ? preferred : Math.max(room.above, room.below);
 }
 
 /**

@@ -2,7 +2,7 @@ import { Icon } from "@realm/ui";
 import { useRef, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
-import { usePickerScroller } from "./MentionPicker";
+import { pickerMaxHeight, usePickerScroller } from "./MentionPicker";
 import type { SlashCommand } from "./slash-commands";
 
 /**
@@ -28,12 +28,12 @@ export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover,
   const ref = useRef<HTMLDivElement>(null);
   // No exit, matching the mention picker: this opens and closes between keystrokes, and a ghost of
   // it trailing the caret while the sentence carries on is noise rather than motion.
-  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace });
+  const { pos, room } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace, withinPane: true });
   const active = Math.min(activeIndex, commands.length - 1);
   const { list, hoverRow } = usePickerScroller(active, onHover);
   return createPortal(
     <div ref={ref} id="slash-list" className="mention-picker slash-picker" role="listbox" aria-label="Commands"
-      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
+      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: pickerMaxHeight(room),
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}>
       <div ref={list} className="mention-list" role="presentation">
         {commands.map((c, i) => (

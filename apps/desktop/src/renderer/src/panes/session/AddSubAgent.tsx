@@ -24,7 +24,7 @@ export function AddSubAgent({ session, anchorRef, canWorktree, onClose, onPlace 
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, returnFocusRef: anchorRef, exit: true, onPlace });
+  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, returnFocusRef: anchorRef, exit: true, onPlace, withinPane: true });
   const [pick, setPick] = useState<{ kind: AgentKind; model: string | null }>({ kind: session.agentKind, model: session.model });
   const [brief, setBrief] = useState("");
   const [worktree, setWorktree] = useState(false);
