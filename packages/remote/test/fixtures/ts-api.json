@@ -2140,6 +2140,21 @@
       "mime": "image/png",
       "data": "YSBwaWN0dXJl"
     },
+    "backgrounds.look": {
+      "look": {
+        "id": "sky-and-cliffs",
+        "effect": "dither-color",
+        "asIs": false,
+        "faces": {
+          "light": "gallery:sky-day.jpg",
+          "dark": "gallery:space-webb.jpg"
+        }
+      }
+    },
+    "backgrounds.still": {
+      "mime": "image/jpeg",
+      "data": "anBlZw=="
+    },
     "session.options": {
       "agent": {
         "kind": "claude",

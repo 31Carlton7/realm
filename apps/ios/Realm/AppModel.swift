@@ -80,6 +80,8 @@ final class AppModel {
     let work = WorkModel()
     /// The working sessions on the Lock Screen and in the Dynamic Island.
     let activities = WorkActivities()
+    /// The pictures behind sessions.
+    let backdrops = BackdropStore()
     var path: [Route] = []
     /// Said after a memory is saved, made or deleted here, so the lists that show it read it again.
     var memoryChanges = 0
@@ -1699,6 +1701,16 @@ final class AppModel {
         }
     }
     private static let previewsKept = 12
+
+    /// The picture behind a session on the `dark` face. `refresh` asks the Mac for its look again, as
+    /// each open does; in Low Data Mode only a still already on the phone is shown.
+    func loadBackdrop(_ sessionId: String, dark: Bool, refresh: Bool) async {
+        guard let api, isConnected else { return }
+        let lowData = LaunchOptions.lowData || network.currentPath.isConstrained
+        await backdrops.load(sessionId, dark: dark, refresh: refresh, lowData: lowData, from: .init(
+            look: { try await api.backgroundLook(sessionId: $0) },
+            still: { try await api.backgroundStill(key: $0) }))
+    }
 
     /// A space's own picture, asked of the Mac once.
     func loadSpacePicture(_ spaceId: String) async {

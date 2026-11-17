@@ -7,6 +7,12 @@ struct SessionView: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// The look has been asked of the Mac since this open.
+    @State private var looked = false
+    @State private var backdropPicture: BackdropPicture?
     /// Where the transcript is scrolled to: its foot, until the reader scrolls it themselves.
     @State private var position = ScrollPosition(idType: String.self, edge: .bottom)
     @State private var atBottom = true
@@ -48,6 +54,9 @@ struct SessionView: View {
         let found = find.current.flatMap { TranscriptLayout.itemId(holding: $0, in: items) }
         // A teammate's chat is headed by the teammate, and its replies are the teammate's.
         let teammate = model.work.teammate(chat: sessionId)
+        let wears = BackdropPolicy.shows(increasedContrast: contrast == .increased, reduceTransparency: reduceTransparency)
+        let backdrop = wears ? model.backdrops.shown(sessionId, dark: scheme == .dark) : nil
+        let empty = transcript.rows.isEmpty && outgoing.isEmpty
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if drawn.count < items.count, let first = drawn.first {
@@ -159,7 +168,12 @@ struct SessionView: View {
         .onChange(of: transcript.isLive) { _, live in
             if live && atBottom { model.markSeen(sessionId) }
         }
-        .background(Ground.transcript)
+        .background {
+            Ground.transcript.ignoresSafeArea()
+            if let backdrop {
+                BackdropView(look: backdrop.look, still: backdrop.still, empty: empty, transcript: $backdropPicture)
+            }
+        }
         // The foot's edge is its card's own: the chips and the dock over the composer float on a
         // transcript that stays crisp around them.
         .softEdges(.top, ground: Ground.transcript)
@@ -187,6 +201,14 @@ struct SessionView: View {
         }
         .onChange(of: MatchReady(live: transcript.isLive, rows: transcript.rows.count), initial: true) {
             revealSearchMatch(transcript, items: items)
+        }
+        // Over a picture the edges fade into it: under the empty session nothing scrolls, so there is
+        // nothing to fade.
+        .environment(\.edgeFadeFill, backdrop == nil ? .ground : empty ? .none : backdropPicture.map(EdgeFadeFill.picture) ?? .ground)
+        .task(id: wears && model.isConnected ? scheme : nil) {
+            guard wears, model.isConnected else { return }
+            await model.loadBackdrop(sessionId, dark: scheme == .dark, refresh: !looked)
+            looked = true
         }
         .navigationTitle(teammate?.name ?? row?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)

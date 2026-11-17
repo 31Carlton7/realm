@@ -830,6 +830,24 @@ export type SessionAccount = z.infer<typeof SessionAccountSchema>;
 
 /** A turn saved from a session, as the desktop's Library ▸ Saved lists it: the prompt, the start of
  *  its answer, and whose session it was. */
+/** The picture behind a session (`ui.background` on the Mac, resolved there): how it is printed, and
+ *  each face's still key for `backgrounds.still`. `asIs` is a person's own picture shown with no
+ *  print. A look that moves is sent as its poster; a phone draws no loops. */
+export const BackgroundLookSchema = z.object({
+  id: z.string(),
+  effect: z.enum(["dither", "dither-color", "halftone"]),
+  asIs: z.boolean(),
+  faces: z.object({ light: z.string(), dark: z.string() }),
+});
+export type BackgroundLook = z.infer<typeof BackgroundLookSchema>;
+
+/** A still, made no larger than 1290 px on its long side on the Mac. */
+export const BackgroundStillSchema = z.object({
+  mime: z.literal("image/jpeg"),
+  /** The JPEG's bytes, base64. */
+  data: z.string(),
+});
+
 export const SavedTurnEntrySchema = z.object({
   sessionId: Id,
   /** The prompt's row's `seq`. */
@@ -1366,6 +1384,12 @@ export const MobileCalls = {
   "session.setSaved": { params: z.object({ id: Id, seq: z.number().int().min(1), saved: z.boolean() }), result: z.object({ seqs: z.array(z.number().int()) }) },
   /** Every turn saved in a profile's sessions, the newest saved first, as Library ▸ Saved lists them. */
   "saved.list": { params: z.object({ profileId: Id }), result: z.object({ entries: z.array(SavedTurnEntrySchema), total: z.number().int() }) },
+  /** The look behind a session, or null when the person turned pictures off. A Mac before them answers
+   *  METHOD_NOT_FOUND, and the phone shows its plain ground. */
+  "backgrounds.look": { params: z.object({ sessionId: Id }), result: z.object({ look: BackgroundLookSchema.nullable() }) },
+  /** One face's still, by the key `backgrounds.look` gave. One of the person's own pictures goes only to
+   *  their paired phone, through this call, and is never logged. */
+  "backgrounds.still": { params: z.object({ key: z.string().min(1).max(300) }), result: BackgroundStillSchema },
   "debug.report": { params: z.object({ name: z.string().regex(/^[\w.-]{1,80}$/), data: z.unknown() }), result: Ok },
 } as const;
 export type MobileMethod = keyof typeof MobileCalls;

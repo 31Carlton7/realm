@@ -868,6 +868,20 @@ public struct MobileAPI: Sendable {
         try await connection.call("space.icon", params: SessionID(id: id), as: SpacePicture.self)
     }
 
+    /// The look behind a session, or nil when pictures are off. A Mac from before them answers
+    /// `METHOD_NOT_FOUND`.
+    public func backgroundLook(sessionId: String) async throws -> BackgroundLook? {
+        struct Params: Encodable, Sendable { let sessionId: String }
+        struct Answer: Decodable, Sendable { let look: BackgroundLook? }
+        return try await connection.call("backgrounds.look", params: Params(sessionId: sessionId), as: Answer.self).look
+    }
+
+    /// One face's still, as JPEG bytes no longer than 1290 px on their long side.
+    public func backgroundStill(key: String) async throws -> Data {
+        struct Params: Encodable, Sendable { let key: String }
+        return try await connection.call("backgrounds.still", params: Params(key: key), as: SpacePicture.self).data
+    }
+
     public func stop(id: String) async throws {
         _ = try await connection.call("session.stop", params: SessionID(id: id), as: Acknowledged.self)
     }

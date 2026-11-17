@@ -1872,6 +1872,37 @@ public struct SpacePicture: Decodable, Sendable, Hashable {
     }
 }
 
+/// `backgrounds.look`: the picture behind a session, as the Mac's background setting resolves it for
+/// that session. Each face is a still key for `backgrounds.still`.
+public struct BackgroundLook: Codable, Sendable, Hashable {
+    public enum Effect: String, Codable, Sendable, Hashable {
+        case dither, ditherColor = "dither-color", halftone
+    }
+
+    public struct Faces: Codable, Sendable, Hashable {
+        public let light: String
+        public let dark: String
+
+        public init(light: String, dark: String) {
+            self.light = light
+            self.dark = dark
+        }
+    }
+
+    public let id: String
+    public let effect: Effect
+    /// One of the person's own pictures shown as it is, with no print.
+    public let asIs: Bool
+    public let faces: Faces
+
+    public init(id: String, effect: Effect, asIs: Bool, faces: Faces) {
+        self.id = id
+        self.effect = effect
+        self.asIs = asIs
+        self.faces = faces
+    }
+}
+
 /// `session.screens`: a simulator or a machine open in a session's space, which the phone can watch.
 public struct SessionScreen: Codable, Sendable, Hashable, Identifiable {
     public enum Kind: String, Codable, Sendable, Hashable {

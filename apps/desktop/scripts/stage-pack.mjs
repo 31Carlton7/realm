@@ -66,6 +66,12 @@ if (windows) console.log("[stage-pack] node_modules rebuilt without links:", hoi
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
 
+// 2a. The background gallery's stills and gallery.json — galleryDir()'s packaged branch reads
+// <resources>/gallery, so the server can send a phone the look behind a session. Loops stay in the asar.
+cpSync(join(desktop, "src", "renderer", "src", "assets", "hero-backdrops"), join(stage, "gallery"), {
+  recursive: true, filter: (src) => !/\.(mp4|webm)$/.test(src),
+});
+
 // 2b. Laya's resources — bundledLayaDir()'s packaged branch reads <resources>/laya: the benchmark every
 // checkpoint is scored on, the training script and its lexicon, and the download's own evaluation.
 cpSync(join(root, "resources", "laya"), join(stage, "laya"), { recursive: true });

@@ -608,6 +608,9 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.file:attachment": await call("session.file", { id: S, path: sent[0]!.path }),
       "session.fileData": await call("session.fileData", { id: S, path: made[1]!.path, from: 0 }),
       "space.icon": await call("space.icon", { id: "sp3" }),
+      // The workspace's own gallery, with the setting unset: the default look.
+      "backgrounds.look": await call("backgrounds.look", { sessionId: S }),
+      "backgrounds.still": await call("backgrounds.still", { key: "gallery:sky-day.jpg" }),
       "session.options": await call("session.options", { id: S }),
       "session.options:codex": await call("session.options", { id: CODEX }),
       "session.options:cursor": await call("session.options", { id: QUIET }),
