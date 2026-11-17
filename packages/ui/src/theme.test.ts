@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyTheme, hexToHsl, hslToHex, spaceColor, clampPaneAlpha, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, paneAlphaFromGround } from "./theme";
+import { applyTheme, hexToHsl, hslToHex, spaceColor, clampPaneAlpha, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, paneAlphaFromGround, READING_PANE_ALPHA } from "./theme";
 import { THEME_VARS } from "./themes";
 import { DEFAULT_FONTS, FONT_VARS, fontVars } from "./fonts";
 import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE, clampGroundAlpha } from "./theme";
@@ -148,10 +148,12 @@ describe("the panes' own ground", () => {
     expect(props["--pane-alpha"]).toBe("90%");
   });
 
-  it("runs the whole way to bare material, with the default still where the reading holds", () => {
-    // THE mutants: a floor above 0 again (40 would come back as 84), or the default moved with it.
+  it("runs the whole way to bare material, and starts there (11-17), with the reading's point kept apart", () => {
+    // THE mutants: a floor above 0 again (40 would come back as 84), the default back on the reading's
+    // point, or the reading's point moved with the default.
     expect(PANE_ALPHA_RANGE).toEqual({ min: 0, max: 100 });
-    expect(DEFAULT_PANE_ALPHA).toBe(84);
+    expect(DEFAULT_PANE_ALPHA).toBe(PANE_ALPHA_RANGE.min);
+    expect(READING_PANE_ALPHA).toBe(84);
     expect(clampPaneAlpha(0)).toBe(0);
     expect(clampPaneAlpha(-5)).toBe(0);
     expect(clampPaneAlpha(400)).toBe(100);

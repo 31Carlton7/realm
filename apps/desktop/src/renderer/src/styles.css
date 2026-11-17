@@ -554,9 +554,9 @@ kbd { font: 11px var(--font-mono); }
    down the panes' left edge. `.main` paints both: over the top row the frame's chrome and ground,
    and under it the panes' ground with its top corners rounded off — the right one always, at the
    window's edge, the left one once the column has folded away and the panes stand beside the rail
-   (`--sheet-l`). The page over the panes is the same sheet in its own ground (`--sheet-fill`), so the
-   strip and its corners stay the frame's while a page is up. */
-.main, .page-overlay { --sheet:
+   (`--sheet-l`). A page over the panes stands on this same sheet (`.page-overlay`), so the strip and
+   its corners stay the frame's while a page is up. */
+.main { --sheet:
   radial-gradient(circle at 100% 100%, var(--sheet-fill) calc(var(--frame-r) - 0.5px), transparent var(--frame-r)) left 0 top var(--frame-top) / var(--sheet-l) var(--sheet-l) no-repeat,
   radial-gradient(circle at 0 100%, var(--sheet-fill) calc(var(--frame-r) - 0.5px), transparent var(--frame-r)) right 0 top var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat,
   linear-gradient(var(--sheet-fill), var(--sheet-fill)) left var(--sheet-l) top var(--frame-top) / calc(100% - var(--sheet-l) - var(--frame-r)) var(--frame-r) no-repeat,
@@ -585,9 +585,9 @@ kbd { font: 11px var(--font-mono); }
 /* The lines between sheets start at the rim, as the sidebar's does: the dividers between panes side
    by side at the top (`data-top`, PaneHost) and the side panel's edge. Their overhang stays. */
 .resize-handle[data-top], .panel-edge { clip-path: inset(var(--frame-top) -4px 0 -4px); }
-/* A page over the panes covers their bars too; their titles would show through the page's own bar,
-   which is clear over the frame's strip (below). */
-:root:has(.page-overlay) .main .panel-bar { visibility: hidden; }
+/* A page over the panes hides them: its ground is the panes' own see-through sheet, so whatever they
+   held would show through it, their bars through the page's clear bar as well. */
+:root:has(.page-overlay) .main :is(.panel, .view-panel):not(.page-overlay *) { visibility: hidden; }
 /* …and so would the dividers between them: below the head row the page's ground covers them, but in
    the row the bar is clear, and a split's divider ran on up through it as a stray rule beside the
    page's name. */
@@ -2505,8 +2505,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    10-04). `.main` makes no stacking context, so the rung above still ranks it against the window. */
 .page-overlay { position: absolute; z-index: 35; inset: 0;
   display: flex; flex-direction: column; min-width: 0;
-  /* The panes' sheet in the page's ground: clear over the frame's strip, where its bar stands. */
-  --sheet-fill: var(--rl-panel); background: var(--sheet); background-origin: border-box; outline: none;
+  /* Clear: the page stands on the panes' own sheet, which `.main` paints under it at Pane
+     translucency, so a page reads on the same ground as a session at every slider value (the owner,
+     11-17). The panes it covers are hidden below, not painted over. */
+  background: none; outline: none;
   animation: rl-page-in var(--dur-base) var(--ease-out-strong); }
 /* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
    direction, and a horizontal move would imply it came from the sidebar it is not part of. */
@@ -2533,8 +2535,6 @@ button.panel-title:hover { background: var(--rl-hover); }
 .page-overlay-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 .page-overlay-body { flex: 1; min-height: 0; min-width: 0; display: flex; }
-/* Over the panes the overlay's ground is the page's. */
-.page-overlay .page { background: transparent; }
 
 /* ── Quick chat: a session in a window instead of a pane ──────────────────────────────
    A floating card over the whole app, dragged by its bar. It wears the FLOAT radius and the overlay
@@ -8308,7 +8308,7 @@ select { appearance: none; padding-right: 22px;
    the PANE's width, never the window's, because a page is as likely to be a third of a split as it
    is to be the whole screen. (The notifications page declared this container on itself first; it is
    hoisted here so every page gets the same treatment from one place.) */
-.page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); container-type: inline-size; }
+.page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: none; container-type: inline-size; }
 /* The overflow that proved it, before the container query above was added. A pane is a flex ITEM, and a flex item's default
    `min-width: auto` floors it at its content's min-content width — so a page whose content did not
    fit simply grew past its slot and was painted OVER by the neighbouring pane, with the covered

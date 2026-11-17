@@ -64,7 +64,8 @@ describe("Sidebar and pane translucency", () => {
       const { store } = await appearance();
       const slider = screen.getByRole("slider", { name: "Pane transparency" }) as HTMLInputElement;
       expect([slider.min, slider.max]).toEqual([String(PANE_ALPHA_RANGE.min), String(PANE_ALPHA_RANGE.max)]);
-      // At the default the pane is 14% see-through — a number about the pane, not the sidebar's 45.
+      // At the default the pane is wholly see-through (11-17): a number about the pane, not the sidebar's 45.
+      expect(DEFAULT_PANE_ALPHA).toBe(0);
       expect(within(slider.closest(".settings-row") as HTMLElement).getByText(`${100 - DEFAULT_PANE_ALPHA}%`)).toBeInTheDocument();
       fireEvent.click(screen.getByRole("switch", { name: "Pane translucency" }));
       await waitFor(() => expect(store.getState().paneAlpha).toBe(100));
@@ -93,6 +94,23 @@ describe("Sidebar and pane translucency", () => {
     await st.getState().boot();
     expect(st.getState().paneAlpha).toBe(DEFAULT_PANE_ALPHA);
     expect(fresh.calls.some((c) => c.startsWith(`setSetting:${SETTING_PANE_ALPHA}=`))).toBe(false);
+  });
+
+  it("starts a home that never moved the slider at the see-through end, and keeps a value set by hand", async () => {
+    /* The setting is stored only when someone moves the control, so an unset key IS "never moved".
+       THE mutants: the default left on the reading's 84, or a stored value overwritten at boot to
+       carry the new default to everyone. 84 by hand is the old default chosen on purpose and stays. */
+    const fresh = fakeApi({});
+    const st = createAppStore(fresh);
+    await st.getState().boot();
+    expect(st.getState().paneAlpha).toBe(0);
+    for (const kept of [84, 60, 100]) {
+      const api = fakeApi({ settings: { [SETTING_PANE_ALPHA]: kept } });
+      const store = createAppStore(api);
+      await store.getState().boot();
+      expect(store.getState().paneAlpha).toBe(kept);
+      expect(api.calls.some((c) => c.startsWith(`setSetting:${SETTING_PANE_ALPHA}=`))).toBe(false);
+    }
   });
 });
 

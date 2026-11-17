@@ -2,7 +2,7 @@ export { Icon, icons, iconSvg, isIconName, type IconName } from "./Icon";
 /* The marks by name, for the one renderer that writes HTML rather than React: assistant markdown,
    which draws a link to a known app as a chip and needs the path data as a string. */
 export { brandMarks, type BrandName } from "./brand-icons";
-export { applyTheme, clampGroundAlpha, clampPaneAlpha, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, GROUND_ALPHA_RANGE, PANE_ALPHA_RANGE, paneAlphaFromGround, spaceColor, type Mode } from "./theme";
+export { applyTheme, clampGroundAlpha, clampPaneAlpha, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, GROUND_ALPHA_RANGE, PANE_ALPHA_RANGE, paneAlphaFromGround, READING_PANE_ALPHA, spaceColor, type Mode } from "./theme";
 /* The colour maths, the seed shape and the VS Code translator moved to `@realm/contracts` — the
    server imports all three to translate a theme file, and this package is React. Import them from
    there; nothing is re-exported here, so there is one place each of them comes from. */

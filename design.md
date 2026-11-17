@@ -409,15 +409,26 @@ Rules:
   scroller's mask, which paints nothing. A wash to a fixed tone is wrong for the same reason — it
   stripes a translucent surface with a colour the material shows straight through.
 - Translucency is not free and is not uniform. What shows through a pane is the desktop, which nobody
-  chose, so the DEFAULT alpha is derived from the type it has to carry rather than picked by eye: the
-  sidebar holds labels and starts at 55%, a pane holds the reading and starts where body text would
-  cross WCAG AA over the worst desktop (`pane-ground.test.ts`). The default is the promise; the range
-  is the person's (the owner, 11-15: "very very transparent, instead of it being capped"), so both
-  controls run to bare material at 0, and past the default the control says in words that text gets
-  harder to read over a bright or busy desktop rather than stopping there. Each has its own control:
+  chose, so the point where reading holds is derived from the type rather than picked by eye: the
+  sidebar holds labels and starts at 55%, and a pane's reading point (`READING_PANE_ALPHA`) is where
+  body text would cross WCAG AA over the worst desktop (`pane-ground.test.ts`). The pane's DEFAULT is
+  not that point. The owner wants the window as see-through as it goes out of the box (11-17: "by
+  default, we should have the maximum amount of transparency turned on"), so a pane starts at bare
+  material and the slider is how a person buys reading back over a bright or busy desktop; the
+  control says so in words rather than stopping anywhere (11-15: "very very transparent, instead of it
+  being capped"). A new default reaches only a home that never moved the control. The value is written
+  when the slider moves and never at boot, so an unset key is the one honest reading of "never chose",
+  and a value set by hand, the old default included, is kept. The reading point still does work: the
+  prompter is solid there and the light face's range starts there. Each has its own control:
   a see-through sidebar beside solid reading is a reasonable thing to want, and one control could not say it.
   A claim about what the material does to contrast is a real screen capture, never a CDP screenshot —
   the material is not in the DOM.
+- A page over the panes (Settings, and every destination page) stands on the panes' own ground and
+  paints none of its own (the owner, 11-17: the settings panes "should also reflect the transparency
+  that we use in the session panes"). A page that paints a ground is either opaque beside see-through
+  sessions or a second layer of the same alpha, denser than a session at every setting. So the page is
+  clear, and the panes it covers are hidden rather than painted over, because a clear page shows
+  whatever is under it.
 - The material is the system's grey, so an alpha is drawn for a palette, not for every palette.
   Realm's own dark ground is a near-grey that reads as itself at 55% over it; a theme with a hue
   mixed 55% into grey reads as grey, and a Rosé Pine sidebar beside Rosé Pine panes stopped looking
