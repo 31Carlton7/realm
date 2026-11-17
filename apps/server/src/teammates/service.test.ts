@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
-import { FakeAdapter, type AgentAdapter, type AgentHandle, type FakeScript } from "@realm/adapters";
-import { DEFAULT_MODEL_LABEL, type AgentModel, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { FakeAdapter, type AgentAdapter, type AgentHandle, type FakeScript, type StartOptions } from "@realm/adapters";
+import { DEFAULT_MODEL_LABEL, TEAMMATE_HOME_COMPACT_WINDOW, UpdateTeammateSchema, type AgentModel, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -54,9 +54,15 @@ const SCRIPT: FakeScript = [
   { on: "Nested work", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 400 }] },
 ];
 
-async function boot(extra: { clockTurnMs?: number; maxDepth?: number } = {}) {
+/** The scripted agent, keeping what each session was started with. */
+class RecordingAdapter extends FakeAdapter {
+  starts: StartOptions[] = [];
+  override start(opts: StartOptions): AgentHandle { this.starts.push(opts); return super.start(opts); }
+}
+
+async function boot(extra: { clockTurnMs?: number; maxDepth?: number; fake?: FakeAdapter } = {}) {
   const home = tempDir("realm-teammates-");
-  const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
+  const fake = extra.fake ?? new FakeAdapter({ script: SCRIPT, delayMs: 2 });
   app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, agentRun: { fallbackKind: "fake", ...(extra.maxDepth ? { maxDepth: extra.maxDepth } : {}) },
     ...(extra.clockTurnMs ? { teammates: { clockTurnMs: extra.clockTurnMs } } : {}) });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
@@ -620,5 +626,52 @@ describe("a teammate's clock", () => {
     await waitFor(() => app.sessions.get(task.id).status === "idle", { timeout: 10_000 });
     expect(events(task.id).some((e) => e.type === "assistant_text" && e.payload.text.includes("seven eight"))).toBe(true);
     expect(events(task.id).some((e) => e.type === "status" && e.payload.interrupted)).toBe(false);
+  });
+});
+
+describe("a teammate's chat is compacted short of the model's window", () => {
+  const started = async (compactWindow?: number) => {
+    const fake = new RecordingAdapter({ script: SCRIPT, delayMs: 2 });
+    const { make } = await boot({ fake });
+    const cto = make("CTO", compactWindow === undefined ? {} : { compactWindow });
+    await app.team.message(cto.id, "start a task");
+    await waitFor(() => taskOf(cto.homeSessionId!, "sqlite search") !== undefined && fake.starts.length === 2);
+    const task = taskOf(cto.homeSessionId!, "sqlite search")!;
+    const home = fake.starts.find((o) => o.systemContext?.includes("You are @cto (CTO)"))!;
+    const child = fake.starts.find((o) => o !== home)!;
+    return { cto, task, home, child };
+  };
+
+  it("starts its chat with the default window, and the task it starts with none", async () => {
+    const { cto, home, child } = await started();
+    expect(cto.compactWindow).toBeNull();
+    expect(home.autoCompactWindow).toBe(TEAMMATE_HOME_COMPACT_WINDOW);
+    expect(TEAMMATE_HOME_COMPACT_WINDOW).toBe(250_000);
+    expect(child.autoCompactWindow).toBeUndefined();
+    expect(child.afterCompaction).toBeUndefined();
+  });
+
+  it("takes the teammate's own window over the default, and goes back to the default when it is cleared", async () => {
+    const { cto, home, child } = await started(400_000);
+    expect(home.autoCompactWindow).toBe(400_000);
+    expect(child.autoCompactWindow).toBeUndefined();
+    expect(app.team.get(cto.id).compactWindow).toBe(400_000);
+    expect(app.team.update({ id: cto.id, compactWindow: null }).compactWindow).toBeNull();
+    expect(app.team.compactWindowFor(cto.homeSessionId!)).toBe(TEAMMATE_HOME_COMPACT_WINDOW);
+    expect(UpdateTeammateSchema.safeParse({ id: cto.id, compactWindow: 50_000 }).success).toBe(false);
+  });
+
+  it("tells its chat, after a compaction, which task sessions it started are still open", async () => {
+    const { task, home } = await started();
+    const note = home.afterCompaction!();
+    expect(note).toContain("Your chat was just compacted.");
+    expect(note).toContain(`- [cto - sqlite search](realm://session/${task.id}): `);
+    expect(note).toContain("agent_wait");
+  });
+
+  it("has no window once the teammate is archived, as its chat has no brief either", async () => {
+    const { cto } = await started();
+    app.team.archive(cto.id, true);
+    expect(app.team.compactWindowFor(cto.homeSessionId!)).toBeUndefined();
   });
 });

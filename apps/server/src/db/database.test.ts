@@ -2383,6 +2383,8 @@ CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES s
   next_run_at INTEGER, last_run_at INTEGER, last_run_id TEXT, last_skipped_at INTEGER,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   new_session_per_run INTEGER NOT NULL DEFAULT 1, archive_succeeded INTEGER NOT NULL DEFAULT 0, role_id TEXT);
+-- Every home has it; the compact-window migration after this one adds to it.
+CREATE TABLE team_roles (id TEXT PRIMARY KEY);
 `;
 const SCHEDULE_MODE_AT = migrations.findIndex((m) => m.includes("ALTER TABLE schedules ADD COLUMN permission_mode"));
 
@@ -2438,6 +2440,8 @@ CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES s
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   new_session_per_run INTEGER NOT NULL DEFAULT 1, archive_succeeded INTEGER NOT NULL DEFAULT 0, role_id TEXT,
   permission_mode TEXT);
+-- Every home has it; the compact-window migration after this one adds to it.
+CREATE TABLE team_roles (id TEXT PRIMARY KEY);
 `;
 const SCHEDULE_ZONE_AT = migrations.findIndex((m) => m.includes("ALTER TABLE schedules ADD COLUMN time_zone"));
 
@@ -2458,8 +2462,8 @@ describe("the schedule-zone migration — the zone a schedule is computed in, an
   };
   const zones = (db: DatabaseSync) => db.prepare("SELECT id, next_run_at, time_zone, last_slot FROM schedules ORDER BY id").all();
 
-  it("is appended at the end of the chain, and a home one short of it reaches the end", () => {
-    expect(SCHEDULE_ZONE_AT).toBe(migrations.length - 1);
+  it("is followed only by the compact-window migration, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_ZONE_AT).toBe(migrations.length - 2);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     db.close();
@@ -2484,6 +2488,63 @@ describe("the schedule-zone migration — the zone a schedule is computed in, an
       { id: "clock", next_run_at: 3000, time_zone: null, last_slot: null },
       { id: "weekly", next_run_at: 2000, time_zone: "America/Chicago", last_slot: "2026-11-08T09:00" },
     ]);
+    again.close();
+  });
+});
+
+/** team_roles as it shipped before the compaction window, written out by hand, with the columns read here. */
+const BEFORE_COMPACT_WINDOW = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, goal TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, constraints_json TEXT,
+  next_run_at INTEGER, last_run_at INTEGER, last_run_id TEXT, last_skipped_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  new_session_per_run INTEGER NOT NULL DEFAULT 1, archive_succeeded INTEGER NOT NULL DEFAULT 0, role_id TEXT,
+  permission_mode TEXT, time_zone TEXT, last_slot TEXT);
+CREATE TABLE team_roles (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, name TEXT NOT NULL,
+  brief TEXT NOT NULL DEFAULT '', model TEXT, effort TEXT, permission_mode TEXT NOT NULL DEFAULT 'default', handle TEXT,
+  home_session_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+`;
+const COMPACT_WINDOW_AT = migrations.findIndex((m) => m.includes("ALTER TABLE team_roles ADD COLUMN compact_window"));
+
+describe("the compact-window migration — the window a teammate's chat is compacted against", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_COMPACT_WINDOW);
+    for (let v = 1; v <= COMPACT_WINDOW_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
+      INSERT INTO team_roles (id, space_id, name, brief, model, permission_mode, handle, home_session_id, created_at, updated_at)
+        VALUES ('r1', 'sp1', 'Captain', 'Runs the team.', 'claude-fable-5-2', 'bypassPermissions', 'captain', 'home-1', 10, 20);`);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+
+  it("is appended at the end of the chain, after the schedule zone, and a home one short of it reaches the end", () => {
+    expect(COMPACT_WINDOW_AT).toBe(migrations.length - 1);
+    expect(COMPACT_WINDOW_AT).toBe(SCHEDULE_ZONE_AT + 1);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("leaves every teammate on the default (NULL), and the rest of its row as it was", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT id, name, brief, model, permission_mode, handle, home_session_id, compact_window FROM team_roles").all()).toEqual([
+      { id: "r1", name: "Captain", brief: "Runs the team.", model: "claude-fable-5-2", permission_mode: "bypassPermissions", handle: "captain", home_session_id: "home-1", compact_window: null },
+    ]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing and keeps a window that was set", () => {
+    const { p, db } = migrated();
+    db.prepare("UPDATE team_roles SET compact_window = 400000 WHERE id = 'r1'").run();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(again.prepare("SELECT compact_window FROM team_roles").get()).toEqual({ compact_window: 400000 });
     again.close();
   });
 });

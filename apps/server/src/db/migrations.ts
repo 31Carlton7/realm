@@ -1314,4 +1314,8 @@ export const migrations: string[] = [
   ALTER TABLE schedules ADD COLUMN time_zone TEXT;
   ALTER TABLE schedules ADD COLUMN last_slot TEXT;
   `,
+  // The window a teammate's home chat is compacted against (contracts/teammates.ts). NULL, every
+  // teammate before this, is TEAMMATE_HOME_COMPACT_WINDOW, so nothing is backfilled and a later change
+  // to the default reaches them. A second run fails on the ALTER, inside the migration's transaction.
+  `ALTER TABLE team_roles ADD COLUMN compact_window INTEGER;`,
 ];

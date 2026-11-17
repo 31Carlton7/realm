@@ -64,7 +64,7 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
 /** A teammate with its chat made, idle, in no group. */
 export const teammate = (id: string, spaceId: string, extra: Partial<Teammate> = {}): Teammate =>
   ({ id, spaceId, handle: id, name: id, brief: "", icon: { shape: "circle", color: "blue" }, agentKind: "fake", model: null, effort: null,
-    permissionMode: "default", folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, createdAt: 0, updatedAt: 0,
+    permissionMode: "default", folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, compactWindow: null, createdAt: 0, updatedAt: 0,
     schedule: null, state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra });
 
 /** A teammate's clock as the server would hold it after `input`, over the one it had. */

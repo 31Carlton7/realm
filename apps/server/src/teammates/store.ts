@@ -12,6 +12,8 @@ export type TeammateRow = {
   /** Null: the space's own folder. */
   folder: string | null;
   lead: boolean; group: string | null; sortOrder: number; archived: boolean; homeSessionId: string | null;
+  /** Null: TEAMMATE_HOME_COMPACT_WINDOW. */
+  compactWindow: number | null;
   createdAt: number; updatedAt: number;
 };
 
@@ -19,7 +21,7 @@ type Raw = {
   id: string; space_id: string; handle: string | null; name: string; brief: string; icon_json: string | null; realmite_json: string;
   agent_kind: AgentKind; model: string | null; effort: string | null; permission_mode: string; folder: string | null;
   is_lead: number; group_name: string | null; sort_order: number; archived: number; home_session_id: string | null;
-  created_at: number; updated_at: number;
+  compact_window: number | null; created_at: number; updated_at: number;
 };
 
 /** The seed the first Teams rolled a role's Realmite from: its spec's own, else the role's id. */
@@ -46,10 +48,11 @@ const toRow = (r: Raw): TeammateRow => ({
   // The first Teams knew three modes, all of which a teammate has; anything else reads as asking.
   permissionMode: TeammatePermissionModeSchema.safeParse(r.permission_mode).data ?? "default",
   folder: r.folder, lead: r.is_lead === 1, group: r.group_name, sortOrder: r.sort_order, archived: r.archived === 1,
-  homeSessionId: r.home_session_id, createdAt: r.created_at, updatedAt: r.updated_at,
+  homeSessionId: r.home_session_id, compactWindow: r.compact_window, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
-export type TeammateInsert = Omit<TeammateRow, "id" | "sortOrder" | "archived" | "homeSessionId" | "createdAt" | "updatedAt">;
+export type TeammateInsert = Omit<TeammateRow, "id" | "sortOrder" | "archived" | "homeSessionId" | "compactWindow" | "createdAt" | "updatedAt">
+  & { compactWindow?: number | null };
 export type TeammatePatch = Partial<Omit<TeammateRow, "id" | "spaceId" | "createdAt" | "updatedAt">>;
 
 /** A session of a teammate's, as the Team list and its page read it: the columns, never the transcript. */
@@ -125,10 +128,10 @@ export class TeammatesStore {
     const id = newId(); const t = this.clock();
     const order = (this.db.prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM team_roles WHERE space_id = ?").get(input.spaceId) as { n: number }).n;
     this.db.prepare(`INSERT INTO team_roles (id, space_id, name, brief, realmite_json, template, agent_kind, model, effort, permission_mode,
-        handle, icon_json, folder, is_lead, group_name, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, '{}', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        handle, icon_json, folder, is_lead, group_name, sort_order, compact_window, created_at, updated_at)
+      VALUES (?, ?, ?, ?, '{}', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.name, input.brief, input.agentKind, input.model, input.effort, input.permissionMode,
-        input.handle, JSON.stringify(input.icon), input.folder, input.lead ? 1 : 0, input.group, order, t, t);
+        input.handle, JSON.stringify(input.icon), input.folder, input.lead ? 1 : 0, input.group, order, input.compactWindow ?? null, t, t);
     return this.get(id)!;
   }
 
@@ -149,6 +152,7 @@ export class TeammatesStore {
     if (p.sortOrder !== undefined) put("sort_order", p.sortOrder);
     if (p.archived !== undefined) put("archived", p.archived ? 1 : 0);
     if (p.homeSessionId !== undefined) put("home_session_id", p.homeSessionId);
+    if (p.compactWindow !== undefined) put("compact_window", p.compactWindow);
     if (sets.length === 0) return this.get(id);
     put("updated_at", this.clock());
     vals.push(id);

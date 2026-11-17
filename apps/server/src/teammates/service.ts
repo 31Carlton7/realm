@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import {
-  TEAMMATE_CLOCK_TURN_MS, TEAMMATE_PERMISSION_MODES, TEAM_ACCESS_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, TeamSetAccessArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
+  TEAMMATE_CLOCK_TURN_MS, TEAMMATE_HOME_COMPACT_WINDOW, TEAMMATE_PERMISSION_MODES, TEAM_ACCESS_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, TeamSetAccessArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
   sessionEvent, type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type TeamAccess, type TeamAccessMode, type Teammate,
   type TeammatePermissionMode, type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
 } from "@realm/contracts";
@@ -159,7 +159,7 @@ export class TeammatesService {
       id: row.id, spaceId: row.spaceId, handle: row.handle, name: row.name, brief: row.brief, icon: row.icon,
       agentKind: row.agentKind, model: row.model, effort: row.effort, permissionMode: row.permissionMode,
       folder: this.folderOf(row), lead: row.lead, group: row.group, sortOrder: row.sortOrder, archived: row.archived,
-      homeSessionId: row.homeSessionId, schedule: this.scheduleOf(row), createdAt: row.createdAt, updatedAt: row.updatedAt,
+      homeSessionId: row.homeSessionId, compactWindow: row.compactWindow, schedule: this.scheduleOf(row), createdAt: row.createdAt, updatedAt: row.updatedAt,
       state, stateSince: state === "idle" ? null : was?.state === state ? was.at : (live ?? home)?.updatedAt ?? null,
       unread: home ? home.unread && !atWork.has(home.id) : false,
       liveTask: live?.title ?? null,
@@ -210,7 +210,7 @@ export class TeammatesService {
       agentKind, model: input.model ?? null, effort: input.effort ?? null,
       // The space's Team access over the sheet's mode: the sheet sends one whether or not it was touched.
       permissionMode: this.d.store.access(input.spaceId) ?? input.permissionMode ?? (this.d.defaultMode(agentKind) as Teammate["permissionMode"]),
-      folder: this.checkFolder(input.folder ?? null), lead: false, group: input.group ?? null,
+      folder: this.checkFolder(input.folder ?? null), lead: false, group: input.group ?? null, compactWindow: input.compactWindow ?? null,
     });
     if (input.schedule) {
       try { this.d.schedules.setForTeammate(row, input.schedule); } catch (e) { this.d.store.remove(row.id); throw e; }
@@ -242,6 +242,7 @@ export class TeammatesService {
       ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
       ...(folder !== undefined ? { folder } : {}),
       ...(input.group !== undefined ? { group: input.group } : {}),
+      ...(input.compactWindow !== undefined ? { compactWindow: input.compactWindow } : {}),
     })!;
     if (input.lead !== undefined) this.d.store.setLead(cur.spaceId, input.lead ? cur.id : (cur.lead ? null : this.d.store.lead(cur.spaceId)?.id ?? null));
     this.followHome(cur, next);
@@ -578,6 +579,30 @@ export class TeammatesService {
     if (!row || row.archived) return undefined;
     const others = this.d.store.list(row.spaceId).filter((r) => r.id !== row.id);
     return homePreamble(row, others);
+  }
+
+  /** The window the home session's chat is compacted against. Undefined for any other session, so a
+   *  task session keeps the window its model has. */
+  compactWindowFor(sessionId: string): number | undefined {
+    const row = this.d.store.byHomeSession(sessionId);
+    if (!row || row.archived) return undefined;
+    return row.compactWindow ?? TEAMMATE_HOME_COMPACT_WINDOW;
+  }
+
+  /**
+   * Told to a home session's chat after a compaction: the task sessions it started (`runs`) that are
+   * still open. The summary may have left them out, and without their ids `agent_wait` cannot collect them.
+   * The brief needs no repeating (it is in the system prompt, which a compaction keeps), and a message
+   * still queued for the chat has not reached it yet.
+   */
+  afterCompaction(runs: readonly { childSessionId: string; done: unknown }[]): string | undefined {
+    if (runs.length === 0) return undefined;
+    const lines = runs.map((r) => {
+      let title = r.childSessionId;
+      try { title = this.d.sessions.get(r.childSessionId).title; } catch { /* listed by id */ }
+      return `- [${title}](${sessionLink(r.childSessionId)}): ${r.done === null ? "running" : "finished, not collected yet"}`;
+    });
+    return ["Your chat was just compacted. Task sessions you started that are still open (collect them with agent_wait):", ...lines].join("\n");
   }
 
   /** A home session was deleted: the next message makes another. */

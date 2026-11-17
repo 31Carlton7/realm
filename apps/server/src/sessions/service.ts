@@ -385,7 +385,14 @@ export class SessionService {
     /** A teammate's home session is told who it is and who its team is on every start
      *  (`teammates/service.ts`). Undefined for every other session. `seen` hears a teammate
      *  session's read mark move. */
-    teammateHome?: { contextFor(sessionId: string): string | undefined; seen(session: Session): void };
+    teammateHome?: {
+      contextFor(sessionId: string): string | undefined;
+      seen(session: Session): void;
+      /** The window a teammate's home chat is compacted against; undefined for every other session. */
+      compactWindowFor?(sessionId: string): number | undefined;
+      /** What a teammate's home chat is told straight after a compaction. */
+      afterCompaction?(sessionId: string): string | undefined;
+    };
     /** Where a session's engine keeps its own memory (`memory/claude-redirect.ts`): the space's folder
      *  of the user's memory repo, and what is committed when a Claude turn settles. Optional — without
      *  it every engine keeps its memory where it always has. */
@@ -2253,6 +2260,7 @@ export class SessionService {
     // A teammate's chat: who it is, its team as it is now, and how it works. Beside the capabilities
     // rather than in place of them, because a teammate works with every tool a session has.
     const teammateContext = this.d.teammateHome?.contextFor(id);
+    const compactWindow = this.d.teammateHome?.compactWindowFor?.(id);
     // What Realm's own tools are for, named while the agent is still planning rather than left to be
     // discovered in a tool list it may never read (capabilities.ts). FIRST in the join: it is the most
     // general thing in the prompt, and the user's memory documents must be able to overrule it.
@@ -2292,6 +2300,8 @@ export class SessionService {
       skills,
       systemContext,
       ...(memoryDir ? { memoryDirectory: memoryDir } : {}),
+      // A teammate's home chat is compacted well short of a 1M window; its task sessions are not.
+      ...(compactWindow ? { autoCompactWindow: compactWindow, afterCompaction: () => this.d.teammateHome?.afterCompaction?.(id) } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
       // under, for a log line or a bug report to read. Nothing reads them back. Then the folder of the
       // account the session runs on, which is what the CLI signs in with.
