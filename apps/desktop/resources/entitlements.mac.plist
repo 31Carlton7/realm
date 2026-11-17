@@ -17,7 +17,11 @@
      any prompt, and a real phone's picture stays a screenshot a second. It is the only camera Realm
      opens: nothing in it opens this Mac's own camera.
 
-     `device.audio-input` is the same for the microphone, which dictation listens through. -->
+     `device.audio-input` is the same for the microphone, which dictation listens through.
+
+     `personal-information.calendars` (Calendar and Reminders) and `personal-information.addressbook`
+     (Contacts) are the same gate for EventKit and Contacts. The `mac` CLI asks for them, but TCC
+     holds Realm responsible, and a hardened-runtime Realm without them is denied with no dialog. -->
 <plist version="1.0">
   <dict>
     <key>com.apple.security.cs.allow-jit</key>
@@ -31,6 +35,10 @@
     <key>com.apple.security.device.camera</key>
     <true/>
     <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    <key>com.apple.security.personal-information.addressbook</key>
     <true/>
   </dict>
 </plist>
