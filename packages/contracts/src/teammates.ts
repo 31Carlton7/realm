@@ -102,6 +102,18 @@ export const TEAMMATE_CLOCK_PROMPT = "Do your scheduled work.";
 export const TEAMMATE_CLOCK_TURN_MS = 60 * 60_000;
 
 /**
+ * The context window a teammate's home chat is compacted against, in tokens, unless the teammate has
+ * its own (`compactWindow`). The CLI compacts a little short of the window (at about 217K for this one,
+ * measured), so the chat is summarised before it reaches 250K rather than near the model's 1M. Every
+ * clock run, teammate message and wake-up re-reads the whole chat, so its size is what each one costs.
+ * Only the home chat: task sessions, ordinary sessions and sub-agents keep the window their model has.
+ */
+export const TEAMMATE_HOME_COMPACT_WINDOW = 250_000;
+/** The range the Claude CLI accepts for its auto-compact window. */
+const COMPACT_WINDOW_MIN = 100_000;
+const COMPACT_WINDOW_MAX = 1_000_000;
+
+/**
  * A teammate's clock: an ordinary row in `schedules`, tagged with the teammate (`roleId`) and kept out
  * of the Scheduled page's list. When it fires, `prompt` is a turn in the teammate's home session,
  * marked as the clock's (`user_message.scheduled.scheduleId`), queued behind a turn the chat is on, in
@@ -172,6 +184,8 @@ export const TeammateSchema = z.object({
   archived: z.boolean(),
   /** Its chat. Null until the first message, or for a teammate carried over from the first Teams. */
   homeSessionId: IdSchema.nullable(),
+  /** The window its chat is compacted against, in tokens; null for `TEAMMATE_HOME_COMPACT_WINDOW`. */
+  compactWindow: z.number().int().nullable(),
   /** Its clock, or null when it has none. */
   schedule: TeammateScheduleSchema.nullable(),
   createdAt: z.number().int(),
@@ -207,6 +221,8 @@ const TeammateFieldsSchema = z.object({
   group: z.string().trim().min(1).max(60).nullable().optional(),
   /** Its clock: set or changed, or null to remove it. */
   schedule: TeammateScheduleInputSchema.nullable().optional(),
+  /** Its chat's compaction window, or null for the default. Read when the chat next starts. */
+  compactWindow: z.number().int().min(COMPACT_WINDOW_MIN).max(COMPACT_WINDOW_MAX).nullable().optional(),
 });
 
 export const CreateTeammateSchema = TeammateFieldsSchema.extend({ spaceId: IdSchema });

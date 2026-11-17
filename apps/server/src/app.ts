@@ -1467,7 +1467,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     adaptIdle,
     backgroundShells: () => resourcesLate?.backgroundShells() ?? Promise.resolve(new Set<string>()),
     teammates: { joinedNote: (id) => teammates?.joinedNote(id) ?? "" },
-    teammateHome: { contextFor: (id) => team?.contextFor(id), seen: (session) => team?.seen(session) },
+    teammateHome: {
+      contextFor: (id) => team?.contextFor(id), seen: (session) => team?.seen(session),
+      compactWindowFor: (id) => team?.compactWindowFor(id),
+      afterCompaction: (id) => team?.afterCompaction(delegationEngine.runsOf(id)),
+    },
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).

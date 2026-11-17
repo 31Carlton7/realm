@@ -129,7 +129,7 @@ const task = (id: string, title: string, teammateId: string, state: TeammateTask
   ({ id, title, teammateId, parentId: null, state, updatedAt, unread: false });
 const teammate = (id: string, handle: string, name: string, brief: string, extra: Partial<Teammate>): Teammate => ({
   id, spaceId: "sp1", handle, name, brief, icon: { shape: "circle", color: "blue" }, agentKind: "claude", model: null, effort: null, permissionMode: "default",
-  folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, schedule: null, createdAt: 0, updatedAt: 0,
+  folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, compactWindow: null, schedule: null, createdAt: 0, updatedAt: 0,
   state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra,
 });
 const cto = teammate(CTO, "cto", "CTO", "Owns the architecture and reviews every migration.", {

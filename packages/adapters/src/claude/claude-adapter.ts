@@ -566,11 +566,29 @@ export class ClaudeAdapter implements AgentAdapter {
       // The same layer points Claude's auto-memory at the space's folder of the user's memory repo.
       // The CLI reads `autoMemoryDirectory` from policy settings first and flag settings second, so
       // this beats the user's own settings files without writing to any of them.
-      ...(opts.fastMode || opts.memoryDirectory ? {
+      //
+      // And a smaller compaction window. Without it a 1M-context model compacts at about 968K; with
+      // 250K, at about 217K (measured on CLI 2.1.322). `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the
+      // environment takes precedence over this setting, so a value the user set there still wins.
+      ...(opts.fastMode || opts.memoryDirectory || opts.autoCompactWindow ? {
         settings: {
           ...(opts.fastMode ? { fastMode: true } : {}),
           ...(opts.memoryDirectory ? { autoMemoryDirectory: opts.memoryDirectory } : {}),
+          ...(opts.autoCompactWindow ? { autoCompactWindow: opts.autoCompactWindow } : {}),
         } satisfies DeclaredSettings,
+      } : {}),
+      // A compaction keeps the system prompt and replaces the conversation with a summary. The CLI
+      // starts the session again from the summary, and this hook's text is added beside it.
+      ...(opts.afterCompaction ? {
+        hooks: {
+          SessionStart: [{
+            matcher: "compact",
+            hooks: [async (input) => {
+              const note = input.hook_event_name === "SessionStart" && input.source === "compact" ? opts.afterCompaction!() : undefined;
+              return note ? { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: note } } : {};
+            }],
+          }],
+        },
       } : {}),
     };
 

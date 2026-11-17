@@ -63,6 +63,14 @@ export type StartOptions = {
    * Absent, every engine keeps its memory where it always has.
    */
   memoryDirectory?: string;
+  /**
+   * The context window, in tokens, the agent compacts its conversation against, when it should be
+   * smaller than the model's. Realm sets it on a teammate's home chat only. Claude reads it; every other
+   * engine keeps its own compaction.
+   */
+  autoCompactWindow?: number;
+  /** What to tell the agent straight after it compacts its conversation, if anything. Claude only. */
+  afterCompaction?: () => string | undefined;
   /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —
    *  enablement or not, `fake` included (its adapter simply never reads it). Only tests pass `[]`. */
   mcpServers: McpServerConfig[];

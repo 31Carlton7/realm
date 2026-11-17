@@ -1194,7 +1194,7 @@ describe("session.info", () => {
 describe("teammates.list and teammate.chat", () => {
   const teammate = (id: string, spaceId: string, extra: Partial<Teammate> = {}): Teammate => ({
     id, spaceId, handle: id, name: `${id} (name)`, brief: `What ${id} does`, icon: { shape: "circle", color: "blue" }, agentKind: "claude", model: null, effort: null,
-    permissionMode: "default", folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, schedule: null, createdAt: 0, updatedAt: 0,
+    permissionMode: "default", folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, compactWindow: null, schedule: null, createdAt: 0, updatedAt: 0,
     state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra,
   } as Teammate);
   const none = { sessions: [], items: [] };

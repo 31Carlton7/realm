@@ -841,6 +841,37 @@ describe("ClaudeAdapter", () => {
       ]);
     });
 
+    it("compacts against the window it is given, in the same flag layer, and only when given one", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      for (const autoCompactWindow of [250_000, undefined]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], memoryDirectory: "/m", ...(autoCompactWindow ? { autoCompactWindow } : {}) });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      expect(captureOptions.map((o) => o.settings)).toEqual([{ autoMemoryDirectory: "/m", autoCompactWindow: 250_000 }, { autoMemoryDirectory: "/m" }]);
+    });
+
+    it("adds what it is told to say after a compaction, and nothing on any other start", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      for (const afterCompaction of [() => "Still open: one task.", undefined]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], ...(afterCompaction ? { afterCompaction } : {}) });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      expect(captureOptions[1]!.hooks).toBeUndefined();
+      type Matcher = { matcher: string; hooks: ((input: unknown) => Promise<unknown>)[] };
+      const [matcher] = (captureOptions[0]!.hooks as { SessionStart: Matcher[] }).SessionStart;
+      expect(matcher!.matcher).toBe("compact");
+      const hook = matcher!.hooks[0]!;
+      expect(await hook({ hook_event_name: "SessionStart", source: "compact" }))
+        .toEqual({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "Still open: one task." } });
+      expect(await hook({ hook_event_name: "SessionStart", source: "resume" })).toEqual({});
+    });
+
     describe("reasoning effort", () => {
       it("hands the SDK a level it has a word for, and never one from another harness", async () => {
         for (const [effort, sent] of [["max", "max"], ["minimal", undefined], [null, undefined]] as const) {
