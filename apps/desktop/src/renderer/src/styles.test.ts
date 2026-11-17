@@ -5448,14 +5448,15 @@ describe("the focus ring on a painted control", () => {
      outline is a square around a squircle — measured live (visual-review-live.mjs), a blue rectangle
      around the composer's model chip. */
   it("is drawn by the painter on the control's own curve, not as a square outline", () => {
-    const rule = bodiesFor(":root[data-squircle] :is(.btn, .ghost-chip, .palette-opt):focus-visible").join(" ");
+    const rule = bodiesFor(":root[data-squircle] :is(.btn, .ghost-chip, .palette-opt, .docs-home-open):focus-visible").join(" ");
     expect(rule).toContain("outline: none");
     expect(rule).toContain("--sq-ring: var(--rl-accent)");
     expect(rule).toContain(`animation: rl-focus-ring-painted ${"var(--dur-slow)"} var(--spring-smooth)`);
     expect(blockAfter("@keyframes rl-focus-ring-painted")).toContain("--sq-ring: transparent");
-    // Every control the worklet paints is covered — the list must not drift from the paint rule's.
+    // Every control the worklet paints is covered — the list must not drift from the paint rule's. A
+    // document tab is the one exception: the tab itself never takes focus, its label and close do.
     const painted = RULES.find((r) => r.body.includes("background: paint(rl-squircle)") && r.selectors.includes(":root[data-squircle] .ghost-chip"))!;
-    for (const sel of painted.selectors) expect(sel.replace(":root[data-squircle] ", ""), sel).toMatch(/^\.(btn|ghost-chip|palette-opt)$/);
+    for (const sel of painted.selectors) expect(sel.replace(":root[data-squircle] ", ""), sel).toMatch(/^\.(btn|ghost-chip|palette-opt|docs-home-open|documents-tab)$/);
     expect(bodiesFor(":root[data-squircle] .btn.primary:focus-visible").join(" ")).toContain("--rl-accent-contrast");
   });
 });
@@ -5685,5 +5686,64 @@ describe("ink over a picture behind the chat", () => {
     expect(bodiesFor(':root[data-mode="light"]').join(" ")).toContain("--link-over-picture: var(--accent-ink)");
     expect(bodiesFor(':root[data-mode="dark"]').join(" ")).toContain("--link-over-picture: color-mix(in oklab, var(--accent) 50%, var(--ink))");
     expect(bodiesFor(scope + " .md a:not(.msg-chip)").join(" ")).toContain("color: var(--chat-link, var(--rl-accent))");
+  });
+});
+
+describe("one squircle ladder (the owner, 11-17)", () => {
+  /* Every corner the painter draws, by the rung it stands on (the ladder is stated over --r-squircle in
+     styles.css). A surface takes a named rung, a control its own height times the control ratio, a
+     media well its tile times the media ratio. The rest are named for what they are: a run's join
+     (0px), a layer taking its card's corner (inherit), the device chassis concentric with its screen,
+     and the two pill buttons in the device's toolbar. THE MUTANT: a painted corner written as a
+     number, which is how a control comes to read square beside the search field. */
+  const SURFACE = /^var\(--r-squircle(-screen|-msg|-card)?\)$/;
+  const CONTROL = /^calc\((var\(--[a-z-]+-h\)|\d+px) \* var\(--sq-ratio-ctl\)\)$/;
+  const MEDIA = /^calc\(var\(--attach-tile\) \* var\(--sq-ratio-media\)\)$/;
+  const NAMED = ["0px", "inherit", "var(--sim-outer-r)", "calc(var(--btn-h) / 2)"];
+
+  it("draws every painted corner on a rung of the ladder", () => {
+    const corners = RULES.flatMap((r) => [...r.body.matchAll(/--sq-radius-(?:top|bottom): ([^;]+)/g)].map((m) => m[1]!.trim()));
+    expect(corners.length).toBeGreaterThan(0);
+    expect(corners.filter((c) => !SURFACE.test(c) && !CONTROL.test(c) && !MEDIA.test(c) && !NAMED.includes(c))).toEqual([]);
+  });
+
+  it("draws a control on the ratio at the control's exponent, not the surfaces'", () => {
+    // THE MUTANT: a control on the ratio left at n = 4, which keeps the corner's squareness.
+    const onRatio = RULES.filter((r) => /--sq-radius-top: calc\([^;]*--sq-ratio-ctl/.test(r.body));
+    expect(onRatio.length).toBeGreaterThan(0);
+    for (const rule of onRatio) expect(rule.body, partsOf(rule).join(", ")).toContain("--sq-n: var(--sq-n-ctl)");
+  });
+
+  it("paints the document tabs and the home's rows on the control rung, with every fill on the painter", () => {
+    // THE MUTANTS: either one dropped from the painted list, its fallback corner back on --r-ctl, or a
+    // state written to `background`, which the painter never reads.
+    for (const sel of [".documents-tab", ".docs-home-open"]) {
+      expect(RULES.some((r) => r.selectors.includes(`:root[data-squircle] ${sel}`) && r.body.includes("background: paint(rl-squircle)")
+        && r.body.includes("--sq-radius-top: calc(var(--btn-h) * var(--sq-ratio-ctl))")), sel).toBe(true);
+      const own = bodiesFor(sel).join(" ");
+      expect(own, sel).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl))");
+      expect(own, sel).toContain("height: var(--btn-h)");
+      expect(own, sel).toContain("--sq-fill var(--dur-hover)");
+    }
+    expect(bodiesFor(".documents-tab").join(" ")).toContain("--btn-h: 30px");
+    expect(bodiesFor(".docs-home-open").join(" ")).toContain("--btn-h: 32px");
+    for (const sel of [".documents-tab:hover", ".documents-tab[data-active]", ".docs-home-open:hover",
+      ".docs-home-open:is([data-pressed], :active:focus-visible)"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toMatch(/--fill: var\(--rl-(hover|active)\)/);
+      expect(body, sel).not.toMatch(/background/);
+    }
+    expect(bodiesFor(":root[data-squircle] :is(.btn, .ghost-chip, .palette-opt, .docs-home-open):focus-visible").join(" "))
+      .toContain("--sq-ring: var(--rl-accent)");
+  });
+
+  it("lets no new control take the old fixed corner", () => {
+    /* The fixed --r-ctl and --r-chip under Chromium's `corner-shape` are what is left to move onto the
+       control rung (ui-pass/s5-documents/rounding.md lists them). The count may only go down: a control
+       written tomorrow takes its height times the ratio. THE MUTANT: the document tabs put back. */
+    const fixed = RULES.filter((r) => /corner-shape: squircle/.test(r.body) && /border-radius: var\(--r-(ctl|chip)\)/.test(r.body))
+      .flatMap(partsOf);
+    expect(fixed).not.toContain(".documents-tab");
+    expect(fixed.length).toBeLessThanOrEqual(70);
   });
 });

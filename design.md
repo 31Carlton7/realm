@@ -538,6 +538,17 @@ the radius has nowhere to go, since it may never pass half the short side, and r
 tenth of a pixel there only turns every control that renders the circular fallback into a pill.
 Figma and iOS taper corner smoothing near that same limit for the same reason.
 
+Every squircle sits on ONE ladder, stated once over `--r-squircle` in `styles.css` and nowhere
+per component: a surface takes a named rung (the prompter's, the screen's, the message's, the
+card's), a control takes its own height times the control ratio at the control's exponent, and a
+media well its tile times the media ratio. A corner written as a number is the failure. The
+document tabs wore a fixed 13px on the surfaces' exponent beside a search field and a New button
+on the control rung, and read as the square ones in the pane (the owner, 11-17: "the rounding is
+just smaller and could be a bit larger there"). The same number on two exponents is two shapes, so
+a control that moves onto the ladder moves onto the painter as well. `styles.test.ts` fails a
+painted corner off the ladder, and the count of controls still on the old fixed corner may only go
+down.
+
 The large composer squircle is a product signature, and its role is broader than the composer. It
 belongs on any surface that is a **panel the eye rests in** rather than a row it scans past: the
 composer, a fenced code block, a commit or review card, an install card. What it does not belong on
