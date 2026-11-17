@@ -7,9 +7,9 @@
  * A frame source is outside every mechanism the app stops its motion with (design.md, Motion), so
  * this re-reads each of them and STOPS the decoder, never throttles it: the Motion switch, Reduce
  * motion, Realm's Low power, macOS Low Power Mode, a document that is hidden, and a window that is
- * covered. Covered is asked of macOS (main/backdrop-state.ts, stamped on the root by App.tsx): main
- * keeps occluded windows compositing for the browser agent (index.ts), so to the page a covered
- * window is visible and goes on drawing frames.
+ * covered, on displays all asleep, or behind a locked screen. Those three are asked of macOS
+ * (main/backdrop-state.ts, stamped on the root by App.tsx): main keeps occluded windows compositing
+ * for the browser agent (index.ts), so to the page such a window is visible and goes on drawing frames.
  */
 /** What a viewer plays: a video by URL, or a GIF of the person's own by its id. */
 export type LoopSource = { kind: "video"; url: string } | { kind: "gif"; id: string };
@@ -29,12 +29,16 @@ export type Viewer = {
 };
 
 /** Everything that may stop a loop, read fresh each time it is asked. */
-export type Gate = { motion: boolean; reduce: boolean; quiet: string | null; lowPowerMode: boolean; hidden: boolean; covered: boolean };
+export type Gate = {
+  motion: boolean; reduce: boolean; quiet: string | null; lowPowerMode: boolean;
+  hidden: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean;
+};
 
 /** Whether a loop may play at all: Motion on, and none of Reduce motion, Realm's Low power (the
- *  root's `data-quiet="always"`), macOS Low Power Mode, a hidden document or a covered window. */
+ *  root's `data-quiet="always"`), macOS Low Power Mode, a hidden document, a covered window, a window
+ *  whose displays are all asleep, or a locked screen. */
 export function loopMayPlay(g: Gate): boolean {
-  return g.motion && !g.reduce && g.quiet !== "always" && !g.lowPowerMode && !g.hidden && !g.covered;
+  return g.motion && !g.reduce && g.quiet !== "always" && !g.lowPowerMode && !g.hidden && !g.covered && !g.displayAsleep && !g.screenLocked;
 }
 
 /** Which loop the window decodes: the one asked for by a viewer on screen in the pane the keyboard is
@@ -135,6 +139,8 @@ function gate(): Gate {
     lowPowerMode: document.documentElement.hasAttribute("data-low-power-mode"),
     hidden: document.hidden,
     covered: document.documentElement.hasAttribute("data-window-covered"),
+    displayAsleep: document.documentElement.hasAttribute("data-display-asleep"),
+    screenLocked: document.documentElement.hasAttribute("data-screen-locked"),
   };
 }
 
@@ -187,7 +193,7 @@ function wire() {
   document.addEventListener("visibilitychange", update);
   document.addEventListener("focusin", update);
   reduce()?.addEventListener?.("change", update);
-  new MutationObserver(update).observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet", "data-low-power-mode", "data-window-covered"] });
+  new MutationObserver(update).observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet", "data-low-power-mode", "data-window-covered", "data-display-asleep", "data-screen-locked"] });
 }
 
 /** Starts showing `v` the window's loop when it is the one playing; the returned function stops. */

@@ -150,7 +150,7 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
       <div className="settings-row" data-setting="background-motion">
         <div className="settings-row-main"><span className="settings-row-name">Motion</span></div>
         <input type="checkbox" role="switch" className="switch" aria-label="Background motion"
-          title={canMove ? "Plays the background's loop, or lets the picture drift. It holds still under Reduce motion, Low power and the Mac's Low Power Mode, and while the window is hidden or covered." : "This background has no motion."}
+          title={canMove ? "Plays the background's loop, or lets the picture drift. Both hold still under Reduce motion, Low power and the Mac's Low Power Mode, and while the window is hidden. A drift also holds still while the window is not in front or nobody has touched it for half a minute. A loop plays on behind other apps until the window is covered, its display sleeps or the screen locks." : "This background has no motion."}
           checked={motion && canMove} disabled={!canMove} onChange={(e) => run(() => setBackgroundMotion(e.target.checked))} />
       </div>
     </>

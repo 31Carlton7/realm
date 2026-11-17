@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loopMayPlay, loopStats, pickSource, refreshLoops, resetLoops, watchLoop, type Gate, type Viewer } from "./loop-player";
 
 describe("when a loop may play", () => {
-  const open: Gate = { motion: true, reduce: false, quiet: null, lowPowerMode: false, hidden: false, covered: false };
+  const open: Gate = { motion: true, reduce: false, quiet: null, lowPowerMode: false, hidden: false, covered: false, displayAsleep: false, screenLocked: false };
 
   it("plays with Motion on and nothing holding it still", () => {
     expect(loopMayPlay(open)).toBe(true);
@@ -11,8 +11,8 @@ describe("when a loop may play", () => {
     expect(loopMayPlay({ ...open, quiet: "unfocused" })).toBe(true);
   });
 
-  it("stops for the Motion switch, Reduce motion, Low power, macOS Low Power Mode, and a hidden or covered window", () => {
-    for (const held of [{ motion: false }, { reduce: true }, { quiet: "always" }, { lowPowerMode: true }, { hidden: true }, { covered: true }]) {
+  it("stops for the Motion switch, Reduce motion, Low power, macOS Low Power Mode, a hidden or covered window, asleep displays and a locked screen", () => {
+    for (const held of [{ motion: false }, { reduce: true }, { quiet: "always" }, { lowPowerMode: true }, { hidden: true }, { covered: true }, { displayAsleep: true }, { screenLocked: true }]) {
       expect(loopMayPlay({ ...open, ...held })).toBe(false);
     }
   });
@@ -61,7 +61,7 @@ describe("the window's one loop", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     document.documentElement.removeAttribute("data-quiet");
-    document.documentElement.removeAttribute("data-window-covered");
+    for (const a of ["data-window-covered", "data-display-asleep", "data-screen-locked"]) document.documentElement.removeAttribute(a);
     document.body.innerHTML = "";
   });
 
@@ -146,4 +146,19 @@ describe("the window's one loop", () => {
     cleanups.pop()!();
     expect(watch.mock.calls).toEqual([[true], [false]]);
   });
+
+  for (const [what, attr] of [["its displays are all asleep", "data-display-asleep"], ["the screen is locked", "data-screen-locked"]]) {
+    it(`lets its decoder go while ${what}, and plays again after`, async () => {
+      motion = true;
+      const a = viewer("/a.mp4");
+      present();
+      expect([loopStats().decoders, a.state.showing]).toEqual([1, true]);
+      document.documentElement.setAttribute(attr, "");
+      await vi.advanceTimersByTimeAsync(0);
+      expect([loopStats().decoders, a.state.showing]).toEqual([0, false]);
+      document.documentElement.removeAttribute(attr);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(loopStats().decoders).toBe(1);
+    });
+  }
 });

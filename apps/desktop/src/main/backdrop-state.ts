@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
 
 /** What a window's moving background stops for that Chromium does not tell its page. */
-export type BackdropState = { lowPowerMode: boolean; covered: boolean };
+export type BackdropState = { lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean };
 export const BACKDROP_STATE_CHANNEL = "realm:backdrop-state";
 
 function helperPath(): string | null {
@@ -16,12 +16,15 @@ function helperPath(): string | null {
   return existsSync(packaged) ? packaged : null;
 }
 
+type WindowsLine = { covered: number[]; asleep: number[]; locked: boolean };
+const windowNumbers = (v: unknown): v is number[] => Array.isArray(v) && v.every((n) => Number.isInteger(n));
+
 /** One line of the helper's output (native/BackdropState.swift), or null for one that is not. */
-export function parseBackdropLine(line: string): { lowPower: boolean } | { covered: number[] } | null {
+export function parseBackdropLine(line: string): { lowPower: boolean } | WindowsLine | null {
   try {
-    const v = JSON.parse(line) as { lowPower?: unknown; covered?: unknown };
+    const v = JSON.parse(line) as { lowPower?: unknown; covered?: unknown; asleep?: unknown; locked?: unknown };
     if (typeof v.lowPower === "boolean") return { lowPower: v.lowPower };
-    if (Array.isArray(v.covered) && v.covered.every((n) => Number.isInteger(n))) return { covered: v.covered as number[] };
+    if (windowNumbers(v.covered) && windowNumbers(v.asleep) && typeof v.locked === "boolean") return { covered: v.covered, asleep: v.asleep, locked: v.locked };
     return null;
   } catch {
     return null;
@@ -35,22 +38,28 @@ export function windowNumber(win: BrowserWindow): number | null {
 }
 
 /**
- * macOS Low Power Mode, and whether each window playing a background loop can be seen, for the
- * renderer to stop the loop on (loop-player.ts). A window asks to be watched while it has a loop
- * (`backdrop:watch`), so the helper looks at the screen only while one plays. One helper for the app,
- * started with it and gone with it; where it is missing neither ever stops a loop.
+ * macOS Low Power Mode, and whether each window playing a background loop can be seen (covered, on
+ * displays all asleep, or behind a locked screen), for the renderer to stop the loop on
+ * (loop-player.ts). A window asks to be watched while it has a loop (`backdrop:watch`), so the helper
+ * looks at the screen only while one plays. One helper for the app, started with it and gone with it;
+ * where it is missing, none of these ever stops a loop.
  */
 export function startBackdropState(): void {
   let lowPower = false;
   let covered = new Set<number>();
+  let asleep = new Set<number>();
+  let locked = false;
   const watched = new Set<BrowserWindow>();
   const hooked = new WeakSet<BrowserWindow>();
-  const stateOf = (win: BrowserWindow): BackdropState => ({ lowPowerMode: lowPower, covered: covered.has(windowNumber(win) ?? -1) });
+  const stateOf = (win: BrowserWindow): BackdropState => {
+    const n = windowNumber(win) ?? -1;
+    return { lowPowerMode: lowPower, covered: covered.has(n), displayAsleep: asleep.has(n), screenLocked: locked };
+  };
   const tell = (win: BrowserWindow) => { if (!win.isDestroyed()) win.webContents.send(BACKDROP_STATE_CHANNEL, stateOf(win)); };
 
   ipcMain.handle("backdrop:state", (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
-    return win ? stateOf(win) : { lowPowerMode: lowPower, covered: false };
+    return win ? stateOf(win) : { lowPowerMode: lowPower, covered: false, displayAsleep: false, screenLocked: locked };
   });
   const bin = helperPath();
   if (!bin) { ipcMain.on("backdrop:watch", () => {}); return; }
@@ -78,12 +87,14 @@ export function startBackdropState(): void {
       if ("lowPower" in msg) {
         if (msg.lowPower === lowPower) continue;
         lowPower = msg.lowPower;
-        for (const win of BrowserWindow.getAllWindows()) tell(win);
       } else {
-        const was = covered;
         covered = new Set(msg.covered);
-        for (const win of watched) { const n = windowNumber(win) ?? -1; if (was.has(n) !== covered.has(n)) tell(win); }
+        asleep = new Set(msg.asleep);
+        locked = msg.locked;
       }
+      // Every window, watched or not: one that stopped watching while covered is told it no longer is,
+      // so its loop is free to play when it watches again. The helper prints only on a change.
+      for (const win of BrowserWindow.getAllWindows()) tell(win);
     }
   });
   app.on("will-quit", () => child.stdin.end());

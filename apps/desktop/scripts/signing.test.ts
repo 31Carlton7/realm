@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { packPlan } from "./pack.mjs";
 // @ts-expect-error — CJS hook module; vitest interops the named export fine.
-import { grantBindingProblems, notarizeDecision, parseCodesign } from "./notarize.cjs";
+import { grantBindingProblems, HELPERS, notarizeDecision, parseCodesign } from "./notarize.cjs";
+import { HELPERS as BUILT } from "./build-native.mjs";
 
 describe("packPlan — sign iff a credential is in the env (Plan 15 W3)", () => {
   const argv = ["--mac", "dmg", "zip", "--publish", "never"];
@@ -147,6 +148,10 @@ describe("grantBindingProblems — refuse a build whose grants would not survive
     expect(signedApp).toMatchObject({ identifier: "co.charmtechnologies.realm", teamId: "FY9QB79VAP", runtime: true });
     expect(adhoc).toMatchObject({ teamId: null, runtime: false });
     expect(adhoc.requirement).toMatch(/^cdhash/);
+  });
+
+  it("reads the signature of every helper build-native.mjs builds", () => {
+    expect(HELPERS).toEqual(BUILT.map(([, binary]: string[]) => binary));
   });
 
   it("passes the shipped 2.1.1 signature: app and helper on one team, hardened runtime", () => {

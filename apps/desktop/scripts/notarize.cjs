@@ -20,9 +20,10 @@ function notarizeDecision(env) {
 
 /** The bundle id every macOS grant Realm holds is keyed to (electron-builder.yml's appId). */
 const BUNDLE_ID = "co.charmtechnologies.realm";
-/** The native helpers stage-pack.mjs puts in Contents/Resources. axhelper is the one whose requests
- *  macOS attributes to Realm for Accessibility and Screen Recording; all of them run in Realm's tree. */
-const HELPERS = ["axhelper", "scrollphase", "phonescreen", "deviceowner", "policystamp"];
+/** The native helpers stage-pack.mjs puts in Contents/Resources: every one build-native.mjs builds
+ *  (signing.test.ts holds the two together). axhelper is the one whose requests macOS attributes to
+ *  Realm for Accessibility and Screen Recording; all of them run in Realm's tree. */
+const HELPERS = ["scrollphase", "axhelper", "phonescreen", "deviceowner", "policystamp", "realmkeychain", "realmvoice", "backdropstate"];
 
 /** Pure: the fields `codesign -dv --verbose=2` and `codesign -d -r-` print that decide grant binding. */
 function parseCodesign(details, requirement) {
@@ -112,3 +113,4 @@ module.exports.default = afterSign;
 module.exports.notarizeDecision = notarizeDecision;
 module.exports.parseCodesign = parseCodesign;
 module.exports.grantBindingProblems = grantBindingProblems;
+module.exports.HELPERS = HELPERS;

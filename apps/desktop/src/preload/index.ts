@@ -207,11 +207,12 @@ contextBridge.exposeInMainWorld("realm", {
     poster: (id: string, jpeg: Uint8Array): Promise<BackgroundImage | null> => ipcRenderer.invoke("backgrounds:poster", id, jpeg),
   },
   /** What a moving background stops for that the page is not told (main/backdrop-state.ts): macOS
-   *  Low Power Mode, and this window covered. `watch` asks main to look while a loop plays. */
-  backdropState: (): Promise<{ lowPowerMode: boolean; covered: boolean }> => ipcRenderer.invoke("backdrop:state"),
+   *  Low Power Mode, this window covered or on displays all asleep, and the screen locked. `watch`
+   *  asks main to look while a loop plays. */
+  backdropState: (): Promise<{ lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }> => ipcRenderer.invoke("backdrop:state"),
   watchBackdrop: (on: boolean): void => ipcRenderer.send("backdrop:watch", on),
-  onBackdropState: (cb: (s: { lowPowerMode: boolean; covered: boolean }) => void): (() => void) => {
-    const handler = (_e: unknown, s: { lowPowerMode: boolean; covered: boolean }) => cb(s);
+  onBackdropState: (cb: (s: { lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }) => void): (() => void) => {
+    const handler = (_e: unknown, s: { lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }) => cb(s);
     ipcRenderer.on("realm:backdrop-state", handler);
     return () => ipcRenderer.removeListener("realm:backdrop-state", handler);
   },

@@ -156,10 +156,10 @@ interface Window {
       gif(id: string): Promise<Uint8Array | null>;
       poster(id: string, jpeg: Uint8Array): Promise<import("@realm/contracts").BackgroundImage | null>;
     };
-    /** macOS Low Power Mode and this window covered (main/backdrop-state.ts). Optional: jsdom has no bridge. */
-    backdropState?(): Promise<{ lowPowerMode: boolean; covered: boolean }>;
+    /** macOS Low Power Mode, this window covered or asleep, and the screen locked (main/backdrop-state.ts). Optional: jsdom has no bridge. */
+    backdropState?(): Promise<{ lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }>;
     watchBackdrop?(on: boolean): void;
-    onBackdropState?(cb: (s: { lowPowerMode: boolean; covered: boolean }) => void): () => void;
+    onBackdropState?(cb: (s: { lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }) => void): () => void;
     /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
     appIcon?: {
       get(): Promise<string>;
