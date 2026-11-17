@@ -899,7 +899,8 @@ export { SETTING_ACTIVE_SPACE, viewSettingKey };
 export const SETTING_ACTIVE_PROFILE = "ui.activeProfileId";
 /** In contracts, as `SETTING_SUBMIT_KEY` is: an agent's `settings_set` writes them (`AGENT_SETTINGS`). */
 export { SETTING_THEME };
-/** The palette, one key per face — a second axis from `ui.theme`'s light/dark: that says which mode,
+/** The palette, one key per face (`SETTING_THEME_NAME`, in contracts because `theme_import` writes
+ *  it) — a second axis from `ui.theme`'s light/dark: that says which mode,
  *  these say what the colours are in it. A key each rather than one compound value so the two faces
  *  are written independently, which is what choosing them independently means.
  *
