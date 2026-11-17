@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { MoveOptions, PendingMove, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { MoveOptions, PendingMove, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, EditorTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -277,6 +277,8 @@ export type FakeData = {
   skillSources?: Record<string, SkillSource[]>;
   /** Imported VS Code themes, as `themes.list` answers. */
   customThemes?: StoredTheme[];
+  /** What `themes.installed` finds in the editors' extension folders. */
+  editorThemes?: EditorTheme[];
   /** Families downloaded into `~/Realm/fonts`, as `fonts.installed` answers. */
   installedFonts?: InstalledFont[];
   /** What `fonts.catalog` answers with. */
@@ -596,6 +598,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     projectFiles: overrides.projectFiles ?? { hits: [], source: "git", truncated: false },
     skillSources: overrides.skillSources ?? {},
     customThemes: overrides.customThemes ?? [],
+    editorThemes: overrides.editorThemes ?? [],
     installedFonts: overrides.installedFonts ?? [],
     fontCatalog: overrides.fontCatalog ?? [],
     pickedThemeFile: overrides.pickedThemeFile ?? null,
@@ -1260,6 +1263,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.customThemes = [...data.customThemes.filter((x) => x.id !== t.id), t];
       return t;
     },
+    listEditorThemes: async () => { calls.push("listEditorThemes"); return { themes: [...data.editorThemes] }; },
     removeTheme: async (id) => { calls.push(`removeTheme:${id}`); data.customThemes = data.customThemes.filter((t) => t.id !== id); },
     listInstalledFonts: async () => { calls.push("listInstalledFonts"); return { root: "/realm-home/fonts", fonts: [...data.installedFonts] }; },
     fontCatalog: async () => { calls.push("fontCatalog"); return { fonts: [...data.fontCatalog] }; },

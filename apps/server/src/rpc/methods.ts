@@ -299,6 +299,7 @@ export function registerMethods(d: Deps): void {
   // not the whole folder — so the only failure a client can see here is an import it just asked for.
   reg("themes.list", () => ({ root: d.themes.root, themes: d.themes.list() }));
   reg("themes.import", (p) => { const t = d.themes.import(p.path); rpc.broadcast("themes.changed", {}); return t; });
+  reg("themes.installed", () => ({ themes: d.themes.installed() }));
   reg("themes.remove", (p) => { d.themes.remove(p.id); rpc.broadcast("themes.changed", {}); return { ok: true as const }; });
   // Google Fonts. `catalog` and `install` reach the network; everything else is the local folder.
   reg("fonts.installed", () => ({ root: d.fonts.root, fonts: d.fonts.list() }));

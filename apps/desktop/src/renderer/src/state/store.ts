@@ -1,5 +1,6 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel, type AddTeammate } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape, type UnlockPolicy, type UnlockPolicyStatus } from "@realm/contracts";
+import { SETTING_THEME_NAME, type EditorTheme } from "@realm/contracts";
 import { destinationTarget } from "./page-item";
 import { MAC_SKILL_ID, MAX_TAB_REFS, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type TabCard, type TabEntry, type TabRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
@@ -369,6 +370,8 @@ export type Api = TeammatesApi & {
   pickThemeFile(): Promise<string | null>;
   /** `themes.import` — translate the file at `path` and keep it. */
   importTheme(path: string): Promise<StoredTheme>;
+  /** `themes.installed` — the editors' colour themes on this Mac not imported yet. */
+  listEditorThemes(): Promise<{ themes: EditorTheme[] }>;
   /** `themes.remove` */
   removeTheme(id: string): Promise<void>;
   /** `fonts.installed` — families downloaded into `~/Realm/fonts`. */
@@ -903,7 +906,6 @@ export { SETTING_THEME };
  *  `ui.themeName` is what a single selection used to be stored under; it is READ as the fallback for
  *  both faces and never written again. A home last opened by an older build keeps the palette it had
  *  wherever that palette has a face, which for a dark-only one is the dark slot alone. */
-const SETTING_THEME_NAME: Record<Mode, string> = { light: "ui.themeName.light", dark: "ui.themeName.dark" };
 const SETTING_THEME_NAME_LEGACY = "ui.themeName";
 /** Colours the user has moved off a palette's own seeds, keyed by palette and face. One row rather
  *  than a key per palette: they are read together on every boot and there is no palette whose
@@ -1917,6 +1919,13 @@ export type AppState = TeammatesSlice & {
   refreshCustomThemes(): Promise<void>;
   /** Pick a VS Code colour theme file and import it; returns the id so the caller can select it. */
   importThemeFile(): Promise<string | null>;
+  /** Settings ▸ Appearance's Import a theme: a new session, with the import of a theme's file (one an
+   *  editor installed, or one picked in the system's dialog) already sent to its agent, whose
+   *  `theme_import` wears the theme when it lands; or, for a theme to be described, the prompter
+   *  holding the start of that request, for the words only the person has. */
+  importThemeInSession(theme: { label: string; path: string } | "file" | "describe"): Promise<void>;
+  /** The editors' colour themes on this Mac that are not imported yet. */
+  listEditorThemes(): Promise<EditorTheme[]>;
   /** Forget an imported theme. A face still naming it falls back to `realm`. */
   removeCustomTheme(id: string): Promise<void>;
   /** Re-read the downloaded families and publish their `@font-face` rules to the document. */
@@ -2250,7 +2259,7 @@ export type AppState = TeammatesSlice & {
   /** Create a session, open its item in the main view, open its transcript, and give its prompter the
    *  keyboard. It goes to `input.spaceId`, else the current space — the space of the session in focus.
    *  When `edge` is supplied with a target leaf, it opens there the way a dragged row would. */
-  newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
+  newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<string | null>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model last sent
    *  on with that agent (`lastModels`, else the adapter's default) and the default permission mode;
@@ -5100,6 +5109,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().refreshCustomThemes();
         return theme.id;
       },
+      async importThemeInSession(theme) {
+        let file = theme === "describe" ? null : theme;
+        if (file === "file") {
+          const path = await api.pickThemeFile();
+          if (!path) return;
+          file = { label: path.split("/").pop()!, path };
+        }
+        const id = await get().newSession({ ...instantPick(), spaceId: null });
+        if (!id) return;
+        if (!file) { get().setDraft(id, "Make me a colour theme for Realm and switch to it: "); return; }
+        await get().sendMessage(id, `Import the colour theme "${file.label}" from ${file.path} into Realm with theme_import, so Realm switches to it.`);
+      },
+      async listEditorThemes() { return (await api.listEditorThemes()).themes; },
       async refreshFonts() {
         const { fonts } = await api.listInstalledFonts();
         /* Published BEFORE the state, for `refreshCustomThemes`'s reason: a preference naming a
@@ -6394,6 +6416,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Made to be typed in, whichever way it was asked for — ⌘N, the palette's agent rows, a worktree,
         // a split — so its prompter gets the keyboard, and a list showing it brings it into view.
         if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+        return id;
       },
       async newSessionInstant(targetLeafId = null, edge, spaceId = null) {
         await get().newSession({ ...instantPick(), spaceId }, targetLeafId, edge);
@@ -7947,6 +7970,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           case AGENT_SETTINGS.submitKey.key: if (isSubmitKey(value)) set({ submitKey: value }); return;
           case AGENT_SETTINGS.midTurnMode.key: set({ midTurnMode: resolveMidTurnMode(value) }); return;
           case AGENT_SETTINGS.terminalCursorBlink.key: if (typeof value === "boolean") set({ terminalCursorBlink: value }); return;
+          /* `theme_import` wears the theme it just imported. The themes are read again first, for
+             `refreshCustomThemes`'s reason: a name the registry does not hold yet would fall back to
+             Realm's own palette, which is the frame this would otherwise paint. */
+          case SETTING_THEME_NAME.light: case SETTING_THEME_NAME.dark: {
+            const mode: Mode = key === SETTING_THEME_NAME.light ? "light" : "dark";
+            get().run(async () => {
+              await get().refreshCustomThemes();
+              if (isThemeName(value) && themeModes(value).includes(mode)) set({ themeNames: { ...get().themeNames, [mode]: value } });
+            });
+            return;
+          }
         }
       },
       async applySessionOpenRequested({ spaceId, itemId, openedBy, edge }) {
