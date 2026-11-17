@@ -3,8 +3,9 @@ import { NodeSelection, Selection, TextSelection } from "@tiptap/pm/state";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from "@tiptap/react";
 import { uiBlockKind } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DrawnBlock, useUiBlock, type BlockState } from "../session/rich/UiBlock";
+import { codeHighlight } from "./code-highlight";
 import { openFence } from "./markdown-model";
 
 /**
@@ -19,6 +20,9 @@ import { openFence } from "./markdown-model";
  * until it is closed.
  */
 export const UiCodeBlock = CodeBlock.extend({
+  addProseMirrorPlugins() {
+    return [...(this.parent?.() ?? []), codeHighlight()];
+  },
   addNodeView() {
     const drawn = ReactNodeViewRenderer(BlockNodeView, {
       // A fence whose language stops being a block, or becomes one, is a different view.
@@ -30,11 +34,42 @@ export const UiCodeBlock = CodeBlock.extend({
       // The drawing is the block's own interface: its clicks are its buttons', never a selection.
       stopEvent: ({ event }) => event.target instanceof Element && event.target.closest(".ui-block-node-view") !== null,
     });
-    // Every other code block keeps ProseMirror's own rendering — a null view is ProseMirror's cue to
-    // draw the node from its schema.
-    return (props) => (uiBlockKind(props.node.attrs["language"] as string | null) ? drawn(props) : (null as unknown as ReturnType<typeof drawn>));
+    // Every other code block is the transcript's panel: its language and a copy control over the code.
+    const code = ReactNodeViewRenderer(CodeNodeView, {
+      stopEvent: ({ event }) => event.target instanceof Element && event.target.closest(".md-code-head") !== null,
+    });
+    return (props) => (uiBlockKind(props.node.attrs["language"] as string | null) ? drawn(props) : code(props));
   },
 });
+
+/** How long the copy button holds its check before cross-fading back (the transcript's COPIED_MS). */
+const COPIED_MS = 1400;
+
+function CodeNodeView({ node }: ReactNodeViewProps) {
+  const language = (node.attrs["language"] as string | null) ?? "";
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const copy = () => {
+    void navigator.clipboard.writeText(node.textContent);
+    setCopied(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+  };
+  return (
+    <NodeViewWrapper className="md-code">
+      <div className="md-code-head" contentEditable={false}>
+        <span className="md-code-lang">{language}</span>
+        <button type="button" className="md-copy tool-copy" aria-label="Copy code" title="Copy"
+          data-copied={copied || undefined} onClick={copy}>
+          <Icon name="copy" size={12} className="copy-icon" />
+          <Icon name="check" size={12} className="copied-icon" />
+        </button>
+      </div>
+      <pre><NodeViewContent<"code"> as="code" className={language ? `language-${language}` : undefined} /></pre>
+    </NodeViewWrapper>
+  );
+}
 
 function BlockNodeView({ node, editor, getPos, selectionInside }: ReactNodeViewProps) {
   const kind = uiBlockKind(node.attrs["language"] as string | null)!;
