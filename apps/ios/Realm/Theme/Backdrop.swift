@@ -49,18 +49,21 @@ enum Backdrop {
     /// the quiet ink, and the link.
     struct Inks: Equatable {
         let ground: RGB, ink: RGB, ink2: RGB, link: RGB, accent: RGB
+        /// The ratio the link keeps: 3:1 on the light face (design.md), 4.5:1 on the dark.
+        let linkRatio: Double
 
-        init(ground: RGB, ink: RGB, ink2: RGB, link: RGB, accent: RGB) {
+        init(ground: RGB, ink: RGB, ink2: RGB, link: RGB, accent: RGB, linkRatio: Double) {
             self.ground = ground
             self.ink = ink
             self.ink2 = ink2
             self.link = link
             self.accent = accent
+            self.linkRatio = linkRatio
         }
 
         init(_ scheme: ColorScheme) {
             self.init(ground: RGB(Ground.transcript, in: scheme), ink: RGB(Palette.ink, in: scheme), ink2: RGB(Palette.ink2, in: scheme),
-                      link: RGB(Palette.accentInk, in: scheme), accent: RGB(Palette.accent, in: scheme))
+                      link: RGB(Palette.accentInk, in: scheme), accent: RGB(Palette.accent, in: scheme), linkRatio: scheme == .light ? 3 : 4.5)
         }
     }
 
@@ -68,15 +71,14 @@ enum Backdrop {
     /// the image and of the print over it.
     static let spare = 0.3
 
-    /// The luminances a pixel may have so that every ink keeps its ratio over it: 4.5:1, or 3:1 for an
-    /// ink that misses 4.5:1 on the plain ground already (the light face's link), and never more than
-    /// that ink has on the plain ground.
+    /// The luminances a pixel may have so that every ink keeps its ratio over it: 4.5:1 for the body and
+    /// the quiet ink, the link's own for the link, and never more than that ink has on the plain ground.
     static func readableRange(_ inks: Inks) -> ClosedRange<Double> {
         let ground = inks.ground.luminance
         var lo = 0.0, hi = 1.0
-        for ink in [inks.ink, inks.ink2, inks.link] {
+        for (ink, ratio) in [(inks.ink, 4.5), (inks.ink2, 4.5), (inks.link, inks.linkRatio)] {
             let plain = ink.contrast(with: inks.ground)
-            let floor = min((plain < 4.5 ? 3 : 4.5) + spare, plain) - 0.005
+            let floor = min(ratio + spare, plain) - 0.005
             let l = ink.luminance
             if l > ground { hi = min(hi, (l + 0.05) / floor - 0.05) } else { lo = max(lo, floor * (l + 0.05) - 0.05) }
         }

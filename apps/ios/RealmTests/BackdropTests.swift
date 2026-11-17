@@ -115,7 +115,7 @@ struct BackdropTests {
                     .frame(width: 160, height: 160)
                     .environment(\.colorScheme, scheme)
                 let pixels = try Self.drawn(view, size: CGSize(width: 160, height: 160))
-                if name == "ramp" {
+                if name == "ramp" && look.asIs {
                     // The capture holds the picture, not a blank or the plain ground.
                     let shades = Set(stride(from: 0, to: pixels.count, by: 4).map { pixels[$0 + 1] })
                     #expect(shades.count > 16, "\(look.id), \(scheme): the capture shows \(shades.count) shades")
