@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS, REDUCED_MOTION_KEY } from "@realm/contracts";
+import { PAGE_REF_IDS, REDUCED_MOTION_KEY, type BackgroundImage } from "@realm/contracts";
 import { CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE, paneAlphaFromGround } from "@realm/ui";
 import { SettingsPage } from "./SettingsPage";
 import { GALLERY } from "../session/backdrop-gallery";
 import { SETTING_PANE_ALPHA, StoreContext, createAppStore } from "../../state/store";
+import { resetYourBackgrounds } from "../../state/your-backgrounds";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 
 const pageItem = item("set-s1", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] });
@@ -203,6 +204,30 @@ describe("Background", () => {
     const shown = document.querySelector('[aria-label="Background"] > .backdrop-grid')!;
     expect([...shown.querySelectorAll("input")].map((r) => r.value)).toEqual(["off", "shuffle", "synth-coast"]);
     expect(grid().getByRole("radio", { name: "Synth Coast, moves" })).toBeChecked();
+  });
+});
+
+describe("Your images", () => {
+  const image = (n: number): BackgroundImage => ({
+    id: `p${n}`, name: `Picture ${n}`, added: n, effect: "dither-color", asIs: false, width: 1600, height: 1000, loop: null,
+  });
+
+  it("folds after three rows with Add image… always first, and keeps the chosen one among them", async () => {
+    // THE MUTANTS: Add image… drawn last, where Show all folds it away; the chosen picture left folded.
+    const pictures = [1, 2, 3, 4, 5, 6, 7].map(image);
+    resetYourBackgrounds();
+    vi.stubGlobal("realm", { platform: "darwin", backgrounds: { list: async () => pictures, image: async () => null } });
+    try {
+      await appearance({ settings: { "ui.background": "mine:p6" } });
+      const mine = await screen.findByRole("group", { name: "Your images" });
+      const shown = mine.querySelector(":scope > .backdrop-grid")!;
+      expect(shown.firstElementChild).toBe(within(mine).getByRole("button", { name: "Add image…" }));
+      expect([...shown.querySelectorAll("input")].map((r) => r.value)).toEqual(["mine:p1", "mine:p6"]);
+      expect(within(mine).getByRole("radio", { name: "Picture 6" })).toBeChecked();
+      const row = mine.closest(".fold") as HTMLElement;
+      fireEvent.click(within(row).getByRole("button", { name: "Show all 7" }));
+      expect(within(row).getByRole("button", { name: "Show fewer" })).toBeInTheDocument();
+    } finally { cleanup(); resetYourBackgrounds(); vi.unstubAllGlobals(); }
   });
 });
 

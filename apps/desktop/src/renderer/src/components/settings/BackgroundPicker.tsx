@@ -145,17 +145,18 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
               Drop pictures or videos here. Each is drawn in your theme's colours unless you show it as it is.
             </EmptyState>
           ) : (
-            <fieldset className="backdrop-grid" aria-label="Your images">
-              {mine.map((m) => (
-                <Tile key={m.id} value={`${MINE_PREFIX}${m.id}`} chosen={pref === `${MINE_PREFIX}${m.id}`} name={m.name} moves={m.loop !== null} onPick={pick}>
+            <FoldedList items={mine} keyOf={(m) => `${MINE_PREFIX}${m.id}`} chosen={pref} listClass="backdrop-grid" label="Your images"
+              lead={(
+                <button type="button" className="backdrop-opt backdrop-add" onClick={choose}>
+                  <span className="backdrop-thumb"><Icon name="add" size={16} /></span>
+                  <span className="backdrop-name">Add image…</span>
+                </button>
+              )}
+              render={(m) => (
+                <Tile value={`${MINE_PREFIX}${m.id}`} chosen={pref === `${MINE_PREFIX}${m.id}`} name={m.name} moves={m.loop !== null} onPick={pick}>
                   <MineThumb id={m.id} />
                 </Tile>
-              ))}
-              <button type="button" className="backdrop-opt backdrop-add" onClick={choose}>
-                <span className="backdrop-thumb"><Icon name="add" size={16} /></span>
-                <span className="backdrop-name">Add image…</span>
-              </button>
-            </fieldset>
+              )} />
           )}
         </div>
       </div>

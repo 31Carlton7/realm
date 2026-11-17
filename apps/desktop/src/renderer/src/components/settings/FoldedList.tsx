@@ -31,18 +31,20 @@ function useColumns(list: RefObject<HTMLElement | null>): number {
  * still while it is open, so a pick never moves a tile out from under the pointer.
  *
  * `listClass` is the list's own layout (a grid or a column), drawn twice: the rows shown and the rows
- * folded, so the two line up. With a `label` the list is a fieldset of radios named by it.
+ * folded, so the two line up. With a `label` the list is a fieldset of radios named by it. A `lead`
+ * (an "Add…" tile) takes the first place in the rows shown, so it is never folded away, and is not
+ * counted in "Show all".
  */
-export function FoldedList<T>({ items, keyOf, chosen, render, listClass, label }: {
+export function FoldedList<T>({ items, keyOf, chosen, render, listClass, label, lead }: {
   items: readonly T[]; keyOf: (item: T) => string; chosen: string | null; render: (item: T) => ReactNode;
-  listClass: string; label?: string;
+  listClass: string; label?: string; lead?: ReactNode;
 }) {
   const shownList = useRef<HTMLDivElement>(null);
   const columns = useColumns(shownList);
   const [open, setOpen] = useState(false);
   const [openedOn, setOpenedOn] = useState(chosen);
   const pinned = open ? openedOn : chosen;
-  const shownCount = columns * FOLDED_ROWS;
+  const shownCount = columns * FOLDED_ROWS - (lead ? 1 : 0);
   const at = items.findIndex((item) => keyOf(item) === pinned);
   const ordered = at < shownCount ? items
     : [...items.slice(0, shownCount - 1), items[at]!, ...items.slice(shownCount - 1, at), ...items.slice(at + 1)];
@@ -53,7 +55,7 @@ export function FoldedList<T>({ items, keyOf, chosen, render, listClass, label }
   return (
     <div className="fold">
       <Group className="fold-group" aria-label={label}>
-        <div ref={shownList} className={listClass}>{drawn(shown)}</div>
+        <div ref={shownList} className={listClass}>{lead}{drawn(shown)}</div>
         {folded.length > 0 && (
           <div className="fold-rest" data-open={open || undefined} inert={!open}>
             <div className="fold-clip"><div className={listClass}>{drawn(folded)}</div></div>

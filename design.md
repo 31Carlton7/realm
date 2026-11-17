@@ -1133,7 +1133,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   folds them again. A row is a row of the grid at the width it has, not three items. While folded,
   the chosen one is always in those rows, taking the last place there when it was picked elsewhere
   (an import, the prompter), because a choice hidden behind a control reads as no choice; while
-  open, the order holds still, so a pick never moves a tile out from under the pointer
+  open, the order holds still, so a pick never moves a tile out from under the pointer. A list's
+  "Add…" tile is its first tile and outside the count, so the way to add is never folded away
   (`FoldedList.tsx`).
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a
   profile's or a space's page — draws them IN the sidebar's column while it is up, rather than as a

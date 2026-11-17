@@ -53,6 +53,21 @@ describe("FoldedList", () => {
     expect(shownNames()).toEqual(["Ash", "Birch", "Larch"]);
   });
 
+  it("puts a lead tile first in the rows shown, in one of their places, and leaves it out of the count", () => {
+    // THE MUTANTS: the lead drawn after the items, where Show all folds it away; the lead taking no
+    // place, which shows a fourth row; the lead counted in "Show all".
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({ gridTemplateColumns: "116px 116px" } as CSSStyleDeclaration);
+    render(
+      <FoldedList items={NAMES} keyOf={(n) => n} chosen="Yew" listClass="tree-grid" label="Trees"
+        lead={<button type="button">Add tree</button>}
+        render={(n) => <label><input type="radio" name="tree" value={n} checked={n === "Yew"} readOnly />{n}</label>} />,
+    );
+    const shown = document.querySelector(".fold-group > .tree-grid")!;
+    expect(shown.firstElementChild?.textContent).toBe("Add tree");
+    expect(shownNames()).toEqual(["Ash", "Birch", "Cedar", "Elm", "Yew"]);
+    expect(document.querySelector(".fold-more")?.textContent).toBe("Show all 10");
+  });
+
   it("draws no Show all for a list that fits in three rows", () => {
     render(<Trees chosen={null} names={NAMES.slice(0, 3)} />);
     expect(screen.queryByRole("button", { name: /^Show all/ })).toBeNull();
