@@ -122,6 +122,30 @@ describe("macOS consent packaging (Settings → Permissions can only work if the
     expect(camera).toMatch(/connected iPhone's screen/);
     expect(camera).toMatch(/never turns on this Mac's camera/);
   });
+
+  it("every usage string Info.plist declares is backed by the entitlement that lets the hardened runtime ask", () => {
+    // 2.17.0 shipped the Calendar and Contacts strings without these entitlements, and macOS denied
+    // both requests without showing a dialog.
+    const entitlementFor: Record<string, string> = {
+      NSAppleEventsUsageDescription: "com.apple.security.automation.apple-events",
+      NSCalendarsUsageDescription: "com.apple.security.personal-information.calendars",
+      NSCalendarsFullAccessUsageDescription: "com.apple.security.personal-information.calendars",
+      NSRemindersUsageDescription: "com.apple.security.personal-information.calendars",
+      NSRemindersFullAccessUsageDescription: "com.apple.security.personal-information.calendars",
+      NSContactsUsageDescription: "com.apple.security.personal-information.addressbook",
+      NSCameraUsageDescription: "com.apple.security.device.camera",
+      NSMicrophoneUsageDescription: "com.apple.security.device.audio-input",
+    };
+    const declared = [...builder.matchAll(/^ {4}(NS\w+UsageDescription):/gm)].map((m) => m[1]);
+    expect(declared).toEqual(expect.arrayContaining(["NSCalendarsUsageDescription", "NSContactsUsageDescription"]));
+    for (const key of declared) {
+      expect(entitlementFor[key], `${key} has no known entitlement`).toBeDefined();
+      expect(entitlements, `${key} is declared but ${entitlementFor[key]} is missing`).toMatch(
+        new RegExp(`<key>${entitlementFor[key].replace(/\./g, "\\.")}</key>\\s*<true/>`),
+      );
+    }
+    expect(builder).toContain("entitlementsInherit: resources/entitlements.mac.plist");
+  });
 });
 
 /**
