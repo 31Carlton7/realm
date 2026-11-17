@@ -74,7 +74,7 @@ export type SummaryServiceDeps = {
  * Gated four ways before it spends anything, because a summary is a nicety attached to the ordinary
  * case:
  *
- *   1. **A generator is configured.** Tests and live checks pass none and get today's behaviour.
+ *   1. **A generator is configured.** Tests pass none, and live checks only the scripted one they ask for.
  *   2. **The machine can run one.** `available()` — no Claude CLI, no call. After the first refusal
  *      the whole service switches off for the process rather than retrying per turn.
  *   3. **Something happened.** A greeting and its answer are not worth a call; the derived line says
@@ -117,8 +117,7 @@ export class SessionSummaryService {
     if (this.closed) return;
     const wait = this.d.idleMs ?? 0;
     if (wait <= 0) return this.write(sessionId);
-    const armed = this.pending.get(sessionId);
-    if (armed) clearTimeout(armed);
+    this.disarm(sessionId);
     const timer = setTimeout(() => {
       this.pending.delete(sessionId);
       // A turn that started during the wait will settle on its own and re-arm this; writing now
@@ -133,17 +132,20 @@ export class SessionSummaryService {
 
   forget(sessionId: string): void {
     this.deleted.add(sessionId);
-    const armed = this.pending.get(sessionId);
-    if (armed) { clearTimeout(armed); this.pending.delete(sessionId); }
+    this.disarm(sessionId);
   }
 
   /** The session ended (its engine stopped) or was put away: write now rather than after the quiet
    *  spell. Free when the spell already ran, since nothing new has happened since. */
   async onEnded(sessionId: string): Promise<void> {
     if (this.closed) return;
+    this.disarm(sessionId);
+    return this.write(sessionId);
+  }
+
+  private disarm(sessionId: string): void {
     const armed = this.pending.get(sessionId);
     if (armed) { clearTimeout(armed); this.pending.delete(sessionId); }
-    return this.write(sessionId);
   }
 
   private async write(sessionId: string): Promise<void> {

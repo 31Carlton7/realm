@@ -15,10 +15,6 @@ import { generateHandoffNotes, generateMemoryExtraction, generateMemoryTidyPlan,
  * A live check that needs a recap on screen adds `REALM_FAKE_RECAP=1` and gets one written from
  * Realm's own counts, with no model call.
  */
-async function scriptedRecap({ facts }: { facts: string }): Promise<{ summary: string; hint: string | null }> {
-  return { summary: `Scripted recap: ${facts.split("\n").map((l) => l.replace(/^- /, "")).join(", ")}.`, hint: null };
-}
-
 export function billedGenerators(env: NodeJS.ProcessEnv = process.env): {
   titleGenerator?: typeof generateSessionTitle; summaryGenerator?: typeof generateSessionRecap; handoffGenerator?: typeof generateHandoffNotes;
   memoryLearning?: { extract: typeof generateMemoryExtraction; tidy: typeof generateMemoryTidyPlan };
@@ -28,4 +24,8 @@ export function billedGenerators(env: NodeJS.ProcessEnv = process.env): {
     titleGenerator: generateSessionTitle, summaryGenerator: generateSessionRecap, handoffGenerator: generateHandoffNotes,
     memoryLearning: { extract: generateMemoryExtraction, tidy: generateMemoryTidyPlan },
   };
+}
+
+async function scriptedRecap({ facts }: { facts: string }): Promise<{ summary: string; hint: string | null }> {
+  return { summary: `Scripted recap: ${facts.split("\n").map((l) => l.replace(/^- /, "")).join(", ")}.`, hint: null };
 }
