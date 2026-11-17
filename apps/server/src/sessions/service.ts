@@ -349,7 +349,7 @@ export class SessionService {
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
      *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
     /** The settle's model-written fields — the summary and the prompter's hint, from one call. */
-    summaries?: { onSettled(sessionId: string): Promise<void> };
+    summaries?: { onSettled(sessionId: string): Promise<void>; onEnded(sessionId: string): Promise<void>; forget(sessionId: string): void };
     /** Where a `rate_limit` reading goes. Per agent KIND, not per session — see PlanLimitsService. */
     planLimits?: { apply(kind: AgentKind, reading: SessionEventPayload<"rate_limit">): void };
     /** Goal mode (`GoalService`), which is the one thing here that can start a turn nobody asked
@@ -1579,6 +1579,8 @@ export class SessionService {
   /** Dispose the live handle (if any) AND the session's terminal, then remove the item and the row (events cascade). */
   async delete(id: string): Promise<void> {
     const s = this.get(id);
+    // Before the stop: its `ended` must not buy a recap of a session that is going away.
+    this.d.summaries?.forget(id);
     await this.stop(id);
     // `stop()` already released it via the pump's `finally` if the session was live — this is a
     // deliberately redundant, idempotent call for the case it was not (never started, or already
@@ -2640,6 +2642,8 @@ export class SessionService {
       if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
         for (const settle of this.settleWaiters.get(id) ?? []) settle();
       }
+      // The engine stopped: whatever the session said since its last recap is all it will say.
+      if (ev.payload.status === "ended" && before.status !== "ended") void this.d.summaries?.onEnded(id);
       // Consumed on every settle, whatever follows: a checkout git cannot measure (`fronting` null —
       // a plain folder) is exactly where a turn's pictures land, and must not leave the flag set.
       const hadTools = settled && this.toolTurns.delete(id);

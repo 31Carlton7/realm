@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionEvent, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
-import { SessionSummaryService, transcriptForSummary } from "./summary";
+import { LEARN_AFTER_IDLE_MS } from "../memory/extract";
+import { RECAP_AFTER_IDLE_MS, SessionSummaryService, transcriptForSummary } from "./summary";
 
 let seq = 0;
 const stored = (event: SessionEvent): StoredSessionEvent => ({ seq: ++seq, sessionId: "s1", event });
@@ -34,7 +35,7 @@ function makeDeps(o: {
   events: StoredSessionEvent[]; published: SessionEvent[];
   generate?: (i: { asked: string; transcript: string; facts: string }) => Promise<{ summary: string; hint: string | null }>;
   available?: () => boolean | Promise<boolean>;
-  debounceMs?: number;
+  idleMs?: number;
   isIdle?: (sessionId: string) => boolean;
 }) {
   return {
@@ -43,7 +44,7 @@ function makeDeps(o: {
     publish: (_id: string, ev: SessionEvent) => { o.published.push(ev); },
     generate: o.generate,
     available: o.available,
-    debounceMs: o.debounceMs,
+    idleMs: o.idleMs,
     isIdle: o.isIdle,
     onError: () => {},
   };
@@ -168,17 +169,38 @@ describe("what the model is shown", () => {
 });
 
 /**
- * The debounce: the gate that stops a back-and-forth paying for a recap per turn.
+ * The quiet spell: the gate that stops a back-and-forth paying for a recap per turn.
  *
  * Fake timers throughout — the point is which settles buy a call, and sleeping for real would only
  * make the suite slower at answering the same question.
  */
-describe("the recap's debounce", () => {
+describe("the recap's quiet spell", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
   const debounced = (over: Parameters<typeof build>[1] = {}) =>
-    build(worked(), { debounceMs: 1_000, ...over });
+    build(worked(), { idleMs: 1_000, ...over });
+
+  /* "Idle" is the memory learner's quiet spell, so a session is recapped and read for memory at the
+     same moment. At the old 2.5 s, a reply a minute later had already paid for a recap nobody read. */
+  it("waits out the memory learner's quiet spell, so a reply minutes later buys no recap", async () => {
+    expect(RECAP_AFTER_IDLE_MS).toBe(LEARN_AFTER_IDLE_MS);
+    const events = worked();
+    let idle = true;
+    const { service, generate } = build(events, { idleMs: RECAP_AFTER_IDLE_MS, isIdle: () => idle });
+    await service.onSettled("s1");
+    await vi.advanceTimersByTimeAsync(60_000);
+    idle = false; // the person replies a minute later; a turn runs
+    events.push(user("and the logout"), assistant("Done."));
+    await vi.advanceTimersByTimeAsync(30_000);
+    idle = true;
+    events.push(status("idle"));
+    await service.onSettled("s1");
+    await vi.advanceTimersByTimeAsync(RECAP_AFTER_IDLE_MS - 1);
+    expect(generate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
 
   it("writes nothing until the session has been quiet for the whole window", async () => {
     const { service, published } = debounced();
@@ -223,6 +245,34 @@ describe("the recap's debounce", () => {
     await service.onSettled("s1");
     service.close();
     await vi.advanceTimersByTimeAsync(5_000);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  /* An engine stopping or a session put away is the end of what it will say, so it is recapped then
+     rather than after the spell — once, not again when the spell would have run out. */
+  it("writes at once when the session ends, and not again when the spell runs out", async () => {
+    const { service, generate, published } = debounced();
+    await service.onSettled("s1");
+    await service.onEnded("s1");
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(published.map((e) => e.type)).toEqual(["summary", "prompt_hint"]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not recap a session that is being deleted", async () => {
+    const { service, generate } = debounced();
+    await service.onSettled("s1");
+    service.forget("s1");
+    await service.onEnded("s1"); // its engine's `ended` arrives on the way out
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing for an end that arrives after shutdown", async () => {
+    const { service, generate } = debounced();
+    service.close();
+    await service.onEnded("s1");
     expect(generate).not.toHaveBeenCalled();
   });
 });

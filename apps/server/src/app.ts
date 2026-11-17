@@ -101,7 +101,7 @@ import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { TabContextReader } from "./sessions/tab-context";
-import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
+import { RECAP_AFTER_IDLE_MS, SessionSummaryService } from "./sessions/summary";
 import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
 import { ToolResultFiles } from "./mcp/tool-results";
 import { AccountsService, type AccountsDeps } from "./accounts/service";
@@ -1336,7 +1336,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // refusal. `loggedIn === false` is a real no; null is "the CLI did not say", which is not grounds for
   // withholding the feature.
   const claudeCanAnswer = async (): Promise<boolean> => (await sessions.probe()).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false);
-  /* The session summary writer (one cheap model for every harness, once per settled turn).
+  /* The session summary writer (one model for every harness, once a session goes quiet or ends).
      Built BEFORE the service it is handed to, and reaching back into it through closures: the
      service needs the summarizer on construction, and the summarizer needs the service's probe and
      its event rail. Both are only ever called long after this line, so the cycle is a reference and
@@ -1355,7 +1355,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         onError: (line) => console.error(line),
         // Wait for the session to actually go quiet. A rapid exchange otherwise pays for a recap per
         // turn, each superseded by the next before anybody reads it.
-        debounceMs: RECAP_DEBOUNCE_MS,
+        idleMs: RECAP_AFTER_IDLE_MS,
         isIdle: (id) => sessionsStore.get(id)?.status === "idle",
       })
     : undefined;
@@ -1892,6 +1892,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     codeReview,
     dictation: new DictationCleaner({ settings, cleanup: opts.dictationCleanup }),
     memoryLearning: memoryLearner,
+    summaries,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */

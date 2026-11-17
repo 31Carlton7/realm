@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BACKGROUND_MODEL } from "./background-model";
 import { HINT_MAX } from "./generate-prompt-hint";
 import { SUMMARY_MAX } from "./generate-session-summary";
-import { generateSessionRecap, splitRecap } from "./generate-session-recap";
+import { RECAP_TRANSCRIPT_MAX, generateSessionRecap, recapPrompt, splitRecap } from "./generate-session-recap";
 
 /** A stand-in for the SDK's `query()`: yields one `result` message and nothing else. */
 const fakeQuery = (result: string, subtype = "success") =>
@@ -127,15 +127,39 @@ describe("generateSessionRecap", () => {
     expect(prompt).toContain("audit the mappers");
   });
 
+  /* The tool definitions were most of every recap's input, and a subscription wrote all of it to the
+     1-hour cache at twice the input price, for a cache nothing ever read back. */
+  it("sends no tool definitions and asks for no prompt cache", async () => {
+    let seen: { tools?: unknown; env?: Record<string, string | undefined> } = {};
+    const query = ((args: { options: typeof seen }) => {
+      seen = args.options;
+      return (async function* () { yield { type: "result", subtype: "success", result: "SUMMARY: a. b.\nHINT: NONE" }; })();
+    }) as never;
+    await generateSessionRecap(INPUT, { query });
+    expect(seen.tools).toEqual([]);
+    expect(seen.env?.DISABLE_PROMPT_CACHING).toBe("1");
+    // The env option replaces the child's environment, so the rest of it has to be carried.
+    expect(seen.env?.PATH).toBe(process.env.PATH);
+  });
+
+  it("caps the transcript at its last RECAP_TRANSCRIPT_MAX characters", () => {
+    const transcript = `${"§".repeat(5_000)}${"b".repeat(RECAP_TRANSCRIPT_MAX)}`;
+    const prompt = recapPrompt({ ...INPUT, transcript });
+    expect(prompt).toContain("b".repeat(RECAP_TRANSCRIPT_MAX));
+    expect(prompt).not.toContain("§");
+    // Short ones go whole.
+    expect(recapPrompt(INPUT)).toContain(INPUT.transcript);
+  });
+
   it("shows the model the END of a long transcript", async () => {
     let prompt = "";
     const query = ((args: { prompt: string }) => {
       prompt = args.prompt;
       return (async function* () { yield { type: "result", subtype: "success", result: "SUMMARY: a. b.\nHINT: NONE" }; })();
     }) as never;
-    await generateSessionRecap({ ...INPUT, transcript: `${"x".repeat(20_000)}\nUser: the last thing said` }, { query });
+    await generateSessionRecap({ ...INPUT, transcript: `${"x".repeat(40_000)}\nUser: the last thing said` }, { query });
     expect(prompt).toContain("the last thing said");
-    expect(prompt.length).toBeLessThan(20_000);
+    expect(prompt.length).toBeLessThan(40_000);
   });
 
   it("throws on a non-success result rather than publishing a blank recap", async () => {
