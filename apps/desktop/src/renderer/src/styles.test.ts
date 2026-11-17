@@ -5805,7 +5805,7 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
 
   it("the check sees the rules it guards", () => {
     // A selector pattern that matched nothing would pass the check above by default.
-    for (const sel of [".md code", ".md-code", ".md-scroll", ".md thead th", ".md-callout", ".ui-block",
+    for (const sel of [".md code", ".md-code", ".md-scroll", ".md thead th", ".md .md-callout", ".ui-block",
       ".documents-rich-surface code", ".documents-rich-surface pre", ".documents-rich-surface th"]) {
       expect(MARKDOWN.test(sel), sel).toBe(true);
       expect(bodiesFor(sel).flatMap(fills), `${sel} has no fill to check`).not.toEqual([]);

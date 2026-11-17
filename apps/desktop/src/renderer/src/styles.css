@@ -4097,8 +4097,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 18px; }
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
 /* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12. */
-.md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg);
-  white-space: pre; overflow-wrap: normal; tab-size: 2; }
+.md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg); tab-size: 2; }
 /* ── Blocks an agent writes and Realm draws (rich/UiBlock.tsx) ───────────────────────────
    A closed ```mermaid / ```realm-chart / ```realm-compare fence is parked in `.md-block` as its code;
    the drawn block lands beside it and the code steps out of the way, so a body that does not draw
@@ -5112,8 +5111,8 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* GitHub admonitions (`> [!WARNING]`). Left rail in the state's own colour, header in the same —
    the marker exists to say WHICH of the five it is, and a uniform grey bar throws that away.
    The ground is the ink's tint, as code's is, and the rail runs inside the rounded box rather than
-   squaring off one side of it. */
-.md-callout { margin: 8px 0; padding: 10px 14px 10px 16px; border-left: 0; border-radius: var(--r-panel);
+   squaring off one side of it. Under `.md` so it outranks the plain quote it is drawn from. */
+.md .md-callout { margin: 8px 0; padding: 10px 14px 10px 16px; border-left: 0; border-radius: var(--r-panel);
   background: var(--stripe); box-shadow: inset 2px 0 0 var(--callout-rail, var(--rl-line-strong)); color: var(--rl-text-dim); }
 .md-callout > :last-child { margin-bottom: 0; }
 .md-callout-head { margin-bottom: 3px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
