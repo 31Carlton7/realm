@@ -237,7 +237,7 @@ describe("drain — the budget is working time", () => {
 
 describe("drain — a turn that ends on a background command", () => {
   it("waits for the reply of a Claude child woken with no running status, however slow it is", async () => {
-    // The order a real Claude child's transcript had (PR #474's live run): the turn ends with
+    // The order a real Claude child's transcript has: the turn ends with
     // `sleep 20` in the background; 20 s later the work stops, the CLI's wake writes `init` and `idle`,
     // and the reply comes 1.4 s after that, with no `running` in between. THE MUTANT: the wake not
     // read as a turn coming, and the run settles on "STARTED" once the work has been gone a second.

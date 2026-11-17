@@ -204,7 +204,7 @@ describe("what the policies ask of it", () => {
   });
 
   it("reads a real Claude child that has finished as holding nothing, and one with a backgrounded sleep as holding it", async () => {
-    // Listings from PR #474's live run, one taken after a Claude child ran `echo hi` and went idle, one
+    // Listings read off a live Realm, one taken after a Claude child ran `echo hi` and went idle, one
     // while a child's `sleep 20` ran in the background. The idle engine has no process under it at all;
     // the shells in the listing belong to another Realm's engines, or are the ones that ran the check,
     // above the server. THE MUTANTS: a shell anywhere in the table counted, or a shell under the
