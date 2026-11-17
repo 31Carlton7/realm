@@ -541,9 +541,10 @@ export type BlockedDownload = { id: string; name: string; ts: number };
  *  made, not a history of everything a page ever tried. */
 export const BLOCKED_DOWNLOAD_TTL_MS = 5 * 60_000;
 
-/** The `paneHealth` op's answer: the pane's page answers (`ok`), crashed or hung and has been reloaded
- *  (`restarted`), or has no view to reload (`gone`). */
-export type PaneHealth = "ok" | "restarted" | "gone";
+/** The `paneHealth` op's answer: the pane's page answers (`ok`), its renderer crashed and has been
+ *  reloaded (`restarted`), it is alive but did not answer and was left as it is (`unresponsive`), or it
+ *  has no view (`gone`). */
+export type PaneHealth = "ok" | "restarted" | "unresponsive" | "gone";
 
 /** `download` op result. `relPath` is relative to the folder `downloads/` sits in (`downloads/<name>`),
  *  so it is directly usable by the agent's own file tools without handing it an absolute path to

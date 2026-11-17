@@ -9,6 +9,7 @@ function page(o: { crashed?: boolean; destroyed?: boolean; evaluate?: () => Prom
     isCrashed: () => o.crashed ?? false,
     executeJavaScript: () => (o.evaluate ?? (() => Promise.resolve(1)))(),
     forcefullyCrashRenderer: () => { did.push("crash"); },
+    stop: () => { did.push("stop"); },
     reload: () => { if (o.reloadThrows) throw new Error("reload failed"); did.push("reload"); },
   } as unknown as PageProcess;
   return { wc, did };
@@ -24,7 +25,7 @@ describe("checkPaneHealth", () => {
   });
 
   it("a page that answers with an error still answered", async () => {
-    // THE MUTANT: a rejected evaluate read as silence, which would crash a live page mid-navigation.
+    // THE MUTANT: a rejected evaluate read as silence, which would mark a live page mid-navigation.
     const { wc, did } = page({ evaluate: () => Promise.reject(new Error("frame disposed")) });
     expect(await checkPaneHealth(wc)).toBe("ok");
     expect(did).toEqual([]);
@@ -36,14 +37,15 @@ describe("checkPaneHealth", () => {
     expect(did).toEqual(["reload"]);
   });
 
-  it("a hung renderer is crashed before the reload, and the check gives up on it in seconds", async () => {
-    // THE MUTANT: reload alone. It goes through the hung renderer and waits behind it.
+  it("a live page that does not answer is left as it is, and the check gives up on it in seconds", async () => {
+    // THE MUTANT: crash and reload it, as this check once did. A page busy for a few seconds, or behind
+    // a dialog, would lose a half-filled form or a sign-in in progress.
     vi.useFakeTimers();
     const { wc, did } = page({ evaluate: () => new Promise(() => {}) });
     const health = checkPaneHealth(wc);
     await vi.advanceTimersByTimeAsync(PAGE_ANSWER_MS);
-    expect(await health).toBe("restarted");
-    expect(did).toEqual(["crash", "reload"]);
+    expect(await health).toBe("unresponsive");
+    expect(did).toEqual([]);
   });
 
   it("no view, or one that will not reload, is gone", async () => {

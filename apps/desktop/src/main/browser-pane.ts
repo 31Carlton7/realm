@@ -351,8 +351,10 @@ export type BrowserPane = {
    *  per view; null when the view is gone or the attach was refused (DevTools already attached). */
   attachCdp(id: string): CdpBinding | null;
   hasView(id: string): boolean;
-  /** Whether the view's page answers, its renderer restarted when it crashed or hung (`checkPaneHealth`). */
+  /** Whether the view's page answers, reloaded when its renderer crashed (`checkPaneHealth`). */
   health(id: string): Promise<PaneHealth>;
+  /** End the view's renderer; the next load starts a new one. */
+  endRenderer(id: string): void;
   /** Trustworthy page identity, straight off the webContents — never page-authored text — whether it
    *  is still loading, which is what the pane's own spinner shows, and why it did not load, if it did
    *  not: the page Realm draws in its place is not in the page's DOM for an agent to read. `popups` are
@@ -452,6 +454,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     hasView: (id) => { const wc = views.get(id); return (!!wc && !wc.isDestroyed()) || host.isDiscarded(id); },
     // A discarded view has no renderer to ask; it comes back when an op needs its page.
     health: (id) => (host.isDiscarded(id) ? Promise.resolve("ok") : checkPaneHealth(views.get(id))),
+    endRenderer: (id) => { const wc = views.get(id); if (wc && !wc.isDestroyed()) wc.forcefullyCrashRenderer(); },
     pageState: (id) => {
       const wc = views.get(id);
       if (wc && !wc.isDestroyed()) return { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id), popups: host.popupsOf(id) };

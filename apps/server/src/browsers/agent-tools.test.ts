@@ -8,7 +8,7 @@ import { GENERATED_CREDENTIAL_NOTE, type Browser, type BrowserPageActivity, type
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserAgentProvider, BROWSER_PROVIDER_NAME, type BrowserAgentToolsDeps } from "./agent-tools";
 import type { GateResult } from "./permissions";
-import { BrowserHostBridge, PANE_GONE_ERROR, PANE_RESTARTED_ERROR } from "./host-bridge";
+import { BrowserHostBridge, PANE_GONE_ERROR, PANE_NOT_RESPONDING_ERROR, PANE_RESTARTED_ERROR } from "./host-bridge";
 import type { RpcServer } from "../rpc/server";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 import type { AssistOutcome, LayaAssist } from "../laya/assist";
@@ -1931,19 +1931,21 @@ describe("browser_fill_code", () => {
 
 /**
  * A pane whose renderer ends after the first op: the host answers that op, then never answers another
- * on the pane, and says what it found when it is asked about the pane. A real bridge carries it, so the
- * minute each op waits is the bridge's own.
+ * on the pane, and says what it found when it is asked about the pane. A navigation that ends the
+ * renderer first is answered, as main's load in a new renderer would be. A real bridge carries it, so
+ * the minute each op waits is the bridge's own.
  */
-function paneThatDies(found: "gone" | "restarted") {
+function paneThatDies(found: "gone" | "restarted" | "unresponsive") {
   const ws = new EventEmitter() as unknown as WebSocket;
   const ops: string[] = [];
   let answered = 0;
   const bridge: BrowserHostBridge = new BrowserHostBridge({
     rpc: {
-      sendTo: (_client: unknown, _event: string, payload: { callId: string; op: string }) => {
-        ops.push(payload.op);
+      sendTo: (_client: unknown, _event: string, payload: { callId: string; op: string; params: Record<string, unknown> }) => {
+        ops.push(payload.op + (payload.params.restart ? ":restart" : ""));
         const reply = (result: unknown) => void Promise.resolve().then(() => bridge.handleResult({ callId: payload.callId, ok: true, result }));
         if (payload.op === "paneHealth") reply({ state: found });
+        else if (payload.op === "navigate" && payload.params.restart) reply({ url: payload.params.url });
         else if (answered++ === 0) reply({ url: "https://example.com/", title: "Example", text: '[ref=11] button "Submit order"', elementCount: 1 });
         return true;
       },
@@ -2003,5 +2005,28 @@ describe("a pane whose host dies mid-batch", () => {
     expect(text(batch.value)).toContain(`--- step 2: browser_act FAILED ---\n${PANE_RESTARTED_ERROR}`);
     // The click on ref 11 would land on whatever the reloaded page has there.
     expect(pane.ops).not.toContain("act");
+  });
+
+  it("a page that is not responding is left as it is, the calls after it fail fast, and browser_navigate recovers it", async () => {
+    vi.useFakeTimers();
+    const pane = paneThatDies("unresponsive");
+    const { call } = setup({ bridge: pane.bridge });
+    const batch = await timed(call("browser_batch", { actions: [
+      { tool: "browser_snapshot", arguments: { browserId: "b1" } },
+      { tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } },
+      { tool: "browser_read", arguments: { browserId: "b1" } },
+    ] }));
+    expect(batch.ms).toBeLessThan(62_000);
+    expect(text(batch.value)).toContain(`--- step 2: browser_act FAILED ---\n${PANE_NOT_RESPONDING_ERROR}`);
+
+    const next = await timed(call("browser_snapshot", { browserId: "b1" }));
+    expect(next.ms).toBeLessThan(2_000);
+    expect(text(next.value)).toBe(PANE_NOT_RESPONDING_ERROR);
+    // Nothing replaced the page on its own: the only ops are the reads and the checks.
+    expect(pane.ops.filter((op) => op !== "paneHealth")).toEqual(["snapshot", "describe"]);
+
+    const nav = await timed(call("browser_navigate", { browserId: "b1", url: "https://example.com/" }));
+    expect(nav.value.isError).toBeFalsy();
+    expect(pane.ops.at(-1)).toBe("navigate:restart");
   });
 });

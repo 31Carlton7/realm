@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { RpcServer } from "../rpc/server";
-import { BrowserHostBridge, HOST_HUNG_ERROR, PANE_GONE_ERROR, PANE_RESTARTED_ERROR } from "./host-bridge";
+import { BrowserHostBridge, HOST_HUNG_ERROR, PANE_GONE_ERROR, PANE_NOT_RESPONDING_ERROR, PANE_RESTARTED_ERROR } from "./host-bridge";
 
 /** A stand-in for the registered host's socket: records sendTo payloads and can "close". */
 function fakeHost() {
@@ -180,7 +180,7 @@ describe("BrowserHostBridge — a pane that stopped answering", () => {
     return { h, bridge, first };
   }
 
-  it("checks the pane after its first minute, and a restarted pane fails the calls after it at once", async () => {
+  it("checks the pane after its first minute, and a pane reloaded after a crash fails the calls after it at once", async () => {
     const { h, bridge, first } = timedOutOn();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(opsSent(h)).toEqual(["act", "paneHealth"]);
@@ -204,6 +204,91 @@ describe("BrowserHostBridge — a pane that stopped answering", () => {
     expect(await snap).toEqual({ text: "fresh" });
     void bridge.call("act", { browserId: "b1" });
     expect(opsSent(h).at(-1)).toBe("act");
+  });
+
+  it("a page that is not responding is marked, never reloaded, and each call after it checks first and fails at once", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    answer(h, bridge, "paneHealth", { state: "unresponsive" });
+    await expect(first).rejects.toThrow(PANE_NOT_RESPONDING_ERROR);
+
+    const next = bridge.call("act", { browserId: "b1" });
+    await vi.advanceTimersByTimeAsync(0);
+    // THE MUTANT: no check before the call. The act would be sent to the page and wait out its minute.
+    expect(opsSent(h)).toEqual(["act", "paneHealth", "paneHealth"]);
+    answer(h, bridge, "paneHealth", { state: "unresponsive" });
+    expect(await settlesAtOnce(next)).toEqual({ error: PANE_NOT_RESPONDING_ERROR });
+    // Nothing that would replace the page was sent: no navigation, no restart.
+    expect(h.sent.every((s) => s.payload.op !== "navigate" && s.payload.params.restart === undefined)).toBe(true);
+  });
+
+  it("the not-responding mark clears itself when the page answers again, with no reload", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    answer(h, bridge, "paneHealth", { state: "unresponsive" });
+    await expect(first).rejects.toThrow(PANE_NOT_RESPONDING_ERROR);
+
+    // THE MUTANT: the mark kept until a navigate. A page that was only busy would stay refused.
+    const back = bridge.call("act", { browserId: "b1", ref: 3 });
+    await vi.advanceTimersByTimeAsync(0);
+    answer(h, bridge, "paneHealth", { state: "ok" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.sent.at(-1)!.payload).toMatchObject({ op: "act", params: { browserId: "b1", ref: 3 } });
+    answer(h, bridge, "act", { ok: true });
+    expect(await back).toEqual({ ok: true });
+
+    // Cleared: the call after it goes straight to the page.
+    void bridge.call("read", { browserId: "b1" });
+    expect(opsSent(h)).toEqual(["act", "paneHealth", "paneHealth", "act", "read"]);
+  });
+
+  it("a navigation on a page that is still not responding asks main to end its renderer, and clears the mark", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    answer(h, bridge, "paneHealth", { state: "unresponsive" });
+    await expect(first).rejects.toThrow(PANE_NOT_RESPONDING_ERROR);
+
+    // THE MUTANT: refuse the navigate like any other op. The agent would have no way to recover.
+    const nav = bridge.call("navigate", { browserId: "b1", url: "https://example.com/" });
+    await vi.advanceTimersByTimeAsync(0);
+    answer(h, bridge, "paneHealth", { state: "unresponsive" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.sent.at(-1)!.payload).toMatchObject({ op: "navigate", params: { browserId: "b1", url: "https://example.com/", restart: true } });
+    answer(h, bridge, "navigate", { url: "https://example.com/" });
+    expect(await nav).toEqual({ url: "https://example.com/" });
+    void bridge.call("snapshot", { browserId: "b1" });
+    expect(opsSent(h).at(-1)).toBe("snapshot");
+  });
+
+  it("a navigation on a page that answers again is an ordinary one", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    answer(h, bridge, "paneHealth", { state: "unresponsive" });
+    await expect(first).rejects.toThrow(PANE_NOT_RESPONDING_ERROR);
+
+    // THE MUTANT: restart on every navigate after a mark. The page came back; ending it would lose it.
+    void bridge.call("navigate", { browserId: "b1", url: "https://example.com/" });
+    await vi.advanceTimersByTimeAsync(0);
+    answer(h, bridge, "paneHealth", { state: "ok" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.sent.at(-1)!.payload).toMatchObject({ op: "navigate", params: { browserId: "b1", url: "https://example.com/" } });
+    expect(h.sent.at(-1)!.payload.params.restart).toBeUndefined();
+  });
+
+  it("a page that crashed while marked is read by the snapshot the reason points to", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    answer(h, bridge, "paneHealth", { state: "unresponsive" });
+    await expect(first).rejects.toThrow(PANE_NOT_RESPONDING_ERROR);
+
+    // THE MUTANT: the reload's verdict thrown at the snapshot that would lift it.
+    const snap = bridge.call("snapshot", { browserId: "b1" });
+    await vi.advanceTimersByTimeAsync(0);
+    answer(h, bridge, "paneHealth", { state: "restarted" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(opsSent(h).at(-1)).toBe("snapshot");
+    answer(h, bridge, "snapshot", { text: "fresh" });
+    expect(await snap).toEqual({ text: "fresh" });
   });
 
   it("a gone pane is checked again before each call, which takes a moment rather than a minute", async () => {

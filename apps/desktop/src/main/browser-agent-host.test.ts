@@ -56,6 +56,7 @@ function setup(opts: {
   const liveViews = new Set(["b1"]);
   const touched: string[] = [];
   const attached: string[] = [];
+  const ended: string[] = [];
   const binding: CdpBinding = {
     send: async (method, params) => {
       calls.push({ method, params });
@@ -136,8 +137,9 @@ function setup(opts: {
     ...(opts.revived ? { revived: opts.revived } : {}),
     ...(opts.typed ? { typed: opts.typed } : {}),
     ...(opts.health ? { health: opts.health } : {}),
+    endRenderer: (id) => { ended.push(id); },
   });
-  return { host, calls, liveViews, audit, minted, grants, touched, attached, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
+  return { host, calls, liveViews, audit, minted, grants, touched, attached, ended, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
 
 describe("BrowserAgentHost — a page given up for memory", () => {
@@ -205,6 +207,31 @@ describe("BrowserAgentHost — paneHealth", () => {
     expect(await host.handleOp("paneHealth", { browserId: "b1" })).toEqual({ state: "restarted" });
     await host.handleOp("snapshot", { browserId: "b1" });
     expect(attached).toEqual(["b1", "b1"]);
+  });
+
+  it("a page that does not answer is left alone by the check", async () => {
+    const { host, attached, ended } = setup({ health: async () => "unresponsive" });
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(await host.handleOp("paneHealth", { browserId: "b1" })).toEqual({ state: "unresponsive" });
+    expect(ended).toEqual([]);
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(attached).toEqual(["b1"]);
+  });
+
+  it("a navigation the bridge marks as a restart ends the renderer first, and the next op attaches to the new one", async () => {
+    // THE MUTANT: navigate as usual. The load queues behind the page that is not answering.
+    const { host, attached, ended } = setup();
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(await host.handleOp("navigate", { browserId: "b1", url: "https://allowed.example/", restart: true })).toEqual({ url: "https://allowed.example/" });
+    expect(ended).toEqual(["b1"]);
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(attached).toEqual(["b1", "b1"]);
+  });
+
+  it("an ordinary navigation leaves the renderer alone", async () => {
+    const { host, ended } = setup();
+    await host.handleOp("navigate", { browserId: "b1", url: "https://allowed.example/" });
+    expect(ended).toEqual([]);
   });
 
   it("a pane with no view is gone, whatever the check would say", async () => {

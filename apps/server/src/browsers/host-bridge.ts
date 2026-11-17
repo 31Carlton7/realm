@@ -54,8 +54,9 @@ export const BROWSER_HOST_OPS = [
   /** Cancel a file chooser Realm intercepted, so a click that opened a picker by mistake is
    *  recoverable from the agent's side rather than needing the user. */
   "dismissDialog",
-  /** Whether a pane's page still answers, asked after an op on it ran out its minute: main restarts a
-   *  renderer that crashed or hung and says so, or says the view is gone. */
+  /** Whether a pane's page still answers, asked after an op on it ran out its minute: main reloads a
+   *  renderer that crashed and says so, says a live one that did not answer is unresponsive (and
+   *  leaves it be), or says the view is gone. */
   "paneHealth",
   /** The browser panes with a page loaded now, which a phone may watch (mobile.v1). */
   "phoneViews",
@@ -126,16 +127,19 @@ const HEALTH_TIMEOUT_MS = 5_000;
 const PERSON_OPS: ReadonlySet<string> = new Set(["fillCredential", "fillCode", "credentialAllow"]);
 
 export const PANE_RESTARTED_ERROR =
-  "The browser pane stopped responding and was restarted, so its page reloaded and the refs you had are gone. Open the page again: browser_snapshot to read it as it is now, or browser_navigate to load a page.";
+  "The page in the browser pane crashed and was reloaded, so the refs you had are gone. Open the page again: browser_snapshot to read it as it is now, or browser_navigate to load a page.";
+export const PANE_NOT_RESPONDING_ERROR =
+  "The page is not responding: it did not answer a quick check. Realm left it as it is, so nothing on it is lost, and each call checks it again and goes through once it answers. browser_navigate reloads it, dropping anything on it that was not saved.";
 export const PANE_GONE_ERROR = "The browser pane's host is gone; reopen the page with browser_open.";
 export const HOST_HUNG_ERROR =
   `Realm's browser host is not answering — a check on the pane got no reply in ${HEALTH_TIMEOUT_MS / 1000}s — so no browser tool can reach a pane. Ask the user to quit and reopen Realm, then try again.`;
 
-/** Why calls on a pane fail at once: it was restarted (until it is read or navigated again), it is
- *  gone, or main stopped answering. The last two are checked again before each call. */
+/** Why calls on a pane fail at once: its renderer crashed and it was reloaded (until it is read or
+ *  navigated again), its page is not responding, it is gone, or main stopped answering. All but the
+ *  first are checked again before each call. */
 type Verdict = Exclude<PaneHealth, "ok"> | "hung";
 
-const VERDICT_ERRORS: Record<Verdict, string> = { restarted: PANE_RESTARTED_ERROR, gone: PANE_GONE_ERROR, hung: HOST_HUNG_ERROR };
+const VERDICT_ERRORS: Record<Verdict, string> = { restarted: PANE_RESTARTED_ERROR, unresponsive: PANE_NOT_RESPONDING_ERROR, gone: PANE_GONE_ERROR, hung: HOST_HUNG_ERROR };
 
 /** The ops that open a restarted pane's page again, and so lift its verdict. */
 const REOPENING_OPS: ReadonlySet<string> = new Set(["snapshot", "navigate"]);
@@ -262,16 +266,17 @@ export class BrowserHostBridge {
    *  socket drops mid-op, and after `OP_TIMEOUT_MS`.
    *
    *  An op on a pane that runs out its minute has the pane checked (`paneHealth`) before it rejects.
-   *  Main restarts a renderer that crashed or hung; what it finds becomes the pane's verdict, and the
-   *  calls after it on that pane fail at once with words the agent can act on, rather than each
-   *  waiting out a minute of its own on a page that will never answer. */
+   *  What main finds becomes the pane's verdict, and the calls after it on that pane fail at once with
+   *  words the agent can act on, rather than each waiting out a minute of its own. A page that is
+   *  alive but not answering is never reloaded by the check: only a `navigate` the agent asked for
+   *  replaces it. */
   call(op: HostOp, params: Record<string, unknown>): Promise<unknown> {
     if (!(HOST_OPS as readonly string[]).includes(op)) return Promise.reject(new Error(`unknown host op "${op}"`));
     const browserId = typeof params.browserId === "string" && params.browserId ? params.browserId : null;
     if (!browserId) return this.send(op, params, OP_TIMEOUT_MS);
     const verdict = this.verdicts.get(browserId);
     if (!verdict) return this.watched(op, params, browserId);
-    return this.refuseIfDown(browserId, verdict, op).then(() => this.watched(op, params, browserId));
+    return this.admit(browserId, verdict, op, params).then((admitted) => this.watched(op, admitted, browserId));
   }
 
   /** An op on a pane, whose timeout has the pane checked before it rejects. */
@@ -285,16 +290,19 @@ export class BrowserHostBridge {
     });
   }
 
-  /** Throws a pane's verdict before its op is sent. A restarted pane is refused until a snapshot or a
-   *  navigation opens its page again; a gone pane, or a main that stopped answering, is checked again
-   *  first, which takes a moment rather than a minute, so a pane the user brought back works. */
-  private async refuseIfDown(browserId: string, verdict: Verdict, op: string): Promise<void> {
+  /** The params to send an op on a pane with a verdict, or its verdict thrown. A reloaded pane is
+   *  refused until a snapshot or a navigation opens its page again. Any other is checked again first,
+   *  which takes a moment rather than a minute, so a page that answers again just works. A navigation
+   *  on a page that still does not answer asks main to end its renderer first: a load sent to it would
+   *  queue behind whatever it is stuck on. */
+  private async admit(browserId: string, verdict: Verdict, op: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (verdict === "restarted") {
-      if (REOPENING_OPS.has(op)) { this.verdicts.delete(browserId); return; }
+      if (REOPENING_OPS.has(op)) { this.verdicts.delete(browserId); return params; }
       throw new Error(PANE_RESTARTED_ERROR);
     }
     const health = await this.check(browserId);
-    if (health === "ok") { this.verdicts.delete(browserId); return; }
+    if (health === "ok" || (health === "restarted" && REOPENING_OPS.has(op))) { this.verdicts.delete(browserId); return params; }
+    if (health === "unresponsive" && op === "navigate") { this.verdicts.delete(browserId); return { ...params, restart: true }; }
     this.verdicts.set(browserId, health);
     throw new Error(VERDICT_ERRORS[health]);
   }

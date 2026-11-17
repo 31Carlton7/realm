@@ -91,9 +91,12 @@ export type BrowserAgentHostDeps = {
   /** Is the pane's view currently alive? Gates the cache — a destroyed view's binding is dropped.
    *  True for a RETAINED view too: a browser whose space is off screen is still drivable. */
   hasView(browserId: string): boolean;
-  /** Whether the view's page still answers, restarting its renderer when it crashed or hung
+  /** Whether the view's page still answers, reloading it when its renderer crashed
    *  (`checkPaneHealth`). Absent, a pane with a view is taken to be `ok`. */
   health?(browserId: string): Promise<PaneHealth>;
+  /** End the view's renderer, so the navigation after it loads in a new one rather than queueing
+   *  behind a page that is not answering. Asked only by a `navigate` on a pane marked unresponsive. */
+  endRenderer?(browserId: string): void;
   /** This view is in use right now. `BrowserPaneHost.touch` — it keeps the off-screen budget from
    *  evicting a browser an agent is working in while the user reads something in another space. */
   touch(browserId: string): void;
@@ -567,6 +570,10 @@ export class BrowserAgentHost {
         return { open: true, url: state.url, title: state.title, element, ...(state.error ? { loadError: state.error } : {}) } satisfies BrowserDescribeResult;
       }
       case "navigate": {
+        if (params.restart === true) {
+          this.d.endRenderer?.(browserId);
+          this.release(browserId);
+        }
         // Straight to the pane host: normalization and the per-space origin allowlist live there,
         // shared with the address bar and page-initiated navigations. Null = refused/no view.
         return { url: this.d.navigate(browserId, String(params.url ?? "")) };
