@@ -141,6 +141,27 @@ describe("the session summary writer", () => {
     release(); await first;
   });
 
+  it("recaps sessions that end together one at a time, and every one of them", async () => {
+    let running = 0, most = 0;
+    const generate = vi.fn(async () => {
+      running += 1; most = Math.max(most, running);
+      await new Promise((r) => setTimeout(r, 5));
+      running -= 1;
+      return { summary: "done", hint: null };
+    });
+    const published: { id: string; ev: SessionEvent }[] = [];
+    const service = new SessionSummaryService({
+      ...makeDeps({ events: worked(), published: [], generate }),
+      lastSummary: (id: string) => published.filter((p) => p.id === id && p.ev.type === "summary").at(-1)?.ev ?? null,
+      publish: (id: string, ev: SessionEvent) => { published.push({ id, ev }); },
+    });
+    const ids = ["a", "b", "c", "d", "e"];
+    await Promise.all(ids.map((id) => service.onEnded(id)));
+    expect(most).toBe(1);
+    expect(generate).toHaveBeenCalledTimes(ids.length);
+    expect(published.map((p) => p.id)).toEqual(ids);
+  });
+
   it("does nothing at all when no generator is configured — the tests' and live checks' path", async () => {
     const published: SessionEvent[] = [];
     const service = new SessionSummaryService(makeDeps({ events: worked(), published, generate: undefined }));

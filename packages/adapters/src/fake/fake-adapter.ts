@@ -53,8 +53,9 @@ export type FakeStep =
   | { kind: "usage"; costUsd: number }
   /** One of the harness's OWN sub-agents run in the background, the way Claude's `Agent` tool with
    *  `run_in_background` looks on the wire: a launch that returns at once and is marked running, then
-   *  a stop `runMs` later — after the turn has ended, if it ends first. */
-  | { kind: "background"; description: string; prompt?: string; runMs: number };
+   *  a stop `runMs` later — after the turn has ended, if it ends first. With `after`, the stop starts a
+   *  turn of its own running those steps, the way Claude wakes its agent with the task's notification. */
+  | { kind: "background"; description: string; prompt?: string; runMs: number; after?: FakeStep[] };
 /**
  * `on` is matched as a substring of the message. `turn` narrows an entry to one turn of a goal: the
  * continuation must also say `goalTurnLine(turn)` ("This is turn 3."), so a live check can script
@@ -117,12 +118,12 @@ export class FakeAdapter implements AgentAdapter {
       q.push(sessionEvent("assistant_text", { messageId: id, text }));
     };
 
-    const run = async (msg: UserMessage) => {
+    const run = async (msg: UserMessage, steps?: FakeStep[]) => {
       interrupted = false;
       let reported = false;
       q.push(sessionEvent("status", { status: "running" }));
       const step = this.cfg.script.find((s) => msg.text.includes(s.on) && (s.turn === undefined || msg.text.includes(goalTurnLine(s.turn))));
-      for (const st of step?.emit ?? [{ kind: "text", text: `echo: ${msg.text}` } as FakeStep]) {
+      for (const st of steps ?? step?.emit ?? [{ kind: "text", text: `echo: ${msg.text}` } as FakeStep]) {
         if (disposed) return;
         if (interrupted) break; // like the real adapter: interrupt stops the turn; the turn's natural end still emits usage + idle
         await sleep();
@@ -150,7 +151,12 @@ export class FakeAdapter implements AgentAdapter {
             input: { description: st.description, prompt: st.prompt ?? st.description, subagent_type: "general-purpose", run_in_background: true } }));
           q.push(sessionEvent("tool_result", { toolUseId, content: "Async agent launched successfully.", isError: false }));
           q.push(sessionEvent("background_task", { toolUseId, status: "running" }));
-          setTimeout(() => { if (!disposed) q.push(sessionEvent("background_task", { toolUseId, status: "stopped" })); }, st.runMs);
+          const after = st.after;
+          setTimeout(() => {
+            if (disposed) return;
+            q.push(sessionEvent("background_task", { toolUseId, status: "stopped" }));
+            if (after) enqueue({ text: `<task-notification>${st.description} completed</task-notification>`, attachments: [] }, after);
+          }, st.runMs);
           continue;
         }
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
@@ -218,14 +224,17 @@ export class FakeAdapter implements AgentAdapter {
     };
 
     let chain = Promise.resolve();
+    const enqueue = (m: UserMessage, steps?: FakeStep[]) => {
+      chain = chain.then(() => run(m, steps)).catch((e: unknown) => {
+        q.push(sessionEvent("error", { message: (e as Error).message ?? String(e) }));
+        q.push(sessionEvent("status", { status: "idle" }));
+      });
+    };
     return {
       events: q,
       send: async (m) => {
         if (disposed) { q.push(sessionEvent("error", { message: "session ended" })); return; }
-        chain = chain.then(() => run(m)).catch((e: unknown) => {
-          q.push(sessionEvent("error", { message: (e as Error).message ?? String(e) }));
-          q.push(sessionEvent("status", { status: "idle" }));
-        });
+        enqueue(m);
       },
       respondPermission: resolvePermission,
       interrupt: async () => { interrupted = true; denyAllPending(); },
