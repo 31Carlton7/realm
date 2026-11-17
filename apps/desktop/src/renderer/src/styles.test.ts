@@ -2044,13 +2044,13 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
        radius look like a mistake rather than a decision. The surface fill is what separates code
        from prose, and it is doing that job alone now. */
     const panel = bodiesFor(".md-code").join(" ");
-    expect(panel).toContain("background: var(--surface)");
+    expect(panel).toContain("background: var(--stripe)");
     expect(panel).toContain("border-radius: var(--r-squircle)");
     expect(panel).toContain("corner-shape: squircle");
     expect(panel).not.toContain("box-shadow: var(--shadow-hairline)");
     // And the painted path, because `corner-shape` is inert in the Chromium this ships on: without
     // this the block would render a plain round rect beside a composer wearing a real squircle.
-    expect(bodiesFor(":root[data-squircle] .md-code").join(" ")).toContain("--sq-fill: var(--surface)");
+    expect(bodiesFor(":root[data-squircle] .md-code").join(" ")).toContain("--sq-fill: var(--stripe)");
     const body = bodiesFor(".md-code pre").join(" ");
     expect(body).toContain("font-size: 13px");
     expect(body).toContain("line-height: calc(1.65 + var(--lh-shift))");
@@ -5777,5 +5777,61 @@ describe("the Documents home (the owner, 11-17)", () => {
     expect(bodiesFor(".docs-home-new").join(" ")).toContain(`--fill: ${thinned("--surface")}`);
     expect(bodiesFor(".docs-home-new:hover:not(:disabled)").join(" ")).toContain(`--fill: ${thinned("--hover")}`);
     expect(bodiesFor(".docs-home-new:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain(`--fill: ${thinned("--hover-2")}`);
+  });
+});
+
+/* The owner, 11-17: "I don't think we should ever use a solid color for backgrounds of tables or like
+   small code. I think it should be reflective of the transparency that we have in the app". A rule
+   for rendered markdown, in a message or a document, fills with a tint of the ink at low alpha, so
+   whatever the pane is (thinned by its slider, solid, or over a picture) shows through it. The
+   tokens below are opaque on at least one face; a fill from one of them is the slab this forbids. */
+describe("markdown is drawn on tints of the ink, never on a solid surface", () => {
+  const OPAQUE = ["--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field", "--stripe-bg",
+    "--rl-frame", "--rl-frame-raised", "--rl-panel", "--rl-raised", "--rl-card", "--rl-card-hover", "--rl-tile", "--chart-surface"];
+  const MARKDOWN = /(^|[\s>+~(:])\.(md|md-[\w-]+|ui-block[\w-]*|ui-compare[\w-]*|documents-rich-surface)(?![\w-])/;
+  /** The one fill allowed to be the pane's own canvas: a table's head while rows are scrolled up under
+   *  it, laid UNDER the head's tint, because a tint alone over passing rows lets them read through. */
+  const STUCK_HEAD = "linear-gradient(var(--stripe), var(--stripe)) var(--rl-panel)";
+  const fills = (body: string): string[] =>
+    [...body.matchAll(/(?:^|;)\s*(background(?:-color)?|--sq-fill)\s*:\s*([^;]+)/g)].map((m) => m[2]!.trim());
+
+  it("no markdown rule fills with an opaque token", () => {
+    const offenders = RULES.filter((r) => partsOf(r).some((sel) => MARKDOWN.test(sel)))
+      .flatMap((r) => fills(r.body).filter((fill) => fill !== STUCK_HEAD)
+        .filter((fill) => OPAQUE.some((token) => fill.includes(`var(${token})`)))
+        .map((fill) => `${partsOf(r).join(", ")} { ${fill} }`));
+    expect(offenders, "a markdown fill must be a tint (--stripe, --rl-hover, --rl-active, a *-tint), not a surface").toEqual([]);
+  });
+
+  it("the check sees the rules it guards", () => {
+    // A selector pattern that matched nothing would pass the check above by default.
+    for (const sel of [".md code", ".md-code", ".md-scroll", ".md thead th", ".md-callout", ".ui-block",
+      ".documents-rich-surface code", ".documents-rich-surface pre", ".documents-rich-surface th"]) {
+      expect(MARKDOWN.test(sel), sel).toBe(true);
+      expect(bodiesFor(sel).flatMap(fills), `${sel} has no fill to check`).not.toEqual([]);
+    }
+  });
+
+  it("a table is the card rung's painted curve, with its head and every other row tinted", () => {
+    const scroll = bodiesFor(".md-scroll").join(" ");
+    expect(scroll).toContain("border-radius: var(--r-squircle-card)");
+    expect(scroll).toContain("background: var(--stripe)");
+    expect(scroll).not.toContain("box-shadow");
+    const painted = bodiesFor(":root[data-squircle] .documents-rich-surface table").join(" ");
+    expect(painted).toContain("background: paint(rl-squircle)");
+    expect(painted).toContain("--sq-fill: var(--stripe)");
+    expect(painted).toContain("--sq-radius-top: var(--r-squircle-card)");
+    // Half the curve, which holds the painted one: the head's tint and the stripes clip to it.
+    expect(painted).toContain("border-radius: calc(var(--r-squircle-card) / 2)");
+    expect(bodiesFor(".md tbody tr:nth-child(even)").join(" ")).toContain("background: var(--stripe)");
+    expect(bodiesFor(".md thead th").join(" ")).toContain("background: var(--stripe)");
+    expect(bodiesFor(".documents-rich-surface tr:nth-child(even) > td").join(" ")).toContain("background: var(--stripe)");
+    // A collapsed table cannot round its corners.
+    expect(bodiesFor(".documents-rich-surface table").join(" ")).toContain("border-collapse: separate");
+  });
+
+  it("a pinned head takes the pane's canvas only while rows are scrolled up under it", () => {
+    expect(bodiesFor(".md-scroll").join(" ")).toContain("container-type: scroll-state");
+    expect(css).toMatch(/@container scroll-state\(scrollable: top\) \{\s*\.md thead th \{ background: linear-gradient\(var\(--stripe\), var\(--stripe\)\) var\(--rl-panel\); \}/);
   });
 });

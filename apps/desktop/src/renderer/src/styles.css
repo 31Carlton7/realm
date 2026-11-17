@@ -6730,7 +6730,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 /* A table is a card in a message: the card rung's curve, the ink's tint for its fill, and no lift.
    The clip stays at half the curve, which holds the painted one, so the head's tint and the stripes
    round with it. The same goes for a table in a document, which has no wrapper of its own. */
-:root[data-squircle] :is(.md-scroll, .documents-rich-surface table) { border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle);
+:root[data-squircle] .md-scroll, :root[data-squircle] .documents-rich-surface table { border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle);
   --sq-fill: var(--stripe); --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* A tool call's panel is a fenced block's panel on the card rung, painted the same way. */
 :root[data-squircle] .tool-panel { --sq-fill: var(--rl-frame); box-shadow: none;
