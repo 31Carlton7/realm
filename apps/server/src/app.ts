@@ -792,7 +792,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   browserAgent?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perActMs: number; pollMs: number } };
   /** Plan 13 W1: the same knobs for `agent_run`. `fallbackKind` falls back to `browserAgent`'s when
    *  unset (test harnesses configure the fake once); `timeouts` shrinks the settle budget. */
-  agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
+  agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number; graceMs?: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
   /** How long a teammate's clock turn may run before it is stopped (`TEAMMATE_CLOCK_TURN_MS`), shortened by suites. */
   teammates?: { clockTurnMs?: number };
   /** Plan 13 W3: the same knobs for the reviewer recipe. `fallbackKind` (the reviewer's kind when the

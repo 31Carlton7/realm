@@ -6,6 +6,7 @@ import { childPermissionMode, cleanupWorktree, errorMessage, modeLabel, rank, re
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
+import { GIT_DIFF_FLAGS, gitCapture, type GitRun } from "../workspace/git-exec";
 import type { SessionService } from "../sessions/service";
 import type { SkillsService } from "../skills/service";
 import { MAX_RUNS_PER_PARENT, workingMs, type ActiveRun, type DelegationEngine, type SettledRun } from "./engine";
@@ -32,6 +33,14 @@ const childKey = (sessionId: string): string => `agentRun.child:${sessionId}`;
  *  files and runs commands rather than clicking one page. */
 const DEFAULT_MAX_TURNS = 20;
 const DEFAULT_TIMEOUTS = { baseMs: 60_000, perTurnMs: 30_000, pollMs: 250 };
+
+/** How long a child whose budget ran out has to write its report before it is interrupted. On Claude
+ *  the request first stops the turn it is in (up to 10s to settle), and a turn on a long context takes
+ *  5–9s to its first token; a report of a page or two takes 20–40s more. Ninety seconds covers that
+ *  with room, and costs at most a minute and a half for a child that ignores the request. */
+const DEFAULT_GRACE_MS = 90_000;
+
+type Timeouts = { baseMs: number; perTurnMs: number; pollMs: number; graceMs?: number };
 
 /** How old a model list may be and still be trusted to say a name does not exist. The probe's own
  *  TTL is thirty seconds because it answers "is this agent signed in"; a catalog answers a slower
@@ -137,7 +146,7 @@ export class AgentRunService {
     /** Child agent kind when the parent's kind has no skills-injection route — claude in
      *  production; tests override to keep the whole run on the fake. */
     fallbackKind?: AgentKind;
-    timeouts?: { baseMs: number; perTurnMs: number; pollMs: number };
+    timeouts?: Timeouts;
     /** Tests lower this to 1 to prove the budget refuses, and raise it to prove a grandchild spawns.
      *  Production takes `MAX_DELEGATION_DEPTH`. */
     maxDepth?: number;
@@ -153,6 +162,8 @@ export class AgentRunService {
      *  mode, its title leads with the teammate's handle, and it nests under the session that asked for
      *  the work (`teammates/service.ts`). Null for every other parent. */
     teammates?: { childOf(parentId: string): { teammateId: string; handle: string; permissionMode: string; askedBy: string | null } | null };
+    /** How a child's worktree is asked what changed; `gitCapture` unless a test swaps it. */
+    git?: GitRun;
   }) {}
 
   /* ------------------------------ the seams other code consults ------------------------------ */
@@ -337,7 +348,7 @@ export class AgentRunService {
       delegationRule,
       "- Work in THIS session's own checkout (your working directory) — that is where your changes belong.",
       "- You run in the same permission mode as the session that started you. When you need permission, ask: your request reaches the user in that session's Agents tab.",
-      "- Finish with a concise final message reporting the outcome — that message is the ONLY thing the delegating session receives.",
+      "- Finish with a concise final message reporting the outcome. The delegating session receives that message and the list of files you changed; if your time runs out, you will be asked for the report and have a short while to write it.",
     ].join("\n");
   }
 
@@ -507,7 +518,7 @@ export class AgentRunService {
       return err(`could not create the delegated session: ${errorMessage(e)}`);
     }
     const childId = created.session.id;
-    const t = this.d.timeouts ?? DEFAULT_TIMEOUTS;
+    const t: Timeouts = this.d.timeouts ?? DEFAULT_TIMEOUTS;
     const maxTurns = constraints?.maxTurns ?? DEFAULT_MAX_TURNS;
     const budgetMs = constraints?.timeoutMs ?? (t.baseMs + maxTurns * t.perTurnMs);
     // A name read out of the goal is a guess; a title generator, where one is wired, gets to improve
@@ -525,11 +536,18 @@ export class AgentRunService {
     // the layout BESIDE the parent (the fixed openItemBeside path), never replacing it.
     this.d.rpc.broadcast("session.agentOpened", { spaceId: ctx.spaceId, sessionId: childId, itemId: created.itemId });
 
+    const worktreeFiles = createdWorktree ? await this.changedFilesReader(createdWorktree.path) : undefined;
     const run = this.d.engine.begin(ctx.sessionId, childId, { detached, byPerson });
     const fromSeq = created.session.lastEventSeq;
+    const graceMs = t.graceMs ?? DEFAULT_GRACE_MS;
     // The watcher is started BEFORE the first send and owns the execution deadline whether or not
-    // anyone ever waits — that is what keeps a forgotten detached child from running forever.
-    this.d.engine.watch(run, childId, fromSeq, Date.now() + budgetMs, t.pollMs);
+    // anyone ever waits — that is what keeps a forgotten detached child from running forever. When the
+    // deadline comes it asks for the report first. The request is steered, never queued: a child in a
+    // long tool call or a wait would otherwise not see it until the grace was over.
+    this.d.engine.watch(run, childId, fromSeq, Date.now() + budgetMs, t.pollMs, {
+      grace: { ms: graceMs, askForReport: () => this.d.sessions.send(childId, { text: reportNowMessage(graceMs), attachments: [] }, "steer") },
+      ...(worktreeFiles ? { worktreeFiles } : {}),
+    });
     // The settle half of the `agentOpened` idiom, hung off the WATCHER rather than anyone's await:
     // an `agent_start` child settles with nobody waiting on it, and a fan-out of those is exactly
     // the layout this announcement exists to clear. Once per run, because `run.settled` resolves
@@ -578,6 +596,27 @@ export class AgentRunService {
     } finally {
       this.d.engine.end(ctx.sessionId, run);
     }
+  }
+
+  /**
+   * What git says changed in a worktree made for the child: tracked files that differ from the commit
+   * it started on, committed or not, and new files git does not ignore. It catches what a shell
+   * command changed, which no write call names. Undefined when the worktree has no commit to start from.
+   */
+  private async changedFilesReader(path: string): Promise<(() => Promise<string[]>) | undefined> {
+    const git = this.d.git ?? gitCapture;
+    const head = await git(path, ["rev-parse", "HEAD"]).catch(() => null);
+    const base = head?.code === 0 ? head.stdout.trim() : "";
+    if (!base) return undefined;
+    return async () => {
+      const [diff, untracked] = await Promise.all([
+        git(path, ["diff", ...GIT_DIFF_FLAGS, "--name-only", base]),
+        git(path, ["ls-files", "--others", "--exclude-standard"]),
+      ]);
+      if (diff.code !== 0 || untracked.code !== 0) throw new Error("git could not list the worktree's changes");
+      const lines = (out: string) => out.split("\n").filter((l) => l !== "");
+      return [...new Set([...lines(diff.stdout), ...lines(untracked.stdout)])];
+    };
   }
 
   private get pollMs(): number {
@@ -727,7 +766,7 @@ function modeSentence(granted: ChildMode, parentMode: string, requested: string 
 function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): CallToolResult {
   const note = ` ${spawned.mode}`;
   const trail = trailFor(settled, spawned.childId, spawned.title, spawned.on);
-  const output = fenced(settled);
+  const output = reportBody(settled, spawned.childId);
   switch (settled.outcome) {
     case "done":
       return ok(`Delegated agent finished.${note}${trail}\n\n${output}`);
@@ -739,7 +778,7 @@ function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): Ca
     case "interrupted":
       return err(`Delegated run cancelled: the delegating session was interrupted, so the delegated agent was stopped mid-run.${trail}\n\nPartial output: ${output}`);
     case "timeout":
-      return err(`Delegated agent timed out (budget: ${Math.round(spawned.budgetMs / 1000)}s) and was interrupted.${trail}\n\nPartial output: ${output}`);
+      return err(`${timeoutSentence(settled, spawned.budgetMs)}${trail}\n\nPartial output: ${output}`);
     case "failed":
       return err(`Delegated agent session ended with status "${settled.lastStatus}" before finishing.${trail}\n\nPartial output: ${output}`);
     case "gone":
@@ -752,13 +791,50 @@ function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): Ca
 function reportSection(settled: SettledRun, childId: string, stopNote?: string): string {
   const verdict = settled.outcome === "done" ? "finished" : `did NOT finish (${statusOf(settled)})`;
   const why = settled.outcome === "stopped" && stopNote ? `\n\n${stopNote}` : "";
-  return `## Agent ${childId} — ${verdict}${why}\n\n${fenced(settled)}`;
+  const timedOut = settled.outcome === "timeout" ? `\n\n${timeoutSentence(settled)}` : "";
+  return `## Agent ${childId} — ${verdict}${why}${timedOut}\n\n${reportBody(settled, childId)}`;
 }
 
-function fenced(settled: SettledRun): string {
-  return settled.finalText
-    ? fenceAgentOutput(settled.finalText, "the DELEGATED AGENT'S REPORT — a subagent's output")
+function timeoutSentence(settled: SettledRun, budgetMs?: number): string {
+  const budget = budgetMs !== undefined ? ` (budget: ${Math.round(budgetMs / 1000)}s)` : "";
+  if (settled.reported === undefined) return `Delegated agent timed out${budget} and was interrupted.`;
+  return settled.reported
+    ? `Delegated agent timed out${budget}. It was asked for its report and wrote it before the grace period ended.`
+    : `Delegated agent timed out${budget}. It was asked for its report, did not write one before the grace period ended, and was interrupted.`;
+}
+
+/**
+ * What the parent is handed of the child's work. A child that finished is handed back its final
+ * message, and one that timed out but wrote its report when asked is handed back that report. One
+ * that did not finish or report is handed back everything it said, because the last line of a
+ * cut-short run is usually "waiting on CI" and the work is in the lines before it. Either way, the
+ * files it changed follow.
+ */
+function reportBody(settled: SettledRun, childId: string): string {
+  const reported = settled.outcome === "timeout" && settled.reported === true;
+  const said = settled.outcome === "done" ? (settled.finalText ? [settled.finalText] : [])
+    : reported ? settled.report ?? []
+    : settled.texts;
+  const output = said.length > 0
+    ? fenceAgentOutput(said.join("\n\n"), settled.outcome === "done" || reported
+      ? "the DELEGATED AGENT'S REPORT — a subagent's output"
+      : `everything the DELEGATED AGENT said (${said.length} message${said.length === 1 ? "" : "s"}, in order) — a subagent's output`)
     : "(the agent produced no output)";
+  const transcript = reported ? `\n\nIts full transcript is available through session_read (session ${childId}).` : "";
+  return `${output}${transcript}\n\n${filesSection(settled)}`;
+}
+
+function filesSection(settled: SettledRun): string {
+  const [files, source] = settled.worktreeFiles
+    ? [settled.worktreeFiles, "git status of its own worktree"]
+    : [settled.editedFiles, "its Edit, Write and apply_patch calls; changes made by shell commands are not listed"];
+  if (files.length === 0) return `Files changed (from ${source}): none.`;
+  return [`Files changed (from ${source}):`, ...files.map((f) => `- ${f}`)].join("\n");
+}
+
+/** What a child is sent when its budget runs out. */
+function reportNowMessage(graceMs: number): string {
+  return `Your time budget has run out. Stop the work and write your final report now: what you did, what is left, and the files you changed. Do not start anything new. In ${Math.round(graceMs / 1000)} seconds this session will be stopped.`;
 }
 
 function trailFor(settled: SettledRun, childId: string, title: string, on: string): string {

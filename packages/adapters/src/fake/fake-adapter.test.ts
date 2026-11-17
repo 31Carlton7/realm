@@ -160,6 +160,27 @@ describe("FakeAdapter lifecycle", () => {
     await h.send({ text: "x", attachments: [] }); await c;
     expect(decisions).toEqual(["deny"]); expect(types.at(-1)).toBe("status"); expect(types).not.toContain("tool_result");
   });
+  it("holds a tool call open for holdMs, and a stop ends it as interrupted", async () => {
+    const a = new FakeAdapter({ script: [{ on: "go", emit: [
+      { kind: "tool", name: "Bash", input: { command: "pnpm test" }, result: "passed", holdMs: 60_000 },
+      { kind: "text", text: "never said" },
+    ] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const got: SessionEvent[] = [];
+    const done = (async () => { for await (const e of h.events) {
+      got.push(e);
+      if (e.type === "tool_call") setTimeout(() => void h.interrupt(), 100);
+      if (e.type === "status" && e.payload.status === "idle" && got.some((x) => x.type === "tool_call")) break;
+    } })();
+    const began = Date.now();
+    h.send({ text: "go", attachments: [] });
+    await done;
+    expect(Date.now() - began).toBeLessThan(5_000);
+    expect(got.find((e) => e.type === "tool_result")).toMatchObject({ payload: { content: "Interrupted by user", isError: true } });
+    expect(got.some((e) => e.type === "assistant_text")).toBe(false);
+    expect(got.at(-1)).toMatchObject({ type: "status", payload: { status: "idle", interrupted: true } });
+    await h.dispose();
+  });
   it("interrupt stops the running script without pushing idle itself; the turn ends naturally", async () => {
     const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "tool", name: "Bash", input: {}, needsPermission: true, result: "never" }, { kind: "text", text: "after" }] }] });
     const h = a.start({ cwd: "/tmp", mcpServers: [] }); const got: string[] = []; const st: string[] = [];
