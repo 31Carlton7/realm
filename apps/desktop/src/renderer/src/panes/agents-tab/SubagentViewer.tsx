@@ -16,7 +16,7 @@ import { useElapsed } from "../session/use-elapsed";
 import { ReportFold } from "./ReportFold";
 import { SubagentBrief } from "./SubagentBrief";
 import { StateMark } from "./StateMark";
-import { STATE_LABEL, childTitle, isLive, sessionModelLabel, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
+import { STATE_LABEL, childTitle, isLive, orchestratorOrder, sessionModelLabel, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
 
 /**
  * One sub-agent, opened in its lead's Agents tab: what it is, where it stands, what it is doing and
@@ -107,14 +107,27 @@ export function useAskedFor(goal: string | null, blocks: readonly Block[] | unde
  * each wearing its state's mark, and ←/→ along them as a tab strip takes them. The strip is the data
  * of unbounded length here, so it scrolls sideways and dissolves where it has more.
  *
+ * The tabs stand in the cards' order: what waits on you, then what is working, then what has ended
+ * (the owner, 11-17). That order is a function of each one's state and when it started, so it moves
+ * only when a state does, never because another line streamed in. The ended ones fold behind one
+ * "Show all" at the strip's end that opens them in place, except the one being looked at, which stays
+ * where it is when it finishes rather than vanishing from under the reader.
+ *
  * A tab chosen by key takes the keyboard with it; one chosen by Escape from the viewer gets it back,
  * since the viewer it was in has gone.
  */
 export function SubagentSwitch({ leadId, agents, shown }: { leadId: string; agents: readonly SessionSubagent[]; shown: string | null }) {
   const showSubagent = useApp((s) => s.showSubagent);
   const strip = useRef<HTMLDivElement>(null);
+  const [unfolded, setUnfolded] = useState(false);
   useDissolve(strip, "x");
-  const ids = useMemo(() => [null, ...agents.map((a) => a.id)], [agents]);
+  const { tabs, folded, ended } = useMemo(() => {
+    const ordered = orchestratorOrder(agents, (a) => a.state);
+    const ended = ordered.filter((a) => !isLive(a.state)).length;
+    const tabs = unfolded ? ordered : ordered.filter((a) => isLive(a.state) || a.id === shown);
+    return { tabs, folded: ordered.length - tabs.length, ended };
+  }, [agents, shown, unfolded]);
+  const ids = useMemo(() => [null, ...tabs.map((a) => a.id)], [tabs]);
   const at = ids.indexOf(shown);
   useEffect(() => {
     const tab = strip.current?.querySelector<HTMLElement>('[aria-selected="true"]');
@@ -123,6 +136,7 @@ export function SubagentSwitch({ leadId, agents, shown }: { leadId: string; agen
     if (tab && (active === document.body || active === null || strip.current?.contains(active))) tab.focus();
   }, [at]);
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!(e.target instanceof HTMLElement) || e.target.getAttribute("role") !== "tab") return;
     const to = e.key === "ArrowRight" ? at + 1 : e.key === "ArrowLeft" ? at - 1 : e.key === "Home" ? 0 : e.key === "End" ? ids.length - 1 : null;
     if (to === null) return;
     e.preventDefault();
@@ -135,7 +149,7 @@ export function SubagentSwitch({ leadId, agents, shown }: { leadId: string; agen
         <Icon name="agents" size={14} />
         <span className="subagent-switch-label">All</span>
       </button>
-      {agents.map((a, i) => (
+      {tabs.map((a, i) => (
         <button key={a.id} type="button" role="tab" className="subagent-switch-tab" data-state={a.state}
           aria-selected={at === i + 1} tabIndex={at === i + 1 ? 0 : -1} aria-label={`${a.title}, ${STATE_LABEL[a.state]}`}
           title={`${a.title} — ${STATE_LABEL[a.state]}`} onClick={() => showSubagent(leadId, a.id)}>
@@ -143,6 +157,12 @@ export function SubagentSwitch({ leadId, agents, shown }: { leadId: string; agen
           <span className="subagent-switch-label">{a.title}</span>
         </button>
       ))}
+      {(folded > 0 || (unfolded && ended > 0)) && (
+        <button type="button" className="subagent-switch-tab subagent-switch-more" aria-expanded={unfolded}
+          aria-label={unfolded ? "Show fewer" : `Show all, ${folded} ended`} onClick={() => setUnfolded((v) => !v)}>
+          {unfolded ? "Show fewer" : <>Show all <span className="item-count">{folded}</span></>}
+        </button>
+      )}
     </div>
   );
 }
