@@ -147,7 +147,7 @@ describe("the window's one loop", () => {
     expect(watch.mock.calls).toEqual([[true], [false]]);
   });
 
-  for (const [what, attr] of [["its displays are all asleep", "data-display-asleep"], ["the screen is locked", "data-screen-locked"]]) {
+  for (const [what, attr] of [["its displays are all asleep", "data-display-asleep"], ["the screen is locked", "data-screen-locked"]] as const) {
     it(`lets its decoder go while ${what}, and plays again after`, async () => {
       motion = true;
       const a = viewer("/a.mp4");

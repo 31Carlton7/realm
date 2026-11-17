@@ -3,6 +3,7 @@ import type { BrowserCredentialEdit, KeychainPasswordsStatus, SecurityCodesStatu
 import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
+import type { BackdropState } from "../main/backdrop-state";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
@@ -209,10 +210,10 @@ contextBridge.exposeInMainWorld("realm", {
   /** What a moving background stops for that the page is not told (main/backdrop-state.ts): macOS
    *  Low Power Mode, this window covered or on displays all asleep, and the screen locked. `watch`
    *  asks main to look while a loop plays. */
-  backdropState: (): Promise<{ lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }> => ipcRenderer.invoke("backdrop:state"),
+  backdropState: (): Promise<BackdropState> => ipcRenderer.invoke("backdrop:state"),
   watchBackdrop: (on: boolean): void => ipcRenderer.send("backdrop:watch", on),
-  onBackdropState: (cb: (s: { lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }) => void): (() => void) => {
-    const handler = (_e: unknown, s: { lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }) => cb(s);
+  onBackdropState: (cb: (s: BackdropState) => void): (() => void) => {
+    const handler = (_e: unknown, s: BackdropState) => cb(s);
     ipcRenderer.on("realm:backdrop-state", handler);
     return () => ipcRenderer.removeListener("realm:backdrop-state", handler);
   },
