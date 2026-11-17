@@ -79,7 +79,7 @@ function addSkill(home: string, id: string): void {
 async function boot(opts: {
   script?: FakeScript; delayMs?: number;
   parentKind?: "fake" | "claude"; parentMode?: string;
-  timeouts?: { baseMs: number; perTurnMs: number; pollMs: number };
+  timeouts?: { baseMs: number; perTurnMs: number; pollMs: number; graceMs?: number };
   maxDepth?: number; caps?: { perParent?: number; total?: number };
   titleGenerator?: (text: string) => Promise<string>;
 } = {}) {
@@ -1013,6 +1013,99 @@ describe("the budget is working time", () => {
     const result = await app.agentRuns.wait(ctx, {});
     expect(text(result)).toContain("All 1 delegated agent finished");
     expect(text(result)).toContain("FINAL: tests pass");
+  }, 20_000);
+});
+
+describe("when the budget runs out: the report first, then the interrupt", () => {
+  const REPORT_ASK = "Your time budget has run out";
+  /** A child that edits a file, says so, then sits in a long tool call (a suite, a CI watch) past its
+   *  deadline. `onAsk` is what it does with the request for its report. */
+  const midWork = (onAsk: "answer" | "ignore"): FakeScript => [
+    { on: "You are a delegated agent.", emit: [
+      { kind: "text", text: "partial: editing a.txt" },
+      { kind: "tool", name: "Edit", input: { file_path: "a.txt", old_string: "one", new_string: "two" }, result: "ok" },
+      { kind: "text", text: "partial: a.txt edited, running the suite" },
+      { kind: "tool", name: "Bash", input: { command: "pnpm vitest run" }, result: "passed", holdMs: 60_000 },
+    ] },
+    { on: REPORT_ASK, emit: onAsk === "answer"
+      ? [{ kind: "text", text: "REPORT: a.txt changed, the suite had not finished" }]
+      : [{ kind: "tool", name: "Bash", input: { command: "pnpm vitest run" }, result: "passed", holdMs: 60_000 }] },
+  ];
+  const timeouts = { baseMs: 400, perTurnMs: 0, pollMs: 20, graceMs: 2_500 };
+  const asksOf = (childId: string) => app.sessions.events(childId, 0, 1000).map((e) => e.event)
+    .filter((e) => e.type === "user_message" && e.payload.text.includes(REPORT_ASK));
+
+  it("asks a child that is mid-tool-call for its report, waits for it, and hands back everything it said and the files it edited", async () => {
+    // THE MUTANTS: no request (the run ends without REPORT), no grace (interrupted before it can
+    // answer), the request queued rather than steered (it waits behind the 60s call), only the last
+    // message returned (the earlier lines are lost), no files list.
+    const { spaceId, parentId } = await boot({ script: midWork("answer"), timeouts });
+    const began = Date.now();
+    const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "change a.txt" });
+    const took = Date.now() - began;
+    const child = childOf(spaceId, parentId);
+    expect(asksOf(child.id)).toHaveLength(1);
+    expect(result.isError).toBe(true);
+    const out = text(result);
+    expect(out).toContain("It was asked for its report and wrote it before the grace period ended.");
+    for (const line of ["partial: editing a.txt", "partial: a.txt edited, running the suite", "REPORT: a.txt changed, the suite had not finished"]) expect(out).toContain(line);
+    expect(out).toContain("Files changed (from its Edit, Write and apply_patch calls; changes made by shell commands are not listed):\n- a.txt");
+    // Answered inside the grace, so it was not held for all of it.
+    expect(took).toBeLessThan(timeouts.baseMs + timeouts.graceMs);
+    expect(app.agentRuns.record(child.id)?.outcome).toBe("timeout");
+  }, 20_000);
+
+  it("interrupts a child that ignores the request once the grace is over, and still hands back its text and files", async () => {
+    const { spaceId, parentId } = await boot({ script: midWork("ignore"), timeouts });
+    const began = Date.now();
+    const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "change a.txt" });
+    const took = Date.now() - began;
+    const child = childOf(spaceId, parentId);
+    expect(asksOf(child.id)).toHaveLength(1);
+    const out = text(result);
+    expect(out).toContain("did not write one before the grace period ended, and was interrupted.");
+    expect(out).toContain("partial: editing a.txt");
+    expect(out).toContain("partial: a.txt edited, running the suite");
+    expect(out).toContain("- a.txt");
+    expect(took).toBeGreaterThanOrEqual(timeouts.baseMs + timeouts.graceMs);
+    await waitFor(() => app.sessions.get(child.id).status === "idle");
+  }, 20_000);
+
+  it("gives agent_wait the same report: every line and the files", async () => {
+    const { spaceId, parentId } = await boot({ script: midWork("answer"), timeouts });
+    const ctx = { sessionId: parentId, spaceId };
+    await app.agentRuns.start(ctx, { goal: "change a.txt" });
+    const out = text(await app.agentRuns.wait(ctx, {}));
+    expect(out).toContain("did NOT finish (timeout)");
+    expect(out).toContain("It was asked for its report and wrote it before the grace period ended.");
+    for (const line of ["partial: editing a.txt", "partial: a.txt edited, running the suite", "REPORT: a.txt changed"]) expect(out).toContain(line);
+    expect(out).toContain("- a.txt");
+  }, 20_000);
+
+  it("lists a worktree's changes from git, including a file only a shell command made", async () => {
+    // THE MUTANT: the tool calls read even where git can see more — the shell-made file is missing.
+    const { spaceId, parentId, folder } = await boot({ script: [{ on: "You are a delegated agent.", emit: [
+      { kind: "tool", name: "Edit", input: { file_path: "a.txt", old_string: "one", new_string: "two" }, result: "ok", apply: true },
+      { kind: "tool", name: "Bash", input: { command: "make gen" }, result: "ok", holdMs: 60_000 },
+    ] }, { on: REPORT_ASK, emit: [{ kind: "text", text: "REPORT: done what I could" }] }], timeouts });
+    initRepo(folder);
+    const pending = app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "change a.txt", constraints: { newWorktree: true } });
+    await waitFor(() => app.sessions.list(spaceId).length === 2);
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => app.sessions.events(child.id, 0, 500).some((e) => e.event.type === "tool_call" && e.event.payload.name === "Bash"));
+    writeFileSync(join(app.sessions.get(child.id).cwd!, "gen.txt"), "made by make\n");
+    const out = text(await pending);
+    expect(out).toContain("Files changed (from git status of its own worktree):\n- a.txt\n- gen.txt");
+  }, 20_000);
+
+  it("reaches a child whose turn ended on a background job without a report", async () => {
+    // The child is idle, not mid-turn: the request starts a turn of its own.
+    const { spaceId, parentId } = await boot({ script: [{ on: "You are a delegated agent.", emit: [
+      { kind: "background", description: "watch CI", runMs: 60_000 },
+    ] }, { on: REPORT_ASK, emit: [{ kind: "text", text: "REPORT: CI was still running" }] }], timeouts });
+    const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "watch CI" });
+    expect(asksOf(childOf(spaceId, parentId).id)).toHaveLength(1);
+    expect(text(result)).toContain("REPORT: CI was still running");
   }, 20_000);
 });
 

@@ -35,7 +35,7 @@ describe("one settle/drain implementation (Plan 13 W1)", () => {
   // Either one appearing in a second source file means the engine was forked.
   it.each([
     ["the settle condition", 'lastStatus === "idle" && finalText !== null'],
-    ["the cancelled-wins return", 'if (run.cancelled) return { outcome: "interrupted"'],
+    ["the cancelled-wins return", 'if (run.cancelled) return settle("interrupted")'],
     ["the run registry", "new Map<string, ActiveRun[]>"],
   ])("%s lives only in the engine", (_what, needle) => {
     expect(filesMentioning(needle)).toEqual(["delegation/engine.ts"]);

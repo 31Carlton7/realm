@@ -91,7 +91,7 @@ describe("delegation.changed — the parent's live runs, straight off the regist
     const { engine } = wired();
     const run = engine.begin(PARENT, KID, { detached: true });
     expect(engine.liveRuns(PARENT)).toMatchObject([{ sessionId: KID, detached: true }]);
-    run.done = { outcome: "done", finalText: "x", lastStatus: "idle" };
+    run.done = { outcome: "done", finalText: "x", lastStatus: "idle", texts: ["x"], editedFiles: [] };
     // THE MUTANT: derive liveRuns from `runsOf` rather than `running`, and an `agent_start` nobody
     // has collected yet shows as a working agent until the parent gets round to `agent_wait`.
     expect(engine.liveRuns(PARENT)).toEqual([]);

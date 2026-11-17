@@ -17,8 +17,9 @@ export type FakeStep =
    *  a scripted turn leave a checkout that checkpoints, diffs and the turn's edit summary can measure.
    *  A failed edit (the text to replace is not there) settles the call as an error, as a real one would.
    *  `asksInFullAccess` makes a `needsPermission` call ask in every mode, as Claude Code does about a
-   *  Bash command its parser cannot vouch for. */
-  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; asksInFullAccess?: boolean; result: string; apply?: boolean }
+   *  Bash command its parser cannot vouch for. `holdMs` keeps the call running that long before its
+   *  result, the way a test suite or a `gh pr checks --watch` does; a stop ends it as interrupted. */
+  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; asksInFullAccess?: boolean; result: string; apply?: boolean; holdMs?: number }
   /** A plan, in either shape the `plan` event carries. Re-using a `planId` revises that plan in
    *  place, which is what the real agents do and the one plan behaviour a script must be able to
    *  reproduce. */
@@ -199,6 +200,12 @@ export class FakeAdapter implements AgentAdapter {
             if (interrupted) break;
             q.push(sessionEvent("status", { status: "running" }));
             if (decision === "deny") { q.push(sessionEvent("assistant_text", { messageId: newId(), text: "Okay, I won't run that." })); continue; }
+          }
+          if (st.holdMs !== undefined) {
+            const until = Date.now() + st.holdMs;
+            while (!disposed && !interrupted && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+            if (disposed) return;
+            if (interrupted) { q.push(sessionEvent("tool_result", { toolUseId, content: "Interrupted by user", isError: true })); break; }
           }
           const failed = st.apply ? applyEdit(opts.cwd, st.name, st.input) : null;
           q.push(sessionEvent("tool_result", { toolUseId, content: failed ?? st.result, isError: failed !== null }));

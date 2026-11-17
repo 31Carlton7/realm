@@ -181,7 +181,7 @@ describe("awaitRuns — ticks while it waits, and stops for a caller that has go
     const { engine } = engineOver([[]]);
     const r = run();
     let ticks = 0;
-    setTimeout(() => { r.done = { outcome: "done", finalText: "ok", lastStatus: "idle" }; }, 30);
+    setTimeout(() => { r.done = { outcome: "done", finalText: "ok", lastStatus: "idle", texts: ["ok"], editedFiles: [] }; }, 30);
     const outcome = await engine.awaitRuns([r], "all", Date.now() + 2000, 5, { onTick: () => { ticks += 1; } });
     expect(outcome).toBe("settled");
     expect(ticks).toBeGreaterThanOrEqual(2);

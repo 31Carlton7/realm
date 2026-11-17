@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import type { DelegatedRun, DelegationOutcome, StoredSessionEvent } from "@realm/contracts";
+import { WRITE_TOOL_NAMES, bareToolName, writtenPathOf, type DelegatedRun, type DelegationOutcome, type StoredSessionEvent } from "@realm/contracts";
 
 /**
  * The delegation engine (Plan 13 W1) — the one settle/drain implementation behind BOTH delegation
@@ -225,8 +225,15 @@ export class DelegationEngine {
    * child. `agent_wait`'s timeout is therefore a separate, shorter thing — giving up on LISTENING,
    * which never stops the child.
    */
-  watch(run: ActiveRun, childId: string, fromSeq: number, deadline: number, pollMs: number): void {
-    run.settled = this.drain(childId, fromSeq, run, deadline, pollMs).then((s) => { run.done = s; this.announce(run.parentSessionId); return s; });
+  watch(run: ActiveRun, childId: string, fromSeq: number, deadline: number, pollMs: number, opts: WatchOptions = {}): void {
+    run.settled = this.drain(childId, fromSeq, run, deadline, pollMs, undefined, opts.grace).then(async (s) => {
+      // Read before `done` is set, so whoever collects the run gets the files with the rest of it.
+      const worktreeFiles = opts.worktreeFiles ? await opts.worktreeFiles().catch(() => null) : null;
+      const settled = worktreeFiles ? { ...s, worktreeFiles } : s;
+      run.done = settled;
+      this.announce(run.parentSessionId);
+      return settled;
+    });
     // drain resolves for every outcome rather than throwing, but an unobserved promise that somehow
     // did reject would take the process down — and a detached run is unobserved by construction.
     void run.settled.catch(() => { /* surfaced through run.done / the awaiting tool */ });
@@ -347,9 +354,26 @@ export class DelegationEngine {
    * child held on a prompt is never timed out for it. Interrupting a child for something the user did
    * (or has not yet done) would be blaming it for the wait. A child can therefore sit on a prompt
    * indefinitely — the user owns that wait, and the lead's interrupt or deletion still ends it.
+   *
+   * **A grace before the interrupt.** With `grace`, the deadline first asks the child for its report
+   * and gives it `grace.ms` more to write one. Only a turn that follows the request can settle the
+   * run then: the stop that delivers the request ends the turn the child was in, and that turn's
+   * `idle` is not an answer. A child that answers settles as `timeout` with `reported: true`; one
+   * that does not is interrupted when the grace runs out, as before.
+   *
+   * Every message the child said and every file a write call of its named is kept on the result, so
+   * a run that is cut short still hands back the work it did and not only its last line.
    */
-  async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number, onTick?: () => void): Promise<SettledRun> {
+  async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number, onTick?: () => void, grace?: Grace): Promise<SettledRun> {
     let last = fromSeq;
+    const texts: string[] = [];
+    const edited = new Set<string>();
+    // When the report was asked for; whether the message asking has reached the transcript; the
+    // child's status since it did; and whether it has said anything since.
+    let askedAt: number | null = null;
+    let requestSeen = false;
+    let statusSinceRequest: string | null = null;
+    let answered = false;
     // When the child started waiting on the user, while it still is.
     let pausedSince: number | null = null;
     let lastStatus: string | null = null;
@@ -359,36 +383,61 @@ export class DelegationEngine {
     // slice ENDS: a stop the child was then sent past (a steered message) and a turn that went on to
     // finish reads as the finish.
     let stopped = false;
+    const settle = (outcome: DelegationOutcome): SettledRun => ({
+      outcome, finalText, lastStatus, texts, editedFiles: [...edited],
+      ...(askedAt !== null ? { reported: answered } : {}),
+    });
     for (;;) {
       let batch: StoredSessionEvent[];
-      try { batch = this.d.sessions.events(childId, last, 500); } catch { return { outcome: "gone", finalText, lastStatus }; }
+      try { batch = this.d.sessions.events(childId, last, 500); } catch { return settle("gone"); }
       for (const stored of batch) {
         last = stored.seq;
         const ev = stored.event;
-        if (ev.type === "status") { lastStatus = ev.payload.status; stopped = ev.payload.interrupted === true; }
-        if (ev.type === "assistant_text") finalText = ev.payload.text;
+        if (ev.type === "status") {
+          lastStatus = ev.payload.status;
+          stopped = ev.payload.interrupted === true;
+          if (requestSeen) statusSinceRequest = lastStatus;
+        }
+        if (ev.type === "assistant_text") {
+          finalText = ev.payload.text;
+          texts.push(ev.payload.text);
+          if (requestSeen) answered = true;
+        }
+        if (ev.type === "tool_call") for (const path of editedPaths(ev.payload.name, ev.payload.input)) edited.add(path);
+        if (ev.type === "user_message" && askedAt !== null) requestSeen = true;
       }
       // Cancellation wins over everything, including a turn that settled in the same poll window:
       // once the parent interrupted, the honest answer is "this run was cancelled (here is the
       // partial text)" — proven live: an interrupted Claude child winds down to idle WITH earlier
       // assistant text present, and checking settled first mislabels that as a clean finish.
-      if (run.cancelled) return { outcome: "interrupted", finalText, lastStatus };
+      if (run.cancelled) return settle("interrupted");
       // The same wind-down, reached from the CHILD's own stop rather than the parent's: idle, with
       // whatever it had said so far, which is exactly what a finish looks like. The adapter's
       // `interrupted` mark is the whole difference, so it is read before the finish is — the parent
       // was being told "Delegated agent finished." about work a person had cut short. It settles even
       // with nothing said: a child stopped before its first word is still stopped, and waiting out its
       // budget for a report that is never coming would end in a timeout that lies about why.
-      if (lastStatus === "idle" && stopped) return { outcome: "stopped", finalText, lastStatus };
-      if (lastStatus === "idle" && finalText !== null) return { outcome: "done", finalText, lastStatus };
-      if (lastStatus === "error" || lastStatus === "ended") return { outcome: "failed", finalText, lastStatus };
+      if (askedAt === null) {
+        if (lastStatus === "idle" && stopped) return settle("stopped");
+        if (lastStatus === "idle" && finalText !== null) return settle("done");
+      } else if (statusSinceRequest === "idle") {
+        if (stopped) return settle("stopped");
+        if (answered) return settle("timeout");
+      }
+      if (lastStatus === "error" || lastStatus === "ended") return settle("failed");
       if (lastStatus === "waiting_permission") pausedSince ??= Date.now();
       else if (pausedSince !== null) { const span = Date.now() - pausedSince; deadline += span; run.pausedMs = (run.pausedMs ?? 0) + span; pausedSince = null; }
       // Kept on the run as well, so the lead's Agents tab can say how much of the budget is spent.
       run.pausedSince = pausedSince;
       if (pausedSince === null && Date.now() >= deadline) {
-        void this.d.sessions.interrupt(childId).catch(() => { /* best effort — it may have just ended */ });
-        return { outcome: "timeout", finalText, lastStatus };
+        if (grace && askedAt === null) {
+          askedAt = Date.now();
+          deadline = askedAt + grace.ms;
+          void grace.askForReport().catch(() => { /* the child may have just ended; the grace runs out */ });
+        } else {
+          void this.d.sessions.interrupt(childId).catch(() => { /* best effort — it may have just ended */ });
+          return settle("timeout");
+        }
       }
       onTick?.();
       await sleep(pollMs);
@@ -432,7 +481,30 @@ export type ActiveRun = {
 };
 /** `outcome` is the contracts vocabulary rather than a union spelled here: `session.agentSettled`
  *  carries it to the renderer as-is. */
-export type SettledRun = { outcome: DelegationOutcome; finalText: string | null; lastStatus: string | null };
+export type SettledRun = {
+  outcome: DelegationOutcome; finalText: string | null; lastStatus: string | null;
+  /** Every message the child said during the run, in order; `finalText` is the last of them. */
+  texts: string[];
+  /** The files its write calls named (Edit, Write, apply_patch…), in the order it first touched them. */
+  editedFiles: string[];
+  /** What git says changed in a worktree the child had to itself, when `watch` was given a reader. */
+  worktreeFiles?: string[];
+  /** Set when the budget ran out and the child was asked for its report: whether it answered. */
+  reported?: boolean;
+};
+
+/** The deadline's first step, when a run has one: ask the child for its report, then wait `ms`. */
+export type Grace = { ms: number; askForReport: () => Promise<void> };
+export type WatchOptions = { grace?: Grace; worktreeFiles?: () => Promise<string[]> };
+
+/** The files a write call names: one path for Claude's tools, every change for Codex's `apply_patch`. */
+function editedPaths(name: string, input: Record<string, unknown>): string[] {
+  if (!WRITE_TOOL_NAMES.has(bareToolName(name))) return [];
+  const one = writtenPathOf(input);
+  if (one !== null) return [one];
+  const changes = Array.isArray(input["changes"]) ? (input["changes"] as { path?: unknown }[]) : [];
+  return changes.map((c) => c?.path).filter((p): p is string => typeof p === "string" && p !== "");
+}
 /** `sawTurnStart` is what makes the prose fallback safe — see `scan`. */
 type TranscriptScan = { lastStatus: string | null; finalText: string | null; sawTurnStart: boolean };
 /** `answered` = the peer called `agent_answer`. `replied` = it settled with prose instead, which the
