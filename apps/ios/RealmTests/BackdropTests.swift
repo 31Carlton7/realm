@@ -128,8 +128,21 @@ struct BackdropTests {
         }
     }
 
+    /// Behind a transcript the view makes its blurred picture once it is on screen.
+    @Test func theTranscriptsPictureIsMade() throws {
+        final class Box { var picture: BackdropPicture? }
+        let box = Box()
+        let look = BackgroundLook(id: "a", effect: .ditherColor, asIs: false, faces: .init(light: "l", dark: "d"))
+        let still = try #require(Self.stills().first { $0.name == "blue" }).image
+        let view = BackdropView(look: look, still: UIImage(cgImage: still), empty: false, transcript: Binding(get: { box.picture }, set: { box.picture = $0 }))
+            .frame(width: 160, height: 160)
+        _ = try Self.drawn(view, size: CGSize(width: 160, height: 160), settle: 3)
+        let picture = try #require(box.picture)
+        #expect(picture.size == CGSize(width: 160, height: 160))
+    }
+
     /// The view as the screen draws it, in a window: RGBA bytes.
-    static func drawn(_ view: some View, size: CGSize) throws -> [UInt8] {
+    static func drawn(_ view: some View, size: CGSize, settle: TimeInterval = 0.4) throws -> [UInt8] {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let host = UIHostingController(rootView: view)
@@ -138,7 +151,7 @@ struct BackdropTests {
         window.frame = CGRect(origin: .zero, size: size)
         window.makeKeyAndVisible()
         host.view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        RunLoop.main.run(until: Date().addingTimeInterval(settle))
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }

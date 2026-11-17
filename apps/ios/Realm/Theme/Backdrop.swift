@@ -273,7 +273,10 @@ struct BackdropView: View {
         GeometryReader { proxy in
             let size = proxy.size
             let inks = Backdrop.Inks(scheme)
-            Group {
+            // A ZStack, not a Group: until the transcript's picture is made there is nothing else in
+            // it, and a Group with nothing in it never runs the task that makes the picture.
+            ZStack {
+                Color.clear
                 if empty {
                     printed(size: size, inks: inks)
                 } else if let transcript, transcript.key == key(size) {
