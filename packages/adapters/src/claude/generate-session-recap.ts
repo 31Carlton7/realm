@@ -5,9 +5,15 @@ import { HINT_MAX, cleanHint } from "./generate-prompt-hint";
 
 type QueryFn = typeof sdkQuery;
 
-/** How much transcript the model is shown. The summary's budget, not the hint's smaller one: one
- *  call now answers both, and the summary is the field that needs the longer view. */
-const TAIL_CHARS = 6000;
+/**
+ * How much transcript the model is shown, from the end. The summary's budget, not the hint's smaller
+ * one: one call answers both, and the summary is the field that needs the longer view.
+ *
+ * Sized on a replayed day (Nov 15). A recap now waits for a quiet spell, so it covers more new
+ * conversation than a per-turn one did: 6,000 characters held everything said since the last recap
+ * for 66% of per-turn recaps but only 39% of quiet-spell ones. 12,000 brings that back to 72%.
+ */
+export const RECAP_TRANSCRIPT_MAX = 12_000;
 
 export type RecapInput = {
   /** The first thing the user asked, already clipped by the caller. */
@@ -52,16 +58,18 @@ export type Recap = {
  */
 export async function generateSessionRecap(input: RecapInput, deps: { query?: QueryFn } = {}): Promise<Recap> {
   const query = deps.query ?? sdkQuery;
-  const tail = input.transcript.length > TAIL_CHARS ? input.transcript.slice(-TAIL_CHARS) : input.transcript;
   const q = query({
-    prompt: [
-      input.asked ? `The user opened with: ${input.asked}` : "",
-      input.facts ? `What Realm counted (these numbers are correct — use them, do not recount):\n${input.facts}` : "",
-      `Transcript (most recent part):\n${tail}`,
-    ].filter(Boolean).join("\n\n"),
+    prompt: recapPrompt(input),
     options: {
       maxTurns: 1,
+      // No tools at all, rather than tools it may not use: their definitions were most of every call.
+      tools: [],
       allowedTools: [],
+      // No prompt cache. Nothing in a recap is read back: the next one for this session comes after
+      // a quiet spell, past any cache's life, with a different transcript, and the only part sessions
+      // share is the system prompt. A subscription would otherwise write the whole prompt to the
+      // 1-hour cache at twice the input price.
+      env: { ...process.env, DISABLE_PROMPT_CACHING: "1" },
       model: BACKGROUND_MODEL,
       systemPrompt: [
         "You read a coding assistant's session and reply with exactly two lines, each on its own line,",
@@ -93,6 +101,16 @@ export async function generateSessionRecap(input: RecapInput, deps: { query?: Qu
     }
   }
   return splitRecap(result);
+}
+
+/** The user message a recap sends: the opening ask, Realm's counts, and the end of the transcript. */
+export function recapPrompt(input: RecapInput): string {
+  const tail = input.transcript.length > RECAP_TRANSCRIPT_MAX ? input.transcript.slice(-RECAP_TRANSCRIPT_MAX) : input.transcript;
+  return [
+    input.asked ? `The user opened with: ${input.asked}` : "",
+    input.facts ? `What Realm counted (these numbers are correct — use them, do not recount):\n${input.facts}` : "",
+    `Transcript (most recent part):\n${tail}`,
+  ].filter(Boolean).join("\n\n");
 }
 
 /**

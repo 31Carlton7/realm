@@ -1,4 +1,4 @@
-import { AGENT_META, AddTeammateSchema, carriedTranscript, type AgentRunConstraints, type Goal, type MentionRef, type Session } from "@realm/contracts";
+import { AGENT_META, AddTeammateSchema, carriedTranscript, type AgentRunConstraints, type Goal, type MentionRef, type Session, type SessionEvent } from "@realm/contracts";
 import type { z } from "zod";
 import { clip } from "../mcp/tool-result";
 import type { SessionService } from "../sessions/service";
@@ -47,7 +47,7 @@ export class Teammates {
   constructor(private readonly d: {
     agentRuns: Pick<AgentRunService, "startChild" | "record" | "labelOf">;
     sessions: Pick<SessionService, "get" | "send">;
-    events: Pick<SessionEventsStore, "transcript" | "lastOfType">;
+    events: Pick<SessionEventsStore, "transcript" | "lastOfType" | "listOfTypes">;
     goals: { get(sessionId: string): Goal | null };
     settings: SettingsLike;
     /** The lead's list of sub-agents changed: every window re-reads it (`announceDelegation`). */
@@ -84,7 +84,7 @@ export class Teammates {
    */
   private goalFor(lead: Session, brief: string): string {
     const goal = this.d.goals.get(lead.id);
-    const summary = this.d.events.lastOfType(lead.id, "summary");
+    const summary = this.current(lead.id, this.d.events.lastOfType(lead.id, "summary"));
     const turns = this.d.events.transcript(lead.id, Date.now());
     const { body: conversation, fence } = carriedTranscript(turns, CONVERSATION_MAX);
     return [
@@ -99,6 +99,14 @@ export class Teammates {
         ? ["", "Its conversation so far, newest last (the tail, as plain text):", `${fence}transcript\n${conversation}\n${fence}`]
         : ["", "The session has no conversation yet."]),
     ].join("\n");
+  }
+
+  /** A recap is written once a session goes quiet, so the person may have said more since. One that
+   *  no longer covers the conversation is left out: the tail below says where it stands. */
+  private current(sessionId: string, summary: SessionEvent | null): SessionEvent | null {
+    if (summary?.type !== "summary") return null;
+    const since = this.d.events.listOfTypes(sessionId, ["user_message"], { afterSeq: summary.payload.throughSeq, limit: 1 });
+    return since.length === 0 ? summary : null;
   }
 
   private joined(leadId: string): string[] {

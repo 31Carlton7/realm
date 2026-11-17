@@ -11,13 +11,21 @@ import { generateHandoffNotes, generateMemoryExtraction, generateMemoryTidyPlan,
  * on the user's own account and left a transcript for a scratch folder in `~/.claude/projects`,
  * while `SessionsDeps.titleGenerator` promised a harness would never make that call. A harness gets
  * the heuristic first-line title instead, which is all any live check reads, and learns nothing.
+ *
+ * A live check that needs a recap on screen adds `REALM_FAKE_RECAP=1` and gets one written from
+ * Realm's own counts, with no model call.
  */
 export function billedGenerators(env: NodeJS.ProcessEnv = process.env): {
   titleGenerator?: typeof generateSessionTitle; summaryGenerator?: typeof generateSessionRecap; handoffGenerator?: typeof generateHandoffNotes;
   memoryLearning?: { extract: typeof generateMemoryExtraction; tidy: typeof generateMemoryTidyPlan };
 } {
-  return env.REALM_ENABLE_FAKE_AGENT === "1" ? {} : {
+  if (env.REALM_ENABLE_FAKE_AGENT === "1") return env.REALM_FAKE_RECAP === "1" ? { summaryGenerator: scriptedRecap } : {};
+  return {
     titleGenerator: generateSessionTitle, summaryGenerator: generateSessionRecap, handoffGenerator: generateHandoffNotes,
     memoryLearning: { extract: generateMemoryExtraction, tidy: generateMemoryTidyPlan },
   };
+}
+
+async function scriptedRecap({ facts }: { facts: string }): Promise<{ summary: string; hint: string | null }> {
+  return { summary: `Scripted recap: ${facts.split("\n").map((l) => l.replace(/^- /, "")).join(", ")}.`, hint: null };
 }

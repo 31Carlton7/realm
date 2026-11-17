@@ -42,7 +42,7 @@ describe("opening a long session", () => {
     expect(reads(api.calls)).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:end:init,usage,summary,prompt_hint"]);
   });
 
-  it("still knows what the log last said about the model, the meter and the summary, wherever it said it", async () => {
+  it("still knows what the log last said about the model and the meter, wherever it said it", async () => {
     const log = Array.from({ length: N }, (_, i) => ev(i + 1));
     log[49] = { seq: 50, sessionId: "se1", event: sessionEvent("init", { providerSessionId: "p1", model: "opus", tools: ["Bash"], cwd: "/w" }, 50) };
     log[59] = { seq: 60, sessionId: "se1", event: sessionEvent("usage", { costUsd: 4.2, inputTokens: 10, outputTokens: 20, numTurns: 7 }, 60) };
@@ -52,7 +52,9 @@ describe("opening a long session", () => {
     const { t } = store.getState().transcripts.se1!;
     expect(t.init?.model).toBe("opus");
     expect(t.usage.costUsd).toBe(4.2);
-    expect(t.summary?.text).toBe("Built the thing.");
+    // The summary is carried too, but the stretch read starts on a prompt the person sent after it,
+    // so it no longer describes the session and the end line falls back to the derived one.
+    expect(t.summary).toBeNull();
   });
 
   it("knows when the turn before it settled, for the first turn's checkpoint", async () => {

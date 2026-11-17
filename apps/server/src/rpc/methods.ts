@@ -137,6 +137,7 @@ export type Deps = {
   owner: ServerOwner;
   /** Realm's own memory learning, where it is on: archiving a session is the moment it is read. */
   memoryLearning?: { sessionArchived(sessionId: string): void } | null;
+  summaries?: { onEnded(sessionId: string): Promise<void> };
 };
 
 export function registerMethods(d: Deps): void {
@@ -825,8 +826,11 @@ export function registerMethods(d: Deps): void {
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("items.update", (p) => {
     const r = d.items.update(p);
-    // A session put away is read for memory now, rather than after its quiet spell.
-    if (p.archived === true && r.kind === "session") d.memoryLearning?.sessionArchived(r.refId);
+    // A session put away is read for memory and recapped now, rather than after its quiet spell.
+    if (p.archived === true && r.kind === "session") {
+      d.memoryLearning?.sessionArchived(r.refId);
+      void d.summaries?.onEnded(r.refId);
+    }
     rpc.broadcast("items.changed", { spaceId: r.spaceId });
     return r;
   });

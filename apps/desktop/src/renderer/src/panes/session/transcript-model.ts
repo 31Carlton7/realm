@@ -342,7 +342,10 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     /* The hint is cleared here, and that is the whole of how a stale suggestion is prevented: it was
        written about the turn that had just ended, and the moment the user sends anything it is a
        suggestion about a turn that is no longer the last one. The prompter shows the deterministic
-       ladder in the gap until the next settle produces a new one. */
+       ladder in the gap until the session next goes quiet and a new one is written.
+       The written summary goes too, for the same reason: it is only written once the session goes
+       quiet, so it would otherwise describe the session as it stood before this exchange, and the
+       derived line is the honest one until the next is written. */
     case "user_message": {
       // The turn before this one never settled into a run line: it is closed at the last thing it
       // produced, ahead of the unseen mark if this event carries one — it is the end of a turn the
@@ -351,7 +354,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
       const scheduled = e.payload.scheduled;
       blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(e.payload.tabs?.length ? { tabs: e.payload.tabs } : {}), ...(scheduled ? { scheduled } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
-      return { ...t, blocks, promptHint: null };
+      return { ...t, blocks, promptHint: null, summary: null };
     }
     case "assistant_delta": {
       if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: appendDelta(last.text, e.payload.delta, e.payload.at) };
