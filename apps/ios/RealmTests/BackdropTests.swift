@@ -13,17 +13,14 @@ struct BackdropTests {
     nonisolated static let schemes: [ColorScheme] = [.light, .dark]
     static let treatments: [Backdrop.Treatment] = [.asIs, .colorKept, .printed(halftone: false), .printed(halftone: true)]
 
-    /// The ratio each ink must keep over every pixel: 4.5:1, or 3:1 for one that misses 4.5:1 on the
-    /// plain ground already, as the light face's link does.
-    static func needs(_ inks: Backdrop.Inks) -> [(name: String, ink: Backdrop.RGB, need: Double)] {
-        [("body", inks.ink), ("quiet", inks.ink2), ("link", inks.link)].map { name, ink in
-            let plain = ink.contrast(with: inks.ground)
-            return (name, ink, min(plain < 4.5 ? 3 : 4.5, plain))
-        }
+    /// The ratio each ink must keep over every pixel (design.md): 4.5:1 for the body, the quiet ink and
+    /// the link, and 3:1 for the light face's link.
+    static func needs(_ inks: Backdrop.Inks, _ scheme: ColorScheme) -> [(name: String, ink: Backdrop.RGB, need: Double)] {
+        [("body", inks.ink, 4.5), ("quiet", inks.ink2, 4.5), ("link", inks.link, scheme == .light ? 3 : 4.5)]
     }
 
-    /// Stills that ask the most of the guard: all white, all black, saturated hues, and a ramp through
-    /// every grey beside every hue.
+    /// Stills that ask the most of the guard: all white (the brightest), all black (the darkest),
+    /// saturated hues, and a ramp through every grey beside every hue.
     static func stills() -> [(name: String, image: CGImage)] {
         func solid(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGImage {
             UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64), format: .init(for: .init(displayScale: 1))).image { c in
@@ -67,16 +64,25 @@ struct BackdropTests {
     @Test(arguments: schemes)
     func everyRunReadsOverTheTranscriptsWorstPixel(scheme: ColorScheme) throws {
         let inks = Backdrop.Inks(scheme)
+        try Self.theStillsAskSomething(inks, scheme)
         for (name, still) in Self.stills() {
             for treatment in Self.treatments {
                 let image = try #require(Backdrop.transcriptImage(still, treatment: treatment, dark: scheme == .dark, inks: inks, size: CGSize(width: 120, height: 200)))
                 let pixels = Self.bytes(try #require(image.cgImage))
-                for (run, ink, need) in Self.needs(inks) {
+                for (run, ink, need) in Self.needs(inks, scheme) {
                     let worst = Self.worst(ink, over: pixels)
                     #expect(worst >= need, "\(run) over \(name), \(treatment), \(scheme): \(worst) under \(need)")
                 }
             }
         }
+    }
+
+    /// The faces resolve to their own inks, and the body does not read over the bright still on the dark face
+    /// or the dark still on the light face when drawn as they are, so a pass means the guard did the work.
+    static func theStillsAskSomething(_ inks: Backdrop.Inks, _ scheme: ColorScheme) throws {
+        #expect((scheme == .dark) == (inks.ground.luminance < 0.2), "\(scheme) resolved the other face's ground")
+        let still = try #require(stills().first { $0.name == (scheme == .dark ? "white" : "black") }).image
+        #expect(worst(inks.ink, over: bytes(still)) < 4.5, "the body reads over the bare \(scheme == .dark ? "white" : "black") still")
     }
 
     /// A bright picture keeps what colour it can: the guard lowers a pixel only as far as the words need.
@@ -96,6 +102,7 @@ struct BackdropTests {
     @Test(arguments: schemes)
     func everyRunReadsOverTheEmptySessionsWorstPixel(scheme: ColorScheme) throws {
         let inks = Backdrop.Inks(scheme)
+        try Self.theStillsAskSomething(inks, scheme)
         let looks: [BackgroundLook] = [
             .init(id: "a", effect: .ditherColor, asIs: false, faces: .init(light: "l", dark: "d")),
             .init(id: "b", effect: .dither, asIs: false, faces: .init(light: "l", dark: "d")),
@@ -108,7 +115,12 @@ struct BackdropTests {
                     .frame(width: 160, height: 160)
                     .environment(\.colorScheme, scheme)
                 let pixels = try Self.drawn(view, size: CGSize(width: 160, height: 160))
-                for (run, ink, need) in Self.needs(inks) {
+                if name == "ramp" {
+                    // The capture holds the picture, not a blank or the plain ground.
+                    let shades = Set(stride(from: 0, to: pixels.count, by: 4).map { pixels[$0 + 1] })
+                    #expect(shades.count > 16, "\(look.id), \(scheme): the capture shows \(shades.count) shades")
+                }
+                for (run, ink, need) in Self.needs(inks, scheme) {
                     let worst = Self.worst(ink, over: pixels)
                     #expect(worst >= need, "\(run) over \(name), \(look.id), \(scheme): \(worst) under \(need)")
                 }

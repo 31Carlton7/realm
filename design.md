@@ -1293,6 +1293,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   card lifted as the composer is (the owner, 11-04, of the glass bar and the blur behind the
   composer: "I want it to revert back to the old blur that we had before… similar to the Apple
   Photos").
+- On the phone a session wears the same picture the Mac gives it (`backgrounds.look`): the Mac
+  resolves the look, Shuffle included, so the two never disagree, and sends a still of the face
+  shown, never a loop. Under the empty session the still is printed as the desktop prints it; behind a
+  transcript it is blurred once into an image, and in both every pixel is taken toward the ground only
+  as far as the body, quiet and link inks need to keep their ratio, so no run of words needs a guard
+  of its own. The bars' edges fade into the picture, not into a band of ground, and the composer stays
+  its solid card. Increase Contrast or Reduce Transparency keeps the plain ground, as a person who
+  asked for less on screen meant it; Low Data Mode shows a still the phone already holds and fetches
+  none. One of the person's own pictures goes only to their paired phone and is logged nowhere.
 - On the phone a menu is Realm's (the audit's first question, decided 11-12). iOS 26 draws every system
   menu as glass with the screen read through it — a chart's bars through Mode, the list through the
   profile switcher — so a tap that opens a menu opens `RealmMenu`: the card's solid surface with a
