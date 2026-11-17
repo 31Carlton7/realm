@@ -22,8 +22,8 @@ export type Viewer = {
   canvas: HTMLCanvasElement;
   /** The Motion switch, as the viewer's window has it. */
   motion(): boolean;
-  /** A new frame, `w`×`h`. */
-  frame(src: TexImageSource, w: number, h: number): void;
+  /** A new frame, `w`×`h`, and where it stands against the loop's wrap. */
+  frame(src: TexImageSource, w: number, h: number, wrap: Wrap): void;
   /** Whether this viewer is showing the loop rather than its still. */
   showing(on: boolean): void;
 };
@@ -48,13 +48,49 @@ export function pickSource(viewers: readonly { key: string; onScreen: boolean; f
   return (seen.find((v) => v.focused) ?? seen[0])?.key ?? null;
 }
 
+/**
+ * Where a frame stands against the loop's wrap. An H.264 loop is coded from one keyframe, and by the
+ * last frame the moving texture has drifted from it, so the step back to frame 0 is several times an
+ * ordinary one (3 to 15 in the gallery's loops) and reads as a tick. The viewer hides it by holding the
+ * last frame drawn before the wrap and dissolving from it into the new ones: `wrapped` says this frame
+ * is the first after the wrap, `held` how much of the held frame still shows (1 to 0).
+ */
+export type Wrap = { wrapped: boolean; held: number };
+export const NO_WRAP: Wrap = { wrapped: false, held: 0 };
+
+/** How long the dissolve over a wrap lasts, in seconds of the loop. */
+let dissolve = 1 / 3;
+/** For a live check: the dissolve's length, 0 to see the wrap as the file has it. */
+export const setWrapDissolve = (seconds: number) => { dissolve = Math.max(0, seconds); };
+
+/**
+ * Follows a looping video's frames by their media time: a time earlier than the last one is the wrap.
+ * The held frame stands one frame step before the new frame 0, so frame 0 is already a step into the
+ * dissolve: nothing is shown twice and the picture keeps moving.
+ */
+export function wrapTracker(seconds = () => dissolve) {
+  let last: number | null = null, step = 0, start: number | null = null;
+  return (t: number): Wrap => {
+    const wrapped = last !== null && t < last;
+    if (wrapped) start = t - step;
+    else if (last !== null && t > last) step = t - last;
+    last = t;
+    if (start === null) return NO_WRAP;
+    // NaN at a wrap with no dissolve at all.
+    const held = Math.max(0, 1 - (t - start) / seconds()) || 0;
+    if (!held) start = null;
+    return { wrapped, held };
+  };
+}
+
 type Decoder = { key: string; play(): void; release(): void };
+type OnFrame = (src: TexImageSource, w: number, h: number, wrap: Wrap) => void;
 
 /** Decoders made and not yet released, across the window: the "one per window" a live check reads. */
 let live = 0;
 
 /** A video, muted and looping, decoded once and drawn on each frame it presents. */
-function videoDecoder(url: string, onFrame: (src: TexImageSource, w: number, h: number) => void): Decoder {
+function videoDecoder(url: string, onFrame: OnFrame): Decoder {
   const el = document.createElement("video");
   el.muted = true;
   el.loop = true;
@@ -63,8 +99,15 @@ function videoDecoder(url: string, onFrame: (src: TexImageSource, w: number, h: 
   el.preload = "auto";
   el.src = url;
   let cb = 0, gone = false;
+  const wrap = wrapTracker();
   live++;
-  const next = () => { cb = el.requestVideoFrameCallback(() => { if (gone) return; onFrame(el, el.videoWidth, el.videoHeight); next(); }); };
+  const next = () => {
+    cb = el.requestVideoFrameCallback((_, meta) => {
+      if (gone) return;
+      onFrame(el, el.videoWidth, el.videoHeight, wrap(meta.mediaTime));
+      next();
+    });
+  };
   next();
   return {
     key: url,
@@ -90,7 +133,7 @@ declare const ImageDecoder: { new (init: { data: Uint8Array; type: string }): Gi
 
 /** A GIF of the person's own, decoded a frame at a time when that frame is due. Driven by the
  *  window's frames, so a covered window decodes nothing. */
-function gifDecoder(id: string, onFrame: (src: TexImageSource, w: number, h: number) => void): Decoder {
+function gifDecoder(id: string, onFrame: OnFrame): Decoder {
   let dec: GifDecoder | null = null;
   let playing = false, gone = false, raf = 0, index = 0, due = 0, shown: VideoFrame | null = null;
   live++;
@@ -109,7 +152,7 @@ function gifDecoder(id: string, onFrame: (src: TexImageSource, w: number, h: num
       if (!image || gone) return;
       shown?.close();
       shown = image;
-      onFrame(image, image.displayWidth, image.displayHeight);
+      onFrame(image, image.displayWidth, image.displayHeight, NO_WRAP);
       index = (index + 1) % count;
       due = now + Math.max(20, (image.duration ?? 100000) / 1000);
     }
@@ -150,11 +193,11 @@ function show(v: Viewer, on: boolean) {
   v.showing(on);
 }
 
-function frame(src: TexImageSource, w: number, h: number) {
+function frame(src: TexImageSource, w: number, h: number, wrap: Wrap) {
   if (!w || !h || !active) return;
   for (const v of viewers) {
     if (sourceKey(v.source) !== active.key || !onScreen.get(v)) continue;
-    v.frame(src, w, h);
+    v.frame(src, w, h, wrap);
     show(v, true);
   }
 }
