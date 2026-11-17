@@ -26,7 +26,9 @@ export function gatewayClient(entry: GatewayEntry) {
   let n = 0;
   /** How many `tools/list_changed` notifications the GET stream has carried. */
   let listChanged = 0;
-  const stream = new AbortController();
+  // Aborts the GET stream and any call still waiting on its answer: a handle being disposed must not
+  // wait out work the server does on a call it no longer wants answered.
+  const closed = new AbortController();
 
   /** One POST, answered as JSON or as an event stream that the server closes once it has replied.
    *  `notices` is how many notifications came on that stream ahead of the answer. */
@@ -41,6 +43,7 @@ export function gatewayClient(entry: GatewayEntry) {
         ...(session ? { "mcp-protocol-version": session.version } : {}),
       },
       body: JSON.stringify(body),
+      signal: closed.signal,
     });
     const id = res.headers.get("mcp-session-id");
     if (id && session) session.id = id;
@@ -76,7 +79,7 @@ export function gatewayClient(entry: GatewayEntry) {
     try {
       const res = await fetch(entry.url, {
         method: "GET",
-        signal: stream.signal,
+        signal: closed.signal,
         headers: {
           ...entry.headers, accept: "text/event-stream",
           ...(session?.id ? { "mcp-session-id": session.id } : {}),
@@ -109,7 +112,7 @@ export function gatewayClient(entry: GatewayEntry) {
       await connect();
       return { names: await listTools(), listChanged };
     },
-    close(): void { stream.abort(); },
+    close(): void { closed.abort(); },
     async call(name: string, args: Record<string, unknown>): Promise<ToolAnswer> {
       await connect();
       const { answer: r, notices } = await post({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } });

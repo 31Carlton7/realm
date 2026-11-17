@@ -127,6 +127,9 @@ export class FakeAdapter implements AgentAdapter {
         if (disposed) return;
         if (interrupted) break; // like the real adapter: interrupt stops the turn; the turn's natural end still emits usage + idle
         await sleep();
+        // A dispose during the sleep has already denied what was pending; a card raised after it waits
+        // for good.
+        if (disposed) return;
         if (st.kind === "throw") throw new Error(st.message);
         if (st.kind === "fail") {
           q.push(sessionEvent("error", { message: st.message }));

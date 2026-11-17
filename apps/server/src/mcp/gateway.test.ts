@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Agent, get as httpGet } from "node:http";
 import { tempDir } from "@realm/test-utils";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -682,6 +683,28 @@ describe("routes", () => {
     const app = await setupApp();
     const res = await fetch(`http://127.0.0.1:${app.port}/nope`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("closing", () => {
+  it("does not wait out a keep-alive connection whose request was still being answered", async () => {
+    let answer!: (v: { serverId: string }) => void;
+    const app = await setupApp({ onOauthCallback: () => new Promise((resolve) => { answer = resolve; }) });
+    const agent = new Agent({ keepAlive: true });
+    const response = new Promise<void>((resolve) => {
+      httpGet({ host: "127.0.0.1", port: app.port, path: "/oauth/callback", agent }, (res) => { res.resume(); res.on("end", resolve); }).on("error", () => resolve());
+    });
+    await waitFor(() => answer !== undefined);
+
+    const started = Date.now();
+    const closed = app.gateway.close();
+    answer({ serverId: "srv_1" });
+    await response;
+    await closed;
+    activeApps.splice(activeApps.indexOf(app), 1);
+    app.db.close();
+    agent.destroy();
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 });
 

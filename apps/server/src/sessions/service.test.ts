@@ -1418,4 +1418,31 @@ describe("default permission mode for new sessions (Plan 12 W6)", () => {
     expect((await c.call("sessions.send", { id: session.id, text: "again" })).error.code).toBe("DAEMON_DRAINING");
     c.close();
   });
+
+  it("starts no engine for a message that arrives while the app closes", async () => {
+    // A teammate's agent_start hands its goal to the new task while the app is closing: the
+    // teammate's engine is stopping, the task's message is still on its way. MUTANT: let that
+    // message start an engine and it outlives closeAll, writing to a closed database.
+    const fake = new FakeAdapter({ script: [] });
+    const start = fake.start.bind(fake);
+    let late: Promise<void> | null = null;
+    let starts = 0;
+    let sendLate = (): Promise<void> => Promise.resolve();
+    vi.spyOn(fake, "start").mockImplementation((opts) => {
+      starts += 1;
+      const h = start(opts);
+      return { ...h, dispose: async () => { late = sendLate(); await late.catch(() => {}); await h.dispose(); } };
+    });
+    const { c, sp } = await boot(fake);
+    const teammate = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const task = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    await c.call("sessions.send", { id: teammate.id, text: "hello" });
+    await waitFor(() => c.eventTypes(teammate.id).includes("usage"));
+    sendLate = () => app.sessions.send(task.id, { text: "the goal", attachments: [] });
+
+    await app.sessions.closeAll();
+    await expect(late).rejects.toMatchObject({ code: "DAEMON_CLOSING" });
+    expect(starts).toBe(1);
+    c.close();
+  });
 });

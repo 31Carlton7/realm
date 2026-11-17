@@ -407,7 +407,13 @@ export class McpGateway {
     }
     this.sessions.clear();
     this.tokenToSession.clear();
-    await new Promise<void>((resolve) => (this.httpServer ? this.httpServer.close(() => resolve()) : resolve()));
+    // `close()` drops only the connections idle at this moment. One still answering a request goes idle
+    // after it and would hold shutdown for the keep-alive timeout, so every connection ends here.
+    await new Promise<void>((resolve) => {
+      if (!this.httpServer) return resolve();
+      this.httpServer.close(() => resolve());
+      this.httpServer.closeAllConnections();
+    });
   }
 
   private async handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {

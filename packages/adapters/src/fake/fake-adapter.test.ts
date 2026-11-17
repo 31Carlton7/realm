@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import type { SessionEvent } from "@realm/contracts";
@@ -189,6 +191,34 @@ describe("FakeAdapter lifecycle", () => {
     expect(got).not.toContain("tool_result"); expect(got).not.toContain("assistant_text"); expect(got).toContain("usage");
     expect(st).toEqual(["idle", "running", "waiting_permission", "idle"]);
     await h.dispose();
+  });
+  it("dispose does not wait for a gateway call the server has not answered", async () => {
+    // A gateway that takes every request and answers none, like one whose agent_start is still
+    // delivering the child's goal. MUTANT: leave the call's POST unaborted and dispose waits for good.
+    const server = createServer(() => {});
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as AddressInfo;
+    const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "g" } }] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [{ name: "realm", transport: "http", url: `http://127.0.0.1:${port}/mcp`, headers: {} }] });
+    let asked = false;
+    server.once("request", () => { asked = true; });
+    await h.send({ text: "x", attachments: [] });
+    while (!asked) await new Promise((r) => setTimeout(r, 10));
+    const began = Date.now();
+    await h.dispose();
+    expect(Date.now() - began).toBeLessThan(1_000);
+    server.closeAllConnections(); server.close();
+  });
+  it("dispose does not wait for a question the turn raises after it", async () => {
+    // Disposed while the turn sleeps before its step, the turn must not go on to raise a card nothing
+    // will answer. MUTANT: drop the check after the step's sleep and dispose waits for good.
+    const a = new FakeAdapter({ delayMs: 50, script: [{ on: "x", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "violet", input: { questions: [] } }] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    await h.send({ text: "x", attachments: [] });
+    await new Promise((r) => setTimeout(r, 10));
+    const disposed = h.dispose().then(() => "disposed");
+    const waited = new Promise((r) => setTimeout(() => r("still waiting"), 1_000));
+    expect(await Promise.race([disposed, waited])).toBe("disposed");
   });
   it("send after dispose emits an error and does not run", async () => {
     const a = new FakeAdapter(); const h = a.start({ cwd: "/tmp", mcpServers: [] });
