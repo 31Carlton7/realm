@@ -462,6 +462,15 @@ describe("the prompt hint", () => {
     expect(t.promptHint).toBeNull();
   });
 
+  it("drops the written summary with it, so the end line never describes an earlier session", () => {
+    const t = reduceAll([
+      sessionEvent("user_message", { text: "go", attachments: [] }),
+      sessionEvent("assistant_text", { messageId: "m1", text: "done" }),
+      sessionEvent("summary", { text: "You asked it to go and it went.", throughSeq: 2 }),
+      sessionEvent("user_message", { text: "now the other thing", attachments: [] }),
+    ]);
+    expect(t.summary).toBeNull();
+  });
 });
 
 describe("a question put to the user", () => {

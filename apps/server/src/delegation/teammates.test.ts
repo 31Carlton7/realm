@@ -3,7 +3,7 @@ import WebSocket from "ws";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentAdapter, type AgentHandle, type StartOptions, type FakeScript, type UserMessage } from "@realm/adapters";
-import type { AgentModel } from "@realm/contracts";
+import { sessionEvent, type AgentModel } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
@@ -123,6 +123,28 @@ describe("adding a teammate", () => {
     expect(handed).toContain("User: Plan the release");
     expect(handed).toContain("Assistant: We ship on Friday once the migration lands.");
     await waitFor(settled(childId));
+    b.close();
+  });
+
+  it("tells a teammate where the session stands only from a recap that covers what was last said", async () => {
+    const b = await boot();
+    await app.sessions.send(b.leadId, { text: "Plan the release", attachments: [] });
+    await waitFor(() => app.sessions.get(b.leadId).status === "idle" && app.sessions.events(b.leadId, 0, 500).some((e) => e.event.type === "assistant_text"));
+    const recap = (text: string) => sessionEvent("summary", { text, throughSeq: app.sessions.get(b.leadId).lastEventSeq });
+    app.sessions.publishServerEvent(b.leadId, recap("You planned the release for Friday."));
+    const handed = async () => {
+      const { childId } = await b.call<{ childId: string }>("delegation.addTeammate", { sessionId: b.leadId });
+      await waitFor(() => b.fake.wire.some((w) => w.text.startsWith("You are a delegated agent.")));
+      const text = b.fake.wire.filter((w) => w.text.startsWith("You are a delegated agent.")).at(-1)!.text;
+      await waitFor(settled(childId));
+      return text;
+    };
+    expect(await handed()).toContain("Where the session stands: You planned the release for Friday.");
+    // The person carries on before the next quiet spell: that recap no longer covers the session.
+    await app.sessions.send(b.leadId, { text: "Plan the release notes too", attachments: [] });
+    await waitFor(() => app.sessions.get(b.leadId).status === "idle");
+    b.fake.wire.length = 0;
+    expect(await handed()).not.toContain("Where the session stands");
     b.close();
   });
 
