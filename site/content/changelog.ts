@@ -21,6 +21,33 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-16-0",
+    title: "Realm v2.16.0",
+    date: "2026-11-16",
+    version: "v2.16.0",
+    area: "Release",
+    summary:
+      "Realm spends less of your plan and waits less: teammate chats compact at about 250K, recaps wait until a session is idle, and clocks survive a timezone change.",
+    short: "Realm spends less of your plan and waits less",
+    body: [
+      { kind: "p", text: "Realm spends less of your plan and waits less." },
+      { kind: "h", text: "Desktop" },
+      { kind: "ul", items: [
+        "**Teammate chats stay small.** A teammate's home chat now compacts at about 250K instead of near the top of the model's window, so each wake-up, clock run and teammate message reloads far less. After a compaction the chat is reminded of the tasks it started that are still open.",
+        "**Clocks survive a timezone change.** Moving your Mac to another timezone no longer fires every clock a second time, and editing a clock or renaming a teammate can no longer re-run a slot that already ran.",
+        "**Recaps wait until a session is idle.** A session's recap is now written once it has been quiet for ten minutes or is put away, not after every turn. The trade: the hint in the prompter that a model writes, and the fuller Inbox line, now arrive after that quiet spell, and Realm's own hint shows until then.",
+        "**A sub-agent that runs out of time hands back its work.** It is asked for its report first, and the session that started it gets that report and the files it changed instead of its last line.",
+        "**A dead browser pane fails at once.** Once a page has stopped answering, the rest of a batch fails with the reason instead of waiting a minute for each step, and a page that crashed reloads itself.",
+        "**The empty session's picture also holds still while the window is resized.**",
+        "**The commands, mentions, skills and add-agent lists stay below the top of their pane in a short window.**",
+      ] },
+      { kind: "h", text: "Realm for iPhone" },
+      { kind: "ul", items: [
+        "**Realm's own menus for +, Mode, More and the profile switcher.** Mode puts its modes and its permissions in two labelled groups, and the profile switcher is the whole title.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-15-1",
     title: "Realm v2.15.1",
     date: "2026-11-16",
