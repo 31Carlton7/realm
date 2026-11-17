@@ -1935,7 +1935,7 @@ describe("browser_fill_code", () => {
  * renderer first is answered, as main's load in a new renderer would be. A real bridge carries it, so
  * the minute each op waits is the bridge's own.
  */
-function paneThatDies(found: "gone" | "restarted" | "unresponsive") {
+function paneThatDies(found: "gone" | "restarted" | "unresponsive" | "hung") {
   const ws = new EventEmitter() as unknown as WebSocket;
   const ops: string[] = [];
   let answered = 0;
@@ -1944,7 +1944,7 @@ function paneThatDies(found: "gone" | "restarted" | "unresponsive") {
       sendTo: (_client: unknown, _event: string, payload: { callId: string; op: string; params: Record<string, unknown> }) => {
         ops.push(payload.op + (payload.params.restart ? ":restart" : ""));
         const reply = (result: unknown) => void Promise.resolve().then(() => bridge.handleResult({ callId: payload.callId, ok: true, result }));
-        if (payload.op === "paneHealth") reply({ state: found });
+        if (payload.op === "paneHealth") { if (found !== "hung") reply({ state: found }); }
         else if (payload.op === "navigate" && payload.params.restart) reply({ url: payload.params.url });
         else if (answered++ === 0) reply({ url: "https://example.com/", title: "Example", text: '[ref=11] button "Submit order"', elementCount: 1 });
         return true;
@@ -2028,5 +2028,51 @@ describe("a pane whose host dies mid-batch", () => {
     const nav = await timed(call("browser_navigate", { browserId: "b1", url: "https://example.com/" }));
     expect(nav.value.isError).toBeFalsy();
     expect(pane.ops.at(-1)).toBe("navigate:restart");
+  });
+});
+
+describe("browser_list on a pane with a verdict", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** browser_list's line for b1 after an op on it ran out its minute and the check found `found`. */
+  async function listedAfter(found: "gone" | "restarted" | "unresponsive" | "hung") {
+    vi.useFakeTimers();
+    const pane = paneThatDies(found);
+    const { call } = setup({ bridge: pane.bridge });
+    await timed(call("browser_snapshot", { browserId: "b1" }));
+    await timed(call("browser_snapshot", { browserId: "b1" }));
+    const checksBefore = pane.ops.filter((op) => op === "paneHealth").length;
+    const listed = await timed(call("browser_list", {}));
+    return { said: text(listed.value), ms: listed.ms, checked: pane.ops.filter((op) => op === "paneHealth").length > checksBefore };
+  }
+
+  it("says a page that is not responding is not responding, and checks it again to say so", async () => {
+    const { said, checked } = await listedAfter("unresponsive");
+    expect(said).toContain("browserId: b1 — not responding: each call checks it again; browser_navigate starts it over (last url: https://example.com/)");
+    expect(checked).toBe(true);
+  });
+
+  it("says a crash-reloaded page was reloaded, and that browser_snapshot reads it again", async () => {
+    const { said } = await listedAfter("restarted");
+    expect(said).toContain("browserId: b1 — crashed and reloaded: browser_snapshot reads it again");
+  });
+
+  it("says a gone pane is gone", async () => {
+    const { said } = await listedAfter("gone");
+    expect(said).toContain("browserId: b1 — gone: browser_open reopens the page");
+  });
+
+  it("says the host is not answering, after the check has had its 5s", async () => {
+    const { said, ms, checked } = await listedAfter("hung");
+    expect(said).toContain("browserId: b1 — host not answering: ask the user to quit and reopen Realm");
+    expect(checked).toBe(true);
+    expect(ms).toBeGreaterThanOrEqual(5_000);
+    expect(ms).toBeLessThan(6_000);
+  });
+
+  it("still says app not connected when no app is connected", async () => {
+    const bridge = new BrowserHostBridge({ rpc: { sendTo: () => true } as unknown as RpcServer });
+    const { call } = setup({ bridge });
+    expect(text(await call("browser_list", {}))).toContain("browserId: b1 — app not connected (last url: https://example.com/)");
   });
 });

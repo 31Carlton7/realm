@@ -137,7 +137,7 @@ export const HOST_HUNG_ERROR =
 /** Why calls on a pane fail at once: its renderer crashed and it was reloaded (until it is read or
  *  navigated again), its page is not responding, it is gone, or main stopped answering. All but the
  *  first are checked again before each call. */
-type Verdict = Exclude<PaneHealth, "ok"> | "hung";
+export type Verdict = Exclude<PaneHealth, "ok"> | "hung";
 
 const VERDICT_ERRORS: Record<Verdict, string> = { restarted: PANE_RESTARTED_ERROR, unresponsive: PANE_NOT_RESPONDING_ERROR, gone: PANE_GONE_ERROR, hung: HOST_HUNG_ERROR };
 
@@ -286,7 +286,7 @@ export class BrowserHostBridge {
       const health = await this.check(browserId);
       if (health === "ok") throw e;
       this.verdicts.set(browserId, health);
-      throw new Error(VERDICT_ERRORS[health]);
+      throw new PaneVerdictError(health);
     });
   }
 
@@ -298,13 +298,13 @@ export class BrowserHostBridge {
   private async admit(browserId: string, verdict: Verdict, op: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (verdict === "restarted") {
       if (REOPENING_OPS.has(op)) { this.verdicts.delete(browserId); return params; }
-      throw new Error(PANE_RESTARTED_ERROR);
+      throw new PaneVerdictError("restarted");
     }
     const health = await this.check(browserId);
     if (health === "ok" || (health === "restarted" && REOPENING_OPS.has(op))) { this.verdicts.delete(browserId); return params; }
     if (health === "unresponsive" && op === "navigate") { this.verdicts.delete(browserId); return { ...params, restart: true }; }
     this.verdicts.set(browserId, health);
-    throw new Error(VERDICT_ERRORS[health]);
+    throw new PaneVerdictError(health);
   }
 
   /** Ask main about a pane. `hung` is main itself not answering in `HEALTH_TIMEOUT_MS`; a main that
@@ -351,3 +351,8 @@ export class BrowserHostBridge {
 
 /** The bridge giving up on an op, as distinct from main answering with a failure. */
 class OpTimeout extends Error {}
+
+/** A call refused for its pane's verdict, worded for the agent. */
+export class PaneVerdictError extends Error {
+  constructor(readonly verdict: Verdict) { super(VERDICT_ERRORS[verdict]); }
+}
