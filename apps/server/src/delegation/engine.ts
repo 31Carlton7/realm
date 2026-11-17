@@ -373,7 +373,7 @@ export class DelegationEngine {
    * command or sub-agent it started still running (a Monitor, a `run_in_background` Bash, a background
    * agent) is waiting on it: the harness wakes it with the result and it carries on. So a finish is
    * only taken once nothing is running behind it, and after a hold only from a turn that answered
-   * since: one that ran or spoke, then went idle. Claude wakes its agent with no `running` status — the
+   * since: one that ran, spoke or called a tool, then went idle. Claude wakes its agent with no `running` status — the
    * work's `background_task` stop, an `init` and an `idle` come first, and the reply a second or more
    * later — so any of those after a hold means a turn is coming, and the run waits for it. Work that
    * goes with none of them is given `BACKGROUND_RECHECK_MS` to wake the child. The deadline is not
@@ -443,7 +443,7 @@ export class DelegationEngine {
         }
         if (held) {
           if (ev.type === "init" || ev.type === "background_task") woke = true;
-          if (ev.type === "assistant_text" || (ev.type === "status" && ev.payload.status === "running")) { woke = true; answering = true; }
+          if (ev.type === "assistant_text" || ev.type === "tool_call" || (ev.type === "status" && ev.payload.status === "running")) { woke = true; answering = true; }
           else if (ev.type === "status" && ev.payload.status === "idle" && answering) resumed = true;
         }
         if (ev.type === "assistant_text") {
