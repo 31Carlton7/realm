@@ -1,5 +1,5 @@
 import { WebContentsView, app, nativeImage, screen, session, type BrowserWindow, type HandlerDetails, type WebContents, type WindowOpenHandlerResponse } from "electron";
-import { FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
+import { FAVICON_MAX_BYTES, type BrowserLoadError, type PaneHealth } from "@realm/contracts";
 import {
   BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
   shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type ViewFactory,
@@ -12,6 +12,7 @@ import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
 import { cookieToSet, siteCookies, siteOf } from "./cookie-share";
+import { checkPaneHealth } from "./pane-health";
 
 /*
  * The browser views' session partitions. Persistent and Realm's own: never the user's daily Chrome
@@ -350,6 +351,8 @@ export type BrowserPane = {
    *  per view; null when the view is gone or the attach was refused (DevTools already attached). */
   attachCdp(id: string): CdpBinding | null;
   hasView(id: string): boolean;
+  /** Whether the view's page answers, its renderer restarted when it crashed or hung (`checkPaneHealth`). */
+  health(id: string): Promise<PaneHealth>;
   /** Trustworthy page identity, straight off the webContents — never page-authored text — whether it
    *  is still loading, which is what the pane's own spinner shows, and why it did not load, if it did
    *  not: the page Realm draws in its place is not in the page's DOM for an agent to read. `popups` are
@@ -447,6 +450,8 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     host,
     // A discarded view counts: it comes back the moment anything needs its page.
     hasView: (id) => { const wc = views.get(id); return (!!wc && !wc.isDestroyed()) || host.isDiscarded(id); },
+    // A discarded view has no renderer to ask; it comes back when an op needs its page.
+    health: (id) => (host.isDiscarded(id) ? Promise.resolve("ok") : checkPaneHealth(views.get(id))),
     pageState: (id) => {
       const wc = views.get(id);
       if (wc && !wc.isDestroyed()) return { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id), popups: host.popupsOf(id) };

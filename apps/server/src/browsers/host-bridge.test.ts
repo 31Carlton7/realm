@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { RpcServer } from "../rpc/server";
-import { BrowserHostBridge } from "./host-bridge";
+import { BrowserHostBridge, HOST_HUNG_ERROR, PANE_GONE_ERROR, PANE_RESTARTED_ERROR } from "./host-bridge";
 
 /** A stand-in for the registered host's socket: records sendTo payloads and can "close". */
 function fakeHost() {
@@ -144,5 +144,136 @@ describe("BrowserHostBridge", () => {
     const bridge = new BrowserHostBridge({ rpc });
     bridge.register(ws);
     await expect(bridge.call("format-disk" as never, {})).rejects.toThrow(/unknown host op/);
+  });
+});
+
+/**
+ * A pane whose renderer stopped answering. Each op on it used to wait out its own minute, so a batch
+ * of N steps, and every call after it, cost N minutes; now the first minute is the only one.
+ */
+describe("BrowserHostBridge — a pane that stopped answering", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** Answer the last op of this name the host was sent. */
+  function answer(h: ReturnType<typeof fakeHost>, bridge: BrowserHostBridge, op: string, result: unknown): void {
+    const sent = [...h.sent].reverse().find((s) => s.payload.op === op);
+    if (!sent) throw new Error(`no ${op} was sent`);
+    bridge.handleResult({ callId: sent.payload.callId, ok: true, result });
+  }
+  const opsSent = (h: ReturnType<typeof fakeHost>) => h.sent.map((s) => s.payload.op);
+
+  /** Settles within a microtask-and-timer flush, or reports that it did not. */
+  async function settlesAtOnce(p: Promise<unknown>): Promise<{ error: string } | { value: unknown } | "pending"> {
+    let out: { error: string } | { value: unknown } | "pending" = "pending";
+    p.then((value) => { out = { value }; }, (e: Error) => { out = { error: e.message }; });
+    await vi.advanceTimersByTimeAsync(0);
+    return out;
+  }
+
+  function timedOutOn(op: "act" | "snapshot" | "fillCredential" = "act") {
+    const h = fakeHost();
+    const bridge = new BrowserHostBridge({ rpc: h.rpc });
+    bridge.register(h.ws);
+    const first = bridge.call(op, { browserId: "b1" });
+    first.catch(() => {});
+    return { h, bridge, first };
+  }
+
+  it("checks the pane after its first minute, and a restarted pane fails the calls after it at once", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(opsSent(h)).toEqual(["act", "paneHealth"]);
+    expect(h.sent[1]!.payload.params).toEqual({ browserId: "b1" });
+    answer(h, bridge, "paneHealth", { state: "restarted" });
+    await expect(first).rejects.toThrow(PANE_RESTARTED_ERROR);
+
+    // THE MUTANT: no verdict kept. Each of these would be sent and wait out a minute of its own.
+    expect(await settlesAtOnce(bridge.call("act", { browserId: "b1" }))).toEqual({ error: PANE_RESTARTED_ERROR });
+    expect(await settlesAtOnce(bridge.call("screenshot", { browserId: "b1" }))).toEqual({ error: PANE_RESTARTED_ERROR });
+    expect(opsSent(h)).toEqual(["act", "paneHealth"]);
+
+    // Another pane is no part of it.
+    void bridge.call("read", { browserId: "b2" });
+    expect(opsSent(h)).toEqual(["act", "paneHealth", "read"]);
+
+    // A snapshot opens the page again, and lifts the verdict.
+    const snap = bridge.call("snapshot", { browserId: "b1" });
+    await vi.advanceTimersByTimeAsync(0);
+    answer(h, bridge, "snapshot", { text: "fresh" });
+    expect(await snap).toEqual({ text: "fresh" });
+    void bridge.call("act", { browserId: "b1" });
+    expect(opsSent(h).at(-1)).toBe("act");
+  });
+
+  it("a gone pane is checked again before each call, which takes a moment rather than a minute", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    answer(h, bridge, "paneHealth", { state: "gone" });
+    await expect(first).rejects.toThrow(PANE_GONE_ERROR);
+
+    const next = bridge.call("act", { browserId: "b1" });
+    await vi.advanceTimersByTimeAsync(0);
+    // THE MUTANT: sent straight to the host, to wait its minute.
+    expect(opsSent(h)).toEqual(["act", "paneHealth", "paneHealth"]);
+    answer(h, bridge, "paneHealth", { state: "gone" });
+    expect(await settlesAtOnce(next)).toEqual({ error: PANE_GONE_ERROR });
+
+    // The user brought the pane back: the check says so and the call goes through.
+    const back = bridge.call("act", { browserId: "b1" });
+    await vi.advanceTimersByTimeAsync(0);
+    answer(h, bridge, "paneHealth", { state: "ok" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(opsSent(h).at(-1)).toBe("act");
+    answer(h, bridge, "act", { ok: true });
+    expect(await back).toEqual({ ok: true });
+  });
+
+  it("a main that does not answer the check is reported in seconds, and so is every call after it", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000 + 5_000);
+    await expect(first).rejects.toThrow(HOST_HUNG_ERROR);
+
+    const next = bridge.call("snapshot", { browserId: "b1" });
+    next.catch(() => {});
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(next).rejects.toThrow(HOST_HUNG_ERROR);
+    expect(opsSent(h)).toEqual(["act", "paneHealth", "paneHealth"]);
+  });
+
+  it("a pane that answers the check keeps the old timeout and nothing after it changes", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    answer(h, bridge, "paneHealth", { state: "ok" });
+    await expect(first).rejects.toThrow(/timed out after 60s/);
+    void bridge.call("act", { browserId: "b1" });
+    expect(opsSent(h)).toEqual(["act", "paneHealth", "act"]);
+  });
+
+  it("a main older than the check is taken as ok", async () => {
+    const { h, bridge, first } = timedOutOn();
+    await vi.advanceTimersByTimeAsync(60_000);
+    const check = h.sent.find((s) => s.payload.op === "paneHealth")!;
+    bridge.handleResult({ callId: check.payload.callId, ok: false, error: 'unknown browser host op "paneHealth"' });
+    await expect(first).rejects.toThrow(/timed out after 60s/);
+  });
+
+  it("a fill that waits on the person is never taken for a pane that stopped", async () => {
+    // A Touch ID prompt the person has not answered is a minute of silence with a healthy pane behind it.
+    const { h, first } = timedOutOn("fillCredential");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(first).rejects.toThrow(/timed out after 60s/);
+    expect(opsSent(h)).toEqual(["fillCredential"]);
+  });
+
+  it("ops that time out together share one check", async () => {
+    const { h, bridge, first } = timedOutOn();
+    const second = bridge.call("read", { browserId: "b1" });
+    second.catch(() => {});
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(opsSent(h)).toEqual(["act", "read", "paneHealth"]);
+    answer(h, bridge, "paneHealth", { state: "restarted" });
+    await expect(first).rejects.toThrow(PANE_RESTARTED_ERROR);
+    await expect(second).rejects.toThrow(PANE_RESTARTED_ERROR);
   });
 });

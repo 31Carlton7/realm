@@ -829,9 +829,12 @@ const HANDLERS: Record<string, Handler> = {
     }
     const parts: string[] = [];
     for (const [i, a] of validated.entries()) {
-      const result = READ_ONLY_TOOLS.has(a.tool)
-        ? await HANDLERS[a.tool]!(d, ctx, a.arguments)
-        : await runBatchMutation(d, ctx, a.tool, a.arguments);
+      // A step that throws — a pane that stopped answering, most often — ends the batch like any other
+      // failure, with what the steps before it found still in the answer.
+      const result = await (READ_ONLY_TOOLS.has(a.tool)
+        ? HANDLERS[a.tool]!(d, ctx, a.arguments)
+        : runBatchMutation(d, ctx, a.tool, a.arguments)
+      ).catch((e: unknown) => err(e instanceof Error ? e.message : String(e)));
       const text = result.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map((c) => c.text).join("\n");
       parts.push(`--- step ${i + 1}: ${a.tool} ${result.isError ? "FAILED" : "ok"} ---\n${text}`);
       if (result.isError) {

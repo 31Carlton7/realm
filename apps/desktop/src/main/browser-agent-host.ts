@@ -5,7 +5,7 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type SiteCredential } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential } from "@realm/contracts";
 import { isAbsolute } from "node:path";
 import type { LatestCode } from "./security-codes";
 import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
@@ -91,6 +91,9 @@ export type BrowserAgentHostDeps = {
   /** Is the pane's view currently alive? Gates the cache — a destroyed view's binding is dropped.
    *  True for a RETAINED view too: a browser whose space is off screen is still drivable. */
   hasView(browserId: string): boolean;
+  /** Whether the view's page still answers, restarting its renderer when it crashed or hung
+   *  (`checkPaneHealth`). Absent, a pane with a view is taken to be `ok`. */
+  health?(browserId: string): Promise<PaneHealth>;
   /** This view is in use right now. `BrowserPaneHost.touch` — it keeps the off-screen budget from
    *  evicting a browser an agent is working in while the user reads something in another space. */
   touch(browserId: string): void;
@@ -547,9 +550,15 @@ export class BrowserAgentHost {
     const browserId = String(params.browserId ?? "");
     // A page given up for memory comes back on `about:blank` first; a step that read it then would
     // tell the agent the page is empty. `describe` answers from what was kept, and `navigate` loads a
-    // page of its own, so neither waits.
-    if (browserId && op !== "describe" && op !== "navigate" && this.d.hasView(browserId)) await this.d.revived?.(browserId);
+    // page of its own, so neither waits; `paneHealth` asks about the view as it is.
+    if (browserId && op !== "describe" && op !== "navigate" && op !== "paneHealth" && this.d.hasView(browserId)) await this.d.revived?.(browserId);
     switch (op) {
+      case "paneHealth": {
+        const state: PaneHealth = this.d.hasView(browserId) ? (await this.d.health?.(browserId)) ?? "ok" : "gone";
+        // A reloaded page is a new page: the old attachment's buffers and refs describe one that is gone.
+        if (state === "restarted") this.release(browserId);
+        return { state };
+      }
       case "describe": {
         const state = this.d.pageState(browserId);
         if (!state || !this.d.hasView(browserId)) return { open: false, url: "", title: "", element: null } satisfies BrowserDescribeResult;
