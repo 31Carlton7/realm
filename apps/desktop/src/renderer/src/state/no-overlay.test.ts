@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Layout } from "@realm/contracts";
 import {
-  centerOverComplement, complementOf, intersects, placeAnchored, placeToastStack, placeTooltip, snapBrowserLeaves, yieldViewTo,
+  centerOverComplement, complementOf, intersects, listCap, placeAnchored, roomAround, placeToastStack, placeTooltip, snapBrowserLeaves, yieldViewTo,
   type AnchoredInput, type Rect,
 } from "./no-overlay";
 
@@ -142,6 +142,50 @@ describe("placeAnchored", () => {
     expect(p.top).toBe(390); // vertically centered: (900-120)/2
   });
 
+});
+
+describe("placeAnchored's top bound: a prompter's pickers stop at their pane's top", () => {
+  // A new session at 1440x900: the centred prompter's card at 302–398, the pane under a 40px bar.
+  const card = r(527, 302, 720, 96);
+  const up = (over: Partial<AnchoredInput> = {}): AnchoredInput => ({
+    anchor: card, size: { width: 420, height: 280 }, win: WIN,
+    align: "left", placement: "up", gap: 4, margin: 6, avoid: [], ...over,
+  });
+
+  it("without one the full list climbs into the bar", () => {
+    expect(placeAnchored(up())).toMatchObject({ top: 18, above: true }); // 302 - 280 - 4
+  });
+  it("with one, a list taller than the room above flips below the card", () => {
+    expect(placeAnchored(up({ top: 40 }))).toMatchObject({ top: 402, above: false }); // 302 + 96 + 4
+  });
+  it("a list exactly as tall as the room above stays above, on the margin under the bar", () => {
+    expect(placeAnchored(up({ top: 40, size: { width: 420, height: 252 } }))).toMatchObject({ top: 46, above: true });
+  });
+  it("a surface that fits neither side is clamped under the bound, not the window's top", () => {
+    const p = placeAnchored(up({ top: 40, anchor: r(527, 150, 720, 100), win: { width: 1440, height: 400 }, size: { width: 420, height: 300 } }));
+    expect(p.top).toBe(46);
+  });
+  it("a point-placed menu keeps the window's margin", () => {
+    expect(placeAnchored(up({ anchor: r(600, 2, 0, 0), placement: "down", gap: 0, size: { width: 160, height: 120 } })).top).toBe(6);
+  });
+});
+
+describe("roomAround and listCap", () => {
+  it("measures each side inside the margins and under the bound", () => {
+    expect(roomAround(r(527, 302, 720, 96), 900, 4, 6, 40)).toEqual({ above: 252, below: 492 });
+    expect(roomAround(r(527, 302, 720, 96), 900, 4, 6)).toEqual({ above: 292, below: 492 });
+    expect(roomAround(r(527, 20, 720, 96), 900, 4, 6, 40)).toEqual({ above: 0, below: 774 });
+    expect(roomAround(r(527, 302.4, 720, 55.2), 900, 4, 6, 40)).toEqual({ above: 252, below: 532 });
+  });
+  it("keeps the preferred side while it holds the floor, and the list gives up rows", () => {
+    expect(listCap({ above: 252, below: 492 }, "up", 160)).toBe(252);
+    expect(listCap({ above: 160, below: 492 }, "up", 160)).toBe(160);
+    expect(listCap({ above: 600, below: 200 }, "down", 160)).toBe(200);
+  });
+  it("takes the roomier side once the preferred one is under the floor", () => {
+    expect(listCap({ above: 159, below: 492 }, "up", 160)).toBe(492);
+    expect(listCap({ above: 600, below: 100 }, "down", 160)).toBe(600);
+  });
 });
 
 describe("centerOverComplement", () => {

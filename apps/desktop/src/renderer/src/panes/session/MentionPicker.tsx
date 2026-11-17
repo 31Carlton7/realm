@@ -6,6 +6,7 @@ import type { RefObject } from "react";
 import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
+import { listCap } from "../../state/no-overlay";
 import { PageIcon } from "../../components/PageIcon";
 import { fileMark, type MentionRow } from "./mention-sources";
 
@@ -42,6 +43,14 @@ export function usePickerScroller(active: number, onHover: (index: number) => vo
     onHover(i);
   };
   return { list, hovered, hoverRow };
+}
+
+/** How tall a prompter's list may stand. It keeps rising from the prompter, under the pane's bar, while
+ *  that leaves room for a few rows, and gives up rows rather than its side: a new session's centred
+ *  prompter has a row less than the whole `/` list above it, and a list that jumped below the card
+ *  there would open on the other side from where it opens everywhere else. */
+export function pickerMaxHeight(room: { above: number; below: number } | null): number | undefined {
+  return room ? listCap(room, "up", 160) : undefined;
 }
 
 /** What the QUERY after an `@` may contain: an id's characters, and a path's `/` — a file is found
@@ -116,12 +125,12 @@ export function MentionPicker({ rows, activeIndex, anchorRef, appIcons, onPick, 
   const ref = useRef<HTMLDivElement>(null);
   // No exit, because this one is driven by typing: it opens and closes between keystrokes, and a
   // ghost of it trailing the caret while the sentence carries on is noise rather than motion.
-  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace });
+  const { pos, room } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace, withinPane: true });
   const active = Math.min(activeIndex, rows.length - 1);
   const { list, hoverRow } = usePickerScroller(active, onHover);
   return createPortal(
     <div ref={ref} id="mention-list" className="mention-picker" role="listbox" aria-label="Mentions"
-      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
+      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: pickerMaxHeight(room),
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}>
       {/* `presentation`, so the options stay the listbox's own children to assistive tech. */}
       <div ref={list} className="mention-list" role="presentation">
