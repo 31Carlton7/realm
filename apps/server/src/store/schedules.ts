@@ -1,4 +1,4 @@
-import { newId, nextFireOf, type RunConstraints, type Schedule } from "@realm/contracts";
+import { isOnce, machineZone, newId, nextFireOf, slotOf, type RunConstraints, type Schedule } from "@realm/contracts";
 import type { Db } from "../db/database";
 import { now } from "./rows";
 
@@ -8,6 +8,7 @@ type Row = {
   last_run_id: string | null; last_skipped_at: number | null;
   new_session_per_run: number; archive_succeeded: number; created_at: number; updated_at: number;
   role_id: string | null; permission_mode: string | null;
+  time_zone: string | null; last_slot: string | null;
 };
 
 /** A constraints blob that does not parse reads as "no constraints" rather than throwing — the same
@@ -57,9 +58,14 @@ export type ScheduleUpdate = {
  *    same schedule as due and create two runs from it. The run layer's dedupe key is a second net,
  *    but a scheduler that relies on it to not double-fire has a bug it is asking someone else to
  *    absorb.
+ *
+ * Every next occurrence is computed in the zone on the row (`time_zone`), never in whatever zone the
+ * process happens to be in, and never into a slot at or before the one the row last fired
+ * (`last_slot`, see `slotOf`). When the Mac's zone changes, the next tick re-anchors each row to the
+ * new zone without firing it.
  */
 export class SchedulesStore {
-  constructor(private db: Db, private clock: () => number = now) {}
+  constructor(private db: Db, private clock: () => number = now, private zone: () => string = machineZone) {}
 
   /** A space's schedules. A teammate's clock (`role_id`) is its page's to show, not this list's. */
   list(spaceId: string): Schedule[] {
@@ -79,16 +85,18 @@ export class SchedulesStore {
 
   create(input: ScheduleInsert): Schedule {
     const ts = this.clock();
+    const zone = this.zone();
     const id = newId();
     // A disabled schedule has no next occurrence, and neither does one whose expression matches
     // nothing ahead. Both are `null`, and the page reads that column to say "paused" / "never".
-    const next = input.enabled ? nextFireOf(input.cron, ts) : null;
+    const next = input.enabled ? nextFireOf(input.cron, ts, zone) : null;
     this.db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json,
-        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, role_id, permission_mode, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)`)
+        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, role_id, permission_mode,
+        time_zone, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.title, input.goal, input.cron, input.enabled ? 1 : 0,
         input.constraints ? JSON.stringify(input.constraints) : null, next,
-        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, input.roleId ?? null, input.permissionMode ?? null, ts, ts);
+        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, input.roleId ?? null, input.permissionMode ?? null, zone, ts, ts);
     return this.get(id)!;
   }
 
@@ -99,11 +107,16 @@ export class SchedulesStore {
    * pure function of two columns this row now holds, and a gate is a place for the two to drift
    * apart. Re-enabling a schedule whose last computed occurrence is in the past is exactly the case
    * a gate would miss.
+   *
+   * Re-arming from now never lands on a slot the row already fired. In one zone every such slot is
+   * behind now anyway; after the Mac moves west it is not, and "today at nine" is still ahead.
    */
   update(id: string, patch: ScheduleUpdate): Schedule | null {
     const before = this.get(id);
     if (!before) return null;
+    const { last_slot: lastSlot } = this.db.prepare("SELECT last_slot FROM schedules WHERE id = ?").get(id) as Pick<Row, "last_slot">;
     const ts = this.clock();
+    const zone = this.zone();
     const next: Schedule = {
       ...before,
       ...(patch.spaceId !== undefined ? { spaceId: patch.spaceId } : {}),
@@ -117,11 +130,11 @@ export class SchedulesStore {
       ...(patch.permissionMode !== undefined ? { permissionMode: patch.permissionMode } : {}),
     };
     this.db.prepare(`UPDATE schedules SET space_id = ?, title = ?, goal = ?, cron = ?, enabled = ?, constraints_json = ?,
-        new_session_per_run = ?, archive_succeeded = ?, permission_mode = ?, next_run_at = ?, updated_at = ? WHERE id = ?`)
+        new_session_per_run = ?, archive_succeeded = ?, permission_mode = ?, next_run_at = ?, time_zone = ?, updated_at = ? WHERE id = ?`)
       .run(next.spaceId, next.title, next.goal, next.cron, next.enabled ? 1 : 0,
         next.constraints ? JSON.stringify(next.constraints) : null,
         next.newSessionPerRun ? 1 : 0, next.archiveSucceeded ? 1 : 0, next.permissionMode,
-        next.enabled ? nextFireOf(next.cron, ts) : null, ts, id);
+        next.enabled ? nextAfterSlot(next.cron, ts, zone, lastSlot) : null, zone, ts, id);
     return this.get(id);
   }
 
@@ -145,22 +158,60 @@ export class SchedulesStore {
    *
    * A teammate's clock is claimed while its teammate is in the list. An archived one's stays where it
    * was, unclaimed, and is re-armed from now if the teammate comes back (`TeammatesService.archive`).
+   *
+   * The claim also records the occurrence's slot, and is dropped when that slot is at or before the
+   * one the row last fired: the dedupe key for a teammate's clock, which makes no run for the run
+   * layer's own key to catch.
    */
   claimDue(at: number): { schedule: Schedule; dueAt: number }[] {
+    const zone = this.zone();
+    this.reanchor(at, zone);
     const rows = this.db.prepare(
       `SELECT * FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
         AND (role_id IS NULL OR role_id IN (SELECT id FROM team_roles WHERE archived = 0)) ORDER BY next_run_at`,
     ).all(at) as Row[];
     const claimed: { schedule: Schedule; dueAt: number }[] = [];
     for (const r of rows) {
+      const slot = slotOf(r.next_run_at!, zone);
+      const repeat = !isOnce(r.cron) && r.last_slot !== null && slot <= r.last_slot;
+      const lastSlot = repeat ? r.last_slot : slot;
       const advance = this.db.prepare(
-        "UPDATE schedules SET next_run_at = ?, updated_at = ? WHERE id = ? AND next_run_at = ?",
-      ).run(nextFireOf(r.cron, at), at, r.id, r.next_run_at);
+        "UPDATE schedules SET next_run_at = ?, last_slot = ?, updated_at = ? WHERE id = ? AND next_run_at = ?",
+      ).run(nextFireOf(r.cron, at, zone), lastSlot, at, r.id, r.next_run_at);
       // Zero rows changed means another tick got there first. Dropping the claim is the whole point.
-      if (advance.changes === 0) continue;
+      if (advance.changes === 0 || repeat) continue;
       claimed.push({ schedule: toSchedule(r), dueAt: r.next_run_at! });
     }
     return claimed;
+  }
+
+  /**
+   * Move every row computed in another zone onto `zone`, without firing any of them.
+   *
+   * A row with no zone was written before rows had one, and its `next_run_at` was computed in the
+   * zone the Mac is in now: it takes that zone as it stands, and its last slot is read off
+   * `last_run_at`. A row in another zone is the Mac having moved: its next occurrence is recomputed
+   * from now, in the new zone, past the slot it last fired. An occurrence that was already due and
+   * does not survive the move is recorded as skipped, as a missed one is.
+   */
+  private reanchor(at: number, zone: string): void {
+    const rows = this.db.prepare("SELECT * FROM schedules WHERE time_zone IS NULL OR time_zone <> ?").all(zone) as Row[];
+    for (const r of rows) {
+      if (r.time_zone === null) {
+        this.db.prepare("UPDATE schedules SET time_zone = ?, last_slot = ? WHERE id = ?")
+          .run(zone, r.last_run_at === null ? null : slotOf(r.last_run_at, zone), r.id);
+        continue;
+      }
+      // A one-shot's moment is an instant, the same in every zone.
+      if (r.enabled !== 1 || r.next_run_at === null || isOnce(r.cron)) {
+        this.db.prepare("UPDATE schedules SET time_zone = ? WHERE id = ?").run(zone, r.id);
+        continue;
+      }
+      const next = nextAfterSlot(r.cron, at, zone, r.last_slot);
+      const dropped = r.next_run_at <= at && (next === null || slotOf(next, zone) !== slotOf(r.next_run_at, r.time_zone));
+      this.db.prepare("UPDATE schedules SET time_zone = ?, next_run_at = ?, last_skipped_at = ?, updated_at = ? WHERE id = ?")
+        .run(zone, next, dropped ? at : r.last_skipped_at, at, r.id);
+    }
   }
 
   /** Record what a firing did. `runId` null with `skipped` true is a firing the catch-up window
@@ -173,4 +224,13 @@ export class SchedulesStore {
     this.db.prepare("UPDATE schedules SET last_run_at = ?, last_run_id = ?, last_skipped_at = NULL, updated_at = ? WHERE id = ?")
       .run(input.at, input.runId, input.at, id);
   }
+}
+
+/** The first occurrence after `after` in `zone` whose slot is later than `lastSlot`. A one-shot has
+ *  one moment and no slots to repeat, so it is only ever "after". */
+function nextAfterSlot(cron: string, after: number, zone: string, lastSlot: string | null): number | null {
+  let next = nextFireOf(cron, after, zone);
+  if (lastSlot === null || isOnce(cron)) return next;
+  while (next !== null && slotOf(next, zone) <= lastSlot) next = nextFireOf(cron, next, zone);
+  return next;
 }

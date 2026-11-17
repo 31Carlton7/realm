@@ -2405,8 +2405,8 @@ describe("the schedule-mode migration — what an existing scheduled task runs i
   const modes = (db: DatabaseSync) => Object.fromEntries(
     (db.prepare("SELECT id, permission_mode AS m FROM schedules").all() as { id: string; m: string | null }[]).map((r) => [r.id, r.m]));
 
-  it("is appended at the end of the chain, and a home one short of it reaches the end", () => {
-    expect(SCHEDULE_MODE_AT).toBe(migrations.length - 1);
+  it("is followed only by the schedule-zone migration, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_MODE_AT).toBe(SCHEDULE_ZONE_AT - 1);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     db.close();
@@ -2425,6 +2425,65 @@ describe("the schedule-mode migration — what an existing scheduled task runs i
     const again = openDatabase(p);
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     expect(modes(again)).toEqual({ weekly: "default", nightly: "bypassPermissions", clock: null });
+    again.close();
+  });
+});
+
+/** The schedules table as it shipped before the schedule-zone migration, written out by hand. */
+const BEFORE_SCHEDULE_ZONE = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, goal TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, constraints_json TEXT,
+  next_run_at INTEGER, last_run_at INTEGER, last_run_id TEXT, last_skipped_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  new_session_per_run INTEGER NOT NULL DEFAULT 1, archive_succeeded INTEGER NOT NULL DEFAULT 0, role_id TEXT,
+  permission_mode TEXT);
+`;
+const SCHEDULE_ZONE_AT = migrations.findIndex((m) => m.includes("ALTER TABLE schedules ADD COLUMN time_zone"));
+
+describe("the schedule-zone migration — the zone a schedule is computed in, and the slot it last fired", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_SCHEDULE_ZONE);
+    for (let v = 1; v <= SCHEDULE_ZONE_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
+      INSERT INTO schedules (id, space_id, title, goal, cron, next_run_at, last_run_at, created_at, updated_at, role_id, permission_mode) VALUES
+        ('weekly', 'sp1', 'Weekly review', 'Go.', '0 9 * * 1', 2000, 1000, 10, 10, NULL, 'default'),
+        ('clock', 'sp1', 'Ops', 'Check in.', '0 9 * * *', 3000, NULL, 30, 30, 'role-1', NULL);`);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  const zones = (db: DatabaseSync) => db.prepare("SELECT id, next_run_at, time_zone, last_slot FROM schedules ORDER BY id").all();
+
+  it("is appended at the end of the chain, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_ZONE_AT).toBe(migrations.length - 1);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("leaves every existing row's zone and slot NULL for the first tick to fill, and moves no occurrence", () => {
+    const { db } = migrated();
+    expect(zones(db)).toEqual([
+      { id: "clock", next_run_at: 3000, time_zone: null, last_slot: null },
+      { id: "weekly", next_run_at: 2000, time_zone: null, last_slot: null },
+    ]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing and moves no row", () => {
+    const { p, db } = migrated();
+    db.prepare("UPDATE schedules SET time_zone = 'America/Chicago', last_slot = '2026-11-08T09:00' WHERE id = 'weekly'").run();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(zones(again)).toEqual([
+      { id: "clock", next_run_at: 3000, time_zone: null, last_slot: null },
+      { id: "weekly", next_run_at: 2000, time_zone: "America/Chicago", last_slot: "2026-11-08T09:00" },
+    ]);
     again.close();
   });
 });

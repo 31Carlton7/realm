@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { SCHEDULE_CATCHUP_MS, onceExpr, type CreateScheduleInput, type Run } from "@realm/contracts";
@@ -35,6 +35,8 @@ let clock = 0;
 let latest: Run | null = null;
 let archived: [string, boolean][] = [];
 let announced: string[] = [];
+/** When each teammate clock turn went into its chat. */
+let delivered: number[] = [];
 
 const at = (y: number, m: number, d: number, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime();
 const NINE = at(2026, 4, 6, 9); // a Monday
@@ -45,6 +47,7 @@ function service() {
   latest = null;
   archived = [];
   announced = [];
+  delivered = [];
   const store = new SchedulesStore(db, () => clock);
   const runs = {
     create: (input: { spaceId: string; goal: string; dedupeKey: string | null; title?: string }) => {
@@ -58,6 +61,7 @@ function service() {
     rpc: { broadcast: (_event: string, p: unknown) => { announced.push((p as { spaceId: string }).spaceId); } } as never,
     archiveSession: (sessionId, on) => { archived.push([sessionId, on]); },
     spaceExists: (id) => id === spaceId || id === otherSpaceId,
+    teammates: { clockFired: () => { delivered.push(clock); return "delivered"; } },
   });
   return { svc, store };
 }
@@ -205,6 +209,107 @@ describe("the tick", () => {
     svc.create(input({ enabled: false }));
     clock = NINE; svc.tick();
     expect(created).toEqual([]);
+  });
+});
+
+describe("a Mac that changes timezone", () => {
+  // Nov 8 2026, the incident: every teammate clock fired at 09:00 Central and again at 09:00 Pacific,
+  // two hours later. Central is UTC-6 and Pacific UTC-8 that week.
+  const nineCentral = (day: number) => Date.UTC(2026, 10, day, 15);
+  const ninePacific = (day: number) => Date.UTC(2026, 10, day, 17);
+  const ops = { id: "ops", spaceId: "", name: "Ops" };
+  const tickUntil = (svc: ScheduleService, end: number) => { for (; clock < end; clock += 60_000) svc.tick(); };
+  let zone: string | undefined;
+  beforeEach(() => {
+    zone = process.env.TZ;
+    process.env.TZ = "America/Chicago";
+    ops.spaceId = spaceId;
+    db.prepare(`INSERT INTO team_roles (id, space_id, name, brief, realmite_json, agent_kind, created_at, updated_at)
+      VALUES ('ops', ?, 'Ops', '', '{}', 'claude', 0, 0)`).run(spaceId);
+  });
+  afterEach(() => { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; });
+
+  it("fires a teammate's daily clock once on the day the Mac moves from Central to Pacific", () => {
+    const { svc } = service();
+    clock = Date.UTC(2026, 10, 7, 12);
+    svc.setForTeammate(ops, { cron: "0 9 * * *" });
+    tickUntil(svc, Date.UTC(2026, 10, 8, 6));
+    process.env.TZ = "America/Los_Angeles";
+    tickUntil(svc, Date.UTC(2026, 10, 9, 20));
+    expect(delivered).toEqual([nineCentral(7), ninePacific(8), ninePacific(9)]);
+  });
+
+  it("moves a clock that came due while the Mac was shut across the move to nine Pacific, and fires it once", () => {
+    const { svc, store } = service();
+    clock = Date.UTC(2026, 10, 8, 12);
+    const s = svc.setForTeammate(ops, { cron: "0 9 * * *" })!;
+    process.env.TZ = "America/Los_Angeles";
+    clock = Date.UTC(2026, 10, 8, 15, 30); // 07:30 Pacific: 09:00 Central has passed
+    svc.tick();
+    expect(delivered).toEqual([]);
+    expect(store.get(s.id)).toMatchObject({ nextRunAt: ninePacific(8), lastSkippedAt: null });
+    tickUntil(svc, Date.UTC(2026, 10, 9, 20));
+    expect(delivered).toEqual([ninePacific(8), ninePacific(9)]);
+  });
+
+  it("still runs a one-shot that came due while the Mac was shut across the move", () => {
+    const { svc } = service();
+    clock = Date.UTC(2026, 10, 8, 12);
+    const s = svc.create(input({ cron: onceExpr(nineCentral(8)) }));
+    process.env.TZ = "America/Los_Angeles";
+    clock = Date.UTC(2026, 10, 8, 18);
+    svc.tick();
+    expect(created.map((c) => c.dedupeKey)).toEqual([`schedule:${s.id}:${nineCentral(8)}`]);
+  });
+
+  it("does not refire this morning's slot when a teammate's clock is edited after the move", () => {
+    const { svc } = service();
+    clock = Date.UTC(2026, 10, 8, 12);
+    svc.setForTeammate(ops, { cron: "0 9 * * *" });
+    tickUntil(svc, nineCentral(8) + 60_000);
+    process.env.TZ = "America/Los_Angeles";
+    // 07:01 Pacific: renaming the teammate re-arms its clock before any tick has seen the move.
+    expect(svc.setForTeammate({ ...ops, name: "Ops desk" }, {})!.nextRunAt).toBe(ninePacific(9));
+    tickUntil(svc, Date.UTC(2026, 10, 9, 20));
+    expect(delivered).toEqual([nineCentral(8), ninePacific(9)]);
+  });
+
+  it("does not refire this morning's slot when a task is edited after the move", () => {
+    const { svc } = service();
+    clock = Date.UTC(2026, 10, 8, 12);
+    const s = svc.create(input());
+    tickUntil(svc, nineCentral(8) + 60_000);
+    process.env.TZ = "America/Los_Angeles";
+    expect(svc.update({ id: s.id, title: "Renamed" }).nextRunAt).toBe(ninePacific(9));
+    tickUntil(svc, Date.UTC(2026, 10, 9, 20));
+    expect(created.map((c) => c.dedupeKey)).toEqual([`schedule:${s.id}:${nineCentral(8)}`, `schedule:${s.id}:${ninePacific(9)}`]);
+  });
+
+  it("drops a teammate clock's claim on a slot it has already fired", () => {
+    // The row armed back into the slot it just fired, as the build before this one left it.
+    const { svc } = service();
+    clock = Date.UTC(2026, 10, 8, 12);
+    const s = svc.setForTeammate(ops, { cron: "0 9 * * *" })!;
+    tickUntil(svc, nineCentral(8) + 60_000);
+    db.prepare("UPDATE schedules SET next_run_at = ? WHERE id = ?").run(nineCentral(8), s.id);
+    svc.tick();
+    expect(delivered).toEqual([nineCentral(8)]);
+  });
+
+  it("gives a row from before zones the Mac's zone, and its last fire's slot, on the first tick", () => {
+    const { svc, store } = service();
+    clock = Date.UTC(2026, 10, 8, 12);
+    const s = svc.setForTeammate(ops, { cron: "0 9 * * *" })!;
+    tickUntil(svc, nineCentral(8) + 60_000);
+    db.prepare("UPDATE schedules SET time_zone = NULL, last_slot = NULL WHERE id = ?").run(s.id);
+    svc.tick();
+    expect(db.prepare("SELECT time_zone, last_slot FROM schedules WHERE id = ?").get(s.id))
+      .toEqual({ time_zone: "America/Chicago", last_slot: "2026-11-08T09:00" });
+    process.env.TZ = "America/Los_Angeles";
+    svc.tick();
+    expect(store.get(s.id)!.nextRunAt).toBe(ninePacific(9));
+    tickUntil(svc, Date.UTC(2026, 10, 9, 20));
+    expect(delivered).toEqual([nineCentral(8), ninePacific(9)]);
   });
 });
 
