@@ -358,8 +358,9 @@ export class DelegationEngine {
    * **A grace before the interrupt.** With `grace`, the deadline first asks the child for its report
    * and gives it `grace.ms` more to write one. Only a turn that follows the request can settle the
    * run then: the stop that delivers the request ends the turn the child was in, and that turn's
-   * `idle` is not an answer. A child that answers settles as `timeout` with `reported: true`; one
-   * that does not is interrupted when the grace runs out, as before.
+   * `idle` is not an answer. A child that answers settles as `timeout` with `reported: true` and what
+   * it said since the request in `report`; one that does not is interrupted when the grace runs out,
+   * as before.
    *
    * Every message the child said and every file a write call of its named is kept on the result, so
    * a run that is cut short still hands back the work it did and not only its last line.
@@ -367,13 +368,13 @@ export class DelegationEngine {
   async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number, onTick?: () => void, grace?: Grace): Promise<SettledRun> {
     let last = fromSeq;
     const texts: string[] = [];
+    const report: string[] = [];
     const edited = new Set<string>();
     // When the report was asked for; whether the message asking has reached the transcript; the
-    // child's status since it did; and whether it has said anything since.
+    // child's status since it did. What it has said since is its report.
     let askedAt: number | null = null;
     let requestSeen = false;
     let statusSinceRequest: string | null = null;
-    let answered = false;
     // When the child started waiting on the user, while it still is.
     let pausedSince: number | null = null;
     let lastStatus: string | null = null;
@@ -385,7 +386,7 @@ export class DelegationEngine {
     let stopped = false;
     const settle = (outcome: DelegationOutcome): SettledRun => ({
       outcome, finalText, lastStatus, texts, editedFiles: [...edited],
-      ...(askedAt !== null ? { reported: answered } : {}),
+      ...(askedAt !== null ? { reported: report.length > 0, report } : {}),
     });
     for (;;) {
       let batch: StoredSessionEvent[];
@@ -401,7 +402,7 @@ export class DelegationEngine {
         if (ev.type === "assistant_text") {
           finalText = ev.payload.text;
           texts.push(ev.payload.text);
-          if (requestSeen) answered = true;
+          if (requestSeen) report.push(ev.payload.text);
         }
         if (ev.type === "tool_call") for (const path of editedPaths(ev.payload.name, ev.payload.input)) edited.add(path);
         if (ev.type === "user_message" && askedAt !== null) requestSeen = true;
@@ -422,7 +423,7 @@ export class DelegationEngine {
         if (lastStatus === "idle" && finalText !== null) return settle("done");
       } else if (statusSinceRequest === "idle") {
         if (stopped) return settle("stopped");
-        if (answered) return settle("timeout");
+        if (report.length > 0) return settle("timeout");
       }
       if (lastStatus === "error" || lastStatus === "ended") return settle("failed");
       if (lastStatus === "waiting_permission") pausedSince ??= Date.now();
@@ -491,6 +492,8 @@ export type SettledRun = {
   worktreeFiles?: string[];
   /** Set when the budget ran out and the child was asked for its report: whether it answered. */
   reported?: boolean;
+  /** What it said after the request reached it and before it settled: its report. */
+  report?: string[];
 };
 
 /** The deadline's first step, when a run has one: ask the child for its report, then wait `ms`. */

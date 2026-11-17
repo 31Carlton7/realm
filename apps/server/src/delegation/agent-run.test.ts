@@ -1035,10 +1035,10 @@ describe("when the budget runs out: the report first, then the interrupt", () =>
   const asksOf = (childId: string) => app.sessions.events(childId, 0, 1000).map((e) => e.event)
     .filter((e) => e.type === "user_message" && e.payload.text.includes(REPORT_ASK));
 
-  it("asks a child that is mid-tool-call for its report, waits for it, and hands back everything it said and the files it edited", async () => {
+  it("asks a child that is mid-tool-call for its report, waits for it, and hands back only that report and the files it edited", async () => {
     // THE MUTANTS: no request (the run ends without REPORT), no grace (interrupted before it can
-    // answer), the request queued rather than steered (it waits behind the 60s call), only the last
-    // message returned (the earlier lines are lost), no files list.
+    // answer), the request queued rather than steered (it waits behind the 60s call), a reported
+    // child handed back everything it said, no files list.
     const { spaceId, parentId } = await boot({ script: midWork("answer"), timeouts });
     const began = Date.now();
     const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "change a.txt" });
@@ -1048,14 +1048,17 @@ describe("when the budget runs out: the report first, then the interrupt", () =>
     expect(result.isError).toBe(true);
     const out = text(result);
     expect(out).toContain("It was asked for its report and wrote it before the grace period ended.");
-    for (const line of ["partial: editing a.txt", "partial: a.txt edited, running the suite", "REPORT: a.txt changed, the suite had not finished"]) expect(out).toContain(line);
+    expect(out).toContain("REPORT: a.txt changed, the suite had not finished");
+    for (const line of ["partial: editing a.txt", "partial: a.txt edited, running the suite"]) expect(out).not.toContain(line);
+    expect(out).toContain(`Its full transcript is available through session_read (session ${child.id}).`);
     expect(out).toContain("Files changed (from its Edit, Write and apply_patch calls; changes made by shell commands are not listed):\n- a.txt");
     // Answered inside the grace, so it was not held for all of it.
     expect(took).toBeLessThan(timeouts.baseMs + timeouts.graceMs);
     expect(app.agentRuns.record(child.id)?.outcome).toBe("timeout");
   }, 20_000);
 
-  it("interrupts a child that ignores the request once the grace is over, and still hands back its text and files", async () => {
+  it("interrupts a child that ignores the request once the grace is over, and still hands back everything it said and its files", async () => {
+    // THE MUTANT: every timeout treated as reported — the parent gets nothing of what it said.
     const { spaceId, parentId } = await boot({ script: midWork("ignore"), timeouts });
     const began = Date.now();
     const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "change a.txt" });
@@ -1066,19 +1069,23 @@ describe("when the budget runs out: the report first, then the interrupt", () =>
     expect(out).toContain("did not write one before the grace period ended, and was interrupted.");
     expect(out).toContain("partial: editing a.txt");
     expect(out).toContain("partial: a.txt edited, running the suite");
+    expect(out).not.toContain("session_read");
     expect(out).toContain("- a.txt");
     expect(took).toBeGreaterThanOrEqual(timeouts.baseMs + timeouts.graceMs);
     await waitFor(() => app.sessions.get(child.id).status === "idle");
   }, 20_000);
 
-  it("gives agent_wait the same report: every line and the files", async () => {
+  it("gives agent_wait the same report: the child's report, where to read the rest, and the files", async () => {
     const { spaceId, parentId } = await boot({ script: midWork("answer"), timeouts });
     const ctx = { sessionId: parentId, spaceId };
     await app.agentRuns.start(ctx, { goal: "change a.txt" });
     const out = text(await app.agentRuns.wait(ctx, {}));
     expect(out).toContain("did NOT finish (timeout)");
     expect(out).toContain("It was asked for its report and wrote it before the grace period ended.");
-    for (const line of ["partial: editing a.txt", "partial: a.txt edited, running the suite", "REPORT: a.txt changed"]) expect(out).toContain(line);
+    expect(out).toContain("REPORT: a.txt changed");
+    expect(out).not.toContain("partial: editing a.txt");
+    const child = childOf(spaceId, parentId);
+    expect(out).toContain(`Its full transcript is available through session_read (session ${child.id}).`);
     expect(out).toContain("- a.txt");
   }, 20_000);
 

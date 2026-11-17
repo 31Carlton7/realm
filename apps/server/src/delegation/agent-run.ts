@@ -766,7 +766,7 @@ function modeSentence(granted: ChildMode, parentMode: string, requested: string 
 function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): CallToolResult {
   const note = ` ${spawned.mode}`;
   const trail = trailFor(settled, spawned.childId, spawned.title, spawned.on);
-  const output = reportBody(settled);
+  const output = reportBody(settled, spawned.childId);
   switch (settled.outcome) {
     case "done":
       return ok(`Delegated agent finished.${note}${trail}\n\n${output}`);
@@ -792,7 +792,7 @@ function reportSection(settled: SettledRun, childId: string, stopNote?: string):
   const verdict = settled.outcome === "done" ? "finished" : `did NOT finish (${statusOf(settled)})`;
   const why = settled.outcome === "stopped" && stopNote ? `\n\n${stopNote}` : "";
   const timedOut = settled.outcome === "timeout" ? `\n\n${timeoutSentence(settled)}` : "";
-  return `## Agent ${childId} — ${verdict}${why}${timedOut}\n\n${reportBody(settled)}`;
+  return `## Agent ${childId} — ${verdict}${why}${timedOut}\n\n${reportBody(settled, childId)}`;
 }
 
 function timeoutSentence(settled: SettledRun, budgetMs?: number): string {
@@ -805,18 +805,23 @@ function timeoutSentence(settled: SettledRun, budgetMs?: number): string {
 
 /**
  * What the parent is handed of the child's work. A child that finished is handed back its final
- * message; one that did not is handed back everything it said, because the last line of a cut-short
- * run is usually "waiting on CI" and the work is in the lines before it. Either way, the files it
- * changed follow.
+ * message, and one that timed out but wrote its report when asked is handed back that report. One
+ * that did not finish or report is handed back everything it said, because the last line of a
+ * cut-short run is usually "waiting on CI" and the work is in the lines before it. Either way, the
+ * files it changed follow.
  */
-function reportBody(settled: SettledRun): string {
-  const said = settled.outcome === "done" ? (settled.finalText ? [settled.finalText] : []) : settled.texts;
+function reportBody(settled: SettledRun, childId: string): string {
+  const reported = settled.outcome === "timeout" && settled.reported === true;
+  const said = settled.outcome === "done" ? (settled.finalText ? [settled.finalText] : [])
+    : reported ? settled.report ?? []
+    : settled.texts;
   const output = said.length > 0
-    ? fenceAgentOutput(said.join("\n\n"), settled.outcome === "done"
+    ? fenceAgentOutput(said.join("\n\n"), settled.outcome === "done" || reported
       ? "the DELEGATED AGENT'S REPORT — a subagent's output"
       : `everything the DELEGATED AGENT said (${said.length} message${said.length === 1 ? "" : "s"}, in order) — a subagent's output`)
     : "(the agent produced no output)";
-  return `${output}\n\n${filesSection(settled)}`;
+  const transcript = reported ? `\n\nIts full transcript is available through session_read (session ${childId}).` : "";
+  return `${output}${transcript}\n\n${filesSection(settled)}`;
 }
 
 function filesSection(settled: SettledRun): string {
