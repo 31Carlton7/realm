@@ -1116,6 +1116,48 @@ describe("when the budget runs out: the report first, then the interrupt", () =>
   }, 20_000);
 });
 
+describe("a turn that ends on background work is not the end of the run", () => {
+  const REPORT_ASK = "Your time budget has run out";
+
+  it("waits for the background agent to report back and hands back the turn that followed", async () => {
+    // THE MUTANT: a turn's end taken as the run's end — the parent gets "waiting on CI".
+    const { spaceId, parentId } = await boot({ script: [{ on: "You are a delegated agent.", emit: [
+      { kind: "background", description: "watch CI", runMs: 600, after: [{ kind: "text", text: "FINAL: CI passed" }] },
+      { kind: "text", text: "Started a CI watcher, waiting on it" },
+    ] }] });
+    const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "watch CI" });
+    const out = text(result);
+    expect(result.isError).toBe(false);
+    expect(out).toContain("FINAL: CI passed");
+    expect(out).not.toContain("waiting on it");
+    expect(out).toContain("was waited for until that command reported back and its next turn finished.");
+    expect(app.agentRuns.record(childOf(spaceId, parentId).id)?.outcome).toBe("done");
+  }, 20_000);
+
+  it("returns at the budget from a child holding a Monitor that never reports, and says it was still running", async () => {
+    // THE MUTANT: the deadline skipped while background work runs — the wait never returns.
+    const timeouts = { baseMs: 400, perTurnMs: 0, pollMs: 20, graceMs: 1_000 };
+    const { spaceId, parentId } = await boot({ script: [
+      { on: "You are a delegated agent.", emit: [
+        { kind: "tool", name: "Monitor", input: { command: "tail -f build.log" }, result: "Monitor started" },
+        { kind: "text", text: "Watching the build log" },
+      ] },
+      { on: REPORT_ASK, emit: [{ kind: "text", text: "REPORT: the build never finished" }] },
+    ], timeouts });
+    // The Monitor's command never exits, so its shell stays under the child's engine for good.
+    (app.sessions as unknown as { d: { backgroundShells: () => Promise<ReadonlySet<string>> } }).d.backgroundShells =
+      async () => new Set(app.sessions.list(spaceId).map((s) => s.id).filter((id) => id !== parentId));
+    const ctx = { sessionId: parentId, spaceId };
+    const began = Date.now();
+    await app.agentRuns.start(ctx, { goal: "watch the build" });
+    const out = text(await app.agentRuns.wait(ctx, {}));
+    expect(Date.now() - began).toBeLessThan(timeouts.baseMs + timeouts.graceMs + 3_000);
+    expect(out).toContain("did NOT finish (timeout)");
+    expect(out).toContain("Its budget ran out with a background command it started still running.");
+    expect(out).toContain("REPORT: the build never finished");
+  }, 20_000);
+});
+
 describe("titles — the task's name, not the boilerplate", () => {
   it("takes the caller's title, and names the child by its task when there is none", async () => {
     // THE MUTANTS: the title argument ignored; the old "Agent: <first line>".

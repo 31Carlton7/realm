@@ -769,7 +769,7 @@ function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): Ca
   const output = reportBody(settled, spawned.childId);
   switch (settled.outcome) {
     case "done":
-      return ok(`Delegated agent finished.${note}${trail}\n\n${output}`);
+      return ok(`Delegated agent finished.${backgroundSentence(settled)}${note}${trail}\n\n${output}`);
     case "stopped":
       // Not a failure of the child's, and not the delegating session's cancel either: a person looked
       // at this child and stopped it. Saying so is what keeps a lead from re-running what someone
@@ -790,17 +790,27 @@ function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): Ca
  *  `reportOne` — an agent that learned to read one should not have to learn the other. */
 function reportSection(settled: SettledRun, childId: string, stopNote?: string): string {
   const verdict = settled.outcome === "done" ? "finished" : `did NOT finish (${statusOf(settled)})`;
+  const waited = settled.outcome === "done" && settled.background ? `\n\n${backgroundSentence(settled).trim()}` : "";
   const why = settled.outcome === "stopped" && stopNote ? `\n\n${stopNote}` : "";
   const timedOut = settled.outcome === "timeout" ? `\n\n${timeoutSentence(settled)}` : "";
-  return `## Agent ${childId} — ${verdict}${why}${timedOut}\n\n${reportBody(settled, childId)}`;
+  return `## Agent ${childId} — ${verdict}${waited}${why}${timedOut}\n\n${reportBody(settled, childId)}`;
 }
 
 function timeoutSentence(settled: SettledRun, budgetMs?: number): string {
   const budget = budgetMs !== undefined ? ` (budget: ${Math.round(budgetMs / 1000)}s)` : "";
-  if (settled.reported === undefined) return `Delegated agent timed out${budget} and was interrupted.`;
+  const still = backgroundSentence(settled);
+  if (settled.reported === undefined) return `Delegated agent timed out${budget} and was interrupted.${still}`;
   return settled.reported
-    ? `Delegated agent timed out${budget}. It was asked for its report and wrote it before the grace period ended.`
-    : `Delegated agent timed out${budget}. It was asked for its report, did not write one before the grace period ended, and was interrupted.`;
+    ? `Delegated agent timed out${budget}.${still} It was asked for its report and wrote it before the grace period ended.`
+    : `Delegated agent timed out${budget}.${still} It was asked for its report, did not write one before the grace period ended, and was interrupted.`;
+}
+
+/** Said when the child ended a turn with a background command still running, so the lead knows it
+ *  was waited for, or that the budget ran out on it. Starts with a space, or is empty. */
+function backgroundSentence(settled: SettledRun): string {
+  if (settled.background === "settled" && settled.outcome === "done") return " It ended a turn with a background command still running, and was waited for until that command reported back and its next turn finished.";
+  if (settled.background === "running" && settled.outcome === "timeout") return " Its budget ran out with a background command it started still running.";
+  return "";
 }
 
 /**

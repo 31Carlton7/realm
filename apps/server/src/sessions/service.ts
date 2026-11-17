@@ -1467,6 +1467,16 @@ export class SessionService {
     return work;
   }
 
+  /** Whether the engine is still running something its agent started in the background: a sub-agent
+   *  that has not said it stopped, or a backgrounded shell command (a `run_in_background` Bash, a
+   *  Monitor). A process table that could not be read counts as none, so a delegation waiting on this
+   *  is never held by a read that failed. */
+  async holdsBackgroundWork(id: string): Promise<boolean> {
+    if ((this.background.get(id)?.size ?? 0) > 0) return true;
+    const shells = await this.d.backgroundShells?.().catch(() => null);
+    return shells?.has(id) ?? false;
+  }
+
   /** Whether a session other than `exceptId` is mid-turn in that checkout. */
   private otherTurnIn(environmentId: string, exceptId: string): boolean {
     return this.d.sessions.listAll().some((o) => o.id !== exceptId && o.environmentId === environmentId && (o.status === "running" || o.status === "waiting_permission"));

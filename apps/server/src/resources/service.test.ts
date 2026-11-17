@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MachineMemory, MemoryPressure } from "@realm/contracts";
-import { APP_METRICS_TIMEOUT_MS, OTHERS_TTL_MS, PRESSURE_EVERY_MS, ResourceService, SNAPSHOT_TTL_MS } from "./service";
+import { readFileSync } from "node:fs";
+import { APP_METRICS_TIMEOUT_MS, OTHERS_TTL_MS, PRESSURE_EVERY_MS, ResourceService, SHELL_TOOL, SNAPSHOT_TTL_MS } from "./service";
 import { RESOURCES_ADAPTIVE_KEY } from "@realm/contracts";
 import { realMachineProbe, type MachineProbe, type ProcRow } from "./machine";
 import type { Owners } from "./attribute";
@@ -200,6 +201,33 @@ describe("what the policies ask of it", () => {
       { sessionId: "b", title: "B", kind: "claude", providerSessionId: "conv-b", startedAt: T, detail: null },
     ] }) });
     expect([...(await s.backgroundShells())!]).toEqual(["a"]);
+  });
+
+  it("reads a real Claude child that has finished as holding nothing, and one with a backgrounded sleep as holding it", async () => {
+    // Listings read off a live Realm, one taken after a Claude child ran `echo hi` and went idle, one
+    // while a child's `sleep 20` ran in the background. The idle engine has no process under it at all;
+    // the shells in the listing belong to another Realm's engines, or are the ones that ran the check,
+    // above the server. THE MUTANTS: a shell anywhere in the table counted, or a shell under the
+    // engine missed.
+    const T = Date.parse("2026-11-17T17:08:20Z");
+    const listing = (file: string): ProcRow[] => readFileSync(new URL(`./fixtures/${file}`, import.meta.url), "utf8").split("\n")
+      .flatMap((line) => {
+        const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s(.*)$/.exec(line);
+        if (!m) return [];
+        const elapsed = m[3]!.split(/[-:]/).reverse().reduce((sum, n, i) => sum + Number(n) * [1, 60, 3600, 86400][i]!, 0);
+        return [{ pid: Number(m[1]), ppid: Number(m[2]), tty: null, residentBytes: MB, startedAt: T - elapsed * 1000, command: m[4]! }];
+      });
+    const shellsIn = (table: ProcRow[], serverPid: number) => {
+      const engine = table.find((p) => p.ppid === serverPid)!;
+      const { probe } = fakeMachine({ table });
+      return new ResourceService({ probe, serverPid, app: async () => null, owners: () => ({ ...owners(), engines: [
+        { sessionId: "child", title: "bg proof", kind: "claude", providerSessionId: null, startedAt: engine.startedAt! - 1000, detail: null },
+      ] }) }).backgroundShells();
+    };
+    const idle = listing("ps-engine-idle.txt");
+    expect(idle.filter((p) => SHELL_TOOL.test(p.command))).toHaveLength(3);
+    expect(await shellsIn(idle, 81869)).toEqual(new Set());
+    expect(await shellsIn(listing("ps-engine-background.txt"), 83904)).toEqual(new Set(["child"]));
   });
 
   it("says it does not know when the table could not be read, and \"none\" where no table is ever read", async () => {

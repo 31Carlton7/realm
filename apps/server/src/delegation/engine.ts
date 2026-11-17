@@ -40,6 +40,10 @@ export const MAX_RUNS_PER_PARENT = 4;
  *  whereas the failure it prevents is the machine going away. */
 export const MAX_RUNS_TOTAL = 12;
 
+/** How often a child idle on background work is asked again whether that work is still running, and
+ *  how long work that ended without waking the child is given to wake it. Each read can be a `ps`. */
+export const BACKGROUND_RECHECK_MS = 1000;
+
 export class DelegationEngine {
   /** The runs of each parent session — see the class doc comment. A parent with none holds no entry
    *  (`end` prunes the empty array), so `runs.size` is the number of parents currently delegating. */
@@ -51,6 +55,9 @@ export class DelegationEngine {
     sessions: {
       events(id: string, afterSeq: number, limit: number): StoredSessionEvent[];
       interrupt(id: string): Promise<void>;
+      /** Whether the child's engine is still running a command or sub-agent it started in the
+       *  background. Absent, a turn that ends is the run's end, as it was before this was read. */
+      holdsBackgroundWork?(id: string): Promise<boolean>;
     };
     /** Tests tighten these to one and two so a cap is reachable without spawning four fake agents. */
     caps?: { perParent?: number; total?: number };
@@ -362,6 +369,16 @@ export class DelegationEngine {
    * it said since the request in `report`; one that does not is interrupted when the grace runs out,
    * as before.
    *
+   * **A turn that ends on background work is not the end.** A child that ends its turn with a
+   * command or sub-agent it started still running (a Monitor, a `run_in_background` Bash, a background
+   * agent) is waiting on it: the harness wakes it with the result and it carries on. So a finish is
+   * only taken once nothing is running behind it, and after a hold only from a turn that answered
+   * since: one that ran or spoke, then went idle. Claude wakes its agent with no `running` status — the
+   * work's `background_task` stop, an `init` and an `idle` come first, and the reply a second or more
+   * later — so any of those after a hold means a turn is coming, and the run waits for it. Work that
+   * goes with none of them is given `BACKGROUND_RECHECK_MS` to wake the child. The deadline is not
+   * paused by any of this: work that never reports back is a timeout like any other.
+   *
    * Every message the child said and every file a write call of its named is kept on the result, so
    * a run that is cut short still hands back the work it did and not only its last line.
    */
@@ -384,9 +401,34 @@ export class DelegationEngine {
     // slice ENDS: a stop the child was then sent past (a steered message) and a turn that went on to
     // finish reads as the finish.
     let stopped = false;
+    // The background read: its last answer, when and at which event it was taken, whether any read has
+    // held the run; since that hold, whether the child was woken, began answering, and finished
+    // answering; and when the work was last seen gone.
+    let holding = false;
+    let checkedAt = 0;
+    let checkedSeq = -1;
+    let held = false;
+    let woke = false;
+    let answering = false;
+    let resumed = false;
+    let clearedAt: number | null = null;
+    const stillWorking = async (): Promise<boolean> => {
+      if (last !== checkedSeq || Date.now() - checkedAt >= BACKGROUND_RECHECK_MS) {
+        checkedSeq = last;
+        checkedAt = Date.now();
+        holding = (await this.d.sessions.holdsBackgroundWork?.(childId).catch(() => false)) ?? false;
+        if (holding) { held = true; woke = false; answering = false; resumed = false; clearedAt = null; }
+      }
+      if (holding) return true;
+      if (!held || resumed) return false;
+      if (woke) return true;
+      clearedAt ??= Date.now();
+      return Date.now() - clearedAt < BACKGROUND_RECHECK_MS;
+    };
     const settle = (outcome: DelegationOutcome): SettledRun => ({
       outcome, finalText, lastStatus, texts, editedFiles: [...edited],
       ...(askedAt !== null ? { reported: report.length > 0, report } : {}),
+      ...(held ? { background: holding ? "running" as const : "settled" as const } : {}),
     });
     for (;;) {
       let batch: StoredSessionEvent[];
@@ -398,6 +440,11 @@ export class DelegationEngine {
           lastStatus = ev.payload.status;
           stopped = ev.payload.interrupted === true;
           if (requestSeen) statusSinceRequest = lastStatus;
+        }
+        if (held) {
+          if (ev.type === "init" || ev.type === "background_task") woke = true;
+          if (ev.type === "assistant_text" || (ev.type === "status" && ev.payload.status === "running")) { woke = true; answering = true; }
+          else if (ev.type === "status" && ev.payload.status === "idle" && answering) resumed = true;
         }
         if (ev.type === "assistant_text") {
           finalText = ev.payload.text;
@@ -420,7 +467,7 @@ export class DelegationEngine {
       // budget for a report that is never coming would end in a timeout that lies about why.
       if (askedAt === null) {
         if (lastStatus === "idle" && stopped) return settle("stopped");
-        if (lastStatus === "idle" && finalText !== null) return settle("done");
+        if (lastStatus === "idle" && finalText !== null && !(await stillWorking())) return settle("done");
       } else if (statusSinceRequest === "idle") {
         if (stopped) return settle("stopped");
         if (report.length > 0) return settle("timeout");
@@ -494,6 +541,9 @@ export type SettledRun = {
   reported?: boolean;
   /** What it said after the request reached it and before it settled: its report. */
   report?: string[];
+  /** Set when a turn of the child's ended with background work still running: whether that work had
+   *  finished when the run settled, or was still running. */
+  background?: "settled" | "running";
 };
 
 /** The deadline's first step, when a run has one: ask the child for its report, then wait `ms`. */

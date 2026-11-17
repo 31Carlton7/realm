@@ -86,9 +86,13 @@ export type SummaryServiceDeps = {
  * to the derived text whenever no summary exists.
  */
 export class SessionSummaryService {
-  /** Sessions with a call in flight. A slow model and a fast user can settle twice before the first
-   *  answer lands, and two calls would race to write the same summary. */
+  /** Sessions with a call waiting or in flight. A slow model and a fast user can settle twice before
+   *  the first answer lands, and two calls would race to write the same summary. */
   private inFlight = new Set<string>();
+  /** The recaps, one at a time. Each is a CLI process, and a memory-pressure reap ends several
+   *  sessions in one sweep: run together, their recaps would add that many processes to a machine that
+   *  is already short. */
+  private queue: Promise<void> = Promise.resolve();
   /** Latched off once the machine says it cannot run one. */
   private disabled = false;
   /** One pending write per session, re-armed by each settle. */
@@ -148,8 +152,18 @@ export class SessionSummaryService {
     if (armed) { clearTimeout(armed); this.pending.delete(sessionId); }
   }
 
-  private async write(sessionId: string): Promise<void> {
-    if (this.closed || this.disabled || !this.d.generate || this.inFlight.has(sessionId) || this.deleted.has(sessionId)) return;
+  /** Queue this session's recap behind any already waiting. It reads the transcript when its turn
+   *  comes, not now, so a recap that waited still covers what happened meanwhile. */
+  private write(sessionId: string): Promise<void> {
+    if (this.closed || this.disabled || !this.d.generate || this.inFlight.has(sessionId) || this.deleted.has(sessionId)) return Promise.resolve();
+    this.inFlight.add(sessionId);
+    const run = this.queue.then(() => this.writeNow(sessionId)).finally(() => this.inFlight.delete(sessionId));
+    this.queue = run.catch(() => {});
+    return run;
+  }
+
+  private async writeNow(sessionId: string): Promise<void> {
+    if (this.closed || this.disabled || !this.d.generate || this.deleted.has(sessionId)) return;
     const events = this.d.listEvents(sessionId);
     if (events.length === 0) return;
     // Anchored to the last event that could CHANGE what a summary says. A settle writes a `status`
@@ -171,7 +185,6 @@ export class SessionSummaryService {
       if (!ok) { this.disabled = true; return; }
     }
 
-    this.inFlight.add(sessionId);
     try {
       const recap = await this.d.generate({
         asked: facts.asked,
@@ -188,8 +201,6 @@ export class SessionSummaryService {
     } catch (e) {
       // One line, once — not once per settled turn on a machine that will never answer.
       this.d.onError?.(`[recap] ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      this.inFlight.delete(sessionId);
     }
   }
 }
