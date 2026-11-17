@@ -263,6 +263,31 @@ describe("drain — a turn that ends on a background command", () => {
     const settled = await engine.drain("child", 0, run(), Date.now() + 10_000, 20);
     expect(settled).toMatchObject({ outcome: "done", finalText: "DONE", background: "settled" });
   }, 15_000);
+
+  it("settles on a woken turn that only calls tools and goes idle without a word", async () => {
+    // A child woken by its background command may only act on the result: a tool call, its result, and
+    // idle, with no text and no `running`. THE MUTANT: only text or `running` counted as answering, and
+    // the run waits out its budget.
+    let holding = true;
+    const feed: StoredSessionEvent[][] = [
+      [status("running", 1), said("STARTED", 2), status("idle", 3)],
+      [],
+      [ev({ type: "background_task", ts: 0, payload: { toolUseId: "t", status: "stopped" } } as SessionEvent, 4), ev({ type: "init", ts: 0, payload: { providerSessionId: "p", model: "m", tools: [], cwd: "/" } } as SessionEvent, 5), status("idle", 6)],
+      [ev({ type: "tool_call", ts: 0, payload: { toolUseId: "u", name: "Bash", input: { command: "git push" }, parentToolUseId: null } } as SessionEvent, 7), ev({ type: "tool_result", ts: 0, payload: { toolUseId: "u", content: "ok", isError: false } } as SessionEvent, 8), status("idle", 9)],
+    ];
+    let i = 0;
+    const engine = new DelegationEngine({
+      sessions: {
+        events: () => { const batch = feed[i++] ?? []; if (i === 2) holding = false; return batch; },
+        interrupt: async () => {},
+        holdsBackgroundWork: async () => holding,
+      },
+    });
+    const began = Date.now();
+    const settled = await engine.drain("child", 0, run(), Date.now() + 8_000, 20);
+    expect(settled).toMatchObject({ outcome: "done", background: "settled" });
+    expect(Date.now() - began).toBeLessThan(4_000);
+  }, 15_000);
 });
 
 describe("involves — what the idle-engine reaper asks before it stops a session's engine", () => {
