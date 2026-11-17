@@ -85,6 +85,17 @@ struct BackdropTests {
         #expect(worst(inks.ink, over: bytes(still)) < 4.5, "the body reads over the bare \(scheme == .dark ? "white" : "black") still")
     }
 
+    /// On a dark face whose link is its dimmest ink, the link's own 4.5:1 is the limit that holds the
+    /// picture down, so the dark link's ratio is checked even when today's link is brighter than the quiet ink.
+    @Test func theDarkLinkHoldsTheRangeWhenItIsTheDimmestInk() {
+        let inks = Backdrop.Inks(ground: Backdrop.RGB(0.1, 0.1, 0.1), ink: Backdrop.RGB(1, 1, 1), ink2: Backdrop.RGB(0.85, 0.85, 0.85),
+                                 link: Backdrop.RGB(0.45, 0.6, 0.95), accent: Backdrop.RGB(0.45, 0.6, 0.95),
+                                 linkRatio: Backdrop.Inks.linkRatio(.dark))
+        let brightest = Backdrop.readableRange(inks).upperBound
+        let ratio = (inks.link.luminance + 0.05) / (brightest + 0.05)
+        #expect(ratio >= 4.5, "the link reads at \(ratio) over the brightest pixel the guard allows")
+    }
+
     /// A bright picture keeps what colour it can: the guard lowers a pixel only as far as the words need.
     @Test func theGuardKeepsAllThePictureThatReads() {
         let inks = Backdrop.Inks(.dark)

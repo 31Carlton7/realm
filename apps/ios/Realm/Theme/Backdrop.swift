@@ -52,6 +52,8 @@ enum Backdrop {
         /// The ratio the link keeps: 3:1 on the light face (design.md), 4.5:1 on the dark.
         let linkRatio: Double
 
+        static func linkRatio(_ scheme: ColorScheme) -> Double { scheme == .light ? 3 : 4.5 }
+
         init(ground: RGB, ink: RGB, ink2: RGB, link: RGB, accent: RGB, linkRatio: Double) {
             self.ground = ground
             self.ink = ink
@@ -63,7 +65,7 @@ enum Backdrop {
 
         init(_ scheme: ColorScheme) {
             self.init(ground: RGB(Ground.transcript, in: scheme), ink: RGB(Palette.ink, in: scheme), ink2: RGB(Palette.ink2, in: scheme),
-                      link: RGB(Palette.accentInk, in: scheme), accent: RGB(Palette.accent, in: scheme), linkRatio: scheme == .light ? 3 : 4.5)
+                      link: RGB(Palette.accentInk, in: scheme), accent: RGB(Palette.accent, in: scheme), linkRatio: Self.linkRatio(scheme))
         }
     }
 
