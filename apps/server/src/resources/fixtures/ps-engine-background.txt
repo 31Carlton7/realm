@@ -1,0 +1,13 @@
+# `ps -axo pid,ppid,etime,command` read off a live Realm, scrubbed: its server 83904, the check that started it, and another Realm's engines.
+#   PID   PPID     ELAPSED COMMAND
+ 16894  19573    04:11:02 /Users/me/.nvm/versions/node/v22.23.2/bin/claude --output-format stream-json --verbose --input-format stream-json --permission-prompt-tool=stdio --resume=47cb0a61-3d4c-44ed-9d59-e3880913244c
+ 67795  19573       38:33 /Users/me/.nvm/versions/node/v22.23.2/bin/claude --output-format stream-json --verbose --input-format stream-json --permission-prompt-tool=stdio --allowedTools=mcp__realm__realm-workspace__workspace_state,mcp__realm__realm-agent__agent_status
+ 70246  16894       35:58 /bin/zsh -c source /Users/me/.claude/shell-snapshots/snapshot-zsh-1794920282419-i6sfj2.sh 2>/dev/null || true &&
+ 70248  70246       35:58 /bin/bash /Users/me/scripts/wait-pr-ci.sh feat/mobile-backgrounds
+ 83656  79393       00:16 /bin/zsh -c source /Users/me/.claude/shell-snapshots/snapshot-zsh-1794935043845-lawcdz.sh 2>/dev/null || true &&
+ 83658  83656       00:16 node run.mjs /repo 2
+ 83681  83658       00:16 /repo/apps/desktop/node_modules/.cache/realm-quiet-electron/45.3.0/Electron.app/Contents/MacOS/Electron -r /repo/apps/desktop/scripts/lib/quiet-electron.cjs /tmp/scratch/wrapper.mjs
+ 83904  83681       00:15 /repo/apps/desktop/node_modules/.cache/realm-quiet-electron/45.3.0/Electron.app/Contents/MacOS/Electron /repo/apps/server/dist/main.js
+ 84430  83904       00:13 /Users/me/.nvm/versions/node/v22.23.2/bin/claude --output-format stream-json --verbose --input-format stream-json --model=claude-haiku-5-5 --permission-prompt-tool=stdio --allowedTools=mcp__realm__realm-workspace__workspace_state,mcp__realm__realm-agent__agent_status --mcp-config {"mcpServers":{"realm":{"type":"http","url":"http://127.0.0.1:52999/mcp","headers":{"Authorization":"Bearer TOKEN"},"timeout":3660000}}} --setting-sources= --permission-mode=bypassPermissions --allow-dangerously-skip-permissions --include-partial-messages --plugin-dir-no-mcp=/tmp/scratch/home/.cache/skills/ID --settings {"autoMemoryDirectory":"/tmp/scratch/home/memory/repos/profile-01M7N7PTH65ZP3X0Z8A3JKYAKV/spaces/realm"}
+ 84896  84430       00:10 /bin/zsh -c source /Users/me/.claude/shell-snapshots/snapshot-zsh-1794935322912-hysu4u.sh 2>/dev/null || true && \builtin setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_BRACE_CCL NO_MAGIC_EQUAL_SUBST NO_EQUALS 2>/dev/null || true && { \builtin unalias -- 'which'; \builtin unset -f -- 'which'; } >/dev/null 2>&1 || true && { \builtin unalias -- 'unsetenv'; \builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'sleep 20; echo finished' < /dev/null && pwd -P >| /tmp/claude-6da5-cwd
+ 84897  84896       00:10 sleep 20

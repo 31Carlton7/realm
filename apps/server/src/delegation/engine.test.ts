@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoredSessionEvent, SessionEvent } from "@realm/contracts";
-import { DelegationEngine, type ActiveRun } from "./engine";
+import { BACKGROUND_RECHECK_MS, DelegationEngine, type ActiveRun } from "./engine";
 
 /**
  * Direct unit tests for `awaitAnswer` (Plan 20), against a scripted transcript.
@@ -233,6 +233,36 @@ describe("drain — the budget is working time", () => {
     expect(settled.outcome).toBe("timeout");
     expect(interrupted).toEqual(["child"]);
   });
+});
+
+describe("drain — a turn that ends on a background command", () => {
+  it("waits for the reply of a Claude child woken with no running status, however slow it is", async () => {
+    // The order a real Claude child's transcript had (PR #474's live run): the turn ends with
+    // `sleep 20` in the background; 20 s later the work stops, the CLI's wake writes `init` and `idle`,
+    // and the reply comes 1.4 s after that, with no `running` in between. THE MUTANT: the wake not
+    // read as a turn coming, and the run settles on "STARTED" once the work has been gone a second.
+    let holding = true;
+    let i = 0;
+    const feed: (() => StoredSessionEvent[])[] = [
+      () => [status("running", 1), said("STARTED", 2), status("idle", 3)],
+      () => { holding = false; return [ev({ type: "background_task", ts: 0, payload: { toolUseId: "t", status: "stopped" } } as SessionEvent, 4), ev({ type: "init", ts: 0, payload: { providerSessionId: "p", model: "m", tools: [], cwd: "/" } } as SessionEvent, 5), status("idle", 6)]; },
+    ];
+    let quietUntil = 0;
+    const engine = new DelegationEngine({
+      sessions: {
+        events: () => {
+          if (i < feed.length) { const batch = feed[i++]!(); if (i === feed.length) quietUntil = Date.now() + BACKGROUND_RECHECK_MS + 500; return batch; }
+          if (Date.now() < quietUntil || i > feed.length) return [];
+          i += 1;
+          return [said("DONE", 7), status("idle", 8)];
+        },
+        interrupt: async () => {},
+        holdsBackgroundWork: async () => holding,
+      },
+    });
+    const settled = await engine.drain("child", 0, run(), Date.now() + 10_000, 20);
+    expect(settled).toMatchObject({ outcome: "done", finalText: "DONE", background: "settled" });
+  }, 15_000);
 });
 
 describe("involves — what the idle-engine reaper asks before it stops a session's engine", () => {

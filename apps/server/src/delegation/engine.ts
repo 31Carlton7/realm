@@ -372,8 +372,11 @@ export class DelegationEngine {
    * **A turn that ends on background work is not the end.** A child that ends its turn with a
    * command or sub-agent it started still running (a Monitor, a `run_in_background` Bash, a background
    * agent) is waiting on it: the harness wakes it with the result and it carries on. So a finish is
-   * only taken once nothing is running behind it, and after a hold only from a turn that began since,
-   * or once the work has been gone for `BACKGROUND_RECHECK_MS` without one. The deadline is not
+   * only taken once nothing is running behind it, and after a hold only from a turn that answered
+   * since: one that ran or spoke, then went idle. Claude wakes its agent with no `running` status — the
+   * work's `background_task` stop, an `init` and an `idle` come first, and the reply a second or more
+   * later — so any of those after a hold means a turn is coming, and the run waits for it. Work that
+   * goes with none of them is given `BACKGROUND_RECHECK_MS` to wake the child. The deadline is not
    * paused by any of this: work that never reports back is a timeout like any other.
    *
    * Every message the child said and every file a write call of its named is kept on the result, so
@@ -399,11 +402,14 @@ export class DelegationEngine {
     // finish reads as the finish.
     let stopped = false;
     // The background read: its last answer, when and at which event it was taken, whether any read has
-    // held the run, whether a turn began since that hold, and when the work was last seen gone.
+    // held the run; since that hold, whether the child was woken, began answering, and finished
+    // answering; and when the work was last seen gone.
     let holding = false;
     let checkedAt = 0;
     let checkedSeq = -1;
     let held = false;
+    let woke = false;
+    let answering = false;
     let resumed = false;
     let clearedAt: number | null = null;
     const stillWorking = async (): Promise<boolean> => {
@@ -411,10 +417,11 @@ export class DelegationEngine {
         checkedSeq = last;
         checkedAt = Date.now();
         holding = (await this.d.sessions.holdsBackgroundWork?.(childId).catch(() => false)) ?? false;
-        if (holding) { held = true; resumed = false; clearedAt = null; }
+        if (holding) { held = true; woke = false; answering = false; resumed = false; clearedAt = null; }
       }
       if (holding) return true;
       if (!held || resumed) return false;
+      if (woke) return true;
       clearedAt ??= Date.now();
       return Date.now() - clearedAt < BACKGROUND_RECHECK_MS;
     };
@@ -433,7 +440,11 @@ export class DelegationEngine {
           lastStatus = ev.payload.status;
           stopped = ev.payload.interrupted === true;
           if (requestSeen) statusSinceRequest = lastStatus;
-          if (held && lastStatus === "running") resumed = true;
+        }
+        if (held) {
+          if (ev.type === "init" || ev.type === "background_task") woke = true;
+          if (ev.type === "assistant_text" || (ev.type === "status" && ev.payload.status === "running")) { woke = true; answering = true; }
+          else if (ev.type === "status" && ev.payload.status === "idle" && answering) resumed = true;
         }
         if (ev.type === "assistant_text") {
           finalText = ev.payload.text;

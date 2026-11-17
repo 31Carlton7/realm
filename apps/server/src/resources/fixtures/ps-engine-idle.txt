@@ -1,0 +1,12 @@
+# `ps -axo pid,ppid,etime,command` read off a live Realm, scrubbed: its server 81869, the check that started it, and another Realm's engines.
+#   PID   PPID     ELAPSED COMMAND
+ 16894  19573    04:10:29 /Users/me/.nvm/versions/node/v22.23.2/bin/claude --output-format stream-json --verbose --input-format stream-json --permission-prompt-tool=stdio --resume=47cb0a61-3d4c-44ed-9d59-e3880913244c
+ 67795  19573       38:00 /Users/me/.nvm/versions/node/v22.23.2/bin/claude --output-format stream-json --verbose --input-format stream-json --permission-prompt-tool=stdio --allowedTools=mcp__realm__realm-workspace__workspace_state,mcp__realm__realm-agent__agent_status
+ 70246  16894       35:25 /bin/zsh -c source /Users/me/.claude/shell-snapshots/snapshot-zsh-1794920282419-i6sfj2.sh 2>/dev/null || true &&
+ 70248  70246       35:25 /bin/bash /Users/me/scripts/wait-pr-ci.sh feat/mobile-backgrounds
+ 77484  67795       05:36 /bin/zsh -c source /Users/me/.claude/shell-snapshots/snapshot-zsh-1794933028779-0oah35.sh 2>/dev/null || true &&
+ 81559  79393       00:20 /bin/zsh -c source /Users/me/.claude/shell-snapshots/snapshot-zsh-1794935043845-lawcdz.sh 2>/dev/null || true &&
+ 81561  81559       00:20 node run.mjs /repo 1
+ 81642  81561       00:18 /repo/apps/desktop/node_modules/.cache/realm-quiet-electron/45.3.0/Electron.app/Contents/MacOS/Electron -r /repo/apps/desktop/scripts/lib/quiet-electron.cjs /tmp/scratch/wrapper.mjs
+ 81869  81642       00:17 /repo/apps/desktop/node_modules/.cache/realm-quiet-electron/45.3.0/Electron.app/Contents/MacOS/Electron /repo/apps/server/dist/main.js
+ 82391  81869       00:15 /Users/me/.nvm/versions/node/v22.23.2/bin/claude --output-format stream-json --verbose --input-format stream-json --model=claude-haiku-5-5 --permission-prompt-tool=stdio --allowedTools=mcp__realm__realm-workspace__workspace_state,mcp__realm__realm-agent__agent_status --mcp-config {"mcpServers":{"realm":{"type":"http","url":"http://127.0.0.1:52799/mcp","headers":{"Authorization":"Bearer TOKEN"},"timeout":3660000}}} --setting-sources= --permission-mode=bypassPermissions --allow-dangerously-skip-permissions --include-partial-messages --plugin-dir-no-mcp=/tmp/scratch/home/.cache/skills/ID --settings {"autoMemoryDirectory":"/tmp/scratch/home/memory/repos/profile-01M7N7NR3CP82KCPEVHD8ZTVKW/spaces/realm"}
