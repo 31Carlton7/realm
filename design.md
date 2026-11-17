@@ -1022,7 +1022,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   inks need; the still pays tens of milliseconds for that once, and a loop gets 42 ms a frame on a main
   thread that belongs to the transcript, so the same search runs on the GPU, step for step, and is held
   to the CPU's answer by a test. The loop's first frame is its still, so it starts and stops on the
-  picture already there. A window decodes one loop at most, the one in the pane the keyboard is in, and
+  picture already there. A loop that closes when rendered does not close once encoded: coded from one
+  keyframe, its last frame has drifted from its first, and the step back measured 3 to 15 times an
+  ordinary one, a tick on every wrap that no encoder setting within the size removed. So the player
+  closes it: the last frame drawn is held and dissolved into the new ones over a third of a second, in
+  the shader and from the one decoder, never a second video. A window decodes one loop at most, the one in the pane the keyboard is in, and
   every pane showing that loop draws from it; another pane shows its still. It stops, for the still,
   under the Motion switch, Reduce motion, Low power, the Mac's Low Power Mode, and a window that is
   hidden, minimised or covered. Covered is asked of macOS, not of the page: main keeps an occluded
