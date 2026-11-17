@@ -182,6 +182,22 @@ function QuietBridge() {
     };
   }, [setWindowActive]);
 
+  // macOS Low Power Mode, and a window nobody can see, for what paints outside the stylesheet (the
+  // moving backgrounds). Low Power Mode is the Mac's setting, not Realm's Low power, so it stops those
+  // and leaves the rest of the motion alone. A covered window, one on displays all asleep and one
+  // behind a locked screen are windows Chromium keeps drawing (main/index.ts).
+  useEffect(() => {
+    const root = document.documentElement;
+    const stamp = (s: { lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean }) => {
+      root.toggleAttribute("data-low-power-mode", s.lowPowerMode);
+      root.toggleAttribute("data-window-covered", s.covered);
+      root.toggleAttribute("data-display-asleep", s.displayAsleep);
+      root.toggleAttribute("data-screen-locked", s.screenLocked);
+    };
+    void window.realm?.backdropState?.().then(stamp);
+    return window.realm?.onBackdropState?.(stamp);
+  }, []);
+
   // The third reason: in front, but nobody has touched it for half a minute (use-idle.ts).
   const idle = useIdle(windowActive && !lowPower);
   useEffect(() => {

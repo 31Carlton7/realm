@@ -3509,6 +3509,11 @@ body { --focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, tr
    move, so the picture and the prompter arrive together. Reduce motion's global kill makes it a cut. */
 .hero-backdrop[data-phase="chat"]:not([data-drawn]) { opacity: 0; }
 .hero-backdrop[data-settle] { transition: opacity var(--dur-move) var(--ease-fade); }
+/* A moving background is a second canvas over its still (LoopBackdrop): clear until its loop draws a
+   frame, and the still hidden under it while it does, so the two are never seen through each other.
+   When the loop stops it goes in one frame and the still is back in the same one. */
+.hero-backdrop[data-loop]:not([data-drawn]) { opacity: 0; }
+.hero-backdrop[data-under-loop] { visibility: hidden; }
 /* Over a picture each face moves its ink, not the picture: quiet text goes halfway to body ink and
    links a step toward it too, so the picture is taken toward the ground far less to keep them
    readable (a bright sky stayed a sky; a dark theme whose links sat near 4.5:1 kept a picture at all).

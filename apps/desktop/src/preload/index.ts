@@ -3,6 +3,7 @@ import type { BrowserCredentialEdit, KeychainPasswordsStatus, SecurityCodesStatu
 import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
+import type { BackdropState } from "../main/backdrop-state";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
@@ -203,6 +204,18 @@ contextBridge.exposeInMainWorld("realm", {
     update: (id: string, patch: Partial<Pick<BackgroundImage, "name" | "effect" | "asIs">>): Promise<BackgroundImage | null> => ipcRenderer.invoke("backgrounds:update", id, patch),
     remove: (id: string): Promise<boolean> => ipcRenderer.invoke("backgrounds:remove", id),
     image: (id: string, size: "thumb" | "full"): Promise<string | null> => ipcRenderer.invoke("backgrounds:image", id, size),
+    gif: (id: string): Promise<Uint8Array | null> => ipcRenderer.invoke("backgrounds:gif", id),
+    poster: (id: string, jpeg: Uint8Array): Promise<BackgroundImage | null> => ipcRenderer.invoke("backgrounds:poster", id, jpeg),
+  },
+  /** What a moving background stops for that the page is not told (main/backdrop-state.ts): macOS
+   *  Low Power Mode, this window covered or on displays all asleep, and the screen locked. `watch`
+   *  asks main to look while a loop plays. */
+  backdropState: (): Promise<BackdropState> => ipcRenderer.invoke("backdrop:state"),
+  watchBackdrop: (on: boolean): void => ipcRenderer.send("backdrop:watch", on),
+  onBackdropState: (cb: (s: BackdropState) => void): (() => void) => {
+    const handler = (_e: unknown, s: BackdropState) => cb(s);
+    ipcRenderer.on("realm:backdrop-state", handler);
+    return () => ipcRenderer.removeListener("realm:backdrop-state", handler);
   },
   /** Describe paths dropped from Finder. The renderer knows a dropped item's NAME and can guess a
    *  mime from it, but it cannot `stat` — so it cannot tell a folder from an extensionless file, and

@@ -1110,7 +1110,7 @@ export type AppState = TeammatesSlice & {
   /** Which background a new session shows (`ui.background`): `off`, `shuffle`, a gallery id or
    *  `mine:<id>`. Unset is the default look, so a home that never chose gets it. */
   background: string;
-  /** Whether a background that can move does (`ui.backgroundMotion`). Off by default. */
+  /** Whether a background that can move does (`ui.backgroundMotion`). On by default. */
   backgroundMotion: boolean;
   /**
    * Whether the window has the user's attention right now.
@@ -4709,7 +4709,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, lowPower: lowPower === true,
-          background: backgroundPref(carriedBackground ?? background), backgroundMotion: backgroundMotion === true,
+          background: backgroundPref(carriedBackground ?? background), backgroundMotion: backgroundMotion !== false,
           paneAlpha: carriedPane, reduceMotion: isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidePanesHidden: sidePanesHidden === true,

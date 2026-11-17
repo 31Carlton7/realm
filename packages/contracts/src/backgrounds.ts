@@ -8,6 +8,11 @@
 export type BackgroundEffect = "dither" | "dither-color" | "halftone";
 export const BACKGROUND_EFFECTS: readonly BackgroundEffect[] = ["dither", "dither-color", "halftone"];
 
+/** The file a moving background of the person's own plays, by its extension: a video Chromium
+ *  decodes, or an animated GIF. */
+export type BackgroundLoop = "mp4" | "m4v" | "mov" | "webm" | "gif";
+export const BACKGROUND_LOOPS: readonly BackgroundLoop[] = ["mp4", "m4v", "mov", "webm", "gif"];
+
 /** One of the person's own pictures, as main keeps it under `<REALM_HOME>/backgrounds/`. */
 export type BackgroundImage = {
   id: string;
@@ -18,6 +23,9 @@ export type BackgroundImage = {
   asIs: boolean;
   width: number;
   height: number;
+  /** The video or animated GIF it plays, kept beside its picture; null for a still. The picture is
+   *  then the loop's first frame, shown wherever the loop does not play. */
+  loop: BackgroundLoop | null;
 };
 
 export type BackgroundsAdded = { added: BackgroundImage[]; refused: { name: string; reason: string }[] };
@@ -25,8 +33,12 @@ export type BackgroundsAdded = { added: BackgroundImage[]; refused: { name: stri
 /** Which background a new session gets: `off`, `shuffle`, a gallery id, or `mine:<id>` for one of
  *  the person's own. Unset is the default look. */
 export const BACKGROUND_SETTING = "ui.background";
-/** Whether a look that can move does. Off unless the stored value is exactly `true`. */
+/** Whether a look that can move does. On unless the stored value is exactly `false`. */
 export const BACKGROUND_MOTION_SETTING = "ui.backgroundMotion";
+/** The scheme a background's loop is played from (main/backgrounds.ts): `realm-background://loop/<id>`.
+ *  Its own, and CORS-enabled, because the loop is drawn into WebGL, which refuses a cross-origin
+ *  video that does not say it may be read. */
+export const BACKGROUND_SCHEME = "realm-background";
 /** Where phase 1 kept the choice, read once and then cleared. */
 export const LEGACY_BACKGROUND_KEY = "realm.heroBackdrop";
 

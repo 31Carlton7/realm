@@ -85,6 +85,7 @@ for (const [binary, missing] of mac ? [
   ["policystamp", "sign-ins stay on Touch ID: a looser unlock policy cannot be kept"],
   ["realmkeychain", "the login keychain's passwords cannot be offered"],
   ["realmvoice", "the prompter cannot take dictation"],
+  ["backdropstate", "a moving background does not hold still in Low Power Mode or in a covered window"],
 ] : []) {
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));

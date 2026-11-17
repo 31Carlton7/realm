@@ -199,7 +199,7 @@ const union = (rects: Rect[]): Rect => {
 
 /** How far a hush reaches past its text before the picture is whole again, in CSS px: wide, so the
  *  greeting sits on a softened picture rather than in a cleared patch. */
-const HUSH_REACH = 160;
+export const HUSH_REACH = 160;
 
 /**
  * The contrast guard: per group of runs, how far the picture must come down under it for every run

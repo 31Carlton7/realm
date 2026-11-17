@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../state/store";
-import { BackdropRenderer, LOOKS, readPalette, resolveColor, type Palette, type Rect } from "./hero-backdrop";
+import { BackdropRenderer, LOOKS, readPalette, resolveColor, type Palette, type Rect, type Rgb } from "./hero-backdrop";
 import { COLOR_LOOKS, paintColorBackdrop, type ColorRender, type Picture, type TextRun } from "./hero-backdrop-color";
 import { loopMayRun, resolveBackdrop, type Backdrop } from "./backdrop-gallery";
 import { useYourBackgrounds, yourBackgroundUrl } from "../../state/your-backgrounds";
 import { SCALE, hush, printed, readableRange, soften } from "./chat-backdrop";
+import { LoopRenderer, gpuHush, type LoopUniforms } from "./loop-gl";
+import { loopStats, refreshLoops, sourceKey, watchLoop, type LoopSource } from "./loop-player";
 
 /** The picture for a face, as a URL: a shipped look's own file, or a kept picture asked of main. */
 async function pictureFor(b: Backdrop, dark: boolean): Promise<Picture | null> {
@@ -92,20 +94,28 @@ export function SessionBackdrop({ sessionId, hero }: { sessionId: string; hero: 
   const mine = useYourBackgrounds();
   const backdrop = useMemo(() => resolveBackdrop(pref, sessionId, motion, mine), [pref, sessionId, motion, mine]);
   const [under, setUnder] = useState(hero);
+  // Which of the two phases' loops is on screen over its still, which is then hidden under it.
+  const [looping, setLooping] = useState({ hero: false, chat: false });
   if (hero && !under) setUnder(true);
   if (!backdrop) return null;
+  const loops = !!backdrop.loop;
   // One shape for both states, so the empty session's canvas is the same element through the settle.
   return <>
-    {(hero || under) && <HeroBackdrop key="hero" backdrop={backdrop} held={!hero} />}
-    {!hero && <ChatBackdrop key="chat" backdrop={backdrop} settle={under} onSettled={() => setUnder(false)} />}
+    {(hero || under) && <HeroBackdrop key="hero" backdrop={backdrop} held={!hero} underLoop={looping.hero} />}
+    {loops && (hero || under) && <LoopBackdrop key="hero-loop" backdrop={backdrop} phase="hero" held={!hero}
+      onShowing={(on) => setLooping((l) => ({ ...l, hero: on }))} />}
+    {!hero && <ChatBackdrop key="chat" backdrop={backdrop} settle={under} onSettled={() => setUnder(false)} underLoop={looping.chat} />}
+    {loops && !hero && <LoopBackdrop key="chat-loop" backdrop={backdrop} phase="chat" settle={under}
+      onShowing={(on) => setLooping((l) => ({ ...l, chat: on }))} />}
   </>;
 }
 
-/** `held` stops the picture where it is: it no longer follows the greeting or the prompter, or moves. */
-export function HeroBackdrop({ backdrop, held = false }: { backdrop: Backdrop; held?: boolean }) {
+/** `held` stops the picture where it is: it no longer follows the greeting or the prompter, or moves.
+ *  `underLoop` hides it while its loop plays over it. */
+export function HeroBackdrop({ backdrop, held = false, underLoop = false }: { backdrop: Backdrop; held?: boolean; underLoop?: boolean }) {
   return backdrop.effect === "dither" || backdrop.effect === "halftone"
     ? <ShaderBackdrop backdrop={backdrop} look={backdrop.effect} held={held} />
-    : <ColorBackdrop backdrop={backdrop} look={backdrop.effect} held={held} />;
+    : <ColorBackdrop backdrop={backdrop} look={backdrop.effect} held={held} underLoop={underLoop} />;
 }
 
 function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; look: keyof typeof LOOKS; held: boolean }) {
@@ -178,7 +188,7 @@ function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; 
 
     const unwatch = watchLayout(pane, refresh);
     const watch = new MutationObserver(() => { pal = readPalette(root); refresh(); void load(); });
-    watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "data-quiet", "style"] });
+    watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "data-quiet", "data-low-power-mode", "style"] });
     reduce?.addEventListener?.("change", refresh);
     document.addEventListener("visibilitychange", refresh);
     void load();
@@ -239,7 +249,7 @@ function textRuns(pane: Element): TextRun[] {
  * and a move re-lays the mask over the screened picture rather than screening it again. A new size
  * waits until it has held still (`onceQuiet`).
  */
-function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; look: keyof typeof COLOR_LOOKS; held: boolean }) {
+function ColorBackdrop({ backdrop, look: lookId, held, underLoop }: { backdrop: Backdrop; look: keyof typeof COLOR_LOOKS; held: boolean; underLoop: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const heldRef = useRef(held);
   heldRef.current = held;
@@ -307,7 +317,21 @@ function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; l
     };
   // The key names the picture and its treatment; a new object for the same backdrop is not a new one.
   }, [backdrop.key, backdrop.moves, lookId]);
-  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
+  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} data-under-loop={underLoop || undefined} />;
+}
+
+/** The inks a transcript's picture is hushed for, as the pane draws them: over a picture each face
+ *  moves its quiet text and its links toward body ink (styles.css), and links are held to 3:1 in both
+ *  faces. Each is read through a probe in the pane, so a `color-mix()` there arrives as a colour. */
+function chatInks(pane: Element): { inks: Rgb[]; links: Rgb[] } {
+  const probe = document.createElement("span");
+  probe.hidden = true;
+  pane.appendChild(probe);
+  const ink = (v: string) => { probe.style.color = `var(${v})`; return resolveColor(getComputedStyle(probe).color); };
+  const link = getComputedStyle(pane).getPropertyValue("--chat-link").trim() ? "--chat-link" : "--rl-accent";
+  const out = { inks: ["--ink", "--rl-text-dim"].map(ink), links: [ink(link)] };
+  probe.remove();
+  return out;
 }
 
 /**
@@ -320,7 +344,7 @@ function ColorBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; l
  * `settle` fades it in over the empty session's picture (the dock's move, `--dur-move`); otherwise
  * it is simply there once drawn. `onSettled` says the picture under it can go.
  */
-function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; settle: boolean; onSettled: () => void }) {
+function ChatBackdrop({ backdrop, settle, onSettled, underLoop }: { backdrop: Backdrop; settle: boolean; onSettled: () => void; underLoop: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const settledRef = useRef(onSettled);
   settledRef.current = onSettled;
@@ -354,18 +378,7 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
       const pal = readPalette(root);
       const style = getComputedStyle(root);
       const blur = parseFloat(style.getPropertyValue("--fade-blur-far")) || 0;
-      // The inks as the pane draws them: over a picture each face moves its quiet text and its links
-      // toward body ink (styles.css), and the picture is hushed for those, not the root's. Links are
-      // held to 3:1 over it in both faces.
-      // Each is read through a probe in the pane, so a `color-mix()` there arrives as a colour.
-      const probe = document.createElement("span");
-      probe.hidden = true;
-      pane.appendChild(probe);
-      const ink = (v: string) => { probe.style.color = `var(${v})`; return resolveColor(getComputedStyle(probe).color); };
-      const link = getComputedStyle(pane).getPropertyValue("--chat-link").trim() ? "--chat-link" : "--rl-accent";
-      const inks = ["--ink", "--rl-text-dim"].map(ink);
-      const links = [ink(link)];
-      probe.remove();
+      const { inks, links } = chatInks(pane);
       const key = JSON.stringify([w, h, dpr, pal, blur, inks, links]);
       if (key === drawn) return;
       const pic = await pictureFor(backdrop, pal.dark);
@@ -403,5 +416,131 @@ function ChatBackdrop({ backdrop, settle, onSettled }: { backdrop: Backdrop; set
     };
   // The key names the picture and its treatment; a new object for the same backdrop is not a new one.
   }, [backdrop.key]);
-  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} data-phase="chat" data-settle={settle || undefined} />;
+  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} data-phase="chat" data-settle={settle || undefined}
+    data-under-loop={underLoop || undefined} />;
+}
+
+/** The inks of the words over an empty session's picture, each laid over the ground at its alpha:
+ *  the greeting, large, held to 3:1 as a link is, and every other run to 4.5:1. */
+function heroInks(runs: TextRun[], ground: Rgb): { inks: Rgb[]; links: Rgb[] } {
+  const over = ([r, g, b, a]: TextRun["color"]): Rgb => [r * a + ground[0] * (1 - a), g * a + ground[1] * (1 - a), b * a + ground[2] * (1 - a)];
+  return { inks: runs.filter((r) => r.need > 3).map((r) => over(r.color)), links: runs.filter((r) => r.need <= 3).map((r) => over(r.color)) };
+}
+
+const unionRect = (rects: Rect[]): Rect | undefined => {
+  if (!rects.length) return undefined;
+  const x0 = Math.min(...rects.map((r) => r.x)), y0 = Math.min(...rects.map((r) => r.y));
+  const x1 = Math.max(...rects.map((r) => r.x + r.w)), y1 = Math.max(...rects.map((r) => r.y + r.h));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+};
+
+/**
+ * A backdrop's loop (loop-gl.ts, loop-player.ts), over its still and drawn on each frame the window's
+ * one loop presents. Readable on every frame by the still's rules: behind an empty session it feathers
+ * out round the prompter and is hushed under the words for their inks; behind a transcript it is
+ * softened by the edge blur's deeper radius and every pixel hushed for the body, quiet and link inks.
+ * It shows only while frames arrive; whenever the loop stops it goes and its still is there.
+ *
+ * It is sized as the stills are: at once on mount, and after a resize only once the pane has held
+ * still (`onceQuiet`), stretched by CSS in between, so a dragged window edge costs a frame nothing.
+ */
+function LoopBackdrop({ backdrop, phase, held = false, settle = false, onShowing }: {
+  backdrop: Backdrop; phase: "hero" | "chat"; held?: boolean; settle?: boolean; onShowing: (on: boolean) => void;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const heldRef = useRef(held);
+  heldRef.current = held;
+  const showingRef = useRef(onShowing);
+  showingRef.current = onShowing;
+  const motion = useApp((s) => s.backgroundMotion);
+  const motionRef = useRef(motion);
+  motionRef.current = motion;
+  useEffect(refreshLoops, [motion]);
+  useEffect(() => {
+    const canvas = ref.current;
+    const pane = canvas?.parentElement;
+    if (!canvas || !pane || !backdrop.loop) return;
+    const root = document.documentElement;
+    let r: LoopRenderer;
+    try { r = new LoopRenderer(canvas, phase); } catch { return; }
+    const profile = window.localStorage?.getItem("realm.heroBackdropProfile") === "1";
+    const drawMs: number[] = [];
+    if (profile) Object.assign(window, { __loop: { stats: loopStats, drawMs, bench: (n: number) => bench(n) }, __loopGl: { gpuHush, hush, readableRange } });
+    let uniforms: LoopUniforms | null = null;
+    let last: { src: TexImageSource; w: number; h: number } | null = null;
+    let source: LoopSource | null = null;
+    let unwatch = () => {};
+
+    const draw = (src: TexImageSource, w: number, h: number) => {
+      last = { src, w, h };
+      if (!uniforms) return;
+      const t = profile ? performance.now() : 0;
+      r.draw(src, w, h, uniforms);
+      if (profile) drawMs.push(performance.now() - t);
+    };
+    const bench = (n: number) => {
+      if (!last || !uniforms) return null;
+      const t = performance.now();
+      for (let i = 0; i < n; i++) { r.draw(last.src, last.w, last.h, uniforms); r.sync(); }
+      return (performance.now() - t) / n;
+    };
+    const showing = (on: boolean) => {
+      canvas.toggleAttribute("data-drawn", on);
+      showingRef.current(on);
+    };
+    /** The canvas's size, then everything a frame is drawn with, read off the pane and the theme. */
+    const measure = (resize: boolean) => {
+      if (heldRef.current) return;
+      const box = pane.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      if (resize) {
+        const [w, h] = phase === "hero" ? [Math.round(box.width * dpr), Math.round(box.height * dpr)] : [Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE)];
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      }
+      const pal = readPalette(root);
+      const depth = backdrop.effect === "as-is" ? 0 : COLOR_LOOKS["dither-color"].depth;
+      if (phase === "hero") {
+        const runs = textRuns(pane);
+        const { inks, links } = heroInks(runs, pal.ground);
+        uniforms = { ground: pal.ground, range: readableRange(pal.ground, inks, links), depth, dpr, card: cardRect(pane, box) ?? undefined, words: unionRect(runs.map((x) => x.rect)) };
+      } else {
+        const { inks, links } = chatInks(pane);
+        const blur = parseFloat(getComputedStyle(root).getPropertyValue("--fade-blur-far")) || 0;
+        uniforms = { ground: pal.ground, range: readableRange(pal.ground, inks, links), depth, dpr, sigma: blur / SCALE };
+      }
+      const next = pal.dark ? backdrop.loop!.dark : backdrop.loop!.light;
+      if ((next && sourceKey(next)) !== (source && sourceKey(source))) {
+        unwatch();
+        source = next;
+        unwatch = next ? watchLoop({ source: next, pane, canvas, motion: () => motionRef.current, frame: draw, showing }) : () => {};
+      }
+      if (last) draw(last.src, last.w, last.h);
+    };
+    // A redraw of a frame is cheap, but the canvas's size is held while the pane resizes, as the
+    // stills' are: a new drawing buffer per size passed through is what made a drag stutter.
+    const later = onceQuiet(() => measure(true));
+    let sized = false;
+    const resize = new ResizeObserver(() => { if (!sized) { sized = true; measure(true); } else later(); });
+    resize.observe(pane);
+    let pending = 0;
+    const relayout = () => { if (!pending) pending = requestAnimationFrame(() => { pending = 0; measure(false); }); };
+    const unlayout = phase === "hero" ? watchLayout(pane, relayout) : () => {};
+    const watch = new MutationObserver(relayout);
+    watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "style"] });
+    measure(true);
+    return () => {
+      unwatch();
+      showingRef.current(false);
+      later.cancel();
+      cancelAnimationFrame(pending);
+      resize.disconnect();
+      unlayout();
+      watch.disconnect();
+      r.destroy();
+    };
+  // The key names the picture and its treatment; a new object for the same backdrop is not a new one.
+  }, [backdrop.key, phase]);
+  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} data-loop=""
+    data-phase={phase === "chat" ? "chat" : undefined} data-settle={settle || undefined} />;
 }
