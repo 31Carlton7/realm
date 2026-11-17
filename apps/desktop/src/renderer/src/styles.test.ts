@@ -3542,7 +3542,7 @@ describe("one card", () => {
      card's fill and a plain corner, which renders a round rect next to the strip's superellipse. */
   it("holds every rule that fills a box as a card to the family", () => {
     const NOT_CARDS = [".cr-field", ".sched-modal-name", ".sched-modal-goal",
-      ".library-row-mark", ".docs-home-glyph[data-type]"];
+      ".library-row-mark"];
     const filled = RULES.filter((r) => /background(-color)?: var\(--(rl-card|rl-tile|chart-surface)\)/.test(r.body))
       .flatMap(partsOf).filter((sel) => !sel.startsWith(":root"));
     expect(filled.filter((sel) => !CARDS.includes(sel) && !RUNS.includes(sel) && !NOT_CARDS.includes(sel)).sort()).toEqual([]);
@@ -3786,7 +3786,7 @@ describe("light mode", () => {
       expect(Number.parseFloat(layer.trim().split(/\s+/)[1]!), layer).toBeGreaterThan(0);
     }
     expect(RULES.filter((r) => /(^|[;\s])--rl-object-shadow\s*:/.test(r.body)), "defined once, so there is one place to change it").toHaveLength(1);
-    for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".docs-home-glyph[data-type]", ".attach-art"]) {
+    for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".attach-art"]) {
       const body = bodiesFor(sel).join(" ");
       expect(body, sel).toContain("box-shadow: var(--rl-object-shadow)");
       expect(body, `${sel} keeps a rim of its own as well`).not.toMatch(/border: var\(--hairline-w\) solid|inset 0 0 0 var\(--hairline-w\)/);
@@ -5685,5 +5685,27 @@ describe("ink over a picture behind the chat", () => {
     expect(bodiesFor(':root[data-mode="light"]').join(" ")).toContain("--link-over-picture: var(--accent-ink)");
     expect(bodiesFor(':root[data-mode="dark"]').join(" ")).toContain("--link-over-picture: color-mix(in oklab, var(--accent) 50%, var(--ink))");
     expect(bodiesFor(scope + " .md a:not(.msg-chip)").join(" ")).toContain("color: var(--chat-link, var(--rl-accent))");
+  });
+});
+
+describe("the Documents home (the owner, 11-17)", () => {
+  it("draws a file's mark alone, with no tile and no shadow behind it", () => {
+    // THE MUTANTS: the tile's fill, its object shadow or its corner put back on the row's glyph.
+    const glyphs = RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".docs-home-glyph")));
+    expect(glyphs.length).toBeGreaterThan(0);
+    for (const rule of glyphs) {
+      expect(rule.body, rule.selectors.join(", ")).not.toMatch(/background|box-shadow|border-radius|corner-shape/);
+    }
+  });
+
+  it("thins the search field and New with the pane, in every state", () => {
+    // THE MUTANTS: either control back on its solid fill, painted or not, or New going solid under
+    // the pointer or the press.
+    const thinned = (token: string) => `color-mix(in srgb, var(${token}) var(--prompter-alpha), transparent)`;
+    expect(bodiesFor(".docs-home-search > .search-field").join(" ")).toContain(`background: ${thinned("--field")}`);
+    expect(bodiesFor(":root[data-squircle] .docs-home-search > .search-field").join(" ")).toContain(`--sq-fill: ${thinned("--field")}`);
+    expect(bodiesFor(".docs-home-new").join(" ")).toContain(`--fill: ${thinned("--surface")}`);
+    expect(bodiesFor(".docs-home-new:hover:not(:disabled)").join(" ")).toContain(`--fill: ${thinned("--hover")}`);
+    expect(bodiesFor(".docs-home-new:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain(`--fill: ${thinned("--hover-2")}`);
   });
 });
