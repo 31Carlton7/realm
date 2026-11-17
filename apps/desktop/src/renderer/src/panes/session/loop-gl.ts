@@ -17,6 +17,7 @@
 import type { Rect, Rgb } from "./hero-backdrop";
 import { NO_WRAP, type Wrap } from "./loop-player";
 import { COLOR_LOOKS, HUSH_REACH } from "./hero-backdrop-color";
+import { TRACK, type Track } from "./chat-backdrop";
 
 const VERT = `#version 300 es
 in vec2 a_pos;
@@ -99,7 +100,10 @@ void main() {
   o = vec4(c, 1.0);
 }`;
 
-/** One direction of a Gaussian blur; the last pass hushes what it blurred. */
+/** One direction of a Gaussian blur; the last pass takes what it blurred through the transcript's
+ *  track as hushTrack() does (chat-backdrop.ts): the blur and the tint toward the ground by the
+ *  track's weight at this column, mixed with the unblurred print (`u_sharp`), then the hush by the
+ *  same weight. A zero-width feather is no track: every pixel is hushed whole, as before. */
 const MAX_TAPS = 24;
 const fragBlur = (last: boolean) => `#version 300 es
 precision highp float;
@@ -108,6 +112,7 @@ uniform sampler2D u_src;
 uniform vec2 u_step;
 uniform int u_taps;
 uniform float u_weights[${MAX_TAPS + 1}];
+${last ? "uniform sampler2D u_sharp; uniform vec3 u_track, u_trackMix;" : ""}
 out vec4 o;
 void main() {
   vec2 size = vec2(textureSize(u_src, 0));
@@ -118,7 +123,17 @@ void main() {
     vec2 d = u_step * float(i) / size;
     c += (texture(u_src, uv + d).rgb + texture(u_src, uv - d).rgb) * u_weights[i];
   }
-  o = vec4(${last ? "hush(c)" : "c"}, 1.0);
+${last ? `  float wt = 1.0, tint = 0.0;
+  if (u_track.z > 0.0) {
+    float s = clamp(max(u_track.x - gl_FragCoord.x, gl_FragCoord.x - u_track.y) / u_track.z, 0.0, 1.0);
+    wt = 1.0 - s * s * (3.0 - 2.0 * s);
+    tint = u_trackMix.x * wt;
+  }
+  vec3 sharp = texture(u_sharp, uv).rgb;
+  c = sharp + (c - sharp) * (u_trackMix.z + (1.0 - u_trackMix.z) * wt);
+  c = c + (u_ground - c) * tint;
+  c = mix(c, hush(c), u_trackMix.y + (1.0 - u_trackMix.y) * wt);` : ""}
+  o = vec4(c, 1.0);
 }`;
 
 /** The weights of a Gaussian of standard deviation `sigma` (CSS `blur()`'s radius), centre first,
@@ -159,8 +174,10 @@ export type LoopUniforms = {
    *  the words it is hushed under. */
   card?: Rect;
   words?: Rect;
-  /** The chat's: the blur's standard deviation in canvas px. */
+  /** The chat's: the blur's standard deviation in canvas px, and the transcript's track in canvas px
+   *  (chat-backdrop.ts); with none, every pixel is the track. */
   sigma?: number;
+  track?: Track;
 };
 
 type Pass = { prog: WebGLProgram; loc: Map<string, WebGLUniformLocation | null> };
@@ -309,6 +326,15 @@ export class LoopRenderer {
       gl.uniform2f(loc("u_step"), ...step);
       gl.uniform1i(loc("u_taps"), weights.length - 1);
       gl.uniform1fv(loc("u_weights[0]"), weights);
+      if (pass === "blurY") {
+        const t = u.track;
+        gl.uniform3f(loc("u_track"), t?.x0 ?? 0, t?.x1 ?? 0, t?.feather ?? 0);
+        gl.uniform3f(loc("u_trackMix"), TRACK.tint, TRACK.sideHush, TRACK.sideBlur);
+        gl.uniform1i(loc("u_sharp"), 1);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, a!.tex);
+        gl.activeTexture(gl.TEXTURE0);
+      }
       gl.bindTexture(gl.TEXTURE_2D, from);
       gl.bindFramebuffer(gl.FRAMEBUFFER, to);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

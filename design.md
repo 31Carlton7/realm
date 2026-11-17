@@ -270,7 +270,12 @@ Rules:
   step toward the quiet ink and the quiet ink toward body ink. The tab that touches the card is
   seated on the card's own curve, so see-through pieces meet along one edge, with no band and no
   notch. It stays the same quiet fill, with no blur, no sheen and no bright edge; its lift fades as it
-  thins, because a dark halo round a card you can see through reads as dirt rather than height. The strip over the panes once
+  thins, because a dark halo round a card you can see through reads as dirt rather than height. The
+  lift is its own, half a card's, and it is gone before the card is a tenth see-through (11-17: the
+  shadow "sticks out like a sore thumb"). Over a picture or a loop the same straight line starts
+  denser, at one number (`--prompter-over-picture`): a fill that reads as a quiet tint on a plain
+  ground reads as a hole over a busy one (11-17: "a little too transparent"). One number, picked from
+  candidates shot side by side, and no floor of its own. The strip over the panes once
   read as a frosted band because the reading dissolved up into it; nothing scrolls under it now.
   The controls at the head of the Documents home follow the same number for the same reason: the
   search field and New were the two solid things on a pane thinned to its end (the owner, 11-17), so
@@ -480,7 +485,12 @@ Rules:
   can scroll over any pixel. That is the least dim that reads, and a bright picture pays for it
   with its brightness rather than the words: at night a sunset stays a tint of its colours, and the
   light face's link blue, which misses 4.5:1 on plain white already, is held to 3:1 so it leaves a
-  picture at all. The picture is printed, not pasted: a gallery look or a person's own image goes through a
+  picture at all. That hush and that blur belong to the transcript's TRACK, not the pane: the words
+  only ever sit in the column, so the column, a little wider each side, takes the whole hush, the whole
+  blur and a faint step toward the ground, and past it the picture keeps most of its light and its
+  focus, reached over a wide feather so the track has no edge (the owner, 11-17: on send the picture
+  "shouldn't get so much darker"). A pane with no column yet is all track. The still and the loop's
+  shader read one set of numbers (`TRACK`). The picture is printed, not pasted: a gallery look or a person's own image goes through a
   dither in the theme's tones, or a colour-kept dither, so it changes with the face and the theme.
   A person's own picture may be shown as it is, and even then it is under the same two rules as every
   look: the prompter stays its card, as solid as the pane rule above makes it, with the picture feathered out round it, never glass over

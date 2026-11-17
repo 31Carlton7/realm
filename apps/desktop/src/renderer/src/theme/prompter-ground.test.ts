@@ -66,7 +66,8 @@ describe("the prompter's fill follows Pane translucency", () => {
   it("goes opaque under Reduce Transparency, on both faces, and its ink goes back with it", () => {
     // THE mutant: the line left out, or written as a bare `:root`, which the light rule outranks.
     const reduce = tokensCss.slice(tokensCss.indexOf("@media (prefers-reduced-transparency: reduce)"));
-    expect(reduce.slice(0, reduce.indexOf("\n}") + 2)).toContain(':root, :root[data-mode="light"] { --prompter-alpha: 100%; }');
+    // The picture's line is named too: set on the pane, it would otherwise outrank the root's 100%.
+    expect(reduce.slice(0, reduce.indexOf("\n}") + 2)).toContain(':root, :root[data-mode="light"], .session-pane:has(> .hero-backdrop) { --prompter-alpha: 100%; }');
     expect(thin(100)).toBe(0);
   });
 });
@@ -135,7 +136,7 @@ describe("the prompter's words move their ink as it thins", () => {
   it("is set on the dock, so an opaque prompter elsewhere (quick chat) keeps its inks", () => {
     // THE mutant: the thinness set on :root, where quick chat's own `--prompter-alpha: 100%` never reaches it.
     expect(stylesCss).not.toMatch(/:root \{[^}]*--prompter-thin/);
-    expect(stylesCss).toContain(".quick-chat, .media-viewer, .cr-ask { --prompter-alpha: 100%; }");
+    expect(stylesCss).toContain(".quick-chat, .media-viewer, .cr-ask, :is(.quick-chat, .media-viewer, .cr-ask) .session-pane:has(> .hero-backdrop) { --prompter-alpha: 100%; }");
   });
 });
 
@@ -161,5 +162,36 @@ describe("the tabs meet the card in one clean edge", () => {
   it("still cuts a thinned tab at the line without the painter, and nothing while the card is opaque", () => {
     expect(stylesCss).toMatch(/\.composer-dock \{ --tuck: min\(10px, calc\(\(100% - var\(--prompter-alpha\)\) \* 1000 - 24px\)\); \}/);
     expect(stylesCss).toContain(".composer-understrip { clip-path: inset(var(--tuck) -24px -24px -24px); }");
+  });
+});
+
+/* Over a picture or a loop (the owner, 11-17: the 40% card is "a little too transparent" there): the
+   same straight line to solid at 84, started at one number, and the lift only on a nearly solid card. */
+describe("the prompter over a picture", () => {
+  const rule = /\.session-pane:has\(> \.hero-backdrop\) \{\s*--prompter-alpha: (.+);\s*\}/.exec(prompterBlock)![1]!;
+  const start = Number(/--prompter-over-picture: (\d+);/.exec(prompterBlock)![1]);
+  const over = (v: number) => at(rule.replace(/var\(--prompter-over-picture\)/g, String(start)), v);
+
+  it("is denser than the plain card at every slider value below 84, by one number and no floor", () => {
+    // THE mutants: the rule gone (40% over a picture again), a max() floor, or a line that is not straight.
+    expect(rule).not.toMatch(/max\(/);
+    expect(start).toBeGreaterThan(40);
+    expect(over(0)).toBeCloseTo(start, 5);
+    for (const v of slider) {
+      if (v >= READING_PANE_ALPHA) { expect(over(v)).toBeCloseTo(100, 5); continue; }
+      expect(over(v)).toBeGreaterThan(prompter.dark(v));
+      expect(over(v)).toBeCloseTo(start + v * (100 - start) / 84, 5);
+    }
+  });
+
+  it("casts its lift only once it is nearly solid, and a lighter one than a card's", () => {
+    // THE mutants: the lift back on the card lift, or fading out at 72% as before (a halo round a 70% card).
+    const until = Number(/--prompter-lift-until: (\d+)%;/.exec(prompterBlock)![1]);
+    const lift = (alpha: number) => Math.max(0, (alpha - until) / (100 - until));
+    // A card the picture still shows through by a tenth or more casts nothing; a solid one casts it all.
+    for (const alpha of [40, 60, 70, 80, 89]) expect(lift(alpha), `at ${alpha}%`).toBe(0);
+    expect(lift(100)).toBe(1);
+    expect(stylesCss).toMatch(/:root\[data-squircle\] \.composer::before \{[^}]*box-shadow: var\(--prompter-lift\);/);
+    expect(tokensCss).toMatch(/--prompter-lift: 0 1px 1px #00000012, 0 4px 14px #0000000d;/);
   });
 });

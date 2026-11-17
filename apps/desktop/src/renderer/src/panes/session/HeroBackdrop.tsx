@@ -4,7 +4,7 @@ import { BackdropRenderer, LOOKS, readPalette, resolveColor, type Palette, type 
 import { COLOR_LOOKS, paintColorBackdrop, type ColorRender, type Picture, type TextRun } from "./hero-backdrop-color";
 import { loopMayRun, resolveBackdrop, type Backdrop } from "./backdrop-gallery";
 import { useYourBackgrounds, yourBackgroundUrl } from "../../state/your-backgrounds";
-import { SCALE, hush, printed, readableRange, soften } from "./chat-backdrop";
+import { SCALE, hush, hushTrack, printed, readableRange, soften, trackOf } from "./chat-backdrop";
 import { LoopRenderer, gpuHush, type LoopUniforms } from "./loop-gl";
 import { loopStats, refreshLoops, setWrapDissolve, sourceKey, watchLoop, type LoopSource, type Wrap } from "./loop-player";
 
@@ -379,15 +379,18 @@ function ChatBackdrop({ backdrop, settle, onSettled, underLoop }: { backdrop: Ba
       const style = getComputedStyle(root);
       const blur = parseFloat(style.getPropertyValue("--fade-blur-far")) || 0;
       const { inks, links } = chatInks(pane);
-      const key = JSON.stringify([w, h, dpr, pal, blur, inks, links]);
+      const track = trackOf(pane, box, 1 / SCALE);
+      const key = JSON.stringify([w, h, dpr, pal, blur, inks, links, track]);
       if (key === drawn) return;
       const pic = await pictureFor(backdrop, pal.dark);
       if (!pic || stale()) return;
       const print = await printed(backdrop.effect, pic, pal, w, h, dpr);
       if (stale()) return;
-      const art = soften(print, pal.ground, Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE), blur / SCALE);
+      const [aw, ah] = [Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE)];
+      const art = soften(print, pal.ground, aw, ah, blur / SCALE);
+      const sharp = soften(print, pal.ground, aw, ah, 0).getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, aw, ah);
       const pixels = art.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, art.width, art.height);
-      hush(pixels.data, pal.ground, readableRange(pal.ground, inks, links));
+      hushTrack(pixels.data, sharp.data, aw, pal.ground, readableRange(pal.ground, inks, links), track);
       if (canvas.width !== art.width || canvas.height !== art.height) { canvas.width = art.width; canvas.height = art.height; }
       canvas.getContext("2d")!.putImageData(pixels, 0, 0);
       drawn = key;
@@ -508,7 +511,7 @@ function LoopBackdrop({ backdrop, phase, held = false, settle = false, onShowing
       } else {
         const { inks, links } = chatInks(pane);
         const blur = parseFloat(getComputedStyle(root).getPropertyValue("--fade-blur-far")) || 0;
-        uniforms = { ground: pal.ground, range: readableRange(pal.ground, inks, links), depth, dpr, sigma: blur / SCALE };
+        uniforms = { ground: pal.ground, range: readableRange(pal.ground, inks, links), depth, dpr, sigma: blur / SCALE, track: trackOf(pane, box, canvas.width / box.width) };
       }
       const next = pal.dark ? backdrop.loop!.dark : backdrop.loop!.light;
       if ((next && sourceKey(next)) !== (source && sourceKey(source))) {

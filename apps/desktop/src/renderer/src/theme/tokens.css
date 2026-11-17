@@ -587,6 +587,9 @@ a {
   /* A contact shadow and a wide, faint ambient one, both lighter than the tight pair this replaced,
    * which pooled dark under the prompter's tiles and round its foot. */
   --shadow-card-lift: 0 1px 1px #0000001f, 0 4px 14px #0000001a;
+  /* The prompter's own lift, about half the card lift's: over a picture the full one stood out round
+     the card "like a sore thumb" (the owner, 11-17). */
+  --prompter-lift: 0 1px 1px #00000012, 0 4px 14px #0000000d;
   /* The same lift as a filter. A box-shadow is drawn from the border box, so on the squircle
      surfaces — whose border-radius is 0 because the curve is painted, not declared — it lands as a
      SQUARE behind a rounded card. `drop-shadow` traces the rendered alpha instead, which is the
@@ -642,6 +645,7 @@ a {
   --window-ring: var(--overlay-darken-400);
   --window-ring-hover: var(--overlay-darken-600);
   --shadow-card-lift: 0 1px 1px #03071205, 0 4px 14px #03071205;
+  --prompter-lift: var(--shadow-card-lift);
   --shadow-card-lift-filter: drop-shadow(0 1px 1px #03071205) drop-shadow(0 4px 14px #03071205);
   --shadow-overlay-filter: drop-shadow(0 4px 6px #0307121f) drop-shadow(0 16px 32px #1c284024);
   --shadow-card: 0 0 0 var(--hairline-w) var(--card-ring), var(--shadow-card-lift);
@@ -814,11 +818,20 @@ a {
  * default pane of 84, in a straight line, the same in both faces (the owner, 11-16: "whether there's a picture or not, the
  * prompter should become more transparent with the pane", then "too transparent, it should be
  * slightly less but adjust with the transparency"). Its words hold by moving their ink as well
- * (styles.css, the prompter on a thinned pane). The lift is gone by `--prompter-lift-until`. No blur:
- * the picture is already softened where it sits behind the chat, and a blur measured no gain. */
+ * (styles.css, the prompter on a thinned pane). The lift is gone by `--prompter-lift-until`: it shows
+ * only on a card that is nearly solid, so on a see-through one there is no halo (11-17). No blur:
+ * the picture is already softened where it sits behind the chat, and a blur measured no gain.
+ *
+ * Over a picture or a loop the same line starts higher, at `--prompter-over-picture` (the owner,
+ * 11-17: over a custom background the 40% card is "a little too transparent"). One number, and the
+ * line still runs straight to solid at 84 with no floor of its own. 40% stays with no picture. */
 :root {
-  --prompter-lift-until: 72%;
+  --prompter-lift-until: 92%;
   --prompter-alpha: min(100%, calc(40% + var(--pane-alpha) * 60 / 84));
+  --prompter-over-picture: 70;
+}
+.session-pane:has(> .hero-backdrop) {
+  --prompter-alpha: min(100%, calc(var(--prompter-over-picture) * 1% + var(--pane-alpha) * (100 - var(--prompter-over-picture)) / 84));
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -828,7 +841,7 @@ a {
    * answers the preference by half. */
   :root, :root[data-mode="light"] { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }
   /* The prompter with them, or it would be the one thing left showing through. */
-  :root, :root[data-mode="light"] { --prompter-alpha: 100%; }
+  :root, :root[data-mode="light"], .session-pane:has(> .hero-backdrop) { --prompter-alpha: 100%; }
   /* The themed rule above outranks a bare :root, so it is named here too, or the preference would
    * leave a themed sidebar see-through. */
   :root[data-mode="dark"][data-theme]:not([data-theme="realm"]) { --sidebar-ground: var(--page); }
