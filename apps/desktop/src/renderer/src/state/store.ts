@@ -370,7 +370,7 @@ export type Api = TeammatesApi & {
   pickThemeFile(): Promise<string | null>;
   /** `themes.import` — translate the file at `path` and keep it. */
   importTheme(path: string): Promise<StoredTheme>;
-  /** `themes.installed` — the editors' colour themes on this Mac not imported yet. */
+  /** `themes.installed`: the editors' colour themes on this Mac not imported yet. */
   listEditorThemes(): Promise<{ themes: EditorTheme[] }>;
   /** `themes.remove` */
   removeTheme(id: string): Promise<void>;

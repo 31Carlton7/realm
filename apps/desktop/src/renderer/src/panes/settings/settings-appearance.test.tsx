@@ -260,3 +260,73 @@ describe("Themes", () => {
     expect(within(row as HTMLElement).getByRole("button", { name: "Show fewer" })).toBeInTheDocument();
   });
 });
+
+describe("Import a theme", () => {
+  const ayu = { label: "Ayu Dark", path: "/Users/me/.cursor/extensions/ayu/ayu-dark.json", mode: "dark" as const, editor: "Cursor" };
+  const editorThemes = [
+    ayu,
+    { label: "Ayu Light", path: "/Users/me/.cursor/extensions/ayu/ayu-light.json", mode: "light" as const, editor: "Cursor" },
+    { label: "Nord", path: "/Users/me/.vscode/extensions/nord/nord.json", mode: "dark" as const, editor: "VS Code" },
+  ];
+  const openMenu = async () => {
+    const dark = screen.getByRole("group", { name: "Dark theme" }).closest(".settings-row") as HTMLElement;
+    fireEvent.click(within(dark).getByRole("button", { name: "Import a theme" }));
+    return within(await screen.findByRole("menu", { name: "Import a theme" }));
+  };
+
+  it("offers this face's installed themes by editor first, then a theme file, then one described", async () => {
+    // THE MUTANTS: the other face's themes offered under this one; the editors' themes after the
+    // rows that need typing; no way to name the editor a theme came from.
+    await appearance({ editorThemes });
+    const menu = await openMenu();
+    expect(menu.getAllByRole("menuitem").map((r) => r.textContent)).toEqual(["Ayu Dark", "Nord", "Choose a theme file…", "Describe a theme…"]);
+    expect(menu.getByRole("group", { name: "Cursor" })).toHaveTextContent("Ayu Dark");
+    expect(menu.getByRole("group", { name: "VS Code" })).toHaveTextContent("Nord");
+  });
+
+  it("an installed theme opens a new session with its import already sent", async () => {
+    // THE MUTANTS: the import left as a draft for the person to send; the session made without the path.
+    const { api } = await appearance({ editorThemes });
+    fireEvent.click((await openMenu()).getByRole("menuitem", { name: "Ayu Dark" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("sendMessage:"))).toBe(true));
+    const sent = api.calls.filter((c) => c.startsWith("createSession:") || c.startsWith("sendMessage:"));
+    expect(sent[0]).toMatch(/^createSession:/);
+    expect(sent[1]).toMatch(new RegExp(`=Import the colour theme "Ayu Dark" from ${ayu.path} into Realm with theme_import`));
+  });
+
+  it("a theme file is picked first and nothing starts when the dialog is cancelled; one to describe waits in the prompter", async () => {
+    const cancelled = await appearance({ pickedThemeFile: null });
+    fireEvent.click((await openMenu()).getByRole("menuitem", { name: "Choose a theme file…" }));
+    await waitFor(() => expect(cancelled.api.calls).toContain("pickThemeFile"));
+    expect(cancelled.api.calls.some((c) => c.startsWith("createSession:"))).toBe(false);
+    expect(cancelled.store.getState().toasts).toEqual([]); // a cancel is not a failure
+    cleanup();
+
+    const picked = await appearance({ pickedThemeFile: "/Users/me/Downloads/Dusk.json" });
+    fireEvent.click((await openMenu()).getByRole("menuitem", { name: "Choose a theme file…" }));
+    await waitFor(() => expect(picked.api.calls).toContainEqual(expect.stringMatching(/^sendMessage:.*=Import the colour theme "Dusk.json" from \/Users\/me\/Downloads\/Dusk.json/)));
+    cleanup();
+
+    const described = await appearance();
+    fireEvent.click((await openMenu()).getByRole("menuitem", { name: "Describe a theme…" }));
+    await waitFor(() => expect(described.store.getState().keyboardFor).not.toBeNull());
+    const id = described.store.getState().keyboardFor!.sessionId;
+    await waitFor(() => expect(described.store.getState().drafts[id]).toBe("Make me a colour theme for Realm and switch to it: "));
+    expect(described.api.calls.some((c) => c.startsWith("sendMessage:"))).toBe(false);
+  });
+
+  it("the theme an agent imported is worn when its setting arrives, once the themes are read again", async () => {
+    // THE MUTANTS: the window ignoring the key, so the theme shows only after a restart; the name set
+    // without reading the themes again, which the registry does not hold, so the face stays on Realm's.
+    const { api, store } = await appearance();
+    await api.importTheme("/x/imported.json"); // what the agent's theme_import did on the server
+    store.getState().applySettingChanged({ key: "ui.themeName.dark", value: "imported" });
+    await waitFor(() => expect(store.getState().themeNames.dark).toBe("imported"));
+    expect(store.getState().customThemes.map((t) => t.id)).toEqual(["imported"]);
+    // A name for the other face, or none at all, changes nothing.
+    store.getState().applySettingChanged({ key: "ui.themeName.light", value: "imported" });
+    store.getState().applySettingChanged({ key: "ui.themeName.light", value: 7 });
+    await waitFor(() => expect(api.calls.filter((c) => c === "listThemes").length).toBeGreaterThanOrEqual(3));
+    expect(store.getState().themeNames.light).not.toBe("imported");
+  });
+});
