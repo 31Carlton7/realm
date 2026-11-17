@@ -1013,8 +1013,22 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   its last frame for free, which is the same "freezes where it stands, resumes where it was" the
   stylesheet gives everything else. The same applies to anything else that paints outside the
   cascade — a worklet, a WebGL context, a video drawn by hand. The session backgrounds are the worked
-  example, and they hold still by default: Motion is a switch the person turns on, offered only for a
-  look that can move, and a still look is drawn once and never again until its pane changes.
+  example: Motion is one switch, offered only for a look that can move, and a still look is drawn once
+  and never again until its pane changes. The switch is on by default since a background can be a loop
+  (the owner, 11-16: "I want animated backgrounds in Realm, not just the static images"), because a
+  loop is what the person picked the look for; everything below is what makes that default cheap.
+- A background loop is a picture that moves, so it keeps the picture's rules on EVERY frame, not on its
+  poster. The words over it read because each pixel is taken toward the ground only as far as their
+  inks need; the still pays tens of milliseconds for that once, and a loop gets 42 ms a frame on a main
+  thread that belongs to the transcript, so the same search runs on the GPU, step for step, and is held
+  to the CPU's answer by a test. The loop's first frame is its still, so it starts and stops on the
+  picture already there. A window decodes one loop at most, the one in the pane the keyboard is in, and
+  every pane showing that loop draws from it; another pane shows its still. It stops, for the still,
+  under the Motion switch, Reduce motion, Low power, the Mac's Low Power Mode, and a window that is
+  hidden, minimised or covered. Covered is asked of macOS, not of the page: main keeps an occluded
+  window compositing for the browser agent, so to Chromium a covered window is visible and goes on
+  drawing frames, at full rate (measured). A helper reads the window list once a second while a loop
+  plays, and a window off screen, or under ordinary windows at every point, lets its decoder go.
 
 ## Spaces, panes, and navigation
 

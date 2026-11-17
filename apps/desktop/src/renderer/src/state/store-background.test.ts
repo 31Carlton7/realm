@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { BACKGROUND_SETTING, LEGACY_BACKGROUND_KEY, migratedBackground } from "@realm/contracts";
+import { BACKGROUND_MOTION_SETTING, BACKGROUND_SETTING, LEGACY_BACKGROUND_KEY, migratedBackground } from "@realm/contracts";
 import { createAppStore } from "./store";
 import { fakeApi, type FakeData } from "./store.test-fakes";
 
@@ -13,11 +13,16 @@ const boot = async (data: FakeData = {}) => {
 describe("the background setting", () => {
   afterEach(() => window.localStorage.clear());
 
-  it("is the default painting with motion off for a home that never chose, and writes nothing to say so", async () => {
+  it("is the default painting with motion on for a home that never chose, and writes nothing to say so", async () => {
     const { api, store } = await boot();
     expect(store.getState().background).toBe("sky-and-cliffs");
-    expect(store.getState().backgroundMotion).toBe(false);
+    expect(store.getState().backgroundMotion).toBe(true);
     expect(api.calls.filter((c) => c.startsWith(`setSetting:${BACKGROUND_SETTING}`))).toEqual([]);
+  });
+
+  it("keeps motion off for a home that turned it off", async () => {
+    const { store } = await boot({ settings: { [BACKGROUND_MOTION_SETTING]: false } });
+    expect(store.getState().backgroundMotion).toBe(false);
   });
 
   it("carries phase 1's localStorage look into the setting once, then forgets the old key", async () => {

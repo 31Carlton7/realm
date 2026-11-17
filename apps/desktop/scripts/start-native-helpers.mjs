@@ -21,6 +21,8 @@ const STARTS = {
   // Both refuse a call without arguments before touching the Keychain.
   policystamp: { args: [], exits: [2] },
   realmkeychain: { args: [], exits: [2] },
+  // Prints the power state once and quits when stdin closes.
+  backdropstate: { args: [], input: "", exits: [0] },
 };
 
 const dir = process.argv[2];

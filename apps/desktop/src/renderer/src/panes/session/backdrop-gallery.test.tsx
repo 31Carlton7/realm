@@ -10,7 +10,7 @@ import { resetYourBackgrounds } from "../../state/your-backgrounds";
 const urls = { "a.jpg": "/a.jpg", "b.jpg": "/b.jpg" };
 const entry = { id: "a", name: "A", mood: "m", light: "a.jpg", dark: "b.jpg", effect: "dither", motion: true };
 const mine = (id: string, over: Partial<BackgroundImage> = {}): BackgroundImage =>
-  ({ id, name: id, added: 1, effect: "dither-color", asIs: false, width: 10, height: 10, ...over });
+  ({ id, name: id, added: 1, effect: "dither-color", asIs: false, width: 10, height: 10, loop: null, ...over });
 
 describe("gallery.json", () => {
   it("keeps the entries it can draw and drops each bad one on its own", () => {
@@ -25,15 +25,35 @@ describe("gallery.json", () => {
       null, "x", 7,
     ], urls);
     expect(looks).toEqual([
-      { id: "a", name: "A", mood: "m", light: "/a.jpg", dark: "/b.jpg", effect: "dither", motion: true, credit: "" },
-      { id: "still", name: "A", mood: "", light: "/a.jpg", dark: "/b.jpg", effect: "halftone", motion: false, credit: "" },
+      { id: "a", name: "A", mood: "m", light: "/a.jpg", dark: "/b.jpg", effect: "dither", motion: true, loop: null, credit: "" },
+      { id: "still", name: "A", mood: "", light: "/a.jpg", dark: "/b.jpg", effect: "halftone", motion: false, loop: null, credit: "" },
     ]);
     expect(parseGallery({ looks: [entry] }, urls)).toEqual([]);
   });
 
-  it("ships Haze, Silk, Sky and Dunes, every one drawable", () => {
+  it("keeps a loop for each face whose video was shipped with its poster, on a moving colour-kept look", () => {
+    const files = { ...urls, "a.mp4": "/a.mp4", "a.jpg": "/a.jpg", "b.mp4": "/b.mp4", "nopost.mp4": "/n.mp4" };
+    const colour = { ...entry, effect: "dither-color", loop: { light: "a.mp4", dark: "b.mp4" } };
+    const [both, oneFace, unposted, still, drifting] = parseGallery([
+      colour,
+      { ...colour, id: "one", loop: { light: "a.mp4", dark: "gone.mp4" } },
+      { ...colour, id: "unposted", loop: { light: "nopost.mp4", dark: 7 } },
+      { ...colour, id: "still", motion: false },
+      { ...colour, id: "drifting", effect: "dither" },
+    ], files);
+    expect(both!.loop).toEqual({ light: { video: "/a.mp4", poster: "/a.jpg" }, dark: { video: "/b.mp4", poster: "/b.jpg" } });
+    expect(oneFace!.loop).toEqual({ light: { video: "/a.mp4", poster: "/a.jpg" }, dark: null });
+    expect([unposted, still, drifting].map((g) => g!.loop)).toEqual([null, null, null]);
+    // The face with a loop is drawn still from its poster; the other keeps its picture.
+    const b = resolveBackdrop("one", "s", true, [], [oneFace!])!;
+    expect(b).toMatchObject({ moves: false, image: { light: "/a.jpg", dark: "/b.jpg" }, loop: { light: { kind: "video", url: "/a.mp4" }, dark: null } });
+  });
+
+  it("ships Haze, Silk, Sky and Dunes, every one drawable, and Sky's loop for both faces", () => {
     expect(GALLERY.map((g) => g.id)).toEqual(expect.arrayContaining(["haze", "silk", "sky", "dunes"]));
     for (const g of GALLERY) expect(g.light && g.dark).toBeTruthy();
+    const sky = GALLERY.find((g) => g.id === "sky")!.loop!;
+    expect([sky.light?.video, sky.dark?.video, sky.light?.poster, sky.dark?.poster].every(Boolean)).toBe(true);
   });
 });
 
@@ -76,23 +96,41 @@ describe("which backdrop a session shows", () => {
   });
 
   it("draws your image in the theme's colours by default, and as it is when asked", () => {
-    expect(resolveBackdrop("mine:1", "s1", true, [mine("1")])).toMatchObject({ effect: "dither-color", moves: false, image: { mine: "1" } });
+    expect(resolveBackdrop("mine:1", "s1", true, [mine("1")])).toMatchObject({ effect: "dither-color", moves: false, image: { mine: "1" }, loop: null });
     expect(resolveBackdrop("mine:1", "s1", false, [mine("1", { asIs: true, effect: "halftone" })])?.effect).toBe("as-is");
     expect(resolveBackdrop("mine:1", "s1", false, undefined)).toBeNull();
   });
 
+  it("plays your video or GIF over its first frame, printed in colour or as it is", () => {
+    const video = { kind: "video", url: "realm-background://loop/1" };
+    expect(resolveBackdrop("mine:1", "s1", true, [mine("1", { loop: "mp4" })])?.loop).toEqual({ light: video, dark: video });
+    expect(resolveBackdrop("mine:1", "s1", true, [mine("1", { loop: "webm", asIs: true })])?.loop?.dark).toEqual(video);
+    expect(resolveBackdrop("mine:1", "s1", true, [mine("1", { loop: "gif" })])?.loop?.light).toEqual({ kind: "gif", id: "1" });
+    // Two-tone and halftone are printed from the still alone.
+    expect(resolveBackdrop("mine:1", "s1", true, [mine("1", { loop: "mp4", effect: "halftone" })])?.loop).toBeNull();
+  });
+
   it("offers Motion only where something can move", () => {
     expect(prefCanMove("haze")).toBe(true);
-    expect(prefCanMove("sky")).toBe(false);
+    expect(prefCanMove("sky")).toBe(true);
+    expect(prefCanMove("dunes")).toBe(false);
     expect(prefCanMove("off")).toBe(false);
     expect(prefCanMove("mine:1")).toBe(false);
+    expect(prefCanMove("mine:1", GALLERY, [mine("1", { loop: "mov" })])).toBe(true);
+    expect(prefCanMove("mine:2", GALLERY, [mine("1", { loop: "mov" })])).toBe(false);
     expect(prefCanMove("shuffle")).toBe(true);
+    expect(prefCanMove("shuffle", [], [mine("1", { loop: "gif" })])).toBe(true);
+    expect(prefCanMove("shuffle", [], [mine("1")])).toBe(false);
   });
 });
 
 describe("the frame loop", () => {
   const root = () => document.documentElement;
-  afterEach(() => { root().removeAttribute("data-quiet"); Object.defineProperty(document, "hidden", { value: false, configurable: true }); });
+  afterEach(() => {
+    root().removeAttribute("data-quiet");
+    root().removeAttribute("data-low-power-mode");
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+  });
 
   it("runs only for a moving look, and stops under Reduce motion, Low power, an idle or unfocused window, and a hidden one", () => {
     expect(loopMayRun(true, root(), { matches: false })).toBe(true);
@@ -103,6 +141,9 @@ describe("the frame loop", () => {
       expect(loopMayRun(true, root(), null)).toBe(false);
     }
     root().removeAttribute("data-quiet");
+    root().setAttribute("data-low-power-mode", "");
+    expect(loopMayRun(true, root(), null)).toBe(false);
+    root().removeAttribute("data-low-power-mode");
     Object.defineProperty(document, "hidden", { value: true, configurable: true });
     expect(loopMayRun(true, root(), null)).toBe(false);
   });

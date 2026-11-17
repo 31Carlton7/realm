@@ -56,8 +56,9 @@ function MineThumb({ id }: { id: string }) {
 /**
  * Settings ▸ Appearance ▸ Background. Off, Shuffle and every look Realm ships, then the person's own
  * pictures, each a tile; picking one is what the next empty session shows (and the one on screen).
- * Pictures are added by dropping them on the picker or through Choose…, which is the system's
- * dialog; main keeps a copy and reads nothing else.
+ * Pictures, videos and GIFs are added by dropping them on the picker or through Choose…, which is the
+ * system's dialog; main keeps a copy and reads nothing else. A video or a GIF that moves plays as a
+ * loop while Motion is on, its first frame standing in wherever it does not.
  */
 export function BackgroundPicker({ mode }: { mode: Mode }) {
   const pref = useApp((s) => s.background);
@@ -85,7 +86,7 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
     if (paths.length) run(async () => added(await addYourBackgrounds(paths)));
   };
   const choose = () => run(async () => added(await pickYourBackgrounds()));
-  const canMove = prefCanMove(pref);
+  const canMove = prefCanMove(pref, GALLERY, mine);
 
   return (
     <>
@@ -126,7 +127,7 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
           {mine.length === 0 ? (
             <EmptyState icon="image" title="No images yet"
               actions={<button type="button" className="btn" onClick={choose}>Add image…</button>}>
-              Drop pictures here. Each is drawn in your theme's colours unless you show it as it is.
+              Drop pictures or videos here. Each is drawn in your theme's colours unless you show it as it is.
             </EmptyState>
           ) : (
             <fieldset className="backdrop-grid" aria-label="Your images">
@@ -149,7 +150,7 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
       <div className="settings-row" data-setting="background-motion">
         <div className="settings-row-main"><span className="settings-row-name">Motion</span></div>
         <input type="checkbox" role="switch" className="switch" aria-label="Background motion"
-          title={canMove ? "Lets the picture drift slowly. It holds still under Reduce motion and Low power, and while the window is idle or in the background." : "This background has no motion."}
+          title={canMove ? "Plays the background's loop, or lets the picture drift. It holds still under Reduce motion, Low power and the Mac's Low Power Mode, and while the window is hidden or covered." : "This background has no motion."}
           checked={motion && canMove} disabled={!canMove} onChange={(e) => run(() => setBackgroundMotion(e.target.checked))} />
       </div>
     </>
@@ -176,8 +177,9 @@ function YourImageRows({ image, onRemoved }: { image: BackgroundImage; onRemoved
       {!image.asIs && (
         <div className="settings-row" data-setting="background-treatment">
           <div className="settings-row-main"><span className="settings-row-name">Print</span></div>
-          <fieldset className="settings-tabs" aria-label="Print">
-            {TREATMENTS.map((t) => (
+          <fieldset className="settings-tabs" aria-label="Print"
+            title={image.loop ? "A video is printed in its own colours, or shown as it is." : undefined}>
+            {TREATMENTS.filter((t) => !image.loop || t.effect === "dither-color").map((t) => (
               <label key={t.effect} className="settings-tab" data-selected={image.effect === t.effect || undefined}>
                 <input type="radio" name="settings-background-print" value={t.effect} checked={image.effect === t.effect}
                   onChange={() => run(() => updateYourBackground(image.id, { effect: t.effect }))} />

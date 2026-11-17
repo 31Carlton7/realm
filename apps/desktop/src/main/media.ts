@@ -5,9 +5,10 @@ import { realpath, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { protocol } from "electron";
 import {
-  MEDIA_SCHEME, expandHome, isPlayablePath, mediaKindFor, mimeForPath, pathFromMediaUrl, type MediaFile,
+  BACKGROUND_SCHEME, MEDIA_SCHEME, expandHome, isPlayablePath, mediaKindFor, mimeForPath, pathFromMediaUrl, type MediaFile,
 } from "@realm/contracts";
 import { quickLookThumbnail } from "./attachments";
+import { backgroundLoopFile } from "./backgrounds";
 
 /**
  * Serving local media to the renderer.
@@ -93,12 +94,15 @@ export function mediaPoster(home: string, path: string): Promise<string | null> 
  *  `stream: true` is what admits Range requests, and so seeking; `secure` keeps the scheme out of
  *  mixed-content downgrades. `supportFetchAPI` is deliberately NOT set: nothing fetches a media URL,
  *  the elements load them, and the page's `connect-src` does not admit the scheme anyway — declaring
- *  a capability the CSP refuses would only be a lie in the privilege table. */
+ *  a capability the CSP refuses would only be a lie in the privilege table.
+ *
+ *  The backgrounds' loops (backgrounds.ts) are declared in the same call, because only the last call
+ *  is honoured; theirs is `corsEnabled`, since a loop is drawn into WebGL. */
 export function registerMediaScheme(): void {
-  protocol.registerSchemesAsPrivileged([{
-    scheme: MEDIA_SCHEME,
-    privileges: { standard: true, secure: true, stream: true, bypassCSP: false },
-  }]);
+  protocol.registerSchemesAsPrivileged([
+    { scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true, bypassCSP: false } },
+    { scheme: BACKGROUND_SCHEME, privileges: { standard: true, secure: true, stream: true, corsEnabled: true, bypassCSP: false } },
+  ]);
 }
 
 /**
@@ -110,9 +114,9 @@ export function registerMediaScheme(): void {
  * header is Electron's to change between versions: a seek is only as good as the 206 behind it, and a
  * `.mov` whose index sits at the end of the file cannot even start without one.
  */
-export async function serveFile(path: string, range: string | null): Promise<Response> {
+export async function serveFile(path: string, range: string | null, extra: Record<string, string> = {}): Promise<Response> {
   const { size } = await stat(path);
-  const headers = { "Content-Type": mimeForPath(path), "Accept-Ranges": "bytes" };
+  const headers = { "Content-Type": mimeForPath(path), "Accept-Ranges": "bytes", ...extra };
   const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
   if (!m || (m[1] === "" && m[2] === "")) {
     return new Response(size === 0 ? null : body(path, 0, size - 1), { status: 200, headers: { ...headers, "Content-Length": String(size) } });
@@ -140,5 +144,20 @@ export function handleMediaProtocol(home = homedir()): void {
     const path = candidate === null ? null : await servablePath(candidate, home);
     if (!path) return new Response(null, { status: 404 });
     try { return await serveFile(path, request.headers.get("range")); } catch { return new Response(null, { status: 404 }); }
+  });
+}
+
+/**
+ * `realm-background://loop/<id>`: the loop of one of the person's own backgrounds, looked up by id in
+ * their index and nothing else. It says any page may read it, because WebGL refuses a cross-origin
+ * video that does not, and the renderer's page has an opaque origin under file://. What it can serve
+ * is only ever a file the person added as a background.
+ */
+export function handleBackgroundProtocol(home: string): void {
+  protocol.handle(BACKGROUND_SCHEME, async (request) => {
+    const url = new URL(request.url);
+    const kept = url.hostname === "loop" ? await backgroundLoopFile(home, url.pathname.slice(1)) : null;
+    if (!kept) return new Response(null, { status: 404 });
+    try { return await serveFile(kept.path, request.headers.get("range"), { "Access-Control-Allow-Origin": "*" }); } catch { return new Response(null, { status: 404 }); }
   });
 }

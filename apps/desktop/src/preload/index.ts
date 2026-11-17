@@ -203,6 +203,17 @@ contextBridge.exposeInMainWorld("realm", {
     update: (id: string, patch: Partial<Pick<BackgroundImage, "name" | "effect" | "asIs">>): Promise<BackgroundImage | null> => ipcRenderer.invoke("backgrounds:update", id, patch),
     remove: (id: string): Promise<boolean> => ipcRenderer.invoke("backgrounds:remove", id),
     image: (id: string, size: "thumb" | "full"): Promise<string | null> => ipcRenderer.invoke("backgrounds:image", id, size),
+    gif: (id: string): Promise<Uint8Array | null> => ipcRenderer.invoke("backgrounds:gif", id),
+    poster: (id: string, jpeg: Uint8Array): Promise<BackgroundImage | null> => ipcRenderer.invoke("backgrounds:poster", id, jpeg),
+  },
+  /** What a moving background stops for that the page is not told (main/backdrop-state.ts): macOS
+   *  Low Power Mode, and this window covered. `watch` asks main to look while a loop plays. */
+  backdropState: (): Promise<{ lowPowerMode: boolean; covered: boolean }> => ipcRenderer.invoke("backdrop:state"),
+  watchBackdrop: (on: boolean): void => ipcRenderer.send("backdrop:watch", on),
+  onBackdropState: (cb: (s: { lowPowerMode: boolean; covered: boolean }) => void): (() => void) => {
+    const handler = (_e: unknown, s: { lowPowerMode: boolean; covered: boolean }) => cb(s);
+    ipcRenderer.on("realm:backdrop-state", handler);
+    return () => ipcRenderer.removeListener("realm:backdrop-state", handler);
   },
   /** Describe paths dropped from Finder. The renderer knows a dropped item's NAME and can guess a
    *  mime from it, but it cannot `stat` — so it cannot tell a folder from an extensionless file, and

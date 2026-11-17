@@ -24,9 +24,12 @@ import { BROWSER_KEEP_HIDDEN_DEFAULT, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTI
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
+import { startBackdropState } from "./backdrop-state";
 import { readTextFile } from "./read-text";
-import { addBackgrounds, backgroundImageUrl, listBackgrounds, removeBackground, updateBackground, type Reencode } from "./backgrounds";
-import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempFilesAtLaunch, type PickedFile } from "./attachments";
+import {
+  addBackgrounds, backgroundImageUrl, backgroundLoopFile, listBackgrounds, removeBackground, setBackgroundPoster, updateBackground, type FirstFrame, type Reencode,
+} from "./backgrounds";
+import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, quickLookThumbnail, saveTempAttachment, statFile, sweepTempFilesAtLaunch, type PickedFile } from "./attachments";
 import { shareImage } from "./share-images";
 import { clearBrowserPartition, coverJpeg, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
@@ -85,7 +88,7 @@ import { windowArguments } from "./window-args";
 import { registerWhatsNew, WhatsNewState } from "./whats-new";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
-import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
+import { handleBackgroundProtocol, handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 import { findFfmpeg, playableCopy } from "./media-proxy";
 
 /* `realm-media://` has to be declared privileged before `app.ready`, which is why this is a
@@ -1391,6 +1394,11 @@ const reencodeBackground: Reencode = (bytes, maxEdge) => {
   const jpeg = out.toJPEG(88);
   return jpeg.byteLength ? { jpeg, ...out.getSize() } : null;
 };
+/** A video's first frame, as QuickLook draws it for the Finder, at the size a kept picture may be. */
+const firstFrameOf: FirstFrame = async (path) => {
+  const url = await quickLookThumbnail(backgroundsHome(), path, 1920);
+  return url ? Buffer.from(url.slice(url.indexOf(",") + 1), "base64") : null;
+};
 const backgroundsHome = () => {
   if (!realmHome) throw new Error("Realm is still starting up; try again in a moment.");
   return realmHome;
@@ -1398,17 +1406,24 @@ const backgroundsHome = () => {
 ipcMain.handle("backgrounds:list", () => listBackgrounds(backgroundsHome()));
 ipcMain.handle("backgrounds:pick", async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  const options = { title: "Add images", buttonLabel: "Add", properties: ["openFile" as const, "multiSelections" as const],
-    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }] };
+  const options = { title: "Add images and videos", buttonLabel: "Add", properties: ["openFile" as const, "multiSelections" as const],
+    filters: [{ name: "Images and videos", extensions: ["png", "jpg", "jpeg", "gif", "webp", "mp4", "m4v", "mov", "webm"] }] };
   const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
-  return addBackgrounds(backgroundsHome(), r.canceled ? [] : r.filePaths, reencodeBackground);
+  return addBackgrounds(backgroundsHome(), r.canceled ? [] : r.filePaths, reencodeBackground, firstFrameOf);
 });
 ipcMain.handle("backgrounds:add", (_e, paths: unknown) =>
-  addBackgrounds(backgroundsHome(), Array.isArray(paths) ? paths.filter((p): p is string => typeof p === "string").slice(0, 64) : [], reencodeBackground));
+  addBackgrounds(backgroundsHome(), Array.isArray(paths) ? paths.filter((p): p is string => typeof p === "string").slice(0, 64) : [], reencodeBackground, firstFrameOf));
 ipcMain.handle("backgrounds:update", (_e, id: unknown, patch: unknown) =>
   updateBackground(backgroundsHome(), id, patch && typeof patch === "object" ? patch : {}));
 ipcMain.handle("backgrounds:remove", (_e, id: unknown) => removeBackground(backgroundsHome(), id));
 ipcMain.handle("backgrounds:image", (_e, id: unknown, size: unknown) => backgroundImageUrl(backgroundsHome(), id, size));
+ipcMain.handle("backgrounds:poster", (_e, id: unknown, bytes: unknown) =>
+  (bytes instanceof Uint8Array ? setBackgroundPoster(backgroundsHome(), id, Buffer.from(bytes), reencodeBackground) : null));
+// A GIF loop's bytes, for the renderer's ImageDecoder; a video streams over realm-background:// instead.
+ipcMain.handle("backgrounds:gif", async (_e, id: unknown) => {
+  const kept = await backgroundLoopFile(backgroundsHome(), id);
+  return kept?.loop === "gif" ? new Uint8Array(await readFile(kept.path)) : null;
+});
 
 /** A VS Code colour theme, for `themes.import`. `.jsonc` alongside `.json` because VS Code accepts
  *  comments in these files and plenty of published themes use them; the server's reader strips them. */
@@ -2291,6 +2306,7 @@ app.whenReady().then(async () => {
     // microphone is dictation's, and only Realm's own page may ask for it.
     refuseCapture(session.defaultSession, isRealmPage);
     installMenu();
+    startBackdropState();
     // Before the first window, so the chosen icon is the one the Dock bounces.
     const savedIcon = appIcons.saved();
     if (savedIcon) dock?.setIcon(savedIcon);
@@ -2311,6 +2327,7 @@ app.whenReady().then(async () => {
     try { secrets()?.adoptUnownedRows(); } catch (e) { console.error("[secrets]", e instanceof Error ? e.message : e); }
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
+    handleBackgroundProtocol(info.home);
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
     // restarts the app is bounded too.
     void sweepTempFilesAtLaunch(info.home).catch(() => {});
