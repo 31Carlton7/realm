@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within, cleanup } from "@testing-library/react";
 import { allItems, findLeafOfItem, type Item, type Layout, type Session } from "@realm/contracts";
@@ -126,6 +129,16 @@ describe("the column's title", () => {
     expect(head.querySelector(".sb-space-icon")!.getAttribute("style")).toContain(hexToRgb(spaceColor("#7c6cff", "light")));
     expect([...head.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["More for Versed"]);
     expect(head.querySelector("[data-icon='chevronDown'], .sb-caret")).toBeNull();
+  });
+
+  it("draws its ··· at rest in the quiet ink, not only under the pointer", () => {
+    // jsdom lays out no stylesheet, so the rules are read as written. THE MUTANTS: the ··· hidden at
+    // rest and shown on the title's hover again; its ink left to .item-act's, which is the body's.
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"), "utf8");
+    const rules = [...css.matchAll(/([^{}]*\.sb-space-more[^{}]*)\{([^}]*)\}/g)].map((m) => ({ selector: m[1]!.trim(), body: m[2]! }));
+    expect(rules.length).toBeGreaterThan(0);
+    for (const r of rules) expect(r.body).not.toMatch(/opacity:\s*0|visibility:\s*hidden|display:\s*none/);
+    expect(rules.find((r) => r.selector === ".item-act.sb-space-more")?.body).toContain("color: var(--rl-text-faint)");
   });
 
   it("opens its space's own pages from the ···", async () => {

@@ -489,9 +489,11 @@ export function Main() {
   // profile switched); `teammates.changed` keeps each one current after that.
   const refreshTeammates = useApp((s) => s.refreshTeammates);
   const hydrateTeamGroupFolds = useApp((s) => s.hydrateTeamGroupFolds);
+  const hydrateTeamAccessClosed = useApp((s) => s.hydrateTeamAccessClosed);
   const spaceIds = spaces.map((sp) => sp.id).join(" ");
   useEffect(() => { if (booted) run(() => refreshTeammates()); }, [booted, spaceIds, run, refreshTeammates]);
   useEffect(() => { if (booted) run(() => hydrateTeamGroupFolds()); }, [booted, run, hydrateTeamGroupFolds]);
+  useEffect(() => { if (booted) run(() => hydrateTeamAccessClosed()); }, [booted, run, hydrateTeamAccessClosed]);
   // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
   // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
   // `activeSpaceId`, so it can never come back for someone who already has spaces.

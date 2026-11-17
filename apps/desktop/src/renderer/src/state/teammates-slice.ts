@@ -30,6 +30,8 @@ export type TeammatesSlice = {
   teamGroupsFolded: string[];
   /** By space: its Team access, held once a control has read it, and read again with its teammates. */
   teamAccess: Record<string, TeamAccess>;
+  /** By space: the access the Team access card was closed on (`ui.sidebarTeamAccessClosed`). */
+  teamAccessClosed: Record<string, string>;
 
   /** One space's teammates again, or every space's, and the sessions held for them. */
   refreshTeammates(spaceId?: string): Promise<void>;
@@ -41,6 +43,10 @@ export type TeammatesSlice = {
   reorderTeammates(input: ReorderTeammatesInput): Promise<void>;
   loadTeammateSessions(id: string): Promise<void>;
   hydrateTeamGroupFolds(): Promise<void>;
+  /** The closed Team access cards, read at boot. */
+  hydrateTeamAccessClosed(): Promise<void>;
+  /** Puts the space's Team access card away until its access changes. */
+  closeTeamAccess(spaceId: string): Promise<void>;
   setTeamGroupFolded(spaceId: string, group: string, folded: boolean): Promise<void>;
   loadTeamAccess(spaceId: string): Promise<void>;
   /** `teams.access.changed`: read again where held. */
@@ -59,6 +65,14 @@ const ordered = (list: Teammate[]): Teammate[] =>
 
 export const groupKey = (spaceId: string, group: string) => `${spaceId}/${group}`;
 
+/**
+ * What a closed Team access card was closed on: the space's mode and the modes its teammates are on.
+ * A teammate joining on the team's mode leaves it alone; a mode set, cleared or broken off changes it.
+ */
+export function teamAccessKey(access: TeamAccess): string {
+  return [access.mode ?? "-", ...[...new Set(access.teammates.map((t) => t.mode))].sort()].join(" ");
+}
+
 export function teammatesSlice<S extends Host>(
   api: TeammatesApi & { getSetting(key: string): Promise<unknown>; setSetting(key: string, value: unknown): Promise<void> },
   get: () => S,
@@ -67,7 +81,7 @@ export function teammatesSlice<S extends Host>(
   const putSpace = (spaceId: string, list: Teammate[]) =>
     set({ teammates: { ...get().teammates, [spaceId]: ordered(list.filter((t) => !t.archived)) } });
   return {
-    teammates: {}, teammateSessions: {}, teamGroupsFolded: [], teamAccess: {},
+    teammates: {}, teammateSessions: {}, teamGroupsFolded: [], teamAccess: {}, teamAccessClosed: {},
 
     async refreshTeammates(spaceId) {
       const ids = spaceId ? [spaceId] : get().spaces.map((s) => s.id);
@@ -112,6 +126,22 @@ export function teammatesSlice<S extends Host>(
     async hydrateTeamGroupFolds() {
       const v = await api.getSetting("ui.sidebarTeamGroupsFolded");
       set({ teamGroupsFolded: Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [] });
+    },
+    async hydrateTeamAccessClosed() {
+      const v = await api.getSetting("ui.sidebarTeamAccessClosed");
+      const closed = v && typeof v === "object" && !Array.isArray(v)
+        ? Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string"))
+        : {};
+      set({ teamAccessClosed: closed });
+    },
+    async closeTeamAccess(spaceId) {
+      const access = get().teamAccess[spaceId];
+      if (!access) return;
+      const known = new Set(get().spaces.map((s) => s.id));
+      const kept = Object.fromEntries(Object.entries(get().teamAccessClosed).filter(([id]) => known.has(id)));
+      const next = { ...kept, [spaceId]: teamAccessKey(access) };
+      set({ teamAccessClosed: next });
+      await api.setSetting("ui.sidebarTeamAccessClosed", next);
     },
     async setTeamGroupFolded(spaceId, group, folded) {
       const key = groupKey(spaceId, group);

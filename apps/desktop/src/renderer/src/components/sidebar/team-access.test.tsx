@@ -164,6 +164,52 @@ describe("Team access in the sidebar", () => {
   });
 });
 
+describe("closing the Team access card", () => {
+  const close = () => screen.getByRole("button", { name: "Close Team access" });
+  const card = () => document.querySelector(".sb-team-access");
+
+  it("puts the card away and keeps it away in a fresh window", async () => {
+    // THE MUTANTS: a close held only in the window's memory; a close that hides every space's card.
+    const { api } = await mount(["acceptEdits", "acceptEdits"], "acceptEdits");
+    await waitFor(() => expect(chip()).toHaveTextContent("Accept edits"));
+    fireEvent.click(close());
+    await waitFor(() => expect(card()).toBeNull());
+    expect(api.calls).toContain("setSetting:ui.sidebarTeamAccessClosed=[object Object]");
+    cleanup();
+    const store = createAppStore(api); await store.getState().boot();
+    await act(() => store.getState().refreshTeammates());
+    await act(() => store.getState().hydrateTeamAccessClosed());
+    render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
+    await waitFor(() => expect(store.getState().teamAccess.s1).toBeDefined());
+    expect(screen.getByRole("group", { name: "Team" })).toBeInTheDocument();
+    expect(card()).toBeNull();
+    expect(store.getState().teamAccessClosed).toEqual({ s1: "acceptEdits acceptEdits" });
+  });
+
+  it("comes back when the space's access changes, and only then", async () => {
+    // THE MUTANTS: a closed card that never returns; one that returns on any re-read of the same access.
+    const { store, server } = await mount(["default", "default"], "default");
+    await waitFor(() => expect(chip()).toHaveTextContent("Ask each time"));
+    fireEvent.click(close());
+    await waitFor(() => expect(card()).toBeNull());
+    await act(() => store.getState().refreshTeammates("s1"));
+    expect(card()).toBeNull();
+    await server.set("acceptEdits");
+    await act(() => store.getState().teamAccessChanged("s1"));
+    await waitFor(() => expect(chip()).toHaveTextContent("Accept edits"));
+  });
+
+  it("comes back when a teammate breaks off onto a mode of its own", async () => {
+    // THE MUTANT: a key of the space's mode alone, which a teammate set on its own never moves.
+    const { store } = await mount(["acceptEdits", "acceptEdits"], "acceptEdits");
+    await waitFor(() => expect(chip()).toHaveTextContent("Accept edits"));
+    fireEvent.click(close());
+    await waitFor(() => expect(card()).toBeNull());
+    await act(() => store.getState().updateTeammate({ id: "ops", permissionMode: "default" }));
+    await waitFor(() => expect(chip()).toHaveTextContent("Mixed"));
+  });
+});
+
 describe("the New teammate sheet under a Team access", () => {
   it("starts on the space's mode", async () => {
     // THE MUTANT: the sheet starting on the default permission whatever the space says.
