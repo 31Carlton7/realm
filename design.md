@@ -1470,6 +1470,17 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Rich and source modes preserve the same document identity.
 - Diffs use color plus signs, line structure, and labels. Color alone never carries add/delete state.
 - Tables use their full evidence width. Headers align with representative cells.
+- Rendered markdown, in a message or a document, stands on tints of the ink and never on a surface
+  (the owner, 11-17: "I don't think we should ever use a solid color for backgrounds of tables or like
+  small code"). A table, inline code, a fenced block, a drawn block and a callout each fill with the
+  ink at low alpha (`--stripe`), so the pane under them shows through at whatever the person set it
+  to, and over their picture; a surface colour there is a patch of another ground on a pane they
+  thinned. A table is a card in the reading: the card rung's painted curve, no ring, its head and
+  every other row the same tint again, rules between rows. Its pinned head is the one place the
+  pane's own canvas goes under the tint, and only while rows are scrolled up beneath it, because a
+  tint over passing rows lets them read through. A document's code block is the transcript's panel,
+  its language and copy over the code and the same theme colours, so a fence reads alike in both.
+  `styles.test.ts` fails a markdown rule that fills with an opaque token.
 - Charts exist only when a relationship is faster to see than read. Direct-label when possible and
   keep exact values available nearby.
 - The categorical chart palette is fixed and tested as a set. Never hand-edit one series color.
