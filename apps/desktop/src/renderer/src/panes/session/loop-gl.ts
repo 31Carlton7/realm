@@ -10,8 +10,12 @@
  * is the transcript's. Here it is one upload of the video's frame and two or three fragment passes.
  * The hush in `FRAG_HUSH` is hush()'s search step for step, so a frame and the still agree on what
  * reads; `hushPixel` is the same function in JS, for the test that holds them together.
+ *
+ * Over the loop's wrap the frame drawn last before it is kept as a second texture and mixed in under
+ * the new frames as it fades (loop-player.ts, `Wrap`), so the step back to frame 0 is a dissolve.
  */
 import type { Rect, Rgb } from "./hero-backdrop";
+import { NO_WRAP, type Wrap } from "./loop-player";
 import { COLOR_LOOKS, HUSH_REACH } from "./hero-backdrop-color";
 
 const VERT = `#version 300 es
@@ -36,10 +40,15 @@ vec3 hush(vec3 p) {
 }`;
 
 /** Where a canvas pixel (top-left origin) lands on the frame, laid as coverFit lays the still:
- *  across the middle, from the top. */
+ *  across the middle, from the top; and the frame there, with the frame held over a wrap mixed in. */
 const FRAG_COVER = `
-uniform sampler2D u_src;
+uniform sampler2D u_src, u_held;
+uniform float u_heldMix;
 uniform vec2 u_res, u_srcSize;
+vec3 frameAt(vec2 uv) {
+  vec3 c = texture(u_src, uv).rgb;
+  return u_heldMix > 0.0 ? mix(c, texture(u_held, uv).rgb, u_heldMix) : c;
+}
 vec2 coverUv(vec2 frag) {
   float scale = max(u_res.x / u_srcSize.x, u_res.y / u_srcSize.y);
   vec2 origin = vec2((u_res.x - u_srcSize.x * scale) * 0.5, 0.0);
@@ -64,7 +73,7 @@ float outside(vec2 p, vec4 box, float r) {
 void main() {
   vec2 frag = vec2(gl_FragCoord.x, u_res.y - gl_FragCoord.y);
   vec2 cell = floor(frag / u_cell);
-  vec3 c = texture(u_src, coverUv((cell + 0.5) * u_cell)).rgb;
+  vec3 c = frameAt(coverUv((cell + 0.5) * u_cell));
   if (u_depth > 0.0) {
     float cover = 0.04 + 0.6 * pow(1.0 - luma(c), 1.4);
     int k = int(mod(cell.y, 4.0)) * 4 + int(mod(cell.x, 4.0));
@@ -85,7 +94,7 @@ uniform float u_depth;
 out vec4 o;
 void main() {
   vec2 frag = vec2(gl_FragCoord.x, u_res.y - gl_FragCoord.y);
-  vec3 c = texture(u_src, coverUv(frag)).rgb;
+  vec3 c = frameAt(coverUv(frag));
   c *= 1.0 - u_depth * (0.04 + 0.6 * pow(1.0 - luma(c), 1.4));
   o = vec4(c, 1.0);
 }`;
@@ -162,6 +171,9 @@ export class LoopRenderer {
   private gl: WebGL2RenderingContext;
   private passes: Record<string, Pass> = {};
   private src: WebGLTexture;
+  /** The last frame before a wrap, while it dissolves; it and `src` swap at each wrap. */
+  private held: WebGLTexture;
+  private drawn = false;
   private fbos: { fb: WebGLFramebuffer; tex: WebGLTexture }[] = [];
   private fboSize = [0, 0];
 
@@ -176,6 +188,7 @@ export class LoopRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     this.src = this.texture();
+    this.held = this.texture();
   }
 
   private program(frag: string): Pass {
@@ -236,15 +249,22 @@ export class LoopRenderer {
     return this.fbos;
   }
 
-  /** Draws `frame` (`fw`×`fh`) at the canvas's current size. */
-  draw(frame: TexImageSource, fw: number, fh: number, u: LoopUniforms) {
+  /** Draws `frame` (`fw`×`fh`) at the canvas's current size; over a wrap, the frame before it mixed in
+   *  at `wrap.held`. */
+  draw(frame: TexImageSource, fw: number, fh: number, u: LoopUniforms, wrap: Wrap = NO_WRAP) {
     const gl = this.gl;
     const { width: w, height: h } = this.canvas;
     // The chat's FBOs first: making them binds their textures, which would leave the frame unbound.
     const fbos = this.mode === "chat" ? this.targets(w, h) : [];
+    // The texture the last frame went into becomes the held one, and the new frame goes into the other.
+    if (wrap.wrapped && this.drawn) [this.src, this.held] = [this.held, this.src];
+    const held = this.drawn ? wrap.held : 0;
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.held);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.src);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, frame);
+    this.drawn = true;
     const hush = (loc: (n: string) => WebGLUniformLocation | null) => {
       gl.uniform3fv(loc("u_ground"), u.ground);
       gl.uniform1f(loc("u_lo"), u.range[0]);
@@ -252,6 +272,8 @@ export class LoopRenderer {
     };
     const cover = (loc: (n: string) => WebGLUniformLocation | null) => {
       gl.uniform1i(loc("u_src"), 0);
+      gl.uniform1i(loc("u_held"), 1);
+      gl.uniform1f(loc("u_heldMix"), held);
       gl.uniform2f(loc("u_res"), w, h);
       gl.uniform2f(loc("u_srcSize"), fw, fh);
     };

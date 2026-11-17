@@ -6,7 +6,7 @@ import { loopMayRun, resolveBackdrop, type Backdrop } from "./backdrop-gallery";
 import { useYourBackgrounds, yourBackgroundUrl } from "../../state/your-backgrounds";
 import { SCALE, hush, printed, readableRange, soften } from "./chat-backdrop";
 import { LoopRenderer, gpuHush, type LoopUniforms } from "./loop-gl";
-import { loopStats, refreshLoops, sourceKey, watchLoop, type LoopSource } from "./loop-player";
+import { loopStats, refreshLoops, setWrapDissolve, sourceKey, watchLoop, type LoopSource, type Wrap } from "./loop-player";
 
 /** The picture for a face, as a URL: a shipped look's own file, or a kept picture asked of main. */
 async function pictureFor(b: Backdrop, dark: boolean): Promise<Picture | null> {
@@ -465,17 +465,18 @@ function LoopBackdrop({ backdrop, phase, held = false, settle = false, onShowing
     try { r = new LoopRenderer(canvas, phase); } catch { return; }
     const profile = window.localStorage?.getItem("realm.heroBackdropProfile") === "1";
     const drawMs: number[] = [];
-    if (profile) Object.assign(window, { __loop: { stats: loopStats, drawMs, bench: (n: number) => bench(n) }, __loopGl: { gpuHush, hush, readableRange } });
+    if (profile) Object.assign(window, { __loop: { stats: loopStats, drawMs, bench: (n: number) => bench(n), dissolve: setWrapDissolve }, __loopGl: { gpuHush, hush, readableRange } });
     let uniforms: LoopUniforms | null = null;
-    let last: { src: TexImageSource; w: number; h: number } | null = null;
+    let last: { src: TexImageSource; w: number; h: number; wrap: Wrap } | null = null;
     let source: LoopSource | null = null;
     let unwatch = () => {};
 
-    const draw = (src: TexImageSource, w: number, h: number) => {
-      last = { src, w, h };
+    const draw = (src: TexImageSource, w: number, h: number, wrap: Wrap) => {
+      // Drawn again on a resize, the frame keeps its share of the held one but is not a wrap again.
+      last = { src, w, h, wrap: { wrapped: false, held: wrap.held } };
       if (!uniforms) return;
       const t = profile ? performance.now() : 0;
-      r.draw(src, w, h, uniforms);
+      r.draw(src, w, h, uniforms, wrap);
       if (profile) drawMs.push(performance.now() - t);
     };
     const bench = (n: number) => {
@@ -515,7 +516,7 @@ function LoopBackdrop({ backdrop, phase, held = false, settle = false, onShowing
         source = next;
         unwatch = next ? watchLoop({ source: next, pane, canvas, motion: () => motionRef.current, frame: draw, showing }) : () => {};
       }
-      if (last) draw(last.src, last.w, last.h);
+      if (last) draw(last.src, last.w, last.h, last.wrap);
     };
     // A redraw of a frame is cheap, but the canvas's size is held while the pane resizes, as the
     // stills' are: a new drawing buffer per size passed through is what made a drag stutter.

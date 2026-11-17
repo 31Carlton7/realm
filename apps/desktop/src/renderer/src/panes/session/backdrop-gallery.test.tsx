@@ -49,11 +49,20 @@ describe("gallery.json", () => {
     expect(b).toMatchObject({ moves: false, image: { light: "/a.jpg", dark: "/b.jpg" }, loop: { light: { kind: "video", url: "/a.mp4" }, dark: null } });
   });
 
-  it("ships Haze, Silk, Sky and Dunes, every one drawable, and Sky's loop for both faces", () => {
+  it("ships Haze, Silk, Sky and Dunes, every one drawable", () => {
     expect(GALLERY.map((g) => g.id)).toEqual(expect.arrayContaining(["haze", "silk", "sky", "dunes"]));
     for (const g of GALLERY) expect(g.light && g.dark).toBeTruthy();
-    const sky = GALLERY.find((g) => g.id === "sky")!.loop!;
-    expect([sky.light?.video, sky.dark?.video, sky.light?.poster, sky.dark?.poster].every(Boolean)).toBe(true);
+  });
+
+  it("ships a loop for both faces of the eight scenes that move, each starting on the still already there", () => {
+    const looped = ["sunlit-reef", "lantern-market", "nebula-crossing", "snow-cabin", "summer-crossing", "synth-coast", "abyss-glow", "moon-guardian"];
+    expect(GALLERY.filter((g) => g.loop).map((g) => g.id).sort()).toEqual([...looped].sort());
+    for (const g of GALLERY.filter((x) => x.loop)) {
+      expect(g.motion).toBe(true);
+      expect([g.loop!.light?.video, g.loop!.dark?.video].every(Boolean)).toBe(true);
+      expect([g.loop!.light?.poster, g.loop!.dark?.poster]).toEqual([g.light, g.dark]);
+    }
+    expect(GALLERY.some((g) => g.id === "neon-alley")).toBe(false);
   });
 });
 
@@ -112,7 +121,8 @@ describe("which backdrop a session shows", () => {
 
   it("offers Motion only where something can move", () => {
     expect(prefCanMove("haze")).toBe(true);
-    expect(prefCanMove("sky")).toBe(true);
+    expect(prefCanMove("sunlit-reef")).toBe(true);
+    expect(prefCanMove("sky")).toBe(false);
     expect(prefCanMove("dunes")).toBe(false);
     expect(prefCanMove("off")).toBe(false);
     expect(prefCanMove("mine:1")).toBe(false);
