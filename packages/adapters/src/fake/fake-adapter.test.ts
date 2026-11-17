@@ -209,6 +209,17 @@ describe("FakeAdapter lifecycle", () => {
     expect(Date.now() - began).toBeLessThan(1_000);
     server.closeAllConnections(); server.close();
   });
+  it("dispose does not wait for a question the turn raises after it", async () => {
+    // Disposed while the turn sleeps before its step, the turn must not go on to raise a card nothing
+    // will answer. MUTANT: drop the check after the step's sleep and dispose waits for good.
+    const a = new FakeAdapter({ delayMs: 50, script: [{ on: "x", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "violet", input: { questions: [] } }] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    await h.send({ text: "x", attachments: [] });
+    await new Promise((r) => setTimeout(r, 10));
+    const disposed = h.dispose().then(() => "disposed");
+    const waited = new Promise((r) => setTimeout(() => r("still waiting"), 1_000));
+    expect(await Promise.race([disposed, waited])).toBe("disposed");
+  });
   it("send after dispose emits an error and does not run", async () => {
     const a = new FakeAdapter(); const h = a.start({ cwd: "/tmp", mcpServers: [] });
     await h.dispose();
