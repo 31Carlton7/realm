@@ -3705,6 +3705,7 @@ describe("light mode", () => {
     // …and so is the knob on the model picker's effort track, which is a slider in all but element.
     [".mp-track-knob", "the same knob the switch wears"],
     [".attach-remove", "on the attached picture"], [".attach-remove:hover", "on the attached picture"],
+    [".backdrop-moves", "on the background's own picture"],
     // An element's name, drawn over the DEVICE's own screen — whatever the simulator is showing is
     // the same in both modes, so the halo that keeps the name legible on it answers to the device.
     [".sim-ax-label", "on the device's own screen"],

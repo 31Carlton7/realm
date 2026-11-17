@@ -2,6 +2,7 @@ import { useEffect, useState, type DragEvent } from "react";
 import { DEFAULT_BACKGROUND, MINE_PREFIX, type BackgroundEffect, type BackgroundImage, type BackgroundsAdded } from "@realm/contracts";
 import { Icon, type Mode } from "@realm/ui";
 import { EmptyState } from "../EmptyState";
+import { FoldedList } from "./FoldedList";
 import { useApp } from "../../state/store";
 import { GALLERY, prefCanMove, type GalleryLook } from "../../panes/session/backdrop-gallery";
 import { LOOKS, lookThumbnail, readPalette } from "../../panes/session/hero-backdrop";
@@ -15,13 +16,22 @@ const TREATMENTS: { effect: BackgroundEffect; label: string }[] = [
   { effect: "halftone", label: "Halftone" },
 ];
 
-function Tile({ value, chosen, name, title, onPick, children }: {
-  value: string; chosen: boolean; name: string; title?: string; onPick: (v: string) => void; children: React.ReactNode;
+/** Off, Shuffle, then every look, as the values the Background grid offers in order. */
+const CHOICES = ["off", "shuffle", ...GALLERY.map((g) => g.id)];
+
+/** A choice's tile. One that moves (a loop, or a picture that drifts) wears the play mark in its
+ *  corner, and its name says so. */
+function Tile({ value, chosen, name, title, moves, onPick, children }: {
+  value: string; chosen: boolean; name: string; title?: string; moves?: boolean; onPick: (v: string) => void; children: React.ReactNode;
 }) {
   return (
     <label className="backdrop-opt" data-selected={chosen || undefined} title={title}>
-      <input type="radio" name="settings-background" value={value} checked={chosen} onChange={() => onPick(value)} />
-      <span className="backdrop-thumb">{children}</span>
+      <input type="radio" name="settings-background" value={value} checked={chosen} onChange={() => onPick(value)}
+        aria-label={moves ? `${name}, moves` : undefined} />
+      <span className="backdrop-thumb">
+        {children}
+        {moves && <span className="backdrop-moves"><Icon name="play" size={12} /></span>}
+      </span>
       <span className="backdrop-name">{name}</span>
     </label>
   );
@@ -92,19 +102,24 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
     <>
       <div className="settings-row" data-stack data-setting="background">
         <div className="settings-row-main"><span className="settings-row-name">New sessions</span></div>
-        <fieldset className="backdrop-grid" aria-label="Background">
-          <Tile value="off" chosen={pref === "off"} name="Off" onPick={pick}>{null}</Tile>
-          <Tile value="shuffle" chosen={pref === "shuffle"} name="Shuffle" title="A different one for each new session, kept for that session." onPick={pick}>
-            <span className="backdrop-mosaic">
-              {GALLERY.slice(0, 4).map((g) => <LookThumb key={g.id} look={g} mode={mode} />)}
-            </span>
-          </Tile>
-          {GALLERY.map((g) => (
-            <Tile key={g.id} value={g.id} chosen={pref === g.id} name={g.name} title={g.mood || undefined} onPick={pick}>
+        <FoldedList items={CHOICES} keyOf={(c) => c} chosen={pref} listClass="backdrop-grid" label="Background" render={(c) => {
+          if (c === "off") return <Tile value="off" chosen={pref === "off"} name="Off" onPick={pick}>{null}</Tile>;
+          if (c === "shuffle") {
+            return (
+              <Tile value="shuffle" chosen={pref === "shuffle"} name="Shuffle" title="A different one for each new session, kept for that session." onPick={pick}>
+                <span className="backdrop-mosaic">
+                  {GALLERY.slice(0, 4).map((g) => <LookThumb key={g.id} look={g} mode={mode} />)}
+                </span>
+              </Tile>
+            );
+          }
+          const g = GALLERY.find((look) => look.id === c)!;
+          return (
+            <Tile value={g.id} chosen={pref === g.id} name={g.name} title={g.mood || undefined} moves={g.motion} onPick={pick}>
               <LookThumb look={g} mode={mode} />
             </Tile>
-          ))}
-        </fieldset>
+          );
+        }} />
         {chosenLook?.credit && <span className="settings-row-desc" data-testid="background-credit">{chosenLook.credit}</span>}
       </div>
 
@@ -132,7 +147,7 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
           ) : (
             <fieldset className="backdrop-grid" aria-label="Your images">
               {mine.map((m) => (
-                <Tile key={m.id} value={`${MINE_PREFIX}${m.id}`} chosen={pref === `${MINE_PREFIX}${m.id}`} name={m.name} onPick={pick}>
+                <Tile key={m.id} value={`${MINE_PREFIX}${m.id}`} chosen={pref === `${MINE_PREFIX}${m.id}`} name={m.name} moves={m.loop !== null} onPick={pick}>
                   <MineThumb id={m.id} />
                 </Tile>
               ))}
