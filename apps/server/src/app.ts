@@ -1349,7 +1349,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         // longer than that is clipped from the END by the generator anyway.
         listEvents: (id) => sessionEvents.listAfter(id, 0, 20_000),
         lastSummary: (id) => sessionEvents.lastOfType(id, "summary"),
-        publish: (id, ev) => sessions.publishServerEvent(id, ev),
+        publish: (id, ev) => sessions.publishServerEvent(id, ev, { keepsRead: true }),
         generate: opts.summaryGenerator,
         available: claudeCanAnswer,
         onError: (line) => console.error(line),

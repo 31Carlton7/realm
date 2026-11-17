@@ -57,7 +57,7 @@ async function client(port: number) {
 async function boot() {
   const home = tempDir("realm-recap-int-");
   vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
-  const summaryGenerator = vi.fn(async () => ({ summary: "You ran the tests and they passed.", hint: null }));
+  const summaryGenerator = vi.fn(async () => ({ summary: "You ran the tests and they passed.", hint: "Ship it" as string | null }));
   app = await createApp({ home, port: 0, adapters: { claude: new WorkingAdapter() }, summaryGenerator });
   const c = await client(app.port);
   const profile = (await c.call("profiles.create", { name: "W" })).result;
@@ -103,5 +103,41 @@ describe("when a session is recapped, end to end", () => {
     await t.c.call("sessions.delete", { id: t.session.id });
     await new Promise((r) => setTimeout(r, 200));
     expect(t.summaryGenerator).not.toHaveBeenCalled();
+  });
+});
+
+describe("a recap written after the session was read", () => {
+  const marks = async (t: Awaited<ReturnType<typeof boot>>) => {
+    const s = (await t.c.call("sessions.get", { id: t.session.id })).result as { seenSeq: number; lastEventSeq: number };
+    return { seen: s.seenSeq, last: s.lastEventSeq };
+  };
+
+  it("leaves it read: no unread mark for a recap and a hint", async () => {
+    const t = await boot();
+    await t.say("run the tests");
+    await t.c.call("sessions.markSeen", { id: t.session.id, seq: (await marks(t)).last });
+    const before = await marks(t);
+    await t.c.call("items.update", { id: t.itemId, archived: true });
+    await waitFor(async () => (await t.summaries()).length === 1);
+    await waitFor(async () => (await marks(t)).last > before.last + 1);
+    const after = await marks(t);
+    expect(after.seen).toBe(after.last);
+  });
+
+  it("leaves a session read only partway unread, and one never opened at 0", async () => {
+    const partway = await boot();
+    await partway.say("run the tests");
+    await partway.c.call("sessions.markSeen", { id: partway.session.id, seq: (await marks(partway)).last - 1 });
+    const before = await marks(partway);
+    await partway.c.call("items.update", { id: partway.itemId, archived: true });
+    await waitFor(async () => (await partway.summaries()).length === 1);
+    expect((await marks(partway)).seen).toBe(before.seen);
+    await app.close();
+
+    const never = await boot();
+    await never.say("run the tests");
+    await never.c.call("items.update", { id: never.itemId, archived: true });
+    await waitFor(async () => (await never.summaries()).length === 1);
+    expect((await marks(never)).seen).toBe(0);
   });
 });
