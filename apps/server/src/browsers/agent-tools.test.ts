@@ -1,4 +1,6 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { WebSocket } from "ws";
+import { EventEmitter } from "node:events";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
@@ -6,6 +8,8 @@ import { GENERATED_CREDENTIAL_NOTE, type Browser, type BrowserPageActivity, type
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserAgentProvider, BROWSER_PROVIDER_NAME, type BrowserAgentToolsDeps } from "./agent-tools";
 import type { GateResult } from "./permissions";
+import { BrowserHostBridge, PANE_GONE_ERROR, PANE_NOT_RESPONDING_ERROR, PANE_RESTARTED_ERROR } from "./host-bridge";
+import type { RpcServer } from "../rpc/server";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 import type { AssistOutcome, LayaAssist } from "../laya/assist";
 
@@ -39,6 +43,8 @@ function setup(opts: {
   /** Laya's shadow, or whatever stands in for it. Omitted = no observer at all. */
   observe?: ActObserver;
   assist?: LayaAssist;
+  /** A real bridge in place of the canned answers. */
+  bridge?: BrowserAgentToolsDeps["bridge"];
 } = {}) {
   const rows = new Map<string, Browser>();
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
@@ -100,6 +106,7 @@ function setup(opts: {
         return typeof r === "function" ? (r as (p: Record<string, unknown>) => unknown)(params) : r;
       },
     },
+    ...(opts.bridge ? { bridge: opts.bridge } : {}),
     broker: {
       gate: async (_sessionId, toolKey, title, input, toolName, gateOpts) => {
         calls.gates.push({
@@ -1919,5 +1926,153 @@ describe("browser_fill_code", () => {
     const r = await call("browser_fill_code", { browserId: "bX", ref: 4 });
     expect(r.isError).toBe(true);
     expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
+  });
+});
+
+/**
+ * A pane whose renderer ends after the first op: the host answers that op, then never answers another
+ * on the pane, and says what it found when it is asked about the pane. A navigation that ends the
+ * renderer first is answered, as main's load in a new renderer would be. A real bridge carries it, so
+ * the minute each op waits is the bridge's own.
+ */
+function paneThatDies(found: "gone" | "restarted" | "unresponsive" | "hung") {
+  const ws = new EventEmitter() as unknown as WebSocket;
+  const ops: string[] = [];
+  let answered = 0;
+  const bridge: BrowserHostBridge = new BrowserHostBridge({
+    rpc: {
+      sendTo: (_client: unknown, _event: string, payload: { callId: string; op: string; params: Record<string, unknown> }) => {
+        ops.push(payload.op + (payload.params.restart ? ":restart" : ""));
+        const reply = (result: unknown) => void Promise.resolve().then(() => bridge.handleResult({ callId: payload.callId, ok: true, result }));
+        if (payload.op === "paneHealth") { if (found !== "hung") reply({ state: found }); }
+        else if (payload.op === "navigate" && payload.params.restart) reply({ url: payload.params.url });
+        else if (answered++ === 0) reply({ url: "https://example.com/", title: "Example", text: '[ref=11] button "Submit order"', elementCount: 1 });
+        return true;
+      },
+    } as unknown as RpcServer,
+  });
+  bridge.register(ws, { hasWindow: true });
+  return { bridge, ops };
+}
+
+/** Run the clock until `p` settles, and say how long that took on it. */
+async function timed<T>(p: Promise<T>): Promise<{ value: T; ms: number }> {
+  const start = Date.now();
+  let done = false;
+  void p.finally(() => { done = true; });
+  while (!done) await vi.advanceTimersByTimeAsync(100);
+  return { value: await p, ms: Date.now() - start };
+}
+
+describe("a pane whose host dies mid-batch", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("fails the rest of the batch, and the call after it, at once rather than a minute per call", async () => {
+    vi.useFakeTimers();
+    const pane = paneThatDies("gone");
+    const { call } = setup({ bridge: pane.bridge });
+    const batch = await timed(call("browser_batch", { actions: [
+      { tool: "browser_snapshot", arguments: { browserId: "b1" } },
+      { tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } },
+      { tool: "browser_read", arguments: { browserId: "b1" } },
+      { tool: "browser_screenshot", arguments: { browserId: "b1" } },
+    ] }));
+    // THE MUTANT: no check after the timeout. The act's describe waits its minute, then the act its own.
+    expect(batch.ms).toBeLessThan(62_000);
+    expect(batch.value.isError).toBe(true);
+    const said = text(batch.value);
+    expect(said).toContain("--- step 1: browser_snapshot ok ---");
+    expect(said).toContain(`--- step 2: browser_act FAILED ---\n${PANE_GONE_ERROR}`);
+    expect(said).toContain("(batch stopped at step 2)");
+
+    // A single call after the dead host is told so in a moment, not after a minute of its own.
+    const next = await timed(call("browser_snapshot", { browserId: "b1" }));
+    expect(next.ms).toBeLessThan(2_000);
+    expect(text(next.value)).toBe(PANE_GONE_ERROR);
+    expect(pane.ops.filter((op) => op !== "paneHealth")).toEqual(["snapshot", "describe"]);
+  });
+
+  it("a restarted pane is not acted on with refs from the page it lost", async () => {
+    vi.useFakeTimers();
+    const pane = paneThatDies("restarted");
+    const { call } = setup({ bridge: pane.bridge });
+    const batch = await timed(call("browser_batch", { actions: [
+      { tool: "browser_snapshot", arguments: { browserId: "b1" } },
+      { tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } },
+      { tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 12 } } },
+    ] }));
+    expect(batch.ms).toBeLessThan(62_000);
+    expect(text(batch.value)).toContain(`--- step 2: browser_act FAILED ---\n${PANE_RESTARTED_ERROR}`);
+    // The click on ref 11 would land on whatever the reloaded page has there.
+    expect(pane.ops).not.toContain("act");
+  });
+
+  it("a page that is not responding is left as it is, the calls after it fail fast, and browser_navigate recovers it", async () => {
+    vi.useFakeTimers();
+    const pane = paneThatDies("unresponsive");
+    const { call } = setup({ bridge: pane.bridge });
+    const batch = await timed(call("browser_batch", { actions: [
+      { tool: "browser_snapshot", arguments: { browserId: "b1" } },
+      { tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } },
+      { tool: "browser_read", arguments: { browserId: "b1" } },
+    ] }));
+    expect(batch.ms).toBeLessThan(62_000);
+    expect(text(batch.value)).toContain(`--- step 2: browser_act FAILED ---\n${PANE_NOT_RESPONDING_ERROR}`);
+
+    const next = await timed(call("browser_snapshot", { browserId: "b1" }));
+    expect(next.ms).toBeLessThan(2_000);
+    expect(text(next.value)).toBe(PANE_NOT_RESPONDING_ERROR);
+    // Nothing replaced the page on its own: the only ops are the reads and the checks.
+    expect(pane.ops.filter((op) => op !== "paneHealth")).toEqual(["snapshot", "describe"]);
+
+    const nav = await timed(call("browser_navigate", { browserId: "b1", url: "https://example.com/" }));
+    expect(nav.value.isError).toBeFalsy();
+    expect(pane.ops.at(-1)).toBe("navigate:restart");
+  });
+});
+
+describe("browser_list on a pane with a verdict", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** browser_list's line for b1 after an op on it ran out its minute and the check found `found`. */
+  async function listedAfter(found: "gone" | "restarted" | "unresponsive" | "hung") {
+    vi.useFakeTimers();
+    const pane = paneThatDies(found);
+    const { call } = setup({ bridge: pane.bridge });
+    await timed(call("browser_snapshot", { browserId: "b1" }));
+    await timed(call("browser_snapshot", { browserId: "b1" }));
+    const checksBefore = pane.ops.filter((op) => op === "paneHealth").length;
+    const listed = await timed(call("browser_list", {}));
+    return { said: text(listed.value), ms: listed.ms, checked: pane.ops.filter((op) => op === "paneHealth").length > checksBefore };
+  }
+
+  it("says a page that is not responding is not responding, and checks it again to say so", async () => {
+    const { said, checked } = await listedAfter("unresponsive");
+    expect(said).toContain("browserId: b1 — not responding: each call checks it again; browser_navigate starts it over (last url: https://example.com/)");
+    expect(checked).toBe(true);
+  });
+
+  it("says a crash-reloaded page was reloaded, and that browser_snapshot reads it again", async () => {
+    const { said } = await listedAfter("restarted");
+    expect(said).toContain("browserId: b1 — crashed and reloaded: browser_snapshot reads it again");
+  });
+
+  it("says a gone pane is gone", async () => {
+    const { said } = await listedAfter("gone");
+    expect(said).toContain("browserId: b1 — gone: browser_open reopens the page");
+  });
+
+  it("says the host is not answering, after the check has had its 5s", async () => {
+    const { said, ms, checked } = await listedAfter("hung");
+    expect(said).toContain("browserId: b1 — host not answering: ask the user to quit and reopen Realm");
+    expect(checked).toBe(true);
+    expect(ms).toBeGreaterThanOrEqual(5_000);
+    expect(ms).toBeLessThan(6_000);
+  });
+
+  it("still says app not connected when no app is connected", async () => {
+    const bridge = new BrowserHostBridge({ rpc: { sendTo: () => true } as unknown as RpcServer });
+    const { call } = setup({ bridge });
+    expect(text(await call("browser_list", {}))).toContain("browserId: b1 — app not connected (last url: https://example.com/)");
   });
 });

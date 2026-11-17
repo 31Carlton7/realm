@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { PaneHealth } from "@realm/contracts";
 import type { WebSocket } from "ws";
 import type { RpcServer } from "../rpc/server";
 
@@ -53,6 +54,10 @@ export const BROWSER_HOST_OPS = [
   /** Cancel a file chooser Realm intercepted, so a click that opened a picker by mistake is
    *  recoverable from the agent's side rather than needing the user. */
   "dismissDialog",
+  /** Whether a pane's page still answers, asked after an op on it ran out its minute: main reloads a
+   *  renderer that crashed and says so, says a live one that did not answer is unresponsive (and
+   *  leaves it be), or says the view is gone. */
+  "paneHealth",
   /** The browser panes with a page loaded now, which a phone may watch (mobile.v1). */
   "phoneViews",
   /** A pane's page for a phone, its password fields covered in main before the picture leaves it.
@@ -113,6 +118,32 @@ export type HostOp = (typeof HOST_OPS)[number];
  *  hung, and the agent deserves an answer either way. */
 const OP_TIMEOUT_MS = 60_000;
 
+/** How long main gets to answer `paneHealth`. It answers from main itself, past a page that may be
+ *  hung, so a few seconds of silence means main is the one not answering. */
+const HEALTH_TIMEOUT_MS = 5_000;
+
+/** Ops that can wait on the person — the fill unlocks the sign-in the way the profile says, Touch ID
+ *  by default — so a minute without an answer says nothing about the pane. */
+const PERSON_OPS: ReadonlySet<string> = new Set(["fillCredential", "fillCode", "credentialAllow"]);
+
+export const PANE_RESTARTED_ERROR =
+  "The page in the browser pane crashed and was reloaded, so the refs you had are gone. Open the page again: browser_snapshot to read it as it is now, or browser_navigate to load a page.";
+export const PANE_NOT_RESPONDING_ERROR =
+  "The page is not responding: it did not answer a quick check. Realm left it as it is, so nothing on it is lost, and each call checks it again and goes through once it answers. browser_navigate starts it over in a fresh page, dropping anything on it that was not saved.";
+export const PANE_GONE_ERROR = "The browser pane's host is gone; reopen the page with browser_open.";
+export const HOST_HUNG_ERROR =
+  `Realm's browser host is not answering — a check on the pane got no reply in ${HEALTH_TIMEOUT_MS / 1000}s — so no browser tool can reach a pane. Ask the user to quit and reopen Realm, then try again.`;
+
+/** Why calls on a pane fail at once: its renderer crashed and it was reloaded (until it is read or
+ *  navigated again), its page is not responding, it is gone, or main stopped answering. All but the
+ *  first are checked again before each call. */
+export type Verdict = Exclude<PaneHealth, "ok"> | "hung";
+
+const VERDICT_ERRORS: Record<Verdict, string> = { restarted: PANE_RESTARTED_ERROR, unresponsive: PANE_NOT_RESPONDING_ERROR, gone: PANE_GONE_ERROR, hung: HOST_HUNG_ERROR };
+
+/** The ops that open a restarted pane's page again, and so lift its verdict. */
+const REOPENING_OPS: ReadonlySet<string> = new Set(["snapshot", "navigate"]);
+
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
 
 /**
@@ -153,6 +184,10 @@ export class BrowserHostBridge {
   private hasWindow = false;
   private detached: number | null = null;
   private readonly pending = new Map<string, Pending>();
+  /** Panes whose last op ran out its minute and whose check did not come back `ok`. */
+  private readonly verdicts = new Map<string, Verdict>();
+  /** One check per pane at a time: the ops that timed out together share its answer. */
+  private readonly checks = new Map<string, Promise<PaneHealth | "hung">>();
 
   constructor(private readonly d: { rpc: RpcServer; now?: () => number }) {}
 
@@ -181,7 +216,11 @@ export class BrowserHostBridge {
    *  failed now — their answers would come from a process that no longer owns any views. `hasWindow`
    *  is re-sent by main whenever the window opens or closes, which is an ordinary re-register. */
   register(client: WebSocket, opts: { hasWindow?: boolean } = {}): void {
-    if (this.host && this.host !== client) this.failAll("browser host replaced by a new registration");
+    if (this.host && this.host !== client) {
+      this.failAll("browser host replaced by a new registration");
+      // A new main has new views; what the old one's panes did says nothing about them.
+      this.verdicts.clear();
+    }
     const attaching = this.host === null;
     this.host = client;
     this.setWindow(opts.hasWindow ?? false);
@@ -224,9 +263,64 @@ export class BrowserHostBridge {
   }
 
   /** Run one op on the registered host. Rejects (never hangs) when no host is connected, when the
-   *  socket drops mid-op, and after `OP_TIMEOUT_MS`. */
+   *  socket drops mid-op, and after `OP_TIMEOUT_MS`.
+   *
+   *  An op on a pane that runs out its minute has the pane checked (`paneHealth`) before it rejects.
+   *  What main finds becomes the pane's verdict, and the calls after it on that pane fail at once with
+   *  words the agent can act on, rather than each waiting out a minute of its own. A page that is
+   *  alive but not answering is never reloaded by the check: only a `navigate` the agent asked for
+   *  replaces it. */
   call(op: HostOp, params: Record<string, unknown>): Promise<unknown> {
     if (!(HOST_OPS as readonly string[]).includes(op)) return Promise.reject(new Error(`unknown host op "${op}"`));
+    const browserId = typeof params.browserId === "string" && params.browserId ? params.browserId : null;
+    if (!browserId) return this.send(op, params, OP_TIMEOUT_MS);
+    const verdict = this.verdicts.get(browserId);
+    if (!verdict) return this.watched(op, params, browserId);
+    return this.admit(browserId, verdict, op, params).then((admitted) => this.watched(op, admitted, browserId));
+  }
+
+  /** An op on a pane, whose timeout has the pane checked before it rejects. */
+  private watched(op: HostOp, params: Record<string, unknown>, browserId: string): Promise<unknown> {
+    return this.send(op, params, OP_TIMEOUT_MS).catch(async (e: unknown) => {
+      if (!(e instanceof OpTimeout) || PERSON_OPS.has(op)) throw e;
+      const health = await this.check(browserId);
+      if (health === "ok") throw e;
+      this.verdicts.set(browserId, health);
+      throw new PaneVerdictError(health);
+    });
+  }
+
+  /** The params to send an op on a pane with a verdict, or its verdict thrown. A reloaded pane is
+   *  refused until a snapshot or a navigation opens its page again. Any other is checked again first,
+   *  which takes a moment rather than a minute, so a page that answers again just works. A navigation
+   *  on a page that still does not answer asks main to end its renderer first: a load sent to it would
+   *  queue behind whatever it is stuck on. */
+  private async admit(browserId: string, verdict: Verdict, op: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (verdict === "restarted") {
+      if (REOPENING_OPS.has(op)) { this.verdicts.delete(browserId); return params; }
+      throw new PaneVerdictError("restarted");
+    }
+    const health = await this.check(browserId);
+    if (health === "ok" || (health === "restarted" && REOPENING_OPS.has(op))) { this.verdicts.delete(browserId); return params; }
+    if (health === "unresponsive" && op === "navigate") { this.verdicts.delete(browserId); return { ...params, restart: true }; }
+    this.verdicts.set(browserId, health);
+    throw new PaneVerdictError(health);
+  }
+
+  /** Ask main about a pane. `hung` is main itself not answering in `HEALTH_TIMEOUT_MS`; a main that
+   *  answers with an error (one older than the op) is taken as `ok`, which is how it behaved before. */
+  private check(browserId: string): Promise<PaneHealth | "hung"> {
+    const running = this.checks.get(browserId);
+    if (running) return running;
+    const asked = this.send("paneHealth", { browserId }, HEALTH_TIMEOUT_MS).then(
+      (r) => (r as { state?: PaneHealth } | null)?.state ?? "ok",
+      (e: unknown) => (e instanceof OpTimeout ? "hung" as const : "ok" as const),
+    ).finally(() => this.checks.delete(browserId));
+    this.checks.set(browserId, asked);
+    return asked;
+  }
+
+  private send(op: HostOp, params: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
     const host = this.host;
     // Level C: realm-server is running headless and there is no Electron at all. A different problem
     // from a closed window, with a different fix, so it gets different words — main answers that case
@@ -235,8 +329,8 @@ export class BrowserHostBridge {
     const callId = randomBytes(9).toString("base64url");
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (this.pending.delete(callId)) reject(new Error(`browser host op "${op}" timed out after ${OP_TIMEOUT_MS / 1000}s`));
-      }, OP_TIMEOUT_MS);
+        if (this.pending.delete(callId)) reject(new OpTimeout(`browser host op "${op}" timed out after ${timeoutMs / 1000}s`));
+      }, timeoutMs);
       this.pending.set(callId, { resolve, reject, timer });
       if (!this.d.rpc.sendTo(host, "browserHost.op", { callId, op, params })) {
         this.pending.delete(callId);
@@ -253,4 +347,12 @@ export class BrowserHostBridge {
     }
     this.pending.clear();
   }
+}
+
+/** The bridge giving up on an op, as distinct from main answering with a failure. */
+class OpTimeout extends Error {}
+
+/** A call refused for its pane's verdict, worded for the agent. */
+export class PaneVerdictError extends Error {
+  constructor(readonly verdict: Verdict) { super(VERDICT_ERRORS[verdict]); }
 }

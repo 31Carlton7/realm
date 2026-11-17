@@ -16,7 +16,7 @@ import type { RpcServer } from "../rpc/server";
 import type { BrowsersStore } from "../store/browsers";
 import type { McpService } from "../mcp/service";
 import type { BrowserService } from "./service";
-import type { BrowserHostBridge } from "./host-bridge";
+import { PaneVerdictError, type BrowserHostBridge, type Verdict } from "./host-bridge";
 import type { BrowserPermissionBroker } from "./permissions";
 import { join } from "node:path";
 import type { ProjectsStore } from "../store/projects";
@@ -394,15 +394,28 @@ const BatchArgs = z.object({
 type Deps = BrowserAgentToolsDeps & { reads: PageReads };
 type Handler = (d: Deps, ctx: ProviderCallContext, args: unknown) => Promise<CallToolResult>;
 
+/** browser_list's line for a pane with a verdict, short forms of the bridge's reasons. */
+const LIST_VERDICTS: Record<Verdict, string> = {
+  unresponsive: "not responding: each call checks it again; browser_navigate starts it over",
+  restarted: "crashed and reloaded: browser_snapshot reads it again",
+  gone: "gone: browser_open reopens the page",
+  hung: "host not answering: ask the user to quit and reopen Realm",
+};
+
 const HANDLERS: Record<string, Handler> = {
   browser_list: async (d, ctx) => {
     const rows = d.browsers.list(ctx.spaceId);
     if (rows.length === 0) return ok("No browser panes in this space. Use browser_open(url) to open one.");
     const lines = await Promise.all(rows.map(async (row) => {
-      const live = await describeSafe(d, row.id);
-      const state = live === null ? "app not connected"
-        : live.open ? `open, url: ${live.url || "(blank)"}${live.loadError ? ` — did not load (${live.loadError.name})` : ""}`
-        : `pane not open in the app (${PANE_SHOW_WIRE_NAME} brings it back)`;
+      let live: BrowserDescribeResult | null = null;
+      let state: string;
+      try {
+        live = (await d.bridge.call("describe", { browserId: row.id })) as BrowserDescribeResult;
+        state = live.open ? `open, url: ${live.url || "(blank)"}${live.loadError ? ` — did not load (${live.loadError.name})` : ""}`
+          : `pane not open in the app (${PANE_SHOW_WIRE_NAME} brings it back)`;
+      } catch (e) {
+        state = e instanceof PaneVerdictError ? LIST_VERDICTS[e.verdict] : "app not connected";
+      }
       return `browserId: ${row.id} — ${state}${row.url && (!live?.open) ? ` (last url: ${row.url})` : ""}`;
     }));
     return ok(`Browser panes in this space:\n${lines.join("\n")}`);
@@ -829,9 +842,12 @@ const HANDLERS: Record<string, Handler> = {
     }
     const parts: string[] = [];
     for (const [i, a] of validated.entries()) {
-      const result = READ_ONLY_TOOLS.has(a.tool)
-        ? await HANDLERS[a.tool]!(d, ctx, a.arguments)
-        : await runBatchMutation(d, ctx, a.tool, a.arguments);
+      // A step that throws — a pane that stopped answering, most often — ends the batch like any other
+      // failure, with what the steps before it found still in the answer.
+      const result = await (READ_ONLY_TOOLS.has(a.tool)
+        ? HANDLERS[a.tool]!(d, ctx, a.arguments)
+        : runBatchMutation(d, ctx, a.tool, a.arguments)
+      ).catch((e: unknown) => err(e instanceof Error ? e.message : String(e)));
       const text = result.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map((c) => c.text).join("\n");
       parts.push(`--- step ${i + 1}: ${a.tool} ${result.isError ? "FAILED" : "ok"} ---\n${text}`);
       if (result.isError) {

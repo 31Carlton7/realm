@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserLoadError, type BrowserSnapshotResult } from "@realm/contracts";
+import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserLoadError, type BrowserSnapshotResult, type PaneHealth } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 import { SNAPSHOT_STYLES } from "./browser-agent";
@@ -45,6 +45,8 @@ function setup(opts: {
   revived?: (id: string) => Promise<void>;
   /** Told when an agent typed into a page. */
   typed?: (id: string) => void;
+  /** What the pane's renderer check finds. Omitted = no `health` dep. */
+  health?: (id: string) => Promise<PaneHealth>;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -53,6 +55,8 @@ function setup(opts: {
   const grants: { browserId: string; origin: string; dir: string; expiresAt: number }[] = [];
   const liveViews = new Set(["b1"]);
   const touched: string[] = [];
+  const attached: string[] = [];
+  const ended: string[] = [];
   const binding: CdpBinding = {
     send: async (method, params) => {
       calls.push({ method, params });
@@ -77,7 +81,7 @@ function setup(opts: {
     onEvent: (cb) => { emit = cb; },
   };
   const host = new BrowserAgentHost({
-    attach: (id) => (opts.attachFails || !liveViews.has(id) ? null : binding),
+    attach: (id) => { attached.push(id); return opts.attachFails || !liveViews.has(id) ? null : binding; },
     hasView: (id) => liveViews.has(id),
     touch: (id) => { touched.push(id); },
     navigate: (id, url) => (liveViews.has(id) && url.startsWith("https://allowed.") ? url : null),
@@ -132,8 +136,10 @@ function setup(opts: {
     ...(opts.paneProfile !== undefined ? { profileOf: (id: string) => (liveViews.has(id) ? opts.paneProfile ?? null : null) } : {}),
     ...(opts.revived ? { revived: opts.revived } : {}),
     ...(opts.typed ? { typed: opts.typed } : {}),
+    ...(opts.health ? { health: opts.health } : {}),
+    endRenderer: async (id) => { ended.push(id); },
   });
-  return { host, calls, liveViews, audit, minted, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
+  return { host, calls, liveViews, audit, minted, grants, touched, attached, ended, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
 
 describe("BrowserAgentHost — a page given up for memory", () => {
@@ -179,6 +185,59 @@ describe("BrowserAgentHost — a page given up for memory", () => {
     await host.handleOp("describe", { browserId: "b1" });
     await host.handleOp("navigate", { browserId: "b1", url: "https://allowed.example" });
     expect(asked).toEqual(["b1"]);
+  });
+});
+
+describe("BrowserAgentHost — paneHealth", () => {
+  it("answers from the view as it is, without waiting for a discarded page to come back", async () => {
+    // THE MUTANT: paneHealth left to the revive wait, which polls for a page that a hung renderer
+    // never finishes loading.
+    const asked: string[] = [];
+    const { host } = setup({ revived: (id) => { asked.push(id); return new Promise<void>(() => {}); }, health: async () => "ok" });
+    expect(await host.handleOp("paneHealth", { browserId: "b1" })).toEqual({ state: "ok" });
+    expect(asked).toEqual([]);
+  });
+
+  it("a restarted page drops its attachment, so the next op attaches to the new renderer", async () => {
+    // THE MUTANT: no release. The cached binding belongs to the renderer that was crashed, and every op
+    // after the restart would go on talking to it.
+    const { host, attached } = setup({ health: async () => "restarted" });
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(attached).toEqual(["b1"]);
+    expect(await host.handleOp("paneHealth", { browserId: "b1" })).toEqual({ state: "restarted" });
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(attached).toEqual(["b1", "b1"]);
+  });
+
+  it("a page that does not answer is left alone by the check", async () => {
+    const { host, attached, ended } = setup({ health: async () => "unresponsive" });
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(await host.handleOp("paneHealth", { browserId: "b1" })).toEqual({ state: "unresponsive" });
+    expect(ended).toEqual([]);
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(attached).toEqual(["b1"]);
+  });
+
+  it("a navigation the bridge marks as a restart ends the renderer first, and the next op attaches to the new one", async () => {
+    // THE MUTANT: navigate as usual. The load queues behind the page that is not answering.
+    const { host, attached, ended } = setup();
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(await host.handleOp("navigate", { browserId: "b1", url: "https://allowed.example/", restart: true })).toEqual({ url: "https://allowed.example/" });
+    expect(ended).toEqual(["b1"]);
+    await host.handleOp("snapshot", { browserId: "b1" });
+    expect(attached).toEqual(["b1", "b1"]);
+  });
+
+  it("an ordinary navigation leaves the renderer alone", async () => {
+    const { host, ended } = setup();
+    await host.handleOp("navigate", { browserId: "b1", url: "https://allowed.example/" });
+    expect(ended).toEqual([]);
+  });
+
+  it("a pane with no view is gone, whatever the check would say", async () => {
+    const { host, liveViews } = setup({ health: async () => "ok" });
+    liveViews.delete("b1");
+    expect(await host.handleOp("paneHealth", { browserId: "b1" })).toEqual({ state: "gone" });
   });
 });
 
