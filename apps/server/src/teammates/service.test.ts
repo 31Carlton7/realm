@@ -512,8 +512,10 @@ describe("the permission chip on a teammate's chat", () => {
 
 describe("a teammate's clock", () => {
   /** The clock's next occurrence is now, and the scheduler's minute has come. */
+  /** A fresh occurrence comes due. Clearing `last_slot` keeps two calls in one minute from reading as
+   *  the same slot, which the claim drops as a repeat. */
   const due = (scheduleId: string) => {
-    app.db.prepare("UPDATE schedules SET next_run_at = ? WHERE id = ?").run(Date.now() - 1_000, scheduleId);
+    app.db.prepare("UPDATE schedules SET next_run_at = ?, last_slot = NULL WHERE id = ?").run(Date.now() - 1_000, scheduleId);
     app.schedules.tick();
   };
   const clockTurns = (sessionId: string) => userMessages(sessionId).filter((m) => m.scheduled);

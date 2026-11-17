@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CRON_PRESETS, describeSchedule, isOnce, matchesCron, momentInputValue, nextCronFire, nextFireOf,
-  onceExpr, parseCron, parseMoment, parseOnce,
+  onceExpr, parseCron, parseMoment, parseOnce, slotOf,
 } from "./schedules";
 
 const at = (y: number, m: number, d: number, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime();
@@ -124,6 +124,22 @@ describe("nextCronFire", () => {
     const second = at(2026, 11, 1, 1, 20) + 3_600_000;
     for (const expr of ["30 1 * * *", "*/15 * * * *", "* * * * *"]) {
       expect(nextFireOf(expr, second)!, expr).toBeGreaterThan(second);
+    }
+  });
+
+  it("computes in the zone it is given, whatever zone the process is in", () => {
+    const zone = process.env.TZ;
+    try {
+      process.env.TZ = "America/Los_Angeles";
+      const fridayNoonUtc = Date.UTC(2026, 10, 6, 12);
+      expect(nextFireOf("0 9 * * *", fridayNoonUtc, "America/Chicago")).toBe(Date.UTC(2026, 10, 6, 15));
+      expect(nextFireOf("0 9 * * *", fridayNoonUtc, "Asia/Tokyo")).toBe(Date.UTC(2026, 10, 7, 0));
+      // The same instant is a different slot on each clock, and the same morning's nine is one slot.
+      expect(slotOf(Date.UTC(2026, 10, 8, 15), "America/Chicago")).toBe("2026-11-08T09:00");
+      expect(slotOf(Date.UTC(2026, 10, 8, 15), "America/Los_Angeles")).toBe("2026-11-08T07:00");
+      expect(slotOf(Date.UTC(2026, 10, 8, 17), "America/Los_Angeles")).toBe("2026-11-08T09:00");
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
     }
   });
 

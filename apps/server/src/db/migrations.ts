@@ -1305,4 +1305,13 @@ export const migrations: string[] = [
   ALTER TABLE schedules ADD COLUMN permission_mode TEXT;
   UPDATE schedules SET permission_mode = 'bypassPermissions' WHERE role_id IS NULL;
   `,
+  // The zone a schedule's next firing is computed in, and the wall-clock slot it last fired
+  // (`SchedulesStore`). Both NULL on every row before this: the first tick gives such a row the
+  // Mac's zone then, the one its `next_run_at` was computed in, and reads its last slot off
+  // `last_run_at`. Nothing is read here, so the migration costs a boot nothing. The ALTERs make a
+  // second run fail inside the migration's transaction.
+  `
+  ALTER TABLE schedules ADD COLUMN time_zone TEXT;
+  ALTER TABLE schedules ADD COLUMN last_slot TEXT;
+  `,
 ];

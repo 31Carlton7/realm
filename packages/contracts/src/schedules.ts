@@ -150,17 +150,19 @@ const SEARCH_MINUTES = 4 * 366 * 24 * 60;
  * The first minute strictly after `after` that matches, or null when nothing does within four years.
  *
  * Minute-stepping rather than arithmetic, over WALL-CLOCK minutes: the walk keeps a calendar in UTC,
- * where no minute is skipped or repeated, and places each match on the local clock (`localInstant`)
+ * where no minute is skipped or repeated, and places each match on the clock in `zone` (`instantOn`)
  * only once it matches. That is where the two days a year the clocks change are decided, once, rather
  * than in a correction to every step. Closed-form next-fire arithmetic is where every DST bug in
  * every scheduler lives.
  *
+ * `zone` is an IANA name; left out, it is the process's local zone. A schedule passes the zone stored
+ * on its row, so its next firing does not move when the Mac's zone does (`SchedulesStore`).
+ *
  * It is not as slow as it looks: the coarse fields are checked first and a non-matching hour skips
  * the whole hour rather than sixty minutes one at a time.
  */
-export function nextCronFire(cron: Cron, after: number): number | null {
-  const from = new Date(after);
-  const wall = new Date(Date.UTC(from.getFullYear(), from.getMonth(), from.getDate(), from.getHours(), from.getMinutes() + 1));
+export function nextCronFire(cron: Cron, after: number, zone?: string): number | null {
+  const wall = new Date(wallOf(after, zone) + 60_000);
   const everyHour = cron.hour.size === 24;
   for (let steps = 0; steps < SEARCH_MINUTES; ) {
     if (!cron.month.has(wall.getUTCMonth() + 1)) {
@@ -177,7 +179,7 @@ export function nextCronFire(cron: Cron, after: number): number | null {
     if (cron.minute.has(wall.getUTCMinutes())) {
       // Strictly after: in the hour that repeats, a reading `after` has already passed through lands
       // on its first pass, behind `after`, and the walk moves on.
-      const at = localInstant(wall, everyHour);
+      const at = localInstant(wall.getTime(), everyHour, zone);
       if (at !== null && at > after) return at;
     }
     wall.setUTCMinutes(wall.getUTCMinutes() + 1);
@@ -186,8 +188,41 @@ export function nextCronFire(cron: Cron, after: number): number | null {
   return null;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const wallReaders = new Map<string, Intl.DateTimeFormat>();
+
+/** The minute the clock in `zone` (local when left out) shows at `ts`, spelled as the UTC instant with
+ *  the same fields, so it can be stepped through without the zone's skipped and repeated minutes. */
+function wallOf(ts: number, zone: string | undefined): number {
+  if (zone === undefined) {
+    const d = new Date(ts);
+    return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes());
+  }
+  let reader = wallReaders.get(zone);
+  if (!reader) {
+    reader = new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23",
+      year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" });
+    wallReaders.set(zone, reader);
+  }
+  const f: Partial<Record<Intl.DateTimeFormatPartTypes, number>> = {};
+  for (const part of reader.formatToParts(ts)) if (part.type !== "literal") f[part.type] = Number(part.value);
+  return Date.UTC(f.year!, f.month! - 1, f.day!, f.hour!, f.minute!);
+}
+
+/** The earliest instant at which the clock in `zone` reads `wall`, or null for a minute it skips.
+ *  The offsets a day either side are the candidates: a zone changes its offset at most once in that
+ *  span, and in the hour that repeats both readings match and the earlier pass wins. */
+function instantOn(wall: number, zone: string | undefined): number | null {
+  let first: number | null = null;
+  for (const probe of [wall - DAY_MS, wall, wall + DAY_MS]) {
+    const t = wall - (wallOf(probe, zone) - probe);
+    if (wallOf(t, zone) === wall && (first === null || t < first)) first = t;
+  }
+  return first;
+}
+
 /**
- * The instant a wall-clock minute (read off `wall`'s UTC fields) names on the local clock.
+ * The instant a wall-clock minute names on the clock in `zone`.
  *
  * In the hour that repeats when the clocks go back, its first pass, so each reading fires once. In the
  * hour the clocks skip, the first minute after the gap: a daily 02:30 runs at 03:00 that day rather
@@ -195,15 +230,27 @@ export function nextCronFire(cron: Cron, after: number): number | null {
  * schedule that runs every hour is the exception — its skipped minute is null, because the next hour
  * is its next run anyway, and firing at 03:00 as well would run it twice in thirty minutes.
  */
-function localInstant(wall: Date, everyHour: boolean): number | null {
-  const [y, mo, d, h, mi] = [wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate(), wall.getUTCHours(), wall.getUTCMinutes()];
+function localInstant(wall: number, everyHour: boolean, zone: string | undefined): number | null {
   for (let late = 0; late < 24 * 60; late++) {
-    const t = new Date(y, mo, d, h, mi + late);
-    const reads = Date.UTC(t.getFullYear(), t.getMonth(), t.getDate(), t.getHours(), t.getMinutes());
-    if (reads === Date.UTC(y, mo, d, h, mi + late)) return late === 0 || !everyHour ? t.getTime() : null;
+    const t = instantOn(wall + late * 60_000, zone);
+    if (t !== null) return late === 0 || !everyHour ? t : null;
   }
   return null;
 }
+
+/**
+ * Which occurrence `ts` is on the clock in `zone`: its wall-clock minute, `2026-11-08T09:00`.
+ *
+ * A schedule records the slot it last fired, and the slot rather than the instant is what "already
+ * ran" means. On the day the Mac moves from Central to Pacific, 09:00 Central and 09:00 Pacific are two
+ * hours apart and the same morning's nine o'clock; compared as text, a later slot sorts later.
+ */
+export function slotOf(ts: number, zone: string): string {
+  return new Date(wallOf(ts, zone)).toISOString().slice(0, 16);
+}
+
+/** The zone the Mac is in now, as the process reads it. */
+export const machineZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 /* ────────────────────────────── once ────────────────────────────── */
 
@@ -311,11 +358,11 @@ export function momentInputValue(ms: number): string {
  * nextFireOf(now)` immediately after firing, and an inclusive comparison here would hand back the
  * moment that just fired and run it again on the next tick.
  */
-export function nextFireOf(expr: string, after: number): number | null {
+export function nextFireOf(expr: string, after: number, zone?: string): number | null {
   const once = parseOnce(expr);
   if (once !== null) return once > after ? once : null;
   const cron = parseCron(expr);
-  return cron ? nextCronFire(cron, after) : null;
+  return cron ? nextCronFire(cron, after, zone) : null;
 }
 
 /**
@@ -452,7 +499,8 @@ export const ScheduleSchema = z.object({
   /** What the agent is asked to do — the run's `goal`, verbatim. */
   goal: z.string(),
   /** A 5-field cron expression in the MACHINE's local zone. Local rather than UTC because the person
-   *  who wrote "every day at 9" meant nine o'clock where they are, and this app runs on their Mac. */
+   *  who wrote "every day at 9" meant nine o'clock where they are, and this app runs on their Mac. The
+   *  row keeps the zone its next firing was computed in, and moves with the Mac (`SchedulesStore`). */
   cron: z.string(),
   enabled: z.boolean(),
   /** Narrowing for the runs this creates. Same schema a run takes, so a schedule can never ask for
