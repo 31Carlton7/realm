@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.16.0 - 2026-11-16
+
+Realm spends less of your plan and waits less.
+
+### Desktop
+
+- Teammate chats stay small. A teammate's home chat now compacts at about 250K instead of near the top of the model's window, so each wake-up, clock run and teammate message reloads far less. After a compaction the chat is reminded of the tasks it started that are still open.
+- Clocks survive a timezone change. Moving your Mac to another timezone no longer fires every clock a second time, and editing a clock or renaming a teammate can no longer re-run a slot that already ran.
+- Recaps wait until a session is idle. A session's recap is now written once it has been quiet for ten minutes or is put away, not after every turn. The trade: the hint in the prompter that a model writes, and the fuller Inbox line, now arrive after that quiet spell, and Realm's own hint shows until then.
+- A sub-agent that runs out of time hands back its work. It is asked for its report first, and the session that started it gets that report and the files it changed instead of its last line.
+- A dead browser pane fails at once. Once a page has stopped answering, the rest of a batch fails with the reason instead of waiting a minute for each step, and a page that crashed reloads itself.
+- The empty session's picture also holds still while the window is resized.
+- The commands, mentions, skills and add-agent lists stay below the top of their pane in a short window.
+
+### Realm for iPhone
+
+- Realm's own menus for +, Mode, More and the profile switcher. Mode puts its modes and its permissions in two labelled groups, and the profile switcher is the whole title.
+
 ## v2.15.1 - 2026-11-16
 
 - Resizing the window no longer stutters with a picture behind a chat. The picture holds still while you drag and is drawn again once the size settles.
