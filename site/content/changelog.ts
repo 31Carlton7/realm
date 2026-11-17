@@ -21,6 +21,27 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-17-0",
+    title: "Realm v2.17.0",
+    date: "2026-11-17",
+    version: "v2.17.0",
+    area: "Release",
+    summary:
+      "Backgrounds can move: a loop plays on the empty session and behind the chat, you can add your own, and sixteen new backgrounds made for Realm arrive, eight of them moving.",
+    short: "Backgrounds can move",
+    body: [
+      { kind: "p", text: "Backgrounds can move." },
+      { kind: "h", text: "Desktop" },
+      { kind: "ul", items: [
+        "**A background can be a loop as well as a picture.** It plays on the empty session and behind the chat, with the same readability rules on every frame, in light and dark, and the loop point is dissolved so it does not tick.",
+        "**Add your own loop.** In Settings, Appearance, Background, you can add an MP4, MOV, WebM or GIF the same way you add a picture.",
+        "**A loop holds still when it should:** under Reduce motion, Low power and the Mac's Low Power Mode, and whenever the window is hidden or covered, its display is asleep or the screen is locked. The Motion switch in Settings, Appearance is now on unless you turned it off.",
+        "**Sixteen new backgrounds, each with a light and a dark take.** Eight move: Sunlit Reef, Abyss Glow, Summer Crossing, Lantern Market, Nebula Crossing, Snow Cabin, Synth Coast and Moon Guardian. Eight are pictures: Rooftop Dusk, Mech at Dawn, Wandering Blade, Ringed Giant, Golden Skyline, Rain Boulevard, Sky Canyon and Sky Islands.",
+        "**A session you have read stays read when its recap lands.** In 2.16.0 the recap, written after a quiet spell, brought back the unread dot, and the phone's \"Done\".",
+      ] },
+    ],
+  },
+  {
     slug: "v2-16-0",
     title: "Realm v2.16.0",
     date: "2026-11-16",
