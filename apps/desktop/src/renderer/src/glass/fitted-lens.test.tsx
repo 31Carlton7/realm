@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bendAt, bezelField } from "./bezel-lens";
-import { fitLens, lensCache } from "./fitted-lens";
+import { fitControls, fitLens, lensCache } from "./fitted-lens";
 
 /** A box jsdom can measure: its size, its corner and its lens tokens. */
-function box(width: number, height: number, { radius = 12, bezel = 16, bend = 12, frost = 10 } = {}) {
+function box(width: number, height: number, { radius = 12, bezel = 16, bend = 12, frost = 10, ground = 0.95 } = {}) {
   const el = document.createElement("div");
   Object.defineProperty(el, "offsetWidth", { configurable: true, get: () => width });
   Object.defineProperty(el, "offsetHeight", { configurable: true, get: () => height });
@@ -13,6 +13,7 @@ function box(width: number, height: number, { radius = 12, bezel = 16, bend = 12
   el.style.setProperty("--glass-bezel", `${bezel}px`);
   el.style.setProperty("--glass-bend", `${bend}px`);
   el.style.setProperty("--glass-frost-px", `${frost}px`);
+  el.style.setProperty("--glass-ground-share", String(ground));
   document.body.append(el);
   return {
     el,
@@ -33,6 +34,7 @@ const lensOf = (el: HTMLElement) => /^url\(#(.+)\)$/.exec(el.style.getPropertyVa
 
 afterEach(() => {
   vi.restoreAllMocks();
+  window.devicePixelRatio = 1;
   vi.unstubAllGlobals();
   observers = [];
   document.body.innerHTML = "";
@@ -94,17 +96,22 @@ describe("a fitted lens", () => {
     // A backdrop filter's result is laid OVER the backdrop: frosting a see-through pane without a
     // ground left the words behind sharp under a faint haze.
     canvasStub();
-    const a = box(320, 480);
+    const a = box(320, 480, { ground: 0.6 });
     const stop = fitLens(a.el);
     const filter = document.getElementById(lensOf(a.el)!)!;
     const steps = [...filter.children].map((n) => n.tagName);
-    expect(steps).toEqual(["feFlood", "feComposite", "feGaussianBlur", "feImage", "feDisplacementMap"]);
+    expect(steps).toEqual(["feFlood", "feComposite", "feGaussianBlur", "feImage", "feDisplacementMap", "feComposite"]);
     expect(filter.querySelector("feFlood")!.getAttribute("style")).toContain("var(--glass-ground)");
+    expect(filter.querySelector("feFlood")!.getAttribute("style")).toContain("flood-opacity: 0.6");
     const over = filter.querySelector("feComposite")!;
     expect([over.getAttribute("in"), over.getAttribute("in2"), over.getAttribute("operator")]).toEqual(["SourceGraphic", "ground", "over"]);
     const frost = filter.querySelector("feGaussianBlur")!;
     expect([frost.getAttribute("in"), frost.getAttribute("stdDeviation")]).toEqual([over.getAttribute("result"), "10"]);
     expect(filter.querySelector("feDisplacementMap")!.getAttribute("in")).toBe(frost.getAttribute("result"));
+    // The blur and the bend read clear backdrop past the box's edge; the result goes over the ground
+    // again, or the words show through its rim sharp.
+    const sealed = filter.lastElementChild!;
+    expect([sealed.getAttribute("in"), sealed.getAttribute("in2"), sealed.getAttribute("operator")]).toEqual([filter.querySelector("feDisplacementMap")!.getAttribute("result"), "ground", "over"]);
     stop();
   });
 
@@ -149,6 +156,120 @@ describe("a fitted lens", () => {
     const empty = box(0, 0);
     fitLens(empty.el);
     expect(empty.el.style.getPropertyValue("--glass-lens")).toBe("");
+  });
+});
+
+describe("a fitted lens on a dense screen", () => {
+  it("frosts in CSS px: the blur, which Chromium reads in device px, is scaled by the density", () => {
+    canvasStub();
+    window.devicePixelRatio = 2;
+    const a = box(320, 480, { frost: 10 });
+    const stop = fitLens(a.el);
+    const filter = document.getElementById(lensOf(a.el)!)!;
+    expect(filter.querySelector("feGaussianBlur")!.getAttribute("stdDeviation")).toBe("20");
+    // The bend and the region are CSS px already.
+    expect(filter.querySelector("feDisplacementMap")!.getAttribute("scale")).toBe("24");
+    expect(filter.getAttribute("width")).toBe("320");
+    stop();
+  });
+
+  it("is a different filter at another density", () => {
+    canvasStub();
+    const a = box(320, 480);
+    const stopA = fitLens(a.el);
+    window.devicePixelRatio = 2;
+    const b = box(320, 480);
+    const stopB = fitLens(b.el);
+    expect(lensOf(a.el)).not.toBe(lensOf(b.el));
+    stopA(); stopB();
+  });
+});
+
+describe("a fitted lens over its own track", () => {
+  it("floods no ground where the surface asks for none, so the frost and bend read the track itself", () => {
+    canvasStub();
+    const seg = box(60, 22, { frost: 1, ground: 0 });
+    const stop = fitLens(seg.el);
+    const filter = document.getElementById(lensOf(seg.el)!)!;
+    expect([...filter.children].map((n) => n.tagName)).toEqual(["feGaussianBlur", "feImage", "feDisplacementMap"]);
+    expect(filter.querySelector("feGaussianBlur")!.getAttribute("in")).toBe("SourceGraphic");
+    stop();
+  });
+
+  it("is fitted to a pseudo-element's box when it is one (a switch's knob)", () => {
+    canvasStub();
+    const sw = box(34, 20, { frost: 0, ground: 0, radius: 999 });
+    const real = window.getComputedStyle;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+      const cs = real(el);
+      if (pseudo !== "::after") return cs;
+      return { ...cs, width: "16px", height: "16px", borderTopLeftRadius: "50%", getPropertyValue: cs.getPropertyValue.bind(cs) } as CSSStyleDeclaration;
+    });
+    const stop = fitLens(sw.el, "::after");
+    const filter = document.getElementById(lensOf(sw.el)!)!;
+    expect([filter.getAttribute("width"), filter.getAttribute("height")]).toEqual(["16", "16"]);
+    stop();
+  });
+
+  it("is refitted when the face changes, since its tokens are per mode", () => {
+    canvasStub();
+    const a = box(320, 480, { frost: 10 });
+    const stop = fitLens(a.el);
+    const before = lensOf(a.el);
+    a.el.style.setProperty("--glass-frost-px", "6px");
+    document.documentElement.setAttribute("data-mode", "light");
+    return Promise.resolve().then(() => {
+      expect(lensOf(a.el)).not.toBe(before);
+      expect(document.getElementById(lensOf(a.el)!)!.querySelector("feGaussianBlur")!.getAttribute("stdDeviation")).toBe("6");
+      stop();
+      document.documentElement.removeAttribute("data-mode");
+    });
+  });
+});
+
+describe("the pressed controls, fitted from one place", () => {
+  const frame = () => new Promise((res) => requestAnimationFrame(() => res(null)));
+  function segment(selected: boolean) {
+    const { el } = box(60, 22, { frost: 1, ground: 0 });
+    el.className = "seg-opt";
+    el.toggleAttribute("data-selected", selected);
+    return el;
+  }
+
+  it("follows the selection: the chosen segment wears a lens, the one left does not", async () => {
+    canvasStub();
+    const a = segment(true);
+    const b = segment(false);
+    const stop = fitControls([{ selector: ".seg-opt[data-selected]" }]);
+    expect(lensOf(a)).not.toBeNull();
+    expect(lensOf(b)).toBeNull();
+    a.removeAttribute("data-selected");
+    b.setAttribute("data-selected", "");
+    await frame();
+    expect(lensOf(a)).toBeNull();
+    expect(lensOf(b)).not.toBeNull();
+    stop();
+    expect(lensOf(b)).toBeNull();
+    expect(lensCache.filters()).toBe(0);
+  });
+
+  it("fits a control that arrives later, lets one that leaves go, and never passes over streamed text", async () => {
+    canvasStub();
+    const stop = fitControls([{ selector: ".seg-opt[data-selected]" }]);
+    const pass = vi.spyOn(document, "querySelectorAll");
+    const para = document.createElement("p");
+    document.body.append(para);
+    await frame();
+    para.append(document.createTextNode("a streamed token"));
+    await frame();
+    expect(pass).not.toHaveBeenCalled();
+    const later = segment(true);
+    await frame();
+    expect(lensOf(later)).not.toBeNull();
+    later.remove();
+    await frame();
+    expect(lensCache.filters()).toBe(0);
+    stop();
   });
 });
 

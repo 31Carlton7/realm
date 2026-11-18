@@ -6714,8 +6714,8 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    no face and the backdrop is the picture's canvas. The editor, the caret and the bars stay ordinary
    children above it. Under the painter its corner is the circle of half the curve, which the
    superellipse holds, so the glass never reaches past the card. No lift under it: a shadow round glass
-   reads as a slab. The lens itself is named inline by PrompterGlass (`--glass-lens`), only once its
-   map exists. */
+   reads as a slab. The lens is fitted to the card (glass/fitted-lens.ts reads the prompter's bezel,
+   bend and frost here and names its filter as `--glass-lens`); until it exists the CSS frost stands in. */
 .composer-glass { position: absolute; inset: 0; z-index: -1; pointer-events: none;
   border-radius: inherit; corner-shape: inherit; }
 .composer-glass > svg { position: absolute; width: 0; height: 0; }
@@ -6724,9 +6724,11 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .composer[data-look="glass"]::before { display: none; }
 :root[data-squircle] .composer[data-look="glass"]::after { z-index: -2; }
 :root[data-glass] .composer-glass {
-  backdrop-filter: var(--glass-lens) blur(var(--glass-blur)) saturate(var(--glass-saturate)); box-shadow: var(--glass-rim); }
-/* Over a picture the glass is the picture's ground: the lens, then the slight blur and the dim. */
-:root[data-glass] .session-pane:has(> .hero-backdrop) .composer-glass { backdrop-filter: var(--glass-lens) var(--glass-frost); }
+  --glass-bezel: var(--glass-prompter-bezel); --glass-bend: var(--glass-prompter-bend); --glass-frost-px: var(--glass-blur);
+  backdrop-filter: var(--glass-lens, blur(var(--glass-blur))) saturate(var(--glass-saturate)); }
+/* Over a picture the glass is the picture's ground: the lens with its slight frost, then the dim. */
+:root[data-glass] .session-pane:has(> .hero-backdrop) .composer-glass { backdrop-filter: var(--glass-lens, blur(var(--glass-blur))) var(--glass-tone); }
+:root[data-glass][data-clear-over-picture] .composer-glass { --glass-frost-px: 0px; }
 /* ⌘K's lift, the same way. This is the square at the palette's corners: its `box-shadow` (four
    layers, one of them a ring) drew from the border box, which under the painted regime is a
    RECTANGLE with no radius at all — so a hard-cornered halo sat over the curve the worklet had
@@ -7097,35 +7099,47 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    selected segment of a segmented control, and a switch's knob. A page of settings, a sheet, the
    transcript and the sidebar stay plain: they are read, and glass there would only cost contrast.
 
-   Each is a lens from the shared set (glass/GlassDefs.tsx), a slight blur and the highlight
-   (`--glass-rim`). Over a picture nothing of ours is laid on it: no surface, no shadow, only the
-   picture's own dim, so Synth Coast's purple stays purple (11-17). A picker off a picture keeps most
-   of its surface, because what is behind it there is text and the window's material. */
-.glass-defs { position: absolute; width: 0; height: 0; }
+   Each wears a lens fitted to its own box (glass/fitted-lens.ts reads `--glass-bezel`, `--glass-bend`,
+   `--glass-frost-px` and `--glass-ground-share` on it and names the filter it drew as `--glass-lens`):
+   a convex bezel that bends the backdrop hard at the rim and leaves the face flat, a frost, and a
+   lit rim. Until the filter exists the CSS frost stands in. Over a picture nothing of ours is laid on
+   it: no surface, no shadow, only the picture's own dim, so Synth Coast's purple stays purple (11-17). */
+/* The rim is light caught by the bezel, brightest where it faces the light (top left) and again where
+   it leaves (bottom right), as macOS 26 draws it all the way round: a ring of the specular light,
+   masked to the box's edge so it follows the corner. A knob is a pseudo-element already, so it takes
+   the same two sides as inset light (`--glass-rim`). */
+:root[data-glass] :is(.composer-glass, .model-picker, .mention-picker, .skill-picker, .selection-bar, .documents-modes button[aria-pressed="true"], .seg-opt[data-selected], .settings-tabs > .settings-tab[data-selected], .mp-seg-opt[aria-pressed="true"])::before {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit;
+  padding: var(--glass-rim-w); background: var(--glass-specular);
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
 :root[data-glass] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--glass-frost); }
-/* A picker wears a lens fitted to its own box (glass/fitted-lens.ts reads `--glass-bezel`,
-   `--glass-bend` and `--glass-frost-px` here and names the filter it drew as `--glass-lens`). The
-   frost is in that filter, over the pane's ground, so the words behind it soften rather than reading
-   through; until the filter exists the CSS frost stands in. Off a picture it lays no surface of its
-   own, since the flood is the pane's ground already; over one, only the picture's own dim. */
+/* A picker over a pane of words floods the pane's ground under them before it frosts, so they soften
+   rather than reading through; over a picture the canvas is opaque already and the flood changes
+   nothing. It lays no surface of its own either way. */
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker, .selection-bar) {
   --glass-bezel: var(--glass-panel-bezel); --glass-bend: var(--glass-panel-bend); --glass-frost-px: var(--glass-panel-blur);
+  --glass-ground-share: var(--glass-panel-ground);
   background: none;
   backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate));
-  box-shadow: var(--glass-panel-rim), var(--shadow-raised); }
+  box-shadow: var(--shadow-raised); }
+/* Over a picture its quiet words take a step toward the secondary ink, as the prompter's do when it
+   thins: the frost is the picture's own colour, and in light the specs line stood at 2.95:1 on it. */
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] {
-  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--picture-tone);
-  box-shadow: var(--glass-panel-rim); }
+  --rl-text-faint: color-mix(in oklab, var(--ink-2) 50%, var(--ink-3));
+  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--picture-tone) var(--glass-panel-tone);
+  box-shadow: none; }
 /* The selected segment is a bead of glass on its track: it bends the track's edge under it and
    carries the highlight. The track stays the plain well it was. The settings rail's tabs are
    navigation, not a choice between values, and keep their fill. */
 :root[data-glass] :is(.documents-modes button[aria-pressed="true"], .seg-opt[data-selected], .settings-tabs > .settings-tab[data-selected], .mp-seg-opt[aria-pressed="true"]) {
-  background: var(--glass-bead); box-shadow: var(--glass-rim);
-  backdrop-filter: url(#rl-glass-pill) saturate(var(--glass-saturate)); }
+  --glass-bezel: var(--glass-control-bezel); --glass-bend: var(--glass-control-bend); --glass-frost-px: var(--glass-control-blur);
+  position: relative; background: var(--glass-bead); box-shadow: none;
+  backdrop-filter: var(--glass-lens, saturate(1)) saturate(var(--glass-saturate)); }
 /* A switch's knob is a drop of glass over its track: lit, it bends the accent and carries it. */
+:root[data-glass] .switch { --glass-bezel: var(--glass-control-bezel); --glass-bend: var(--glass-control-bend); --glass-frost-px: 0px; }
 :root[data-glass] .switch::after {
   background: var(--glass-knob); box-shadow: var(--glass-rim), 0 1px 2px #0000003d;
-  backdrop-filter: url(#rl-glass-bead) saturate(var(--glass-saturate)); }
+  backdrop-filter: var(--glass-lens, saturate(1)) saturate(var(--glass-saturate)); }
 :root[data-squircle] .install-card {
   --sq-fill: var(--rl-raised); --sq-ring: var(--line); --sq-ring-w: var(--hairline-w);
   box-shadow: var(--rl-shadow);

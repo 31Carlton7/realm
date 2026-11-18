@@ -11,10 +11,9 @@ import { SettingsPage } from "../panes/settings/SettingsPage";
 import { QuickChat } from "../components/QuickChat";
 import { useAnchoredPopover } from "../components/use-anchored-popover";
 import { PrompterGlass } from "./PrompterGlass";
-import { GlassRoot, SHARED_LENSES, sharedLensId } from "./GlassDefs";
+import { GLASS_CONTROLS, GlassRoot } from "./GlassDefs";
 import { reduceAll } from "../panes/session/transcript-model";
 import { LOOK_SETTING, PLAIN_REASON_TEXT, plainReason, shownLook, type GlassConditions } from "./look";
-import { PROMPTER_LENS, type GlassLens } from "./lens";
 
 function repoFile(rel: string): string {
   let dir = process.cwd();
@@ -220,6 +219,8 @@ describe("the tint under the glass", () => {
   it("is the card's own face, which the glass rules never thin or remove", () => {
     expect(glassRules.length).toBeGreaterThan(0);
     for (const { sel, body } of glassRules) {
+      // The rim's ring is drawn over the face, not in place of it.
+      if (sel.endsWith(")::before")) continue;
       // THE mutants: glass clearing the face's fill, or hiding the face it bends.
       expect(body, sel).not.toMatch(/--sq-fill|background|--prompter-alpha|opacity/);
       if (sel.includes("::after")) expect(body, sel).not.toMatch(/display:\s*none/);
@@ -267,75 +268,18 @@ describe("what you type into stays as it was", () => {
   });
 });
 
-describe("the filter", () => {
-  const lens = (drawn: boolean): GlassLens => ({
-    name: "test",
-    primitives: () => (drawn ? [{ tag: "feGaussianBlur", props: { stdDeviation: 1 } }] : null),
+describe("the prompter's lens", () => {
+  it("is fitted to the card with the prompter's own bezel, bend and frost", () => {
+    const rule = cssRules.find((r) => r.sel === ":root[data-glass] .composer-glass")!;
+    expect(rule.body).toMatch(/--glass-bezel:\s*var\(--glass-prompter-bezel\)/);
+    expect(rule.body).toMatch(/--glass-bend:\s*var\(--glass-prompter-bend\)/);
+    expect(rule.body).toMatch(/--glass-frost-px:\s*var\(--glass-blur\)/);
+    expect(rule.body).toMatch(/backdrop-filter:\s*var\(--glass-lens, blur\(var\(--glass-blur\)\)\)/);
+    const src = readFileSync(join(__dirname, "PrompterGlass.tsx"), "utf8");
+    expect(src).toMatch(/useFittedLens\(ref, true\)/);
   });
-  const sized = () => {
-    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(400);
-    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(120);
-  };
-  const filterOf = (el: Element) => (el as HTMLElement).style.getPropertyValue("--glass-lens");
-
-  afterEach(() => vi.restoreAllMocks());
-
-  it("is not set before its map exists, so the layer stays an empty box", () => {
-    render(<PrompterGlass lens={lens(true)} />);
-    expect(filterOf(glassLayer()!)).toBe("");
-    cleanup();
-
-    sized();
-    render(<PrompterGlass lens={lens(false)} />);
-    expect(filterOf(glassLayer()!)).toBe("");
-    expect(glassLayer()!.querySelector("filter")).toBeNull();
-  });
-
-  it("names the map it drew once it exists", () => {
-    sized();
-    render(<PrompterGlass lens={lens(true)} />);
-    const id = glassLayer()!.querySelector("filter")!.id;
-    expect(filterOf(glassLayer()!)).toBe(`url(#${id})`);
-  });
-});
-
-describe("the lens", () => {
-  /** A 2D canvas that keeps the last picture put on it, which jsdom does not have. */
-  function fakeCanvas() {
-    const shots: ImageData[] = [];
-    const ctx = {
-      createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
-      putImageData: (img: ImageData) => { shots.push({ ...img, data: new Uint8ClampedArray(img.data) } as ImageData); },
-    };
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
-    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(() => `data:image/png;base64,${shots.length}`);
-    return shots;
-  }
-  const px = (img: ImageData, x: number, y: number) => {
-    const i = (Math.floor(y) * img.width + Math.floor(x)) * 4;
-    return [...img.data.slice(i, i + 4)];
-  };
-  const shape = { width: 400, height: 120, radius: 18 };
-
-  afterEach(() => vi.restoreAllMocks());
-
-  it("samasante: leaves the middle alone and pulls the rim inward, with no light channel", () => {
-    const shots = fakeCanvas();
-    const graph = PROMPTER_LENS.primitives(shape)!;
-    const map = shots.at(-1)!;
-    // Neutral is 127.5, which a byte cannot hold, so the middle rounds to either side of it.
-    for (const c of px(map, map.width / 2, map.height / 2).slice(0, 2)) expect(Math.abs(c - 127.5)).toBeLessThanOrEqual(0.5);
-    // Left rim, half way down: R above neutral samples to the right, into the card.
-    expect(px(map, 6, map.height / 2)[0]).toBeGreaterThan(140);
-    expect(px(map, map.width - 7, map.height / 2)[0]).toBeLessThan(116);
-    // Blue carries the package's sheen; Realm draws none.
-    expect(new Set(Array.from({ length: map.width }, (_, x) => px(map, x, 3)[2]))).toEqual(new Set([128]));
-    expect(graph.filter((p) => p.tag === "feDisplacementMap")).toHaveLength(1);
-  });
-
-  it("draws nothing where there is no canvas, so the layer stays an empty box", () => {
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-    expect(PROMPTER_LENS.primitives(shape)).toBeNull();
+  it("frosts nothing when the picture is to be seen clear", () => {
+    expect(cssRules.some((r) => r.sel === ":root[data-glass][data-clear-over-picture] .composer-glass" && /--glass-frost-px:\s*0px/.test(r.body))).toBe(true);
   });
 });
 
@@ -383,30 +327,39 @@ describe("one look for the whole app", () => {
     expect(root().hasAttribute("data-glass")).toBe(false);
   });
 
-  it("draws the shared lenses once, each in its element's own box, and only while glass is on", async () => {
+  it("fits a lens to each pressed control while glass is on, and takes them all away with it", async () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
       createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
       putImageData: () => {},
     } as unknown as CanvasRenderingContext2D);
     vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,map");
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(60);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(22);
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const seg = document.createElement("label");
+    seg.className = "seg-opt"; seg.setAttribute("data-selected", "");
+    seg.style.setProperty("--glass-bezel", "6px"); seg.style.setProperty("--glass-bend", "4px");
+    document.body.append(seg);
     chromium();
     const store = await mountRoot({ [LOOK_SETTING]: "glass" });
-    for (const name of Object.keys(SHARED_LENSES) as (keyof typeof SHARED_LENSES)[]) {
-      const f = document.getElementById(sharedLensId(name))!;
-      expect(f.tagName.toLowerCase(), name).toBe("filter");
-      expect(f.getAttribute("primitiveUnits")).toBe("objectBoundingBox");
-      expect(f.querySelector("feDisplacementMap")?.getAttribute("scale")).toBe(String(SHARED_LENSES[name].scale));
-    }
+    expect(seg.style.getPropertyValue("--glass-lens")).toMatch(/^url\(#rl-lens-60x22/);
     await act(async () => { await store.getState().setLook("plain"); });
-    expect(document.getElementById(sharedLensId("pill"))).toBeNull();
+    expect(seg.style.getPropertyValue("--glass-lens")).toBe("");
+    expect(document.querySelectorAll(".glass-defs filter")).toHaveLength(0);
+    seg.remove();
     vi.restoreAllMocks();
   });
 
-  it("names, in the stylesheet, only lenses that GlassDefs draws", () => {
-    const named = new Set([...stylesCss.matchAll(/url\(#(rl-glass-[a-z]+)\)/g)].map((m) => m[1]));
-    expect(named.size).toBeGreaterThan(0);
-    const drawn = new Set(Object.keys(SHARED_LENSES).map((n) => sharedLensId(n as keyof typeof SHARED_LENSES)));
-    for (const id of named) expect(drawn, id).toContain(id);
+  it("names no lens by id in the stylesheet: every one is fitted and named on its surface", () => {
+    expect(stylesCss).not.toMatch(/url\(#rl-/);
+    const fittedRules = cssRules.filter((r) => r.sel.startsWith(":root[data-glass] ") && /backdrop-filter:/.test(r.body) && !/composer-(goal|todos|overstrip|understrip)/.test(r.sel));
+    for (const r of fittedRules) expect(r.body, r.sel).toMatch(/backdrop-filter:\s*var\(--glass-lens, /);
+  });
+
+  it("fits the segments and the switch's knob, the knob on its own box", () => {
+    expect(GLASS_CONTROLS.find((c) => c.selector === ".switch")?.pseudo).toBe("::after");
+    for (const seg of ['.documents-modes button[aria-pressed="true"]', ".seg-opt[data-selected]", '.mp-seg-opt[aria-pressed="true"]'])
+      expect(GLASS_CONTROLS.some((c) => c.selector.includes(seg)), seg).toBe(true);
   });
 });
 
@@ -427,7 +380,7 @@ describe("what goes on glass, and what stays plain", () => {
 });
 
 describe("a picker's glass", () => {
-  const pickerRules = () => cssRules.filter((r) => r.sel.startsWith(":root[data-glass]") && /\.model-picker/.test(r.sel));
+  const pickerRules = () => cssRules.filter((r) => r.sel.startsWith(":root[data-glass]") && /\.model-picker/.test(r.sel) && !r.sel.endsWith("::before"));
   it("wears its fitted lens, with a CSS frost only until the lens exists", () => {
     const rules = pickerRules();
     expect(rules.length).toBeGreaterThan(0);
@@ -441,6 +394,10 @@ describe("a picker's glass", () => {
 });
 
 describe("a picker over a picture", () => {
+  it("steps its quiet words toward the secondary ink, so they hold 3:1 on the picture's frost", () => {
+    const rule = cssRules.find((r) => r.sel.startsWith(":root[data-glass] :is(.model-picker") && r.sel.endsWith("[data-over-picture]"))!;
+    expect(rule.body).toMatch(/--rl-text-faint:\s*color-mix\(in oklab, var\(--ink-2\) 50%, var\(--ink-3\)\)/);
+  });
   function Picker({ inPicture }: { inPicture: boolean }) {
     const anchorRef = useRef<HTMLButtonElement>(null);
     const ref = useRef<HTMLDivElement>(null);
