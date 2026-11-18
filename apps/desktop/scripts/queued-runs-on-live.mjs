@@ -2,12 +2,16 @@
  * Live check for what a queued message runs on (run with: node apps/desktop/scripts/queued-runs-on-live.mjs).
  *
  * Boots the BUILT app on a scratch REALM_HOME with the scripted agent standing in for Claude, so the
- * picker names real models and nothing is billed. A long turn runs; four messages queue behind it,
- * the picker moved between them: one on another model, one on another level, one on both, and one on
- * what the session is set to at the end. Each state is photographed dark and light, plain and Glass,
- * at a normal window and a narrow one, into LIVE_SHOT_DIR: "before" with the new line hidden (the row
- * as it was drawn until now), "after" as it is, a row being edited, and the queue after the first
- * message is sent early, which puts its model back on the session.
+ * picker names real models and nothing is billed. A long turn runs on Opus 5.5 · Medium. The picker
+ * moves to Sonnet and a message is queued, which names Sonnet: what the picker says, but not what is
+ * running. Three more queue behind it with the picker moved between them — another level, another
+ * model and level, and one on what the turn runs on, which says nothing — and the picker ends where the
+ * turn is. Then the first is sent early (the session goes to Sonnet), stopped (the picker comes back
+ * to Opus), and the rest drain on their own, leaving the picker on Opus.
+ *
+ * Each state is photographed into LIVE_SHOT_DIR, the main ones dark and light, plain and Glass, at a
+ * normal window and a narrow one: "before" with the new line hidden (the row as it was drawn until
+ * now) and "after" as it is.
  *
  * Ports: LIVE_CDP_PORT / LIVE_SERVER_PORT, defaulting to a pair a running Realm does not use. Touches
  * only its scratch dir; reaps what it started by port.
@@ -102,12 +106,14 @@ const MESSAGES = [
   "Then update the changelog with both fixes, in the voice the last three entries use.",
   "And open a draft PR when it is all green.",
 ];
-/** What the picker is set to as each message is queued; the last is where the session ends up. */
+/** What the long turn goes out on, and what the picker is set to as each message is queued; the
+ *  last is the turn's own, so the picker ends where the turn is. */
+const TURN_ON = { model: "claude-opus-5-5", effort: "medium" };
 const QUEUED_ON = [
-  { model: "claude-opus-5-5", effort: "medium" },
-  { model: "claude-sonnet-5-5", effort: "high" },
-  { model: "claude-opus-5-5", effort: "xhigh" },
   { model: "claude-sonnet-5-5", effort: "medium" },
+  { model: "claude-opus-5-5", effort: "high" },
+  { model: "claude-sonnet-5-5", effort: "xhigh" },
+  TURN_ON,
 ];
 
 async function main() {
@@ -163,7 +169,7 @@ async function main() {
   await api.ready;
   const session = await until(async () => (await api.call("sessions.listAll", {}))[0] ?? null, 15000, "a session");
   await api.call("sessions.setAgent", { id: session.id, agentKind: "claude" });
-  await api.call("sessions.setOptions", { id: session.id, ...QUEUED_ON[3] });
+  await api.call("sessions.setOptions", { id: session.id, ...TURN_ON });
   await api.call("sessions.send", { id: session.id, text: LONG_TURN });
   await until(() => evalIn(c, `!!document.querySelector('.composer-send[data-state="stop"]')`), 15000, "the long turn running");
 
@@ -221,20 +227,41 @@ async function main() {
     return { sendRight: Math.round(send.right), sendWidth: Math.round(send.width), textWidth: Math.round(text.width),
       labelCut: label ? label.firstElementChild.scrollWidth > label.firstElementChild.clientWidth : null }; })`);
 
-  for (const [i, text] of MESSAGES.entries()) {
-    await api.call("sessions.setOptions", { id: session.id, ...QUEUED_ON[i] });
-    await api.call("sessions.send", { id: session.id, text, delivery: "queue" });
+  const chip = () => evalIn(c, `document.querySelector('.model-chip')?.textContent ?? ""`);
+  /* The person moves the picker in this window, which takes the server's answer as its own; moved
+     from here instead, the window is asked to read its sessions again (an unchanged title is enough
+     for `items.changed`), and the chip is waited for before anything is read. */
+  const [item] = (await api.call("items.list", { spaceId: session.spaceId })).filter((it) => it.refId === session.id);
+  const LABELS = { "claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5" };
+  const pick = async (o) => {
+    await api.call("sessions.setOptions", { id: session.id, ...o });
+    await api.call("items.update", { id: item.id, title: item.title });
+    const want = `${LABELS[o.model]}${o.effort.charAt(0).toUpperCase()}${o.effort.slice(1)}`.replace("Xhigh", "XHigh");
+    await until(async () => (await chip()) === want || null, 8000, `the chip on ${want}`);
+  };
+  const queueOn = async (i) => {
+    await pick(QUEUED_ON[i]);
+    await api.call("sessions.send", { id: session.id, text: MESSAGES[i], delivery: "queue" });
     await until(async () => (await rowCount()) === i + 1 || null, 8000, `queued row ${i + 1}`);
-  }
+  };
+
+  // The owner's case: the turn runs on Opus, the picker moves to Sonnet, one message is queued.
+  await queueOn(0);
+  await sleep(400);
+  check("a message queued after the picker moved mid-turn names the model it will run on", JSON.stringify(await runsOn()) === JSON.stringify(["Sonnet 5.5"]), await runsOn());
+  check("the picker says Sonnet while the turn runs on Opus", (await chip()).includes("Sonnet 5.5"), await chip());
+  await shoot("0-moved-before", { hidden: true, sizes: ["normal"] });
+  await shoot("0-moved-after", { sizes: ["normal"] });
+
+  for (const i of [1, 2, 3]) await queueOn(i);
   await evalIn(c, `(() => { document.querySelector('.queue-fold').click(); return true; })()`);
   await until(async () => (await runsOn()).length === 4 || null, 5000, "all four rows open");
   await sleep(400);
 
   const labels = await runsOn();
-  check("each row names only what differs from Sonnet 5.5 · Medium, and the matching row nothing",
-    JSON.stringify(labels) === JSON.stringify(["Opus 5.5", "High", "Opus 5.5 · XHigh", null]), labels);
-  const chip = await evalIn(c, `document.querySelector('.model-chip')?.textContent`);
-  check("the picker says what the session is on now", chip.includes("Sonnet 5.5") && chip.includes("Medium"), chip);
+  check("each row names only what differs from Opus 5.5 · Medium, and the matching row nothing",
+    JSON.stringify(labels) === JSON.stringify(["Sonnet 5.5", "High effort", "Sonnet 5.5 · XHigh", null]), labels);
+  check("the picker says what the session is on now", (await chip()).includes("Opus 5.5") && (await chip()).includes("Medium"), await chip());
 
   const wide = await layout();
   check("Send now sits at the same place on every row, labelled or not", new Set(wide.map((r) => r.sendRight)).size === 1, wide);
@@ -266,23 +293,39 @@ async function main() {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(ta, ta.value + ' Link the PR in it.');
     ta.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
   await sleep(300);
-  check("the label stays on the row being edited", (await runsOn())[2] === "Opus 5.5 · XHigh", await runsOn());
+  check("the label stays on the row being edited", (await runsOn())[2] === "Sonnet 5.5 · XHigh", await runsOn());
   await shoot("3-editing", { looks: ["plain"], sizes: ["normal"] });
   await evalIn(c, `(() => { document.querySelector('.queue-edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true; })()`);
   await until(() => evalIn(c, `!document.querySelector('.queue-edit')`), 5000, "the edit saved");
   const saved = (await api.call("sessions.queued", { id: session.id })).queued[2];
-  check("the edit saved the text and kept the model and level", saved.text.endsWith("Link the PR in it.") && saved.model === "claude-opus-5-5" && saved.effort === "xhigh", saved);
+  check("the edit saved the text and kept the model and level", saved.text.endsWith("Link the PR in it.") && saved.model === "claude-sonnet-5-5" && saved.effort === "xhigh", saved);
 
-  // Send now on the first row: it goes out on Opus 5.5, and the rest are read against that.
+  const options = async () => { const r = await api.call("sessions.get", { id: session.id }); return { model: r.model, effort: r.effort }; };
+
+  // Send now on the first row: it goes out on Sonnet, and the rest are read against that turn.
   await evalIn(c, `(() => { document.querySelectorAll('.composer-queue-item .queue-send')[0].click(); return true; })()`);
   await until(async () => (await rowCount()) === 3 || null, 10000, "the first row sent");
-  await until(async () => ((await evalIn(c, `document.querySelector('.model-chip')?.textContent`)) ?? "").includes("Opus 5.5") || null, 10000, "the chip on Opus");
-  const row = await api.call("sessions.get", { id: session.id });
-  check("the message sent early ran on what it was queued with", row.model === "claude-opus-5-5" && row.effort === "medium", { model: row.model, effort: row.effort });
+  await until(async () => (await chip()).includes("Sonnet 5.5") || null, 10000, "the chip on Sonnet");
+  check("the message sent early ran on what it was queued with", JSON.stringify(await options()) === JSON.stringify(QUEUED_ON[0]), await options());
   await sleep(500);
-  const after = await runsOn();
-  check("the rows left are read against the session's new setting", JSON.stringify(after) === JSON.stringify(["Sonnet 5.5 · High", "XHigh", "Sonnet 5.5"]), after);
-  await shoot("4-after-send-now", { looks: ["plain"], sizes: ["normal"] });
+  check("the rows left are read against the turn now running", JSON.stringify(await runsOn()) === JSON.stringify(["Opus 5.5 · High", "XHigh effort", "Opus 5.5"]), await runsOn());
+  await shoot("4-after-send-now", { sizes: ["normal"] });
+
+  // Stopped, the turn is over: the picker goes back to what it said before that message moved it.
+  await evalIn(c, `(() => { document.querySelector('.composer-send[data-state="stop"]').click(); return true; })()`);
+  await until(async () => (await chip()).includes("Opus 5.5") || null, 10000, "the chip back on Opus");
+  check("after the turn the picker is back on what was chosen last", JSON.stringify(await options()) === JSON.stringify(TURN_ON), await options());
+  await sleep(500);
+  check("with no turn running the rows are read against the picker alone", JSON.stringify(await runsOn()) === JSON.stringify(["High effort", "Sonnet 5.5 · XHigh", null]), await runsOn());
+  await shoot("5-picker-back", { sizes: ["normal"] });
+
+  // The rest go on their own, each on its own options, and the picker ends on Opus · Medium.
+  await evalIn(c, `(() => { document.querySelectorAll('.composer-queue-item .queue-send')[0].click(); return true; })()`);
+  await until(async () => (await rowCount()) === 0 || null, 20000, "the queue drained");
+  await until(async () => (await api.call("sessions.get", { id: session.id })).status === "idle" || null, 20000, "the session idle");
+  await sleep(500);
+  check("once the queue has drained the picker is where it was left", JSON.stringify(await options()) === JSON.stringify(TURN_ON) && (await chip()).includes("Opus 5.5"), { options: await options(), chip: await chip() });
+  await shoot("6-drained", { looks: ["plain"], sizes: ["normal"] });
 
   api.close();
   const errs = c.events.filter((e) => !e.includes("Autofill"));
