@@ -458,5 +458,10 @@ export const QueuedPromptSchema = z.object({
    *  rather than offering a Send now the server would only have to refuse. Defaulted, so a payload
    *  from before the field still parses. */
   held: z.boolean().default(false),
+  /** The model, level and fast mode it was queued with, which its turn runs on whatever the picker
+   *  says by then. Absent from a server that did not keep them. */
+  model: z.string().nullable().optional(),
+  effort: z.string().nullable().optional(),
+  fastMode: z.boolean().optional(),
 });
 export type QueuedPrompt = z.infer<typeof QueuedPromptSchema>;

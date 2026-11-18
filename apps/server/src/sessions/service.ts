@@ -71,7 +71,14 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   tabs?: GatheredTabs;
   /** The person sent it: set by the RPC methods the person's windows and phone call, and by nothing an
    *  agent can reach. A turn is the person's (`personStartedTurn`) only when every message in it is. */
-  byPerson?: boolean };
+  byPerson?: boolean;
+  /** The model, level and fast mode the session was set to when this message was queued, put back on
+   *  the session as its turn goes out, as `permissionMode` is. A picker moved while it waits is about
+   *  the messages typed after, not this one. Only for the agent it was queued on. */
+  runsWith?: QueuedRun };
+
+/** What a queued message runs on — see `SendMessage.runsWith`. */
+export type QueuedRun = { agentKind: AgentKind; model: string | null; effort: string | null; fastMode: boolean };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -572,8 +579,9 @@ export class SessionService {
    * would turn an `@skill` typed during a turn into plain text for no reason the user could see.
    */
   private enqueue(id: string, msg: SendMessage): void {
-    const prompt = { id: newId(), text: msg.text, attachments: msg.attachments, ts: Date.now() };
-    this.queued.set(id, [...(this.queued.get(id) ?? []), { prompt, msg }]);
+    const { agentKind, model, effort, fastMode } = this.get(id);
+    const prompt = { id: newId(), text: msg.text, attachments: msg.attachments, ts: Date.now(), model, effort, fastMode };
+    this.queued.set(id, [...(this.queued.get(id) ?? []), { prompt, msg: { ...msg, runsWith: { agentKind, model, effort, fastMode } } }]);
     this.broadcastQueue(id);
   }
 
@@ -806,6 +814,19 @@ export class SessionService {
     this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id), move: this.pendingMove(id) });
   }
 
+  /** Put a queued message's model, level and fast mode back on the session, where they have moved
+   *  since it was queued. */
+  private async runQueuedWith(id: string, w: QueuedRun): Promise<void> {
+    const s = this.get(id);
+    if (s.agentKind !== w.agentKind) return;
+    const o = {
+      ...(w.model !== s.model ? { model: w.model } : {}),
+      ...(w.effort !== s.effort ? { effort: w.effort } : {}),
+      ...(w.fastMode !== s.fastMode ? { fastMode: w.fastMode } : {}),
+    };
+    if (Object.keys(o).length > 0) await this.setOptions(id, o);
+  }
+
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
    *  the two paths that have already chosen — a caller that came here has passed the queue gate. */
   private async deliver(id: string, msg: SendMessage, opts: { checkpoint?: boolean } = {}): Promise<void> {
@@ -824,6 +845,7 @@ export class SessionService {
     // this message lists the computer tools from its first read of them.
     await this.grantMentionedApps(id, msg);
     if (msg.permissionMode !== undefined && msg.permissionMode !== this.get(id).permissionMode) await this.setOptions(id, { permissionMode: msg.permissionMode });
+    if (msg.runsWith) await this.runQueuedWith(id, msg.runsWith);
     // Stopped the way the idle sweep stops an engine, so this message starts a fresh one that resumes
     // the conversation in the mode the old one could not switch to.
     if (this.restartOwed.delete(id)) void this.reap(id);

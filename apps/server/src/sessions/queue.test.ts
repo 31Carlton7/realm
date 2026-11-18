@@ -492,3 +492,108 @@ describe("reordering the queue", () => {
     expect(c.queues(session.id).at(-1)!.map((q: Any) => [q.text, q.held])).toEqual([["first", true]]);
   });
 });
+
+/**
+ * A queued message runs on what the session was set to when it was queued, not on whatever the
+ * picker says by the time its turn comes. The engine is watched rather than the row, because the
+ * row is what the picker writes too: what matters is that the options reach the engine before the
+ * message does.
+ */
+describe("what a queued message runs on", () => {
+  /** The fake, with every option change and every message its engines are handed, in order. */
+  const watched = () => {
+    const fake = holdsEveryTurn();
+    const seen: string[] = [];
+    const start = fake.start.bind(fake);
+    fake.start = (opts) => {
+      const h = start(opts);
+      return { ...h,
+        setOptions: async (o) => { seen.push(`options ${JSON.stringify(o)}`); await h.setOptions(o); },
+        send: async (m) => { seen.push(`send ${m.text}`); await h.send(m); } };
+    };
+    return { fake, seen };
+  };
+  const queued = async (c: Awaited<ReturnType<typeof client>>, id: string) =>
+    (await c.call("sessions.queued", { id })).result.queued as { id: string; text: string; model?: string | null; effort?: string | null; fastMode?: boolean }[];
+
+  it("keeps the model, level and fast mode each message was queued with", async () => {
+    // THE MUTANT: an enqueue that keeps only the text and the files.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large", effort: "high", fastMode: true });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+
+    expect((await queued(c, session.id)).map(({ text, model, effort, fastMode }) => ({ text, model, effort, fastMode }))).toEqual([
+      { text: "first", model: null, effort: null, fastMode: false },
+      { text: "second", model: "fake-large", effort: "high", fastMode: true },
+    ]);
+  });
+
+  it("puts them back on the session before the turn goes out, after the picker moved", async () => {
+    // THE MUTANT: a drain that sends on whatever the session is set to now.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large", effort: "high" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small", effort: "low" });
+    seen.length = 0;
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => seen.includes("send first"));
+
+    expect(seen).toEqual([`options ${JSON.stringify({ model: "fake-large", effort: "high" })}`, "send first"]);
+    const row = (await c.call("sessions.get", { id: session.id })).result;
+    expect([row.model, row.effort]).toEqual(["fake-large", "high"]);
+  });
+
+  it("changes nothing for a message queued on what the session is still set to", async () => {
+    // THE MUTANT: a drain that writes the options whether or not they moved.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    seen.length = 0;
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => seen.includes("send first"));
+    expect(seen).toEqual(["send first"]);
+  });
+
+  it("sends a message released early on what it was queued with too", async () => {
+    // THE MUTANT: a Send now that skips the queued options, since it goes out through the steer.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, effort: "high" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, effort: "low" });
+    const [a] = await queued(c, session.id);
+    seen.length = 0;
+
+    await c.call("sessions.releaseQueued", { id: session.id, queuedId: a!.id });
+    await waitFor(() => seen.includes("send first"));
+    expect(seen).toContain(`options ${JSON.stringify({ effort: "high" })}`);
+    expect(seen.indexOf(`options ${JSON.stringify({ effort: "high" })}`)).toBeLessThan(seen.indexOf("send first"));
+  });
+
+  it("keeps them through an edit", async () => {
+    // THE MUTANT: an edit that rebuilds the queued message from its text.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small" });
+    const [a] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+    await c.call("sessions.editQueued", { id: session.id, queuedId: a!.id, text: "first, edited" });
+
+    expect((await queued(c, session.id))[0]!.model).toBe("fake-large");
+    seen.length = 0;
+    await releaseTurn(c, session.id);
+    await waitFor(() => seen.includes("send first, edited"));
+    expect(seen[0]).toBe(`options ${JSON.stringify({ model: "fake-large" })}`);
+  });
+});
