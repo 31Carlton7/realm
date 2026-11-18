@@ -102,8 +102,9 @@ describe("a fitted lens", () => {
     expect(filter.querySelector("feFlood")!.getAttribute("style")).toContain("var(--glass-ground)");
     const over = filter.querySelector("feComposite")!;
     expect([over.getAttribute("in"), over.getAttribute("in2"), over.getAttribute("operator")]).toEqual(["SourceGraphic", "ground", "over"]);
-    expect(filter.querySelector("feGaussianBlur")!.getAttribute("stdDeviation")).toBe("10");
-    expect(filter.querySelector("feDisplacementMap")!.getAttribute("in")).toBe("frost");
+    const frost = filter.querySelector("feGaussianBlur")!;
+    expect([frost.getAttribute("in"), frost.getAttribute("stdDeviation")]).toEqual([over.getAttribute("result"), "10"]);
+    expect(filter.querySelector("feDisplacementMap")!.getAttribute("in")).toBe(frost.getAttribute("result"));
     stop();
   });
 
