@@ -17,6 +17,7 @@
  *   PLAN      sends both plan shapes, the step list twice (revised)    (plan mapping tests)
  *   PLANOPEN  (modifier) leaves the prose plan item unfinished         (plan salvage on interrupt)
  *   SLOW      (modifier) delays the turn's notifications by 60ms      (turn-id-from-response tests)
+ *   INSTANT   writes the response and the whole turn in one write  (a turn over before its response is read)
  *   GHOST     opens a turn the server does not register as steerable  (turn/steer -> turn/start fallback)
  *   APPROVE   runs one command that needs an approval decision
  *   USAGE     (modifier, with APPROVE) reports token usage before the turn ends (per-turn usage stamps)
@@ -71,7 +72,12 @@ let lastExtraRoots = null;
 let extraRootsCalls = 0;
 let modelListCalls = 0;
 
-const send = (frame) => process.stdout.write(JSON.stringify(frame) + "\n");
+/** Frames held back by an INSTANT turn, written in one go once the turn is over. */
+let held = null;
+const send = (frame) => {
+  const line = JSON.stringify(frame) + "\n";
+  if (held) held.push(line); else process.stdout.write(line);
+};
 const ok = (id, result) => send({ id, result });
 const fail = (id, code, message, data) => send({ id, error: { code, message, ...(data === undefined ? {} : { data }) } });
 const notify = (method, params) => send({ method, params, emittedAtMs: Date.now() });
@@ -409,6 +415,17 @@ function handleRequest(id, method, params) {
       const text = inputText(params.input);
       if (text.includes("REFUSE")) { fail(id, -32600, "the model refused this turn"); return; }
       const turnId = `tu_${nextTurnN++}`;
+      if (text.includes("INSTANT")) {
+        held = [];
+        ok(id, { turn: { id: turnId, status: "inProgress", items: [] } });
+        notify("thread/status/changed", { threadId: params.threadId, status: { type: "active", activeFlags: [] } });
+        notify("turn/started", { threadId: params.threadId, turn: { id: turnId, status: "inProgress", items: [] } });
+        agentMessage(params.threadId, turnId, "hello");
+        endTurn(params.threadId, turnId);
+        process.stdout.write(held.join(""));
+        held = null;
+        return;
+      }
       ok(id, { turn: { id: turnId, status: "inProgress", items: [] } });
       // Live 0.153.4 writes the turn's `serviceTier` onto the thread and announces the whole settings
       // record before `turn/started`, on EVERY turn. The fake announces it only for a turn that named

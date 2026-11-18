@@ -486,6 +486,10 @@ export class CodexAdapter implements AgentAdapter {
     let conn: CodexConnection | null = null;
     let threadId: string | null = null;
     let activeTurnId: string | null = null;
+    /** The last turn `turn/completed` ended. A response read in the same chunk as its turn's frames is
+     *  awaited past them, and must not bring that turn back as the live one. */
+    let endedTurnId: string | null = null;
+    const liveTurn = (id: string | null) => (id && id !== endedTurnId ? id : null);
     let released = false;
     let disposed = false;
     /** Set only once this session's root is counted into the union, so shutdown drops exactly what boot added. */
@@ -648,7 +652,7 @@ export class CodexAdapter implements AgentAdapter {
         // thread/resume rejoins a turn that is already running, and its response carries no turn id — this
         // notification is the only place a rejoined session learns one.
         if (method === "turn/started") activeTurnId = str(obj(p.turn).id) || activeTurnId;
-        if (method === "turn/completed") activeTurnId = null;
+        if (method === "turn/completed") { activeTurnId = null; endedTurnId = str(obj(p.turn).id) || null; }
         for (const e of mapper.map(method, params)) {
           events.push(e.type === "usage" ? sessionEvent("usage", { ...e.payload, fastModeRequested: turnFast }) : e);
         }
@@ -865,7 +869,7 @@ export class CodexAdapter implements AgentAdapter {
           if (activeTurnId) {
             try {
               const steered = obj(await conn.request("turn/steer", { threadId, expectedTurnId: activeTurnId, input }));
-              activeTurnId = str(steered.turnId) || activeTurnId;
+              activeTurnId = liveTurn(str(steered.turnId) || activeTurnId);
               return;
             } catch (e) {
               // The turn ended between the check and the call; `expectedTurnId` is a precondition, so this is
@@ -886,7 +890,7 @@ export class CodexAdapter implements AgentAdapter {
             // The session's reasoning effort, the same way: per turn, sticky on the thread.
             ...(await effortParam()),
           }));
-          activeTurnId = str(obj(started.turn).id) || null;
+          activeTurnId = liveTurn(str(obj(started.turn).id) || null);
         } catch (e) {
           events.push(sessionEvent("error", { message: message(e) }));
           // A steer refused mid-turn leaves that turn running, and its own `turn/completed` settles it.
