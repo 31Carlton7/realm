@@ -9,6 +9,8 @@ import { createApp, defaultAdapters, type App } from "./app";
 import { openDatabase } from "./db/database";
 import { dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
+import { SettingsStore } from "./store/settings";
+import { LAST_PROBE_KEY } from "./notifications/service";
 
 const FAKE_ACP = fileURLToPath(new URL("../../../packages/adapters/src/acp/fixtures/fake-acp-agent.mjs", import.meta.url));
 
@@ -139,6 +141,27 @@ describe("closing the app", () => {
     } finally {
       delete process.env.FAKE_ACP_CHILD_PID;
       if (existsSync(marker)) { try { process.kill(Number(readFileSync(marker, "utf8")), "SIGKILL"); } catch { /* gone */ } }
+    }
+  }, 20_000);
+
+  it("keeps a probe refused at shutdown out of the availability the next launch compares against", async () => {
+    // MUTANT: let a stopped probeAll report and Gemini is stored as unavailable, with a feed row saying so.
+    const home = tempDir("realm-home-");
+    const db = openDatabase(dbPath(home));
+    new SettingsStore(db).set(LAST_PROBE_KEY, { "acp:gemini": true });
+    db.close();
+    await withGeminiStub(async () => {
+      const app = await createApp({ home, port: 0, adapters: { "acp:gemini": defaultAdapters()["acp:gemini"]! } });
+      const closing = app.close();
+      await app.sessions.probe({ force: true });
+      await closing;
+    });
+    const after = openDatabase(dbPath(home));
+    try {
+      expect(new SettingsStore(after).get(LAST_PROBE_KEY)).toEqual({ "acp:gemini": true });
+      expect(after.prepare("SELECT COUNT(*) AS n FROM notifications").get()).toEqual({ n: 0 });
+    } finally {
+      after.close();
     }
   }, 20_000);
 });
