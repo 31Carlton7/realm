@@ -446,7 +446,7 @@ a {
      this rather than copying 36, which on a 30px field would be a pill rather than a squircle. */
   /* ── Edge dissolves ───────────────────────────────────────────────────────────────────────────
      A scroller's content runs out at each end through a mask (styles.css, `[data-dissolve]`), and
-     where chrome sits over it the edge blur softens it on the way (`.edge-blur`). These are the
+     where chrome sits over it the edge blur softens it on the way (`components/edge-blur.ts`). These are the
      blur's two strengths, near the boundary and deeper in. Tuned down from 3/11: at those values the
      band read as a frosted strip laid over the content. The point is that you do not notice it:
      content should seem to run out rather than to pass under something. */

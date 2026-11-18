@@ -1138,11 +1138,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...new Set(heavy)].sort(), "draw it at var(--hairline-w), or say why it is structural").toEqual([]);
   });
 
-  it("only the edge blur filters its backdrop: no glass anywhere else", () => {
+  it("nothing filters its backdrop but glass and the prompter over a picture", () => {
     /* The owner, 11-04: "I don't want this liquid glass like nav background anywhere else in the app".
-       A backdrop-filter is how a translucent slab gets made, so the only rules allowed one are the
-       edge blur's two layers, which paint no colour and sit where chrome meets a scroller. A menu, a
-       sheet, a card or a button that wants depth gets a plain surface and its shadow instead. */
+       A backdrop-filter is how a translucent slab gets made. A menu, a sheet, a card or a button that
+       wants depth gets a plain surface and its shadow instead. The edge blur was the one other
+       exception, as two backdrop-filtered bands, until it was measured doubling every line under a
+       bar (11-18); it is a filter on the scroller now (below). */
     const filtering = RULES.filter((r) => /(^|;|\s)(-webkit-)?backdrop-filter:\s*(?!none)/.test(r.body)).flatMap(partsOf);
     /* One named exception (the owner, 11-17): over a picture the prompter and its tabs blur the
        picture itself, so they keep its colour rather than wearing a theme grey on it. Those rules
@@ -1152,7 +1153,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        Appearance sets and Reduce Transparency and Low power clear. Every one reads the glass tokens
        or a shared lens, so the whole material is one set of numbers. */
     const glass = (sel: string) => sel.startsWith(":root[data-glass] ");
-    expect([...new Set(filtering.filter((sel) => !overPicture(sel) && !glass(sel)))].sort()).toEqual([".edge-blur::after", ".edge-blur::before"]);
+    expect([...new Set(filtering.filter((sel) => !overPicture(sel) && !glass(sel)))].sort()).toEqual([]);
     const glassRules = RULES.filter((r) => partsOf(r).some(glass) && /backdrop-filter:/.test(r.body));
     expect(glassRules.length).toBeGreaterThanOrEqual(5);
     for (const r of glassRules) expect(r.body).toMatch(/backdrop-filter: (var\(--glass-|url\(#rl-glass-)/);
@@ -1168,16 +1169,16 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       expect(r.body).toMatch(/backdrop-filter: var\(--picture-ground\)/);
       expect(r.body).not.toMatch(/background/);
     }
-    // Both layers read the strength tokens, so "subtler" is one edit and no two bands can disagree.
-    expect(bodiesFor(".edge-blur::before").join(" ")).toContain("backdrop-filter: blur(var(--fade-blur-near))");
-    expect(bodiesFor(".edge-blur::after").join(" ")).toContain("backdrop-filter: blur(var(--fade-blur-far))");
-    // A band paints nothing of its own: a fill under the blur would be the slab this replaced.
-    for (const sel of [".edge-blur", ".edge-blur::before", ".edge-blur::after"]) {
-      expect(bodiesFor(sel).join(" "), sel).not.toMatch(/background/);
+    /* The edge blur replaces what the scroller paints with a blurred copy of it, as a filter named
+       by the script, and paints nothing of its own. No band is left over the content. */
+    expect(RULES.flatMap((r) => r.selectors).filter((sel) => sel.includes(".edge-blur"))).toEqual([]);
+    for (const sel of [".transcript", ".page-scroll > .page-content"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("filter: var(--edge-blur, none)");
+      expect(bodiesFor(sel).join(" "), sel).not.toMatch(/background|backdrop-filter/);
     }
-    /* Its parent is the backdrop root, so the blur takes the content and never the window ground:
-       over a translucent pane a blur that reached the ground laid a grey stripe with a step at its
-       end (measured on a real capture). */
+    /* The scroller's parent stays a backdrop root, so a backdrop filter over the content (the
+       selection bar's glass) takes the content and never the window ground: over a translucent pane
+       a blur that reached the ground laid a grey stripe with a step at its end (measured). */
     for (const sel of [".transcript-wrap", ".page-scroll"]) expect(bodiesFor(sel).join(" "), sel).toMatch(/opacity: 0\.99/);
     // And nothing in a component sets one inline where the stylesheet cannot see it.
     const inline: string[] = [];
@@ -1191,7 +1192,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     walk(repoFile("apps/desktop/src/renderer/src"));
     // The one exception is the glass module, a take the owner asked to see on 11-17: a switch in
     // Appearance, plain by default, and plain again under Reduce Transparency and Low power.
-    expect(inline.filter((f) => !f.endsWith("ScrollFades.tsx") && !f.includes("/src/glass/"))).toEqual([]);
+    expect(inline.filter((f) => !f.includes("/src/glass/"))).toEqual([]);
   });
 
   it("nothing is set below 11px, the type scale's own floor for a tiny label", () => {
@@ -1323,6 +1324,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The rubber-band's offset (rubber-band.ts): written on the scroller's children per wheel event
       // and per spring frame, and only while the content is past an end.
       "--rubber",
+      // The edge blur's filter (components/edge-blur.ts), named on the scroller only while an end
+      // is open, because its weights are drawn for the scroller's own size. Used with a none
+      // fallback, so a scroller that never receives it is simply unblurred.
+      "--edge-blur",
       // The decorative wash's geometry (theme/grain.ts): drawn once per launch per surface and set
       // inline, because a value that is randomised cannot be written in a stylesheet. Every one is
       // used with a fallback, so a surface that never receives them is still a finished surface.
@@ -2193,11 +2198,15 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
       }
     }
 
-    /* Low power drops the edge blur's two backdrop layers, which re-filter on every frame an agent
-       writes under them; the mask still fades the edge. Only under Low Power: a blur that left with
-       focus would change the window as someone clicked back into it. */
-    expect(bodiesFor(':root[data-quiet="always"] .edge-blur').join(" ")).toContain("display: none");
-    expect(RULES.flatMap((r) => r.selectors)).not.toContain(":root[data-quiet] .edge-blur");
+    /* Low power drops the edge blur, which re-filters on every frame an agent writes under it; the
+       mask still fades the edge. Only under Low Power: a blur that left with focus would change the
+       window as someone clicked back into it. So do a hero prompter's transcript and Reduce
+       Transparency. */
+    for (const sel of [':root[data-quiet="always"] .transcript', ':root[data-quiet="always"] .page-scroll > .page-content', '.session-pane[data-composer="hero"] .transcript']) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("filter: none");
+    }
+    expect(RULES.flatMap((r) => r.selectors).filter((sel) => sel.startsWith(":root[data-quiet] ") && /transcript|page-content/.test(sel))).toEqual([]);
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\) \{\s*\.transcript, \.page-scroll > \.page-content \{ filter: none; \}/);
 
     // One ping per session, in the pane you are in — not a second forever-animating dot per sidebar row.
     expect(bodiesFor(".item-status::after").join(" ")).toContain("content: none");

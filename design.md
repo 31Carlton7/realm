@@ -314,13 +314,16 @@ Rules:
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha
-  to zero, so the fade reveals the ground that was always there. The bands (`.edge-blur`, from
-  `EdgeBlur` beside the scroller) take its detail: a shallow blur at the boundary
-  (`--fade-blur-near`, 2px) ramped in over the band's first 60%, and a deeper one (`--fade-blur-far`,
-  6px) over its outer part, with no fill, so nothing has an edge. The scroller's parent is the bands'
-  backdrop root: a blur that reached the translucent window ground laid a grey stripe with a 2–4
-  level step at its end, measured on a real capture. The transcript (under the pane bar and the
-  prompter) and a page's column wear it; Low Power drops the bands and keeps the mask.
+  to zero, so the fade reveals the ground that was always there. The blur (`useEdgeBlur`,
+  `edge-blur.ts`) takes its detail: none at the band's inner edge, growing to a shallow blur
+  (`--fade-blur-near`, 2px) 60% of the way in and a deeper one (`--fade-blur-far`, 6px) at the bar, with
+  no fill, so nothing has an edge. It is a filter on the scroller, which puts the blurred content in
+  place of the sharp. It was two backdrop-blurred bands over the scroller, and a backdrop filter is
+  laid OVER its backdrop: on the content's clear ground every line under a bar read twice, sharp with
+  a blurred copy on top (the owner, 11-18, "Ask before deleting" doubled under Settings' bar). The
+  radius grows in short steps, each cross-faded only into the next, because a sharp line faded
+  straight into a 6px one is the same doubling. The transcript (under the pane bar and the prompter)
+  and a page's column wear it; Low Power and Reduce Transparency drop it and keep the mask.
 - Everything else is a plain surface. Menus, popovers, sheets, the palette, toasts and quick chat
   are `--surface` with the overlay stack's edge; cards are their fill and lift. Nothing scrolls under
   them, so a blur there has nothing to say. A scrim that dims what is behind a modal is a dim, not a
@@ -447,9 +450,9 @@ Rules:
   (`--picture-outline`) that flips with the mode, so a new picture takes its edge rather than
   writing a pair of literals.
 - Never let a backdrop blur reach a translucent window surface. A filter over the window's own
-  transparency composites toward the material, so the band reads as a smudge. The edge blur keeps
-  its backdrop inside the scroller's parent for exactly this reason, and the fade itself is the
-  scroller's mask, which paints nothing. A wash to a fixed tone is wrong for the same reason — it
+  transparency composites toward the material, so the band reads as a smudge. The edge blur is a
+  filter on the content rather than a backdrop filter for this reason among others, and the fade itself
+  is the scroller's mask, which paints nothing. A wash to a fixed tone is wrong for the same reason — it
   stripes a translucent surface with a colour the material shows straight through.
 - Translucency is not free and is not uniform. What shows through a pane is the desktop, which nobody
   chose, so the point where reading holds is derived from the type rather than picked by eye: the
