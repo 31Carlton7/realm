@@ -289,7 +289,8 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions, run =
                         {q.text || <span className="queue-text-empty">Attachments only</span>}
                       </button>
                     )}
-                    {runsOn && <span className="queue-runs" title={`Runs on ${runsOn}`}>{runsOn}</span>}
+                    {/* Its words in a tooltip only once a narrow row has cut them short. */}
+                    {runsOn && <span className="queue-runs" data-tip="clipped"><span data-tip-text>{runsOn}</span></span>}
                     {(mine || elsewhere) && (
                       <span className="queue-held" role="status">
                         <Icon name={mine ? "edit" : "pause"} size={12} />

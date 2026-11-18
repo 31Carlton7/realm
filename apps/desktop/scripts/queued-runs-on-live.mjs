@@ -167,7 +167,7 @@ async function main() {
   await api.call("sessions.send", { id: session.id, text: LONG_TURN });
   await until(() => evalIn(c, `!!document.querySelector('.composer-send[data-state="stop"]')`), 15000, "the long turn running");
 
-  const viewports = { normal: { width: 1280, height: 820 }, narrow: { width: 700, height: 820 } };
+  const viewports = { normal: { width: 1280, height: 820 }, narrow: { width: 700, height: 820 }, narrowest: { width: 560, height: 820 } };
   const setLook = async (look) => {
     await api.call("settings.set", { key: "ui.look", value: look });
     try {
@@ -183,7 +183,7 @@ async function main() {
   /** `hidden` draws the row as it was until now: the same build, with the new line taken out. */
   const hideRunsOn = (hidden) => evalIn(c, `(() => { document.getElementById('before')?.remove(); if (${hidden}) {
     const s = document.createElement('style'); s.id = 'before'; s.textContent = '.queue-runs { display: none !important; }'; document.head.append(s); } return true; })()`);
-  const shoot = async (state, { looks = ["plain", "glass"], sizes = Object.keys(viewports), hidden = false } = {}) => {
+  const shoot = async (state, { looks = ["plain", "glass"], sizes = ["normal", "narrow"], hidden = false } = {}) => {
     for (const look of looks) {
       await setLook(look);
       await hideRunsOn(hidden);
@@ -219,7 +219,7 @@ async function main() {
     const send = r.querySelector('.queue-send').getBoundingClientRect(); const text = r.querySelector('.queue-text').getBoundingClientRect();
     const label = r.querySelector('.queue-runs');
     return { sendRight: Math.round(send.right), sendWidth: Math.round(send.width), textWidth: Math.round(text.width),
-      labelCut: label ? label.scrollWidth > label.clientWidth : null }; })`);
+      labelCut: label ? label.firstElementChild.scrollWidth > label.firstElementChild.clientWidth : null }; })`);
 
   for (const [i, text] of MESSAGES.entries()) {
     await api.call("sessions.setOptions", { id: session.id, ...QUEUED_ON[i] });
@@ -250,8 +250,14 @@ async function main() {
   const pane = await evalIn(c, `Math.round(document.querySelector('.session-pane').getBoundingClientRect().width)`);
   check("narrow, Send now still sits at one place on every row", new Set(narrow.map((r) => r.sendRight)).size === 1, { pane, narrow });
   check("narrow, the text keeps one width on every row", new Set(narrow.map((r) => r.textWidth)).size === 1, narrow);
-  await c.send("Emulation.setDeviceMetricsOverride", { ...viewports.normal, deviceScaleFactor: 2, mobile: false });
-  await sleep(300);
+  // Narrower still, the label is what gives way: it ends in an ellipsis, and the words and the
+  // actions keep their places.
+  await c.send("Emulation.setDeviceMetricsOverride", { ...viewports.narrowest, deviceScaleFactor: 2, mobile: false });
+  await sleep(400);
+  const narrowest = await layout();
+  check("narrowest, the label is cut before the words or Send now move", narrowest[2].labelCut === true
+    && new Set(narrowest.map((r) => r.sendRight)).size === 1 && new Set(narrowest.map((r) => r.textWidth)).size === 1, narrowest);
+  await shoot("2-after-cut", { looks: ["plain"], sizes: ["narrowest"] });
 
   // Editing the third row: the label stays while the field is open, and the save keeps it.
   await evalIn(c, `(() => { document.querySelectorAll('.composer-queue-item .queue-edit-btn')[2].click(); return true; })()`);
