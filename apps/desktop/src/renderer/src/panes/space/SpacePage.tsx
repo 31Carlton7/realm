@@ -1,6 +1,6 @@
 import { SPACE_COLORS, isRunTerminal, type Checkpoint, type Environment, type Run, type RunAttemptOutcome, type RunState, type Ship } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { spaceIsPlainFolder, useApp, type SpacePageTab } from "../../state/store";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
@@ -668,7 +668,7 @@ export function SpacePage({ item }: PaneProps) {
           {/* A space's page is about one thing, the space, so its head is the space — its icon in its
               colour and its name — and the section it shows is the line under it (design.md). */}
           <header className="page-head space-page-head">
-            <span className="space-page-icon" style={tint ? { color: tint } : undefined} aria-hidden="true"><SpaceIcon icon={space.icon} size={20} /></span>
+            <span className="space-page-icon" style={tint ? { color: tint, "--space-tint": tint } as CSSProperties : undefined} aria-hidden="true"><SpaceIcon icon={space.icon} size={20} /></span>
             <div className="page-title">
               <h1>{space.name}</h1>
               <h2 className="space-page-section">{label}</h2>

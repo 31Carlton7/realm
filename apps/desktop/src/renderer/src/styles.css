@@ -846,7 +846,7 @@ input.sb-space-name { flex: 1; }
 .rail-divider { flex: none; width: 20px; height: 1px; margin-bottom: 2px; background: var(--line-strong); }
 .rail-space, .rail-new-space { flex: none; }
 .rail-space-tile { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-chip); corner-shape: squircle;
-  color: var(--rl-text-dim); background: color-mix(in srgb, currentColor 16%, transparent); }
+  color: var(--rl-text-dim); background: color-mix(in srgb, currentColor var(--space-tile-tint), transparent); }
 .rail-space[aria-pressed="true"]::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px;
   border-radius: 0 2px 2px 0; background: var(--rl-text-bright); }
 .rail-space[data-drag-over] { box-shadow: inset 0 2px 0 var(--rl-accent); }
@@ -8674,7 +8674,15 @@ select { appearance: none; padding-right: 22px;
    controls do (`--prompter-alpha`): the card's fill, the fields and the buttons are tints over the
    pane rather than surfaces of their own, and nothing casts a shadow. */
 .space-page-head { align-items: center; gap: 14px; }
-.space-page-icon { flex: none; display: grid; place-items: center; }
+/* The space's icon stands in its tile, as it does on the rail: the space's colour at the tile's tint,
+   on the control rung's curve at its own height, thinned with the pane like everything on the page.
+   The colour comes in as `--space-tint`, not `currentColor`: the painter's fill is a registered colour,
+   which keeps `currentcolor` as a keyword the worklet cannot read. */
+.space-page-icon { --tile-h: 36px; flex: none; display: grid; place-items: center; width: var(--tile-h); height: var(--tile-h);
+  border-radius: calc(var(--tile-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  --space-icon-fill: color-mix(in srgb, color-mix(in srgb, var(--space-tint) var(--space-head-tint), transparent) var(--prompter-alpha), transparent); background: var(--space-icon-fill); }
+:root[data-squircle] .space-page-icon { border-radius: 0; background: paint(rl-squircle); --sq-fill: var(--space-icon-fill);
+  --sq-radius-top: calc(var(--tile-h) * var(--sq-ratio-ctl)); --sq-radius-bottom: calc(var(--tile-h) * var(--sq-ratio-ctl)); --sq-n: var(--sq-n-ctl); }
 .space-page-section { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 .space-general { display: flex; flex-direction: column; gap: 24px; }
 .space-general { --space-card: color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent);

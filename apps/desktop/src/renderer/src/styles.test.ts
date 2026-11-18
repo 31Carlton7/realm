@@ -1320,6 +1320,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // A space page's head tile (SpacePage.tsx): the space's colour, set inline beside `color`
+      // because the painter cannot read `currentcolor`.
+      "--space-tint",
       // The video player's volume track, painted from the value the slider holds (VideoPlayer.tsx).
       "--video-volume",
       // A PDF page's scale (PdfView.tsx), set inline per page: pdf.js's text layer sizes every run of
@@ -5956,6 +5959,16 @@ it("draws a space's page in tints that thin with the pane, on the app's own pain
   expect(bodiesFor(":root[data-glass] .space-general :is(.search-field, .btn:not(.danger))").join(" "))
     .toMatch(/--space-field: var\(--glass-bead\);\s*--fill: var\(--glass-bead\)/);
   expect(bodiesFor(".space-page-pane .env-row").join(" ")).toContain("color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent)");
+  // The head's icon stands in a tile of the rail's tint, the space's own colour, thinned with the pane.
+  const tile = bodiesFor(".space-page-icon").join(" ");
+  expect(tile).toContain("--tile-h: 36px");
+  expect(tile).toContain("--space-icon-fill: color-mix(in srgb, color-mix(in srgb, var(--space-tint) var(--space-head-tint), transparent) var(--prompter-alpha), transparent)");
+  expect(tile).toContain("background: var(--space-icon-fill)");
+  expect(tile).not.toMatch(/box-shadow|border:/);
+  expect(bodiesFor(":root[data-squircle] .space-page-icon").join(" ")).toContain("--sq-fill: var(--space-icon-fill)");
+  expect(bodiesFor(".rail-space-tile").join(" ")).toContain("background: color-mix(in srgb, currentColor var(--space-tile-tint), transparent)");
+  expect(tokensCss).toContain("--space-tile-tint: 16%;");
+  expect(tokensCss).toContain("--space-head-tint: 28%;");
   // One checkout a row, through the fold's own wrapper: a two-column grid folds after six, not three.
   expect(bodiesFor(".env-field .env-list").join(" ")).toContain("grid-template-columns: minmax(0, 1fr)");
 });

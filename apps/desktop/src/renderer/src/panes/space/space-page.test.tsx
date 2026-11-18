@@ -250,7 +250,9 @@ describe("the page header", () => {
     const icon = document.querySelector(".page-head .space-page-icon") as HTMLElement;
     expect(icon).toHaveAttribute("aria-hidden", "true");
     expect(icon.querySelector("svg")).not.toBeNull();
+    // The tile's tint is the space's colour, named on the tile for the painter (tokens.css).
     expect(icon.style.color).not.toBe("");
+    expect(icon.style.getPropertyValue("--space-tint")).toMatch(/^#[0-9a-f]{6}$/i);
     // A settings page no longer carries a session call to action in its head.
     expect(document.querySelector(".page-head .btn")).toBeNull();
     act(() => store.getState().setSpacePageTab("s1", "sessions"));
