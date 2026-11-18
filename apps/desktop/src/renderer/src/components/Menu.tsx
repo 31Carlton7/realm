@@ -162,7 +162,11 @@ function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left
   const ref = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const id = useId();
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, at, align, placement, onClose, returnFocusRef, exit: true });
+  const { pos, closing, close, room } = useAnchoredPopover({ ref, anchorRef, at, align, placement, onClose, returnFocusRef, exit: true });
+  /* As tall as the roomier side of its control, as the model picker is, not the stylesheet's 60vh,
+     which scrolled Appearance's Import menu, "Describe a theme…" under the dissolve, in a window with
+     room for every row. The rows give way only where neither side holds the menu. */
+  const cap = room ? Math.max(room.above, room.below) : undefined;
   /* The rows scroll inside the surface, and run out into its edges rather than being cut by them.
      A menu taller than the window above the prompter is the "+" menu with a space's connectors in it. */
   useDissolve(list);
@@ -199,7 +203,7 @@ function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bs[cur]?.click(); }
   };
 
-  const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
+  const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: cap,
     visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top left" };
   // `inert` is the whole safety story for the exit: for the beat the menu spends fading it is out of
   // the tab order, out of the accessibility tree, and un-hit-testable, so the app behind it behaves
