@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
 import { StdioJsonRpc } from "./jsonrpc/stdio";
 import { endProbes, execProbe } from "./probe-children";
@@ -16,12 +16,10 @@ const until = async (done: () => boolean, ms: number) => {
 const script = (marker: string) => `sleep 60 & echo "$$ $!" > ${marker}; wait`;
 
 describe.skipIf(process.platform === "win32")("endProbes", () => {
-  let dir = "";
   let pids: number[] = [];
   afterEach(() => {
     for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
     pids = [];
-    rmSync(dir, { recursive: true, force: true });
   });
   const started = async (marker: string) => {
     await until(() => existsSync(marker) && readFileSync(marker, "utf8").includes("\n"), 5_000);
@@ -32,7 +30,7 @@ describe.skipIf(process.platform === "win32")("endProbes", () => {
   it("kills a probe's JSON-RPC child and what it started, with nobody disposing it", async () => {
     // MUTANT: drop the group kill from what `probe` registers and the child's child lives on: a quit
     // exits before the probe's own dispose would have ended the group.
-    dir = mkdtempSync(join(tmpdir(), "realm-probe-"));
+    const dir = tempDir("realm-probe-");
     const marker = join(dir, "pids");
     const exits: boolean[] = [];
     new StdioJsonRpc({
@@ -48,7 +46,7 @@ describe.skipIf(process.platform === "win32")("endProbes", () => {
 
   it("kills a probe's execFile child and what it started", async () => {
     // MUTANT: run it in the caller's group and kill only the shell, and the child's child lives on.
-    dir = mkdtempSync(join(tmpdir(), "realm-probe-"));
+    const dir = tempDir("realm-probe-");
     const marker = join(dir, "pids");
     const run = execProbe("/bin/sh", ["-c", script(marker)], { timeout: 30_000 });
     await started(marker);
@@ -59,7 +57,7 @@ describe.skipIf(process.platform === "win32")("endProbes", () => {
   });
 
   it("leaves a JSON-RPC child that is not a probe alone", async () => {
-    dir = mkdtempSync(join(tmpdir(), "realm-probe-"));
+    const dir = tempDir("realm-probe-");
     const marker = join(dir, "pids");
     const rpc = new StdioJsonRpc({
       command: "/bin/sh", args: ["-c", script(marker)], cwd: dir, ownGroup: true,
