@@ -50,6 +50,7 @@ import { installPressTracking } from "./press-tracking";
 import { installTooltips } from "./tooltips";
 import { installCaret } from "./caret";
 import "./panes";
+import { GlassRoot } from "./glass/GlassDefs";
 
 /**
  * The rail, the sidebar column and the content beside it (Plan 27).
@@ -383,7 +384,7 @@ export function ThemeBridge() {
     // nothing, rather than pushing a colour that is not one.
     if (accent) getBrowserBridges().host.setAccent(accent);
   }, [color, pref, themes, overrides, contrast, fonts, groundAlpha, paneAlpha]);
-  return null;
+  return <GlassRoot />;
 }
 
 /**

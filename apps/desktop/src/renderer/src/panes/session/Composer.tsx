@@ -32,6 +32,8 @@ import type { Todo } from "./rich/tool-view";
 import { nextMicLevel, useDictation, type DictationPort } from "../../voice/use-dictation";
 import { heardPieces, paintRange, placeDictation, spliceRun } from "../../voice/dictation-draft";
 import { prefersReducedMotion } from "../../reduced-motion";
+import { PrompterGlass } from "../../glass/PrompterGlass";
+import { useLook } from "../../glass/use-look";
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
@@ -603,6 +605,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
   const kind = session.agentKind;
+  // Quick chat, the viewer and code review keep an opaque prompter (styles.css), so glass is the
+  // session pane's alone.
+  const glass = useLook() === "glass" && !compact;
   // Hidden exactly like the model menu is empty when the agent has no models: an option Realm cannot
   // transmit is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[kind];
@@ -1309,7 +1314,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
           that is the single most consequential fact about the next send — worth more than a chip in
           a row of chips, which is where it used to live alone. Build is the default and stays
           neutral: a colour that is always on is a colour that says nothing. */}
-      <div className="composer" data-mode={mode} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
+      <div className="composer" data-mode={mode} data-look={glass ? "glass" : undefined} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
+        {glass && <PrompterGlass />}
         <LimitRow limits={planLimits} />
         <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} pendingMove={pendingMove} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />

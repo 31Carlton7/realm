@@ -848,6 +848,32 @@ a {
 :root[data-clear-over-picture] { --picture-ground: none; --picture-veil: transparent; }
 .session-pane:has(> .hero-backdrop) { --prompter-alpha: 0%; }
 
+/* Glass (Settings ▸ Appearance ▸ Controls; styles.css, "Glass"): a lens, a slight blur and a
+ * highlight. The blur is slight on purpose, so the lens has something sharp to bend; over a picture
+ * it takes the picture's own dim (`--picture-tone`), never a fill. A panel of rows (the pickers) is
+ * read rather than glanced at, so it frosts deeper. The highlight is one lit top edge and a hairline,
+ * white in both faces: light falling on glass, not a colour laid on it. A bead (a selected segment,
+ * a switch's knob) is the one place glass carries a fill, a share of white, so a control's position
+ * reads at a glance. */
+:root {
+  --glass-blur: 4px;
+  --glass-panel-blur: 8px;
+  --glass-saturate: 1.5;
+  --glass-frost: blur(var(--glass-blur)) saturate(var(--glass-saturate)) var(--picture-tone);
+  --glass-panel-frost: blur(var(--glass-panel-blur)) saturate(var(--glass-saturate));
+  /* Off a picture a panel keeps most of its surface: what shows through it there is text and the
+     window's material, and neither is a colour worth borrowing. */
+  --glass-panel-fill: 72%;
+  --glass-rim: inset 0 1px 0 rgb(255 255 255 / .16), inset 0 0 0 var(--hairline-w) rgb(255 255 255 / .07);
+  --glass-bead: rgb(255 255 255 / .12);
+  --glass-knob: rgb(255 255 255 / .6);
+}
+:root[data-mode="light"] {
+  --glass-rim: inset 0 1px 0 rgb(255 255 255 / .85), inset 0 0 0 var(--hairline-w) rgb(0 0 0 / .07);
+  --glass-bead: rgb(255 255 255 / .6);
+}
+:root[data-clear-over-picture] { --glass-frost: saturate(var(--glass-saturate)); }
+
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being
    * see-through, and it outranks a setting the user may have left on months ago. Both of them, not

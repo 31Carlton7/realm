@@ -114,6 +114,10 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
       const a = at ? { x: at.x, y: at.y, width: 0, height: 0 } : anchorRef?.current?.getBoundingClientRect();
       if (!a) { setPos({ left: MARGIN, top: MARGIN, origin: "top left" }); return; }
       const top = withinPane && !at ? anchorRef?.current?.closest(".panel-body")?.getBoundingClientRect().top ?? 0 : 0;
+      // Glass over a picture borrows the picture's colour and lays no fill of ours on it (styles.css,
+      // "Glass"). The surface is portalled to the body, so it cannot ask the stylesheet what its
+      // anchor stands on.
+      el.toggleAttribute("data-over-picture", !!anchorRef?.current?.closest(".session-pane")?.querySelector(":scope > .hero-backdrop"));
       const placed = placeAnchored({
         anchor: { x: a.x, y: a.y, width: a.width, height: a.height },
         size: { width, height },

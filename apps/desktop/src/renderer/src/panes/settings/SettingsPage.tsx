@@ -39,6 +39,7 @@ import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
 import { EditPasswordSheet, ImportPasswordsButton, KeychainNeededNotice, KeychainPasswords, PasswordExceptions, PasswordRowActions, SecurityCodesSwitch, UnreadablePasswordsNotice, matchesPasswordSearch } from "./PasswordsSection";
 import { PageRail } from "../../components/page-nav";
+import type { Look } from "../../glass/look";
 import { CATEGORY_COPY, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, tabAvailable, visibleSettingsGroups, type SettingEntry, type SettingsTab } from "./settings-index";
 import { capabilities } from "../../platform";
 
@@ -550,6 +551,8 @@ function TranslucencyRow({ id, label, amount, alpha, range, fallback, material, 
 const MOTION_CHOICES: { pref: ReducedMotionPref; label: string }[] = [
   { pref: "system", label: "System" }, { pref: "on", label: "On" }, { pref: "off", label: "Off" },
 ];
+
+const LOOK_CHOICES: { look: Look; label: string }[] = [{ look: "plain", label: "Plain" }, { look: "glass", label: "Glass" }];
 
 const TERMINAL_DOCK_CHOICES: { edge: TerminalDockEdge; label: string }[] = [
   { edge: "right", label: "Right" }, { edge: "bottom", label: "Bottom" },
@@ -1074,6 +1077,8 @@ function AppearanceTab() {
   const setThemeBubble = useApp((s) => s.setThemeBubble);
   const clearOverPicture = useApp((s) => s.clearOverPicture);
   const setClearOverPicture = useApp((s) => s.setClearOverPicture);
+  const look = useApp((s) => s.look);
+  const setLook = useApp((s) => s.setLook);
   const run = useApp((s) => s.run);
 
   // The face on screen. Both slots are always editable — the point of two is that you set the one
@@ -1164,6 +1169,20 @@ function AppearanceTab() {
                 <input type="radio" name="settings-your-messages" checked={themeBubble === v}
                   onChange={() => run(() => setThemeBubble(v))} />
                 {label}
+              </label>
+            ))}
+          </fieldset>
+        </div>
+
+        <div className="settings-row" data-setting="look">
+          <div className="settings-row-main"><span className="settings-row-name">Controls</span></div>
+          <fieldset className="settings-tabs" aria-label="Controls"
+            title="Glass bends and softens what is behind the prompter, its pickers, switches and segmented controls, and over a background carries the picture's colour. It goes back to plain while Reduce Transparency or Low power is on.">
+            {LOOK_CHOICES.map((c) => (
+              <label key={c.look} className="settings-tab" data-selected={look === c.look || undefined}>
+                <input type="radio" name="settings-look" value={c.look} checked={look === c.look}
+                  onChange={() => run(() => setLook(c.look))} />
+                {c.label}
               </label>
             ))}
           </fieldset>

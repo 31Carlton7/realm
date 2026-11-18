@@ -6,6 +6,7 @@ import { MAC_SKILL_ID, MAX_TAB_REFS, keepLiveRefs, mentionRefLabel, type AppView
 import type { SavedTurn } from "@realm/contracts";
 import { memoryLearningKey, memoryLearningOn } from "@realm/contracts";
 import { BACKGROUND_MOTION_SETTING, BACKGROUND_SETTING, DEFAULT_BACKGROUND, LEGACY_BACKGROUND_KEY, backgroundPref, migratedBackground } from "@realm/contracts";
+import { DEFAULT_LOOK, LOOK_SETTING, isLook, type Look } from "../glass/look";
 import { GALLERY } from "../panes/session/backdrop-gallery";
 import { attachmentDisposition } from "@realm/contracts";
 import { withStreamed, type StreamedMessage } from "@realm/contracts";
@@ -1125,6 +1126,8 @@ export type AppState = TeammatesSlice & {
   /** Whether your own messages keep the theme's solid bubble (`ui.themeBubble`) rather than the
    *  see-through one on the prompter's ground. Off by default: see-through. */
   themeBubble: boolean;
+  /** The look of the app's floating controls (`ui.look`): plain, or glass. Plain by default. */
+  look: Look;
   /**
    * Whether the window has the user's attention right now.
    *
@@ -1962,6 +1965,7 @@ export type AppState = TeammatesSlice & {
   setBackgroundMotion(v: boolean): Promise<void>;
   setClearOverPicture(v: boolean): Promise<void>;
   setThemeBubble(v: boolean): Promise<void>;
+  setLook(v: Look): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
   setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
@@ -4661,7 +4665,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -4688,7 +4692,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion, clearOverPicture, themeBubble] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion, clearOverPicture, themeBubble, look] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -4706,6 +4710,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getSetting(BACKGROUND_MOTION_SETTING),
           api.getSetting(SETTING_CLEAR_OVER_PICTURE),
           api.getSetting(SETTING_THEME_BUBBLE),
+          api.getSetting(LOOK_SETTING),
         ]);
         /* Phase 1 kept the look in this window's localStorage. Carried into the setting once, if the
            setting is unset, and then forgotten; a window that never chose one writes nothing. */
@@ -4735,6 +4740,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, lowPower: lowPower === true,
           background: backgroundPref(carriedBackground ?? background), backgroundMotion: backgroundMotion !== false,
           clearOverPicture: clearOverPicture === true, themeBubble: themeBubble === true,
+          look: isLook(look) ? look : DEFAULT_LOOK,
           paneAlpha: carriedPane, reduceMotion: isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidePanesHidden: sidePanesHidden === true,
@@ -5282,6 +5288,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setThemeBubble(v) {
         set({ themeBubble: v });
         await api.setSetting(SETTING_THEME_BUBBLE, v);
+      },
+      async setLook(v) {
+        set({ look: v });
+        await api.setSetting(LOOK_SETTING, v);
       },
       setWindowActive(v) {
         // Guarded: focus and blur both fire more than once for one switch (the window, then the
