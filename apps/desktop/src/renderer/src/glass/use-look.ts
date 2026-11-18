@@ -29,9 +29,8 @@ function useLowPowerMode(): boolean {
 
 function useConditions(): GlassConditions {
   const reduceTransparency = useReduceTransparency();
-  const lowPower = useApp((s) => s.lowPower);
   const lowPowerMode = useLowPowerMode();
-  return { reduceTransparency, lowPower, lowPowerMode, supportsBackdropUrl: supportsBackdropUrl() };
+  return { reduceTransparency, lowPowerMode, supportsBackdropUrl: supportsBackdropUrl() };
 }
 
 /** The look the app is drawn in now: the setting, put back to plain by `shownLook`'s fallbacks. */

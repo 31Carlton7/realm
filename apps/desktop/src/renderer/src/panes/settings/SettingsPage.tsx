@@ -1081,7 +1081,6 @@ function AppearanceTab() {
   const look = useApp((s) => s.look);
   const setLook = useApp((s) => s.setLook);
   const plainReason = usePlainReason();
-  const setLowPower = useApp((s) => s.setLowPower);
   const run = useApp((s) => s.run);
 
   // The face on screen. Both slots are always editable — the point of two is that you set the one
@@ -1182,16 +1181,11 @@ function AppearanceTab() {
             <span className="settings-row-name">Controls</span>
             {/* Glass chosen and held back says why, so the choice never reads as one that did nothing. */}
             {plainReason && (
-              <span className="settings-row-detail">
-                {PLAIN_REASON_TEXT[plainReason]}
-                {plainReason === "low-power" && <>{". "}
-                  <button type="button" className="settings-link" onClick={() => run(() => setLowPower(false))}>Turn off Low power</button>
-                </>}
-              </span>
+              <span className="settings-row-detail">{PLAIN_REASON_TEXT[plainReason]}</span>
             )}
           </div>
           <fieldset className="settings-tabs" aria-label="Controls"
-            title="Glass bends and softens what is behind the prompter, its pickers, switches and segmented controls, and over a background carries the picture's colour. It goes back to plain while Reduce Transparency, the Mac's Low Power Mode or Realm's Low power is on.">
+            title="Glass bends and softens what is behind the prompter, its pickers, switches and segmented controls, and over a background carries the picture's colour. It goes back to plain while Reduce Transparency or the Mac's Low Power Mode is on. Realm's own Low power leaves it on.">
             {LOOK_CHOICES.map((c) => (
               <label key={c.look} className="settings-tab" data-selected={look === c.look || undefined}>
                 <input type="radio" name="settings-look" value={c.look} checked={look === c.look}
