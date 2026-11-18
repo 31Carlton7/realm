@@ -2,6 +2,7 @@ import DOMPurify from "dompurify";
 import { brandMarks, iconSvg, type BrandName } from "@realm/ui";
 import { LINK_SERVICE_META, describeLink, sessionIdFromLink, type LinkService, type MediaFile } from "@realm/contracts";
 import { marked } from "marked";
+import markedFootnote from "marked-footnote";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { grammarFor, highlightToHtml } from "./rich/highlight";
@@ -41,6 +42,7 @@ marked.use(mathExtension);
 /* Local `![](…)` and `[](…)` become parked placeholders the component below fills with a real
  * player. AFTER the math extension so a formula is never mistaken for a path. */
 marked.use(mediaExtension);
+marked.use(markedFootnote({ headingClass: "visually-hidden" }));
 // Links open in the OS browser: main's setWindowOpenHandler denies in-app windows and hands the URL to the shell.
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
@@ -264,6 +266,17 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
   useEffect(() => () => { for (const t of timers.current.values()) clearTimeout(t); }, []);
   const store = useAppStoreMaybe();
   const onClick = (e: ReactMouseEvent) => {
+    // A footnote's link is a jump within this message. Left to the anchor, its `target="_blank"` would
+    // hand `#footnote-1` to the OS browser, and every message's notes share the same ids anyway.
+    const note = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-footnote-ref], a[data-footnote-backref]") : null;
+    if (note) {
+      e.preventDefault();
+      const id = (note.getAttribute("href") ?? "").slice(1);
+      const to = Array.from(body.current?.querySelectorAll("[id]") ?? []).find((el) => el.id === id);
+      // Centred, so the note clears the fade at the transcript's foot and the prompter docked over it.
+      to?.scrollIntoView({ block: "center" });
+      return;
+    }
     const session = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-session]") : null;
     if (session) {
       e.preventDefault();

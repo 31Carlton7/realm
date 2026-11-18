@@ -1201,10 +1201,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        tasks and settings pages read as unreadable.
 
        The exceptions are geometry or typography, not taste, and each is named rather than tolerated
-       by a range: a superscript citation is sized against its own line, and the rest live inside
-       boxes whose height is fixed by something other than the text (a 44px attachment tile, a 12px
-       calendar row, an SVG axis). */
-    const EXEMPT = new Set([".md-cite", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
+       by a range: a superscript citation or footnote number is sized against its own line, and the
+       rest live inside boxes whose height is fixed by something other than the text (a 44px
+       attachment tile, a 12px calendar row, an SVG axis). */
+    const EXEMPT = new Set([".md-cite", "a[data-footnote-ref]", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
       ".summary-step-mark"]);
     const tooSmall = RULES
       .filter((r) => {
@@ -1224,7 +1224,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        15 reading, then the four title rungs. Below 11 is the floor test's business, and its named
        exceptions stand here too. THE mutant: put any one rule back at 12.5. */
     const LADDER = new Set([11, 12, 13, 14, 15, 18, 20, 24, 28]);
-    const EXEMPT = new Set([".md-cite", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
+    const EXEMPT = new Set([".md-cite", "a[data-footnote-ref]", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
       ".summary-step-mark",
       // A display numeral: the one figure on the usage page that is the page's subject.
       ".stat-value-hero",
@@ -5773,7 +5773,19 @@ describe("ink over a picture behind the chat", () => {
     expect(bodiesFor(":root").join(" ")).toContain("--ink-2-over-picture: color-mix(in oklab, var(--ink) 50%, var(--ink-2))");
     expect(bodiesFor(':root[data-mode="light"]').join(" ")).toContain("--link-over-picture: var(--accent-ink)");
     expect(bodiesFor(':root[data-mode="dark"]').join(" ")).toContain("--link-over-picture: color-mix(in oklab, var(--accent) 50%, var(--ink))");
-    expect(bodiesFor(scope + " .md a:not(.msg-chip)").join(" ")).toContain("color: var(--chat-link, var(--rl-accent))");
+    expect(bodiesFor(scope + " .md a:not(.msg-chip, [data-footnote-ref], [data-footnote-backref])").join(" "))
+      .toContain("color: var(--chat-link, var(--rl-accent))");
+  });
+
+  it("leaves a footnote's number and back arrow in their quiet ink", () => {
+    // THE MUTANT: a scoped link colour that outranks `.md a[data-footnote-ref]` and paints the
+    // number in the link accent over a picture (seen in the Synth Coast captures).
+    const scoped = RULES.flatMap((r) => r.selectors.filter((sel) => /\S\s+\.md a\b/.test(sel) && /(^|[\s;])color:/.test(r.body)));
+    expect(scoped.length).toBeGreaterThan(0);
+    for (const sel of scoped) {
+      expect(sel).toContain("[data-footnote-ref]");
+      expect(sel).toContain("[data-footnote-backref]");
+    }
   });
 });
 
@@ -5825,7 +5837,7 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
   it("the check sees the rules it guards", () => {
     // A selector pattern that matched nothing would pass the check above by default.
     for (const sel of [".md code", ".md-code", ".md-table", ".md thead th", ".md .md-callout", ".ui-block",
-      ".documents-rich-surface code", ".documents-rich-surface pre", ".documents-rich-surface th"]) {
+      ".documents-rich-surface code", ".documents-rich-surface pre", ".documents-rich-surface th", ".md a[data-footnote-ref]"]) {
       expect(MARKDOWN.test(sel), sel).toBe(true);
       expect(bodiesFor(sel).flatMap(fills), `${sel} has no fill to check`).not.toEqual([]);
     }

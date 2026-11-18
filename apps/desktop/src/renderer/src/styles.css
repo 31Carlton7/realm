@@ -3533,7 +3533,9 @@ body { --focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, tr
 :root[data-mode="dark"] { --link-over-picture: color-mix(in oklab, var(--accent) 50%, var(--ink)); }
 .session-pane:has(> .hero-backdrop[data-phase="chat"]) {
   --rl-text-dim: var(--ink-2-over-picture); --chat-link: var(--link-over-picture); }
-.session-pane:has(> .hero-backdrop[data-phase="chat"]) .md a:not(.msg-chip) { color: var(--chat-link, var(--rl-accent)); }
+/* A footnote's number and back arrow keep their quiet ink: this rule outranks theirs. */
+.session-pane:has(> .hero-backdrop[data-phase="chat"]) .md a:not(.msg-chip, [data-footnote-ref], [data-footnote-backref]) {
+  color: var(--chat-link, var(--rl-accent)); }
 /* Dropping a file anywhere on the pane. Inset from the panel edge rather than flush to it, so the
    glow reads as this pane's — in a four-way split a flush ring would run straight into its
    neighbour's and the two would look like one target.
@@ -4053,6 +4055,18 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
 .md :is(ul, ol) :is(ul, ol) { margin-bottom: 0; }
 /* Preflight's rule is a full-ink line; a break in prose is a hairline with air round it. */
 .md hr { margin: 16px 0; border: 0; border-top: var(--hairline-w) solid var(--rl-line-strong); }
+/* A footnote's number wears the citation marker's tint (.md-cite), so a note and a source read as
+   one kind of mark. `line-height: 0` keeps a raised number from opening the line it sits in. */
+.md sup:has(> a[data-footnote-ref]) { line-height: 0; }
+.md a[data-footnote-ref] { margin-left: 1px; padding: 0 3px; border-radius: var(--r-chip); font-size: 9px;
+  font-weight: inherit; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); background: var(--stripe); }
+.md a[data-footnote-ref]:hover { color: var(--rl-text-bright); text-decoration: none; }
+/* The notes close the message under a hairline, a step quieter than the prose they annotate. */
+.md .footnotes { margin-top: 12px; padding-top: 8px; border-top: var(--hairline-w) solid var(--rl-line-strong);
+  font-size: 13px; color: var(--rl-text-dim); }
+.md .footnotes p { margin-bottom: 2px; }
+.md a[data-footnote-backref] { font-weight: inherit; color: var(--rl-text-faint); }
+.md a[data-footnote-backref]:hover { color: var(--rl-text-dim); text-decoration: none; }
 /* Inline code is a tint of the ink over whatever the prose is on, never a surface of its own: a
    solid chip is a patch of another colour on a pane the person thinned, or over their picture. */
 .md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip); background: var(--stripe); }
