@@ -21,6 +21,22 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-17-2",
+    title: "Realm v2.17.2",
+    date: "2026-11-17",
+    version: "v2.17.2",
+    area: "Release",
+    summary:
+      "Quitting Realm ends the agent checks it had running, and Stop on a Codex session no longer goes to a turn that already finished.",
+    short: "Quit ends agent checks, Codex Stop fixed",
+    body: [
+      { kind: "ul", items: [
+        "**Quitting Realm ends the agent checks it had running.** The checks Realm runs to see which agents are installed (opencode, Hermes, Cursor and others) no longer keep running after the app has closed, and neither does anything they started. A check cut short by quitting no longer marks that agent as unavailable the next time Realm opens.",
+        "**Stop on a Codex session no longer goes to a turn that had already finished.** Before, the next message you sent also tried to add itself to that finished turn before starting a new one.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-17-1",
     title: "Realm v2.17.1",
     date: "2026-11-17",
