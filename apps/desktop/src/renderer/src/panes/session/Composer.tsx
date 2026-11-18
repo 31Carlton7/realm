@@ -414,7 +414,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything", dictation = null }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, goalActive = false, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything", dictation = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -572,6 +572,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    *  node rather than the goal itself, for `hero`'s reason: everything it needs to DO belongs to the
    *  pane, and a Composer that took four goal callbacks would be a Composer that knows about goals. */
   goal?: React.ReactNode;
+  /** The session is pursuing a goal right now, so it will start its own next turns: the row says
+   *  "Goal". A paused, blocked or finished goal is the strip's to say. */
+  goalActive?: boolean;
   /** Hero-greeting lines from an unlocked friend pack. Drawn only with the eggs on, like everything
    *  else a pack brings — the switch is the consent boundary and a pack is not a way around it. */
   packGreetings?: readonly string[];
@@ -1525,6 +1528,20 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
                 onClick={() => { setConfirmBypass(false); if (inReadOnly) onParkPermission?.("bypassPermissions"); else onOptions({ permissionMode: "bypassPermissions" }); }}>
                 Allow everything? Confirm
               </button>
+            )}
+            {/* The mode in words, beside the permission it sets aside: plain text in the row's ink, and
+                nothing at all in Build. A click on Plan or Ask is the "+" menu's Build row. A goal's
+                ways out are on its strip right above, so its word is only a word. */}
+            {!compact && inReadOnly && (
+              <button type="button" className="ghost-chip composer-mode-label" data-mode={mode}
+                title={`${MODE_LABEL[mode]} mode. Click to go back to Build`}
+                onClick={() => onMode("build")}>
+                {/* "Ask mode", because the permission chip beside it says "Ask each time", and "Ask" narrow. */}
+                {mode === "ask" ? "Ask mode" : MODE_LABEL[mode]}
+              </button>
+            )}
+            {!compact && goalActive && (
+              <span className="ghost-chip composer-mode-label" data-static="" data-mode="goal" title="Working toward a goal across turns">Goal</span>
             )}
           </div>
           {/* The first dictation on a Mac waits for its speech model to come from Apple. */}

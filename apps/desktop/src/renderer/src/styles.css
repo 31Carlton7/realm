@@ -6134,6 +6134,15 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    pane; without the level it fits to 380 with the mode's long word, and to 328 with its short one. */
 @container (max-width: 440px) { .composer-actions .model-chip :is(.chip-effort, .chip-fast) { display: none; } }
 @container (max-width: 380px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
+/* The session's mode in words beside the permission chip: plain text at body weight, a step quieter
+   than the chip's medium, in the same readable ink. It yields before anything else on the row, the
+   goal's word first (its strip above says it), then the mode's, each at the width where it would start
+   to cut the model's name (measured on the built app, Opus 5.5 at High). The card's tint and the "+"
+   menu still say the mode in a pane that narrow. */
+.composer-mode-label { padding: 0 6px; font-weight: var(--fw-body); }
+@container (max-width: 520px) { .composer-mode-label[data-mode="goal"] { display: none; } }
+@container (max-width: 480px) { .composer-mode-label[data-mode="ask"] { display: none; } }
+@container (max-width: 464px) { .composer-mode-label[data-mode="plan"] { display: none; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
 /* Listening: the mic in the accent, over a tinted disc that swells with the voice (`--mic-level`,

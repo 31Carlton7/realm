@@ -5928,3 +5928,26 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
     expect(css).toMatch(/@container scroll-state\(scrollable: top\) \{\s*\.md thead th \{ background: linear-gradient\(var\(--stripe\), var\(--stripe\)\) var\(--rl-panel\); \}/);
   });
 });
+
+describe("the prompter's mode label", () => {
+  /** The pane width at or under which a label of this kind is hidden. */
+  const yieldsAt = (mode: string) => {
+    const m = css.match(new RegExp(`@container \\(max-width: (\\d+)px\\) \\{ \\.composer-mode-label\\[data-mode="${mode}"\\] \\{ display: none; \\} \\}`));
+    expect(m, `no narrow rule for the ${mode} label`).not.toBeNull();
+    return Number(m![1]);
+  };
+
+  it("gives way before the model's name does: the goal's word first, then Ask mode, then Plan", () => {
+    // Measured on the built app (s4-mode-indicator/after/numbers.json): below these widths each word
+    // would cut "Opus 5.5" where the row without it showed the whole name.
+    expect(yieldsAt("goal")).toBeGreaterThan(yieldsAt("ask"));
+    expect(yieldsAt("ask")).toBeGreaterThan(yieldsAt("plan"));
+    expect(yieldsAt("plan")).toBeGreaterThanOrEqual(464);
+  });
+
+  it("is quieter than the chip beside it by weight, not by an ink under AA", () => {
+    const body = bodiesFor(".composer-mode-label").join(" ");
+    expect(body).toContain("font-weight: var(--fw-body)");
+    expect(body).not.toMatch(/color:|background/);
+  });
+});

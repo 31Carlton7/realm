@@ -824,6 +824,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             hero={hero} spaceName={space?.name ?? "this space"} spaceIcon={space?.icon} spaceTint={spaceTint} place={place}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
             packGreetings={packGreetings}
+            goalActive={goal?.status === "active"}
             goal={<GoalStrip goal={goal}
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}

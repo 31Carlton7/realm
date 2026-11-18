@@ -716,6 +716,13 @@ acronym that is uppercase anyway (a file extension on a tile).
   its own mark from one family (a shield that asks, one that has said yes, one that warns), the
   menu's rows wear the same marks, and only the rung that removes a gate keeps a tone: on its ink,
   never as a resting fill, because a wash under a warning is a second warning about one setting.
+- A session in a mode other than the ordinary one says so in words beside the permission control:
+  "Plan", "Ask mode", "Goal", plain text at body weight in the row's own ink, no pill and no glyph,
+  and nothing at all in Build (the owner, 11-18: "a quiet label… not a loud badge"). Ask carries its
+  noun because "Ask each time" is the word beside it. A word that has a way out already (Plan and Ask
+  back to Build) takes the click; a goal's word does not, because its strip holds Pause and Drop one
+  row up. On a narrow row these words yield before the model's name loses a letter, the goal's first,
+  since the card's tint and the strip still say the rest.
 - A toggle names its state or carries `aria-pressed`, never both — "Unfocus Two, pressed" is a
   sentence at war with itself. Which one it takes is a fact about the accessible NAME, so it may not
   become a difference in the fill: "this control is on" gets ONE appearance across a bar, or the
