@@ -269,12 +269,33 @@ Rules:
   Transparency. Its words hold by moving their ink, not by holding the fill: as it thins, the hints
   step toward the quiet ink and the quiet ink toward body ink. The tab that touches the card is
   seated on the card's own curve, so see-through pieces meet along one edge, with no band and no
-  notch. It stays the same quiet fill, with no blur, no sheen and no bright edge; its lift fades as it
-  thins, because a dark halo round a card you can see through reads as dirt rather than height. The strip over the panes once
+  notch. On a plain pane it stays the same quiet fill, with no blur, no sheen and no bright edge (over a
+  picture its blur is the picture's own, below); its lift fades as it
+  thins, because a dark halo round a card you can see through reads as dirt rather than height. The
+  lift is its own, half a card's, and it is gone before the card is a tenth see-through (11-17: the
+  shadow "sticks out like a sore thumb"). With no picture it keeps that fill rather than going clear:
+  clear, its quiet words measured 3.95:1 over the worst material at pane 0 against 5.15 on the 40%
+  fill. The strip over the panes once
   read as a frosted band because the reading dissolved up into it; nothing scrolls under it now.
   The controls at the head of the Documents home follow the same number for the same reason: the
   search field and New were the two solid things on a pane thinned to its end (the owner, 11-17), so
   they thin with it in every state, and the pointer never brings a solid button back.
+- A surface over a picture borrows the picture's colour, never the theme's grey. Over Synth Coast a
+  denser prompter was a grey slab with a grey-brown halo, and neither carried the purple (the owner,
+  11-17: "the coloring isn't the same like purplish coloring like the blur doesn't really follow
+  that"). So over a picture or a loop the prompter and its tabs have no fill and no lift; their
+  ground is the picture behind them, blurred, and taken toward black (light: toward white) by
+  brightness and contrast inside the same backdrop filter (`--picture-ground`), one number for the
+  dim. Clear, a choice in Appearance, is the picture as it is with only the ink moved. The picture
+  runs under the card rather than clearing round it, because the blur can only borrow what is there:
+  a hole round the card showed the window's material through it, which is where the halo came from.
+  The blur stays inside the pane, which isolates over its picture, so it samples the picture's
+  canvas and never the material. Your own message follows the same ground: see-through by default,
+  thinning with the pane as the prompter does, and over a picture the picture itself under the same
+  dim as a veil of pure black or white (the transcript is the edge blur's backdrop root, so a bubble
+  cannot blur the canvas, and it stands on the track's blur already). Theme colour keeps the theme's
+  solid bubble for whoever wants it (11-17: "with the option to have it be the same as the theme").
+  `prompter-ground.test.ts` refuses a theme fill or a shadow on any rule scoped to a picture.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha
@@ -477,14 +498,19 @@ Rules:
   Reduce motion makes that a cut. Behind a transcript it is blurred once, by the edge blur's deeper
   radius, into a still canvas, never a backdrop filter over moving words, and each pixel is taken toward
   the ground only as far as the body, quiet and link inks need to keep 4.5:1 over it, since words
-  can scroll over any pixel. That is the least dim that reads, and a bright picture pays for it
+  can scroll over any pixel, and toward black (light: white), never toward the theme's ground, so a
+  dimmed pixel keeps its hue. That is the least dim that reads, and a bright picture pays for it
   with its brightness rather than the words: at night a sunset stays a tint of its colours, and the
   light face's link blue, which misses 4.5:1 on plain white already, is held to 3:1 so it leaves a
-  picture at all. The picture is printed, not pasted: a gallery look or a person's own image goes through a
+  picture at all. That hush and that blur belong to the transcript's TRACK, not the pane: the words
+  only ever sit in the column, so the column, a little wider each side, takes the whole hush, the whole
+  blur and a faint step toward black (light: white), and past it the picture keeps most of its light and its
+  focus, reached over a wide feather so the track has no edge (the owner, 11-17: on send the picture
+  "shouldn't get so much darker"). A pane with no column yet is all track. The still and the loop's
+  shader read one set of numbers (`TRACK`). The picture is printed, not pasted: a gallery look or a person's own image goes through a
   dither in the theme's tones, or a colour-kept dither, so it changes with the face and the theme.
   A person's own picture may be shown as it is, and even then it is under the same two rules as every
-  look: the prompter stays its card, as solid as the pane rule above makes it, with the picture feathered out round it, never glass over
-  it, and a guard measures every run of text against the worst pixel behind it and lowers the picture
+  look: the prompter stands on the picture, blurred or clear as the rule above says, and a guard measures every run of text against the worst pixel behind it and lowers the picture
   there until the greeting holds 3:1 and every other run holds what it had on the plain ground. A
   busy picture costs the picture, never the words. The picture fills the pane to its bottom edge with
   no fade there (the owner, 11-11: "this image should expand towards the bottom"): the pane's edge ends
@@ -1213,7 +1239,7 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - User messages, assistant prose, plans, tool calls, permissions, diffs, and attachments must have
   distinct shapes because they lead to different actions.
   Your own message's bubble keeps its shape in both faces: dark lays it on the raised fill, a step
-  over the canvas, and light lays it on the hover step, because Codex light's raised fill and canvas
+  over the canvas and thinned with the pane as the prompter is, and light lays it on the hover step, because Codex light's raised fill and canvas
   are the same white and the bubble measured 1.01:1 against it.
 - Running, waiting, stopped, and failed states must be readable without color alone.
 - Provider, model, mode, workspace, and connector context belong near the composer because they

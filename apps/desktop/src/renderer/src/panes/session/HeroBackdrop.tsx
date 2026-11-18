@@ -4,7 +4,7 @@ import { BackdropRenderer, LOOKS, readPalette, resolveColor, type Palette, type 
 import { COLOR_LOOKS, paintColorBackdrop, type ColorRender, type Picture, type TextRun } from "./hero-backdrop-color";
 import { loopMayRun, resolveBackdrop, type Backdrop } from "./backdrop-gallery";
 import { useYourBackgrounds, yourBackgroundUrl } from "../../state/your-backgrounds";
-import { SCALE, hush, printed, readableRange, soften } from "./chat-backdrop";
+import { SCALE, hush, hushToward, hushTrack, printed, readableRange, soften, trackOf } from "./chat-backdrop";
 import { LoopRenderer, gpuHush, type LoopUniforms } from "./loop-gl";
 import { loopStats, refreshLoops, setWrapDissolve, sourceKey, watchLoop, type LoopSource, type Wrap } from "./loop-player";
 
@@ -207,14 +207,6 @@ function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; 
   return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
 }
 
-/** The prompter, in the pane's CSS px: its card with the tabs above and the strip below, which
- *  stand on one surface. It is the one thing the picture clears round; the greeting, laid out of
- *  the dock's flow, is not in this box. */
-function cardRect(pane: Element, box: DOMRect): Rect | null {
-  const card = pane.querySelector(".composer-dock")?.getBoundingClientRect();
-  return card ? { x: card.left - box.left, y: card.top - box.top, w: card.width, h: card.height } : null;
-}
-
 /** Every run of text the picture could sit behind, with the ratio it needs: 3 for large text, 4.5
  *  otherwise. The prompter's own text stands on its surface, so only the greeting's is in the dock;
  *  its words are one group. Rects are in the pane's CSS px. */
@@ -279,15 +271,14 @@ function ColorBackdrop({ backdrop, look: lookId, held, underLoop }: { backdrop: 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = Math.round(box.width * dpr), h = Math.round(box.height * dpr);
       const pal: Palette = readPalette(root);
-      const card = cardRect(pane, box) ?? { x: 0, y: 0, w: 0, h: 0 };
-      // The dock's box changes as its tabs' text does; only a real move of the card or the greeting
-      // (which reflows on its own as its words change or wrap), a new size or a new face draws again.
+      // Only a real move of the greeting (which reflows on its own as its words change or wrap), a new
+      // size or a new face draws again.
       const words = pane.querySelector(".hero-greeting")?.getBoundingClientRect();
-      const key = JSON.stringify([w, h, pal, [card.x, card.y, card.w, card.h, words?.left, words?.top, words?.width, words?.height].map((v) => Math.round(v ?? 0))]);
+      const key = JSON.stringify([w, h, pal, [words?.left, words?.top, words?.width, words?.height].map((v) => Math.round(v ?? 0))]);
       if (key === drawn) return;
       const pic = await pictureFor(backdrop, pal.dark);
       if (!pic || stale()) return;
-      const done = await paintColorBackdrop(canvas, w, h, look, pic, card, dpr, pal.ground, () => textRuns(pane), stale);
+      const done = await paintColorBackdrop(canvas, w, h, look, pic, dpr, pal.ground, () => textRuns(pane), stale);
       if (!done) return;
       drawn = key;
       if (profile) renders.push(done);
@@ -336,8 +327,8 @@ function chatInks(pane: Element): { inks: Rgb[]; links: Rgb[] } {
 
 /**
  * The picture behind a transcript (chat-backdrop.ts): drawn once, blurred by the edge blur's deeper
- * radius (`--fade-blur-far`) so it stops competing with the words, and each pixel brought toward the
- * ground only as far as the body, quiet and link inks need to keep their ratios over it. It answers
+ * radius (`--fade-blur-far`) so it stops competing with the words, and each pixel brought toward black
+ * (light: white) only as far as the body, quiet and link inks need to keep their ratios over it. It answers
  * only to the pane's size and the face, never to the transcript, so scrolling and streaming cost it
  * nothing.
  *
@@ -379,15 +370,19 @@ function ChatBackdrop({ backdrop, settle, onSettled, underLoop }: { backdrop: Ba
       const style = getComputedStyle(root);
       const blur = parseFloat(style.getPropertyValue("--fade-blur-far")) || 0;
       const { inks, links } = chatInks(pane);
-      const key = JSON.stringify([w, h, dpr, pal, blur, inks, links]);
+      const track = trackOf(pane, box, 1 / SCALE);
+      const key = JSON.stringify([w, h, dpr, pal, blur, inks, links, track]);
       if (key === drawn) return;
       const pic = await pictureFor(backdrop, pal.dark);
       if (!pic || stale()) return;
       const print = await printed(backdrop.effect, pic, pal, w, h, dpr);
       if (stale()) return;
-      const art = soften(print, pal.ground, Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE), blur / SCALE);
+      const [aw, ah] = [Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE)];
+      const art = soften(print, pal.ground, aw, ah, blur / SCALE);
+      const sharp = soften(print, pal.ground, aw, ah, 0).getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, aw, ah);
       const pixels = art.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, art.width, art.height);
-      hush(pixels.data, pal.ground, readableRange(pal.ground, inks, links));
+      const range = readableRange(pal.ground, inks, links);
+      hushTrack(pixels.data, sharp.data, aw, hushToward(pal, range), range, track);
       if (canvas.width !== art.width || canvas.height !== art.height) { canvas.width = art.width; canvas.height = art.height; }
       canvas.getContext("2d")!.putImageData(pixels, 0, 0);
       drawn = key;
@@ -436,8 +431,8 @@ const unionRect = (rects: Rect[]): Rect | undefined => {
 
 /**
  * A backdrop's loop (loop-gl.ts, loop-player.ts), over its still and drawn on each frame the window's
- * one loop presents. Readable on every frame by the still's rules: behind an empty session it feathers
- * out round the prompter and is hushed under the words for their inks; behind a transcript it is
+ * one loop presents. Readable on every frame by the still's rules: behind an empty session it is
+ * hushed under the words for their inks; behind a transcript it is
  * softened by the edge blur's deeper radius and every pixel hushed for the body, quiet and link inks.
  * It shows only while frames arrive; whenever the loop stops it goes and its still is there.
  *
@@ -504,11 +499,13 @@ function LoopBackdrop({ backdrop, phase, held = false, settle = false, onShowing
       if (phase === "hero") {
         const runs = textRuns(pane);
         const { inks, links } = heroInks(runs, pal.ground);
-        uniforms = { ground: pal.ground, range: readableRange(pal.ground, inks, links), depth, dpr, card: cardRect(pane, box) ?? undefined, words: unionRect(runs.map((x) => x.rect)) };
+        const range = readableRange(pal.ground, inks, links);
+        uniforms = { toward: hushToward(pal, range), range, depth, dpr, words: unionRect(runs.map((x) => x.rect)) };
       } else {
         const { inks, links } = chatInks(pane);
         const blur = parseFloat(getComputedStyle(root).getPropertyValue("--fade-blur-far")) || 0;
-        uniforms = { ground: pal.ground, range: readableRange(pal.ground, inks, links), depth, dpr, sigma: blur / SCALE };
+        const range = readableRange(pal.ground, inks, links);
+        uniforms = { toward: hushToward(pal, range), range, depth, dpr, sigma: blur / SCALE, track: trackOf(pane, box, canvas.width / box.width) };
       }
       const next = pal.dark ? backdrop.loop!.dark : backdrop.loop!.light;
       if ((next && sourceKey(next)) !== (source && sourceKey(source))) {

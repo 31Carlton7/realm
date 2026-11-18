@@ -5,10 +5,11 @@
  *
  * Unlike the WebGL looks this never runs a loop. The screened picture is worked out once per
  * (image, face, size) and kept; a move of the prompter only re-lays the mask over the kept bitmap.
- * The picture fills the pane to its bottom edge, runs behind the greeting and beside the prompter,
- * and feathers out round the prompter's card. Under each run of text a contrast guard lowers the
- * picture there, and only there, until the words still read. A person's own picture shown as it is
- * takes the same path with no screen, so the feather and the guard are the same for it.
+ * The picture fills the pane to its bottom edge and runs behind the greeting and under the prompter,
+ * whose ground is this picture blurred (styles.css, `--picture-ground`), so nothing is cleared round
+ * the card. Under each run of text a contrast guard lowers the picture there, and only there, until
+ * the words still read. A person's own picture shown as it is takes the same path with no screen, so
+ * the guard is the same for it.
  */
 import type { Rect, Rgb } from "./hero-backdrop";
 
@@ -17,15 +18,13 @@ export type ColorLook = {
   cell: number;
   /** How much darker a screened cell is than its colour; 0 shows the picture as it is. */
   depth: number;
-  /** How far the picture feathers out from the prompter's card, in CSS px. */
-  feather: number;
 };
 
 /** The screened look, and the same picture as it is: one device px a cell and no screen, but the
- *  same feather and contrast guard. */
+ *  same contrast guard. */
 export const COLOR_LOOKS: Record<"dither-color" | "as-is", ColorLook> = {
-  "dither-color": { cell: 2, depth: 0.22, feather: 72 },
-  "as-is": { cell: 1, depth: 0, feather: 72 },
+  "dither-color": { cell: 2, depth: 0.22 },
+  "as-is": { cell: 1, depth: 0 },
 };
 
 /** A picture to draw: its URL, and a short key that names it in the cache (a data: URL is megabytes). */
@@ -155,12 +154,10 @@ export type Hush = { rect: Rect; level: number; reach: number };
 
 /**
  * How much of the picture shows at (x, y), in the pane's CSS px: whole everywhere down to the
- * pane's bottom edge, none inside the prompter's `card` and back to whole a feather's width outside
- * it, and lowered under each `hush`.
+ * pane's bottom edge, under the prompter too, and lowered under each `hush`.
  */
-export function pictureAlpha(x: number, y: number, card: Rect, look: Pick<ColorLook, "feather">, hushes: Hush[] = []) {
+export function pictureAlpha(x: number, y: number, hushes: Hush[] = []) {
   let a = 1;
-  if (card.w > 0 && card.h > 0) a *= smoothstep(0, look.feather, outside(x, y, card, 16));
   for (const s of hushes) {
     if (s.level < 1) a *= s.level + (1 - s.level) * smoothstep(0, s.reach, outside(x, y, s.rect, Math.min(s.rect.h / 2, 24)));
   }
@@ -170,7 +167,7 @@ export function pictureAlpha(x: number, y: number, card: Rect, look: Pick<ColorL
 /** `pictureAlpha` over the pane at a quarter of its CSS size: the mask has no edge sharper than
  *  that, so scaling it up loses nothing. */
 const MASK_SCALE = 1 / 4;
-function mask(look: ColorLook, card: Rect, hushes: Hush[], w: number, h: number) {
+function mask(hushes: Hush[], w: number, h: number) {
   const m = document.createElement("canvas");
   m.width = Math.ceil(w * MASK_SCALE);
   m.height = Math.ceil(h * MASK_SCALE);
@@ -178,7 +175,7 @@ function mask(look: ColorLook, card: Rect, hushes: Hush[], w: number, h: number)
   const data = g.createImageData(m.width, m.height);
   for (let j = 0; j < m.height; j++) {
     for (let i = 0; i < m.width; i++) {
-      data.data[(j * m.width + i) * 4 + 3] = 255 * pictureAlpha((i + 0.5) / MASK_SCALE, (j + 0.5) / MASK_SCALE, card, look, hushes);
+      data.data[(j * m.width + i) * 4 + 3] = 255 * pictureAlpha((i + 0.5) / MASK_SCALE, (j + 0.5) / MASK_SCALE, hushes);
     }
   }
   g.putImageData(data, 0, 0);
@@ -223,15 +220,15 @@ export function guard(runs: TextRun[], under: (rect: Rect, hushes: Hush[]) => Ui
 }
 
 /**
- * Lays the screened picture onto `canvas` at `w`×`h` device px, feathered out round the prompter's
- * `card` and down the pane, and hushed under the text. The canvas keeps its last frame until the
+ * Lays the screened picture onto `canvas` at `w`×`h` device px, down the pane, and hushed under the
+ * text. The canvas keeps its last frame until the
  * new one is ready, and a paint that `stale` says was overtaken while the picture was screened
  * leaves it alone. The guard works the hushes out first, from the screened cells and
  * `pictureAlpha` rather than by reading the canvas back: per group of runs `texts` returns, how far
  * the picture must come down there for every run to keep its ratio against its worst pixel.
  * The canvas's own opacity is the backstop if a run still misses with the hushes in.
  */
-export async function paintColorBackdrop(canvas: HTMLCanvasElement, w: number, h: number, look: ColorLook, pic: Picture, card: Rect,
+export async function paintColorBackdrop(canvas: HTMLCanvasElement, w: number, h: number, look: ColorLook, pic: Picture,
   dpr: number, ground: Rgb, texts: () => TextRun[], stale: () => boolean): Promise<ColorRender | null> {
   if (!w || !h) return null;
   const art = await screened(pic, look, w, h);
@@ -248,7 +245,7 @@ export async function paintColorBackdrop(canvas: HTMLCanvasElement, w: number, h
     const px = cells.getImageData(c0, r0, c1 - c0, r1 - r0).data;
     for (let j = r0; j < r1; j++) {
       for (let i = c0; i < c1; i++) {
-        px[((j - r0) * (c1 - c0) + i - c0) * 4 + 3] = 255 * pictureAlpha((i + 0.5) * css, (j + 0.5) * css, card, look, hushes);
+        px[((j - r0) * (c1 - c0) + i - c0) * 4 + 3] = 255 * pictureAlpha((i + 0.5) * css, (j + 0.5) * css, hushes);
       }
     }
     return px;
@@ -261,7 +258,7 @@ export async function paintColorBackdrop(canvas: HTMLCanvasElement, w: number, h
   g.drawImage(art.bitmap, 0, 0, art.bitmap.width * look.cell, art.bitmap.height * look.cell);
   g.imageSmoothingEnabled = true;
   g.globalCompositeOperation = "destination-in";
-  g.drawImage(mask(look, card, hushes, w / dpr, h / dpr), 0, 0, w, h);
+  g.drawImage(mask(hushes, w / dpr, h / dpr), 0, 0, w, h);
   g.restore();
   canvas.style.opacity = String(opacity);
   return { screenMs: art.ms, composeMs: performance.now() - start, cached: art.cached, opacity, hushes };

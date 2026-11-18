@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hush, readableRange } from "./chat-backdrop";
+import { TRACK, hush, hushToward, hushTrack, readableRange, trackWeight, type Track } from "./chat-backdrop";
 import { contrast } from "./hero-backdrop-color";
 import type { Rgb } from "./hero-backdrop";
 
@@ -97,5 +97,111 @@ describe("hush", () => {
     const [p] = pixels(px);
     expect(contrast(halfway, p!)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(body, p!)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+/* The transcript's track (the owner, 11-17): the column the words sit in keeps the whole hush, a faint
+   step toward the ground and the whole blur; past it the picture keeps most of its light. */
+describe("the transcript's track", () => {
+  // A row of 10 px, the column across px 3..6 and a 2 px feather: 0..2 outside, 3..6 in, 7..9 outside.
+  const track: Track = { x0: 3, x1: 7, feather: 2 };
+  const bright: [number, number, number] = [250, 236, 210];
+  const row = (c: [number, number, number]) => picture(...Array.from({ length: 10 }, () => c));
+
+  it("holds every ink over every pixel of the column, a faint step past the plain hush", () => {
+    // THE mutant: the track's share of the hush lowered, so words over the column fall under 4.5:1.
+    for (const face of [dark, light]) {
+      const range = readableRange(face.ground, face.inks.slice(0, 2));
+      const px = row(bright), sharp = row(bright);
+      hushTrack(px, sharp, 10, face.ground, range, track);
+      const plain = row(bright);
+      hush(plain, face.ground, range);
+      for (const i of [3, 4, 5, 6]) {
+        const p = pixels(px)[i]!;
+        for (const ink of face.inks.slice(0, 2)) expect(contrast(ink, p)).toBeGreaterThanOrEqual(4.5);
+      }
+      // The tint: a mid tone the hush alone leaves as it was comes a step toward the ground in the
+      // column (darker in dark, lighter in light), and keeps itself past it.
+      const mid: [number, number, number] = face === dark ? [40, 50, 70] : [236, 240, 246];
+      const m = row(mid);
+      hushTrack(m, row(mid), 10, face.ground, range, track);
+      expect(contrast(face.ground, pixels(m)[4]!)).toBeLessThan(contrast(face.ground, pixels(row(mid))[4]!));
+      expect(Array.from(m.slice(0, 4))).toEqual([...mid, 255]);
+    }
+  });
+
+  it("leaves the picture far brighter past the column, easing there with no edge", () => {
+    // THE mutants: the sides hushed whole again (the old darkening on send), or a hard step at the edge.
+    const range = readableRange(dark.ground, dark.inks.slice(0, 2));
+    const px = row(bright), sharp = row(bright);
+    hushTrack(px, sharp, 10, dark.ground, range, track);
+    const lum = (i: number) => { const [r, g, b] = pixels(px)[i]!; return r + g + b; };
+    expect(lum(0)).toBeGreaterThan(lum(4) * 1.5);
+    expect(lum(9)).toBeGreaterThan(lum(4) * 1.5);
+    // Monotonic out of the column on both sides, through the feather.
+    expect(lum(7)).toBeGreaterThanOrEqual(lum(6));
+    expect(lum(8)).toBeGreaterThan(lum(7));
+    expect(lum(2)).toBeGreaterThan(lum(3));
+    expect(trackWeight(5, track)).toBe(1);
+    expect(trackWeight(8, track)).toBeCloseTo(0.5, 5);
+    expect(trackWeight(20, track)).toBe(0);
+    // The sides keep `sideHush` of the hush, no more.
+    expect(TRACK.sideHush).toBeLessThan(0.5);
+  });
+
+  it("takes the blur in the column and mostly the sharp picture past it", () => {
+    const range: [number, number] = [0, 1]; // nothing to hush: only the blur's share shows
+    const blurred = row([100, 100, 100]), sharp = row([200, 200, 200]);
+    hushTrack(blurred, sharp, 10, dark.ground, range, { ...track });
+    const at = (i: number) => pixels(blurred)[i]![0] * 255;
+    expect(at(0)).toBeCloseTo(200 + (100 - 200) * TRACK.sideBlur, 0);
+    // In the column the blurred picture, a tint toward the ground.
+    expect(at(4)).toBeCloseTo(100 + (28 - 100) * TRACK.tint, 0);
+  });
+
+  it("is the plain hush everywhere when there is no column to find", () => {
+    // THE mutant: the tint or the sharp mix applied with no track, which would move a pane with no transcript.
+    const range = readableRange(dark.ground, dark.inks.slice(0, 2));
+    const a = row(bright), b = row(bright);
+    hushTrack(a, row([0, 0, 0]), 10, dark.ground, range);
+    hush(b, dark.ground, range);
+    expect(Array.from(a)).toEqual(Array.from(b));
+  });
+});
+
+/* The owner, 11-17, over Synth Coast: "the coloring isn't the same like purplish coloring". A step
+   toward the theme's ground is a step toward a grey; toward black it is only darker. */
+describe("the picture keeps its own colour behind the transcript", () => {
+  const hueOf = ([r, g, b]: Rgb) => {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return { hue: (h * 60 + 360) % 360, sat: max ? d / max : 0 };
+  };
+
+  it("hushes toward black in dark and white in light, or the ground where its inks would not read there", () => {
+    // THE mutant: the ground passed back in (a grey cast on every dimmed pixel).
+    const dr = readableRange(dark.ground, dark.inks), lr = readableRange(light.ground, light.inks);
+    expect(hushToward({ ground: dark.ground, dark: true }, dr)).toEqual([0, 0, 0]);
+    expect(hushToward({ ground: light.ground, dark: false }, lr)).toEqual([1, 1, 1]);
+    expect(hushToward({ ground: dark.ground, dark: true }, [0.05, 0.5])).toEqual(dark.ground);
+  });
+
+  it("keeps a purple's hue and saturation through the track's tint and hush, where the ground would grey it", () => {
+    // Synth Coast's sky, bright enough that the hush has to bring it down, on a grey dark ground.
+    const purple: [number, number, number] = [196, 120, 236];
+    const grey = rgb(60, 60, 64);
+    const range = readableRange(grey, dark.inks);
+    const toward = hushToward({ ground: grey, dark: true }, range);
+    const px = picture(purple), sharp = picture(purple);
+    hushTrack(px, sharp, 1, toward, range);
+    const [out] = pixels(px), before = hueOf(rgb(...purple)), after = hueOf(out!);
+    expect(out![0]).toBeLessThan(purple[0] / 255);
+    expect(Math.abs(after.hue - before.hue)).toBeLessThan(2);
+    expect(Math.abs(after.sat - before.sat)).toBeLessThan(0.02);
+    for (const ink of dark.inks.slice(0, 2)) expect(contrast(ink, out!)).toBeGreaterThanOrEqual(4.5);
+    // The mutant, for the record: toward the grey ground the same pixel loses a third of its saturation.
+    const greyed = picture(purple);
+    hushTrack(greyed, picture(purple), 1, grey, range);
+    expect(hueOf(pixels(greyed)[0]!).sat).toBeLessThan(before.sat - 0.1);
   });
 });

@@ -587,6 +587,9 @@ a {
   /* A contact shadow and a wide, faint ambient one, both lighter than the tight pair this replaced,
    * which pooled dark under the prompter's tiles and round its foot. */
   --shadow-card-lift: 0 1px 1px #0000001f, 0 4px 14px #0000001a;
+  /* The prompter's own lift, about half the card lift's: over a picture the full one stood out round
+     the card "like a sore thumb" (the owner, 11-17). */
+  --prompter-lift: 0 1px 1px #00000012, 0 4px 14px #0000000d;
   /* The same lift as a filter. A box-shadow is drawn from the border box, so on the squircle
      surfaces — whose border-radius is 0 because the curve is painted, not declared — it lands as a
      SQUARE behind a rounded card. `drop-shadow` traces the rendered alpha instead, which is the
@@ -642,6 +645,7 @@ a {
   --window-ring: var(--overlay-darken-400);
   --window-ring-hover: var(--overlay-darken-600);
   --shadow-card-lift: 0 1px 1px #03071205, 0 4px 14px #03071205;
+  --prompter-lift: var(--shadow-card-lift);
   --shadow-card-lift-filter: drop-shadow(0 1px 1px #03071205) drop-shadow(0 4px 14px #03071205);
   --shadow-overlay-filter: drop-shadow(0 4px 6px #0307121f) drop-shadow(0 16px 32px #1c284024);
   --shadow-card: 0 0 0 var(--hairline-w) var(--card-ring), var(--shadow-card-lift);
@@ -814,12 +818,35 @@ a {
  * default pane of 84, in a straight line, the same in both faces (the owner, 11-16: "whether there's a picture or not, the
  * prompter should become more transparent with the pane", then "too transparent, it should be
  * slightly less but adjust with the transparency"). Its words hold by moving their ink as well
- * (styles.css, the prompter on a thinned pane). The lift is gone by `--prompter-lift-until`. No blur:
- * the picture is already softened where it sits behind the chat, and a blur measured no gain. */
+ * (styles.css, the prompter on a thinned pane). The lift is gone by `--prompter-lift-until`: it shows
+ * only on a card that is nearly solid, so on a see-through one there is no halo (11-17). No blur
+ * on a plain pane: a blur there would reach the window's material and smudge it.
+ *
+ * Over a picture or a loop the card has no fill at all, because any fill of ours is a theme grey
+ * laid on the picture's colour (the owner, 11-17, over Synth Coast: "the coloring isn't the same like
+ * purplish coloring"). Its ground is the picture itself, blurred and taken toward black (light: toward
+ * white) by one number, `--picture-dim`, inside the same backdrop filter, so the purple stays purple.
+ * Clear (Settings ▸ Appearance) drops the blur and the dim and leaves the picture as it is. A bubble
+ * of yours over the picture cannot reach it with a backdrop filter (the transcript is the edge
+ * blur's backdrop root), and stands on the track's blur already, so it takes the dim as a veil of
+ * pure black or white at the same share, which is the same brightness step. */
 :root {
-  --prompter-lift-until: 72%;
+  --prompter-lift-until: 92%;
   --prompter-alpha: min(100%, calc(40% + var(--pane-alpha) * 60 / 84));
+  --picture-blur: 20px;
+  --picture-dim: 0.4;
+  --picture-tone: brightness(calc(1 - var(--picture-dim)));
+  --picture-veil: rgb(0 0 0 / var(--picture-dim));
+  --picture-ground: blur(var(--picture-blur)) var(--picture-tone);
 }
+/* Toward white by the same share: contrast(k) then brightness(b) is c * b * k + b * (1 - k) / 2, which
+ * is (1 - d) * c + d when b = 1 + d and k = (1 - d) / (1 + d). */
+:root[data-mode="light"] {
+  --picture-tone: contrast(calc((1 - var(--picture-dim)) / (1 + var(--picture-dim)))) brightness(calc(1 + var(--picture-dim)));
+  --picture-veil: rgb(255 255 255 / var(--picture-dim));
+}
+:root[data-clear-over-picture] { --picture-ground: none; --picture-veil: transparent; }
+.session-pane:has(> .hero-backdrop) { --prompter-alpha: 0%; }
 
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being
@@ -828,7 +855,7 @@ a {
    * answers the preference by half. */
   :root, :root[data-mode="light"] { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }
   /* The prompter with them, or it would be the one thing left showing through. */
-  :root, :root[data-mode="light"] { --prompter-alpha: 100%; }
+  :root, :root[data-mode="light"], .session-pane:has(> .hero-backdrop) { --prompter-alpha: 100%; }
   /* The themed rule above outranks a bare :root, so it is named here too, or the preference would
    * leave a themed sidebar see-through. */
   :root[data-mode="dark"][data-theme]:not([data-theme="realm"]) { --sidebar-ground: var(--page); }

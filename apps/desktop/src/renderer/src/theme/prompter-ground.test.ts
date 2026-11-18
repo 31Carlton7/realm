@@ -66,7 +66,8 @@ describe("the prompter's fill follows Pane translucency", () => {
   it("goes opaque under Reduce Transparency, on both faces, and its ink goes back with it", () => {
     // THE mutant: the line left out, or written as a bare `:root`, which the light rule outranks.
     const reduce = tokensCss.slice(tokensCss.indexOf("@media (prefers-reduced-transparency: reduce)"));
-    expect(reduce.slice(0, reduce.indexOf("\n}") + 2)).toContain(':root, :root[data-mode="light"] { --prompter-alpha: 100%; }');
+    // The picture's line is named too: set on the pane, it would otherwise outrank the root's 100%.
+    expect(reduce.slice(0, reduce.indexOf("\n}") + 2)).toContain(':root, :root[data-mode="light"], .session-pane:has(> .hero-backdrop) { --prompter-alpha: 100%; }');
     expect(thin(100)).toBe(0);
   });
 });
@@ -135,7 +136,7 @@ describe("the prompter's words move their ink as it thins", () => {
   it("is set on the dock, so an opaque prompter elsewhere (quick chat) keeps its inks", () => {
     // THE mutant: the thinness set on :root, where quick chat's own `--prompter-alpha: 100%` never reaches it.
     expect(stylesCss).not.toMatch(/:root \{[^}]*--prompter-thin/);
-    expect(stylesCss).toContain(".quick-chat, .media-viewer, .cr-ask { --prompter-alpha: 100%; }");
+    expect(stylesCss).toContain(".quick-chat, .media-viewer, .cr-ask, :is(.quick-chat, .media-viewer, .cr-ask) .session-pane:has(> .hero-backdrop) { --prompter-alpha: 100%; }");
   });
 });
 
@@ -161,5 +162,103 @@ describe("the tabs meet the card in one clean edge", () => {
   it("still cuts a thinned tab at the line without the painter, and nothing while the card is opaque", () => {
     expect(stylesCss).toMatch(/\.composer-dock \{ --tuck: min\(10px, calc\(\(100% - var\(--prompter-alpha\)\) \* 1000 - 24px\)\); \}/);
     expect(stylesCss).toContain(".composer-understrip { clip-path: inset(var(--tuck) -24px -24px -24px); }");
+  });
+});
+
+/* Over a picture or a loop (the owner, 11-17, over Synth Coast: the grey card and its grey-brown halo
+   don't carry the purple): a surface over a picture borrows the picture's colour, never a theme grey. */
+describe("the prompter over a picture", () => {
+  const scope = ":root .session-pane:has(> .hero-backdrop)";
+  const rules = [...stylesCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1]!.replace(/\/\*[\s\S]*?\*\//g, "").trim(), body: m[2]!.replace(/\s+/g, " ").trim() }));
+  const overPicture = rules.filter((r) => r.sel.includes(":has(> .hero-backdrop)"));
+  const token = (name: string, block = prompterBlock) => new RegExp(`${name}: ([^;]+);`).exec(block)![1]!;
+
+  it("has no fill of its own there: the card and its tabs drop to 0%, and their words take the whole ink step", () => {
+    // THE mutants: the denser fill back (`--prompter-alpha` above 0 over a picture), or the thinness
+    // left uncapped, which at 0% is 119% and drops the ink mixes as invalid.
+    expect(prompterBlock).toMatch(/\.session-pane:has\(> \.hero-backdrop\) \{ --prompter-alpha: 0%; \}/);
+    expect(prompterBlock).not.toMatch(/--prompter-over-picture/);
+    expect(thin(0)).toBe(100);
+    expect(thin(40)).toBeCloseTo(60 * 100 / 84, 5);
+  });
+
+  it("is the picture blurred and dimmed by filters alone, toward black in dark and white in light", () => {
+    // THE mutants: a colour mixed into the ground, a blur without the dim, or a light face that dims
+    // toward black (a grey wash on a bright picture).
+    expect(token("--picture-ground")).toBe("blur(var(--picture-blur)) var(--picture-tone)");
+    expect(token("--picture-tone")).toBe("brightness(calc(1 - var(--picture-dim)))");
+    const light = /:root\[data-mode="light"\] \{([^}]*)\}/.exec(prompterBlock)![1]!;
+    expect(token("--picture-tone", light)).toBe("contrast(calc((1 - var(--picture-dim)) / (1 + var(--picture-dim)))) brightness(calc(1 + var(--picture-dim)))");
+    // That pair is exactly a share `d` of white mixed in, for every channel value.
+    const d = Number(token("--picture-dim"));
+    expect(d).toBeGreaterThan(0);
+    expect(d).toBeLessThan(0.5);
+    const k = (1 - d) / (1 + d), b = 1 + d;
+    for (const c of [0, 0.2, 0.5, 0.8, 1]) expect(b * (k * (c - 0.5) + 0.5)).toBeCloseTo((1 - d) * c + d, 9);
+    // The bubble's veil is the same step as a fill: pure black or white at the same share.
+    expect(token("--picture-veil")).toBe("rgb(0 0 0 / var(--picture-dim))");
+    expect(token("--picture-veil", light)).toBe("rgb(255 255 255 / var(--picture-dim))");
+    // Clear drops the blur and the dim, and nothing else.
+    expect(prompterBlock).toContain(":root[data-clear-over-picture] { --picture-ground: none; --picture-veil: transparent; }");
+  });
+
+  it("casts no halo there, and blurs the picture from the layer that cast it", () => {
+    // THE mutants: the lift back over a picture (the grey-brown halo), or the blur on the face, whose
+    // circle would shave the painted ring.
+    const lift = rules.find((r) => r.sel === `${scope} .composer::before`)!.body;
+    expect(lift).toContain("box-shadow: none;");
+    expect(lift).toContain("opacity: 1;");
+    expect(lift).toContain("backdrop-filter: var(--picture-ground);");
+    expect(stylesCss).toMatch(/:root\[data-squircle\] \.composer::before \{[^}]*box-shadow: var\(--prompter-lift\);/);
+  });
+
+  it("starts each tab's blur at the card's line, so nothing is blurred and dimmed twice", () => {
+    // THE mutant: a tab left on the seat's `clip-path: none`, its blur doubled under the card's.
+    expect(rules.find((r) => r.sel === `${scope} .composer-understrip`)!.body).toContain("clip-path: inset(var(--tuck) -24px -24px -24px);");
+    expect(rules.find((r) => r.sel === `${scope} :is(.composer-goal, .composer-todos, .composer-overstrip)`)!.body).toContain("clip-path: inset(-24px -24px var(--tuck) -24px);");
+    // After the seats, so they win at the same weight.
+    expect(stylesCss.indexOf(`${scope} .composer-understrip {`)).toBeGreaterThan(stylesCss.indexOf(":root[data-squircle] .composer + .composer-understrip {"));
+  });
+
+  it("never lays a theme colour or a shadow on the picture", () => {
+    // THE mutant this exists for: any rule scoped to a pane with a picture that fills or shades with
+    // the theme's ladder (a grey slab) or casts a box-shadow (a neutral glow).
+    const theme = /var\(--(surface|canvas|page|inset|hover|rl-raised|rl-frame|rl-panel|rl-hover|prompter-strip|shadow-[\w-]+|prompter-lift)\)/;
+    expect(overPicture.length).toBeGreaterThan(6);
+    for (const r of overPicture) {
+      const fills = r.body.split(";").filter((d) => /^\s*(background|--sq-fill|box-shadow|filter)\s*:/.test(d));
+      for (const decl of fills) {
+        expect(decl, r.sel).not.toMatch(theme);
+        if (/box-shadow/.test(decl)) expect(decl.trim(), r.sel).toBe("box-shadow: none");
+      }
+    }
+  });
+});
+
+/* Your own message (the owner, 11-17: "for user messages they should be transparent similar coloring
+   to the prompter and should depend on the system transparency with the option to have it be the
+   same as the theme"). */
+describe("your bubble follows the prompter's ground", () => {
+  const rule = (sel: string) => new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{\\s*([^}]+)\\}`).exec(stylesCss)?.[1] ?? "";
+
+  it("thins with the pane in dark as the prompter does, and over a picture is the picture's veil", () => {
+    // THE mutants: the bubble back on the solid raised fill, or a theme fill over a picture.
+    expect(rule(':root:not([data-mode="light"])[data-squircle]:not([data-theme-bubble]) .msg-user:not(.quick-chat *)'))
+      .toContain("--sq-fill: color-mix(in srgb, var(--rl-raised) var(--prompter-alpha), transparent);");
+    expect(rule(":root[data-squircle]:not([data-theme-bubble]) .session-pane:has(> .hero-backdrop) .msg-user:not(.quick-chat *)"))
+      .toContain("--sq-fill: var(--picture-veil);");
+    expect(rule(":root:not([data-squircle]):not([data-theme-bubble]) .session-pane:has(> .hero-backdrop) .msg-user:not(.quick-chat *)"))
+      .toContain("background: var(--picture-veil);");
+  });
+
+  it("keeps today's solid theme bubble under Theme colour, and quick chat's own step", () => {
+    // THE mutant: a see-through rule that forgets the setting, or reaches quick chat's window.
+    const see = [...stylesCss.matchAll(/^([^{}\n]*\.msg-user[^{}\n]*)\{[^}]*(picture-veil|--prompter-alpha)/gm)].map((m) => m[1]!);
+    expect(see.length).toBe(4);
+    for (const sel of see) {
+      expect(sel).toContain(":not([data-theme-bubble])");
+      expect(sel).toContain(":not(.quick-chat *)");
+    }
+    expect(stylesCss).toMatch(/:root\[data-squircle\] \.msg-user \{[^}]*--sq-fill: var\(--rl-raised\);/);
   });
 });
