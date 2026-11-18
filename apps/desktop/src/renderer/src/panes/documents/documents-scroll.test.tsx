@@ -9,6 +9,7 @@ vi.mock("../../rpc/client", () => ({ rpc: () => ({ on: () => () => {} }) }));
 import { DocumentsPane } from "./DocumentsPane";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
+import { recallScroll } from "../scroll-memory";
 
 const DOCS_ID = "docs1";
 const paneItem: Item = item("i1", "s1", { kind: "documents", title: "Documents", refId: DOCS_ID });
@@ -133,8 +134,14 @@ describe("the rest of a document's place, across the same round trip", () => {
     const staged = stageSource({ cls: "dsg-container" });
     const store = makeStore({ "q3.csv": "A,B\n1,2\n" }, ["q3.csv"], "q3.csv");
     const { unmount } = render(pane(store));
-    await waitFor(() => expect(document.querySelector(".dsg-container")).not.toBeNull(), { timeout: 4000 });
-    staged.readerScrollsTo(document.querySelector(".dsg-container") as HTMLElement, 640);
+    // Scrolled until the memory has it. The grid is in the DOM a beat before the effect that listens
+    // to it runs, and a scroll in that gap is one nobody heard: CI's "expected +0 to be 640".
+    await waitFor(() => {
+      const grid = document.querySelector(".dsg-container") as HTMLElement | null;
+      expect(grid).not.toBeNull();
+      staged.readerScrollsTo(grid!, 640);
+      expect(recallScroll("doc:docs1:grid:q3.csv")?.top).toBe(640);
+    }, { timeout: 4000 });
 
     unmount();
     render(pane(store));
