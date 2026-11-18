@@ -6720,15 +6720,15 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    under its content. On a plain pane the face's tint is in the backdrop it bends, so the lens never
    filters the window's bare transparency (the smudge under "The dissolve"); over a picture the card has
    no face and the backdrop is the picture's canvas. The editor, the caret and the bars stay ordinary
-   children above it. Under the painter its corner is the circle of half the curve, which the
-   superellipse holds, so the glass never reaches past the card. No lift under it: a shadow round glass
-   reads as a slab. The lens is fitted to the card (glass/fitted-lens.ts reads the prompter's bezel,
+   children above it. Under the painter its corner is `corner-shape: squircle` at the card's radius,
+   which sits on the painted curve, so the glass never reaches past the card. No lift under it: a
+   shadow round glass reads as a slab. The lens is fitted to the card (glass/fitted-lens.ts reads the prompter's bezel,
    bend and frost here and names its filter as `--glass-lens`); until it exists the CSS frost stands in. */
 .composer-glass { position: absolute; inset: 0; z-index: -1; pointer-events: none;
   border-radius: inherit; corner-shape: inherit; }
 .composer-glass > svg { position: absolute; width: 0; height: 0; }
 .composer[data-look="glass"] { --shadow-card: none; --shadow-card-lift: none; }
-:root[data-squircle] .composer-glass { border-radius: calc(var(--r-squircle) / 2); corner-shape: round; }
+:root[data-squircle] .composer-glass { border-radius: var(--r-squircle); corner-shape: squircle; }
 :root[data-squircle] .composer[data-look="glass"]::before { display: none; }
 :root[data-squircle] .composer[data-look="glass"]::after { z-index: -2; }
 :root[data-glass] .composer-glass {
@@ -7099,6 +7099,22 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root .session-pane:has(> .hero-backdrop) :is(.composer-goal + .composer-todos, .composer-goal + .composer-overstrip, .composer-todos + .composer-overstrip) { border-radius: 0; }
 :root .session-pane:has(> .hero-backdrop) .composer-understrip {
   border-radius: 0 0 calc(var(--r-squircle) / 2) calc(var(--r-squircle) / 2); clip-path: inset(var(--tuck) -24px -24px -24px); }
+/* Under the painter those blurs take the painter's curve from `corner-shape: squircle`, which, unlike
+   a mask or a `shape()` clip, cuts a backdrop blur, and at the card's radius lands on the worklet's
+   n = 4 curve to the device pixel at 2x (Chromium 156, 11-18). The card and the strip share the
+   corner the card curves away from: the card's blur stops `--seat-drop` above its bottom, the height
+   at which its curve crosses the strip's sides, and the strip's starts there. A cut at the card's
+   line stood the strip's top corners out as a stub under the card's curve; an overlap would blur and
+   dim the band twice. */
+.composer-dock { --seat-drop: 2.75px; }
+:root[data-squircle] .session-pane:has(> .hero-backdrop) .composer::before {
+  border-radius: var(--r-squircle); corner-shape: squircle; }
+:root[data-squircle] .session-pane:has(> .hero-backdrop) .composer:has(+ .composer-understrip)::before,
+:root[data-squircle][data-glass] .session-pane:has(> .hero-backdrop) .composer:has(+ .composer-understrip) .composer-glass {
+  clip-path: inset(0 0 var(--seat-drop) 0); }
+:root[data-squircle] .session-pane:has(> .hero-backdrop) .composer + .composer-understrip {
+  border-radius: 0 0 var(--sq-radius-bottom) var(--sq-radius-bottom); corner-shape: squircle;
+  clip-path: inset(calc(var(--tuck) - var(--seat-drop)) -24px -24px -24px); }
 
 /* ── Glass (Settings ▸ Appearance ▸ Controls, plain by default) ─────────────────────────────────
    One switch, `data-glass` on the root, set only while glass is chosen AND drawable (glass/look.ts:

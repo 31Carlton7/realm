@@ -86,6 +86,40 @@ it("brings the system notices in on the transcript's own entrance rung, from the
   expect((frames.match(/transform:/g) ?? []).length).toBe(2); // both ends carry one
 });
 
+/* Over a picture the prompter's blur is all there is of the card and the strip under it, and only a
+   blurring box's own corner cuts its blur (a mask or a `shape()` clip does not, on Chromium 156). A
+   circle of half the radius sat beside the painted superellipse, and a cut at the tuck stood the
+   strip's top corners out under the card's curve (the owner, 11-18). */
+describe("the prompter's blurs over a picture", () => {
+  const PICTURE = ":root[data-squircle] .session-pane:has(> .hero-backdrop) ";
+  const px = (v: string) => Number(/^([\d.]+)px$/.exec(v.trim())?.[1] ?? NaN);
+  const R = px(/--r-squircle:\s*([^;]+);/.exec(css)![1]!);
+  const INSET = px(/--sq-seat-inset:\s*([^;]+);/.exec(bodiesFor(":root[data-squircle] .composer + .composer-understrip").join(" "))![1]!);
+  const DROP = px(/--seat-drop:\s*([^;]+);/.exec(bodiesFor(".composer-dock").join(" "))![1]!);
+
+  it("rounds the card's blur, its glass and the strip's foot on the painter's curve", () => {
+    for (const sel of [`${PICTURE}.composer::before`, ":root[data-squircle] .composer-glass"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toMatch(/border-radius: var\(--r-squircle\);/);
+      expect(body, sel).toContain("corner-shape: squircle");
+    }
+    const strip = bodiesFor(`${PICTURE}.composer + .composer-understrip`).join(" ");
+    expect(strip).toMatch(/border-radius: 0 0 var\(--sq-radius-bottom\) var\(--sq-radius-bottom\);/);
+    expect(strip).toContain("corner-shape: squircle");
+  });
+
+  it("hands the strip the card's corner from where the card's curve crosses the strip's sides", () => {
+    // The painter's n = 4 corner of radius R, at the strip's side INSET in from the card's: its height
+    // above the card's bottom. The strip's blur reaches exactly that high, and the card's stops there.
+    const crossing = R - R * (1 - ((R - INSET) / R) ** 4) ** 0.25;
+    expect(Math.abs(DROP - crossing)).toBeLessThan(0.05);
+    expect(bodiesFor(`${PICTURE}.composer:has(+ .composer-understrip)::before`).join(" ")).toMatch(/clip-path: inset\(0 0 var\(--seat-drop\) 0\);/);
+    expect(bodiesFor(":root[data-squircle][data-glass] .session-pane:has(> .hero-backdrop) .composer:has(+ .composer-understrip) .composer-glass").join(" "))
+      .toMatch(/clip-path: inset\(0 0 var\(--seat-drop\) 0\);/);
+    expect(bodiesFor(`${PICTURE}.composer + .composer-understrip`).join(" ")).toContain("clip-path: inset(calc(var(--tuck) - var(--seat-drop)) -24px -24px -24px);");
+  });
+});
+
 it("keeps expanded images at full opacity when their expansion button is disabled", () => {
   expect(bodiesFor(".media-image:disabled").join(" ")).toMatch(/opacity:\s*1\s*;/);
 });
@@ -2055,7 +2089,10 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
       /* A CHILD taking its parent's corner is not a surface of its own. The palette's head and foot
          round themselves so nothing square meets the painted curve behind them — painting each of
          them would give the card three stacked fills instead of one. */
-      .filter((sel) => !/^\.palette > /.test(sel));
+      .filter((sel) => !/^\.palette > /.test(sel))
+      /* Nor is a rule already under the painter: there `corner-shape` is how a BLUR the worklet cannot
+         paint (the prompter's over a picture) takes the painted curve. */
+      .filter((sel) => !sel.startsWith(":root[data-squircle]"));
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });
