@@ -3,7 +3,7 @@ import { StdioJsonRpc, withTimeout } from "../jsonrpc/stdio";
 import { execProbe } from "../probe-children";
 import { spawnTarget } from "../spawn-target";
 
-/** `execFile` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
+/** `execProbe` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
 const run = (bin: string, args: string[], o: { timeout: number; env?: NodeJS.ProcessEnv }) => {
   const t = spawnTarget(bin, args, { env: o.env });
   return execProbe(t.command, t.args, { ...o, ...t.options });

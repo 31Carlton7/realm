@@ -2,7 +2,7 @@ import { probeCrashed } from "../acp/probe";
 import { execProbe } from "../probe-children";
 import { spawnTarget } from "../spawn-target";
 
-/** `execFile` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
+/** `execProbe` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
 const run = (bin: string, args: string[], o: { timeout: number }) => {
   const t = spawnTarget(bin, args);
   return execProbe(t.command, t.args, { ...o, ...t.options });

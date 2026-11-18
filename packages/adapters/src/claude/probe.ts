@@ -52,7 +52,7 @@ export function bundledClaude(): string | null {
   }
 }
 
-/** `execFile`, through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
+/** `execProbe`, through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
 function runBin(bin: string, args: string[], o: { timeout: number; env: NodeJS.ProcessEnv }) {
   const t = spawnTarget(bin, args, { env: o.env });
   return execProbe(t.command, t.args, { ...o, ...t.options });

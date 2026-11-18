@@ -33,7 +33,7 @@ export function execProbe(command: string, args: string[], o: ProbeRunOptions = 
   const { platform = process.platform, timeout = 0, killSignal = "SIGTERM", ...options } = o;
   const group = platform !== "win32";
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"], ...(group ? { detached: true } : {}) });
+    const child = spawn(command, args, { ...options, stdio: ["pipe", "pipe", "pipe"], ...(group ? { detached: true } : {}) });
     let stdout = "";
     let stderr = "";
     let killed = false;
