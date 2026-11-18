@@ -1,4 +1,4 @@
-import { execFile, type ExecFileOptions } from "node:child_process";
+import { spawn } from "node:child_process";
 import { killTree } from "./spawn-target";
 
 /** What ends each child a probe has running right now, and everything that child started. */
@@ -22,21 +22,39 @@ export function endProbes(): void {
   }
 }
 
+export type ProbeRunOptions = { timeout?: number; killSignal?: NodeJS.Signals; cwd?: string; env?: NodeJS.ProcessEnv; windowsHide?: boolean; windowsVerbatimArguments?: boolean; platform?: string };
+
 /**
- * `execFile` for a probe: the child leads a process group of its own (POSIX), so an npm shim and the
- * binary it starts end together, and `endProbes` ends it.
+ * `execFile` for a probe, failing the same way (`code`, `signal`, `killed`, `stdout`, `stderr` on the
+ * error), but with the child leading a process group of its own on POSIX, so `endProbes` ends an npm
+ * shim and the binary it started together. Built on `spawn` because `execFile` drops `detached`.
  */
-export function execProbe(command: string, args: string[], o: ExecFileOptions & { platform?: string } = {}): Promise<{ stdout: string; stderr: string }> {
-  const { platform = process.platform, ...options } = o;
+export function execProbe(command: string, args: string[], o: ProbeRunOptions = {}): Promise<{ stdout: string; stderr: string }> {
+  const { platform = process.platform, timeout = 0, killSignal = "SIGTERM", ...options } = o;
   const group = platform !== "win32";
   return new Promise((resolve, reject) => {
-    const child = execFile(command, args, { ...options, encoding: "utf8", ...(group ? { detached: true } : {}) }, (err, stdout, stderr) => {
+    const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"], ...(group ? { detached: true } : {}) });
+    let stdout = "";
+    let stderr = "";
+    let killed = false;
+    child.stdout.setEncoding("utf8").on("data", (c: string) => { stdout += c; });
+    child.stderr.setEncoding("utf8").on("data", (c: string) => { stderr += c; });
+    const kill = (signal: NodeJS.Signals) => {
+      killed = true;
+      if (group && child.pid !== undefined) process.kill(-child.pid, signal);
+      else killTree(child, signal, platform);
+    };
+    const timer = timeout > 0 ? setTimeout(() => { try { kill(killSignal); } catch { /* gone */ } }, timeout) : null;
+    const release = keepProbeChild(() => kill("SIGKILL"));
+    const settle = (err: Error | null) => {
+      if (timer) clearTimeout(timer);
       release();
-      if (err) reject(Object.assign(err, { stdout, stderr })); else resolve({ stdout: String(stdout), stderr: String(stderr) });
-    });
-    const release = keepProbeChild(() => {
-      if (group && child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-      else killTree(child, "SIGKILL", platform);
+      if (err) reject(Object.assign(err, { killed, stdout, stderr })); else resolve({ stdout, stderr });
+    };
+    child.on("error", settle);
+    child.on("close", (code, signal) => {
+      if (code === 0) settle(null);
+      else settle(Object.assign(new Error(`Command failed: ${[command, ...args].join(" ")}`), { code, signal }));
     });
   });
 }
