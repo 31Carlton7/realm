@@ -1482,7 +1482,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   ink at low alpha (`--stripe`), so the pane under them shows through at whatever the person set it
   to, and over their picture; a surface colour there is a patch of another ground on a pane they
   thinned. A table is a card in the reading: the card rung's painted curve, no ring, its head and
-  every other row the same tint again, rules between rows. Its pinned head is the one place the
+  every other row the same tint again, rules between rows. A row's tint that meets the card's edge
+  runs on into its curve: where the scroller stands in from the corner, the band it leaves wears the
+  tint of the row beside it, because a square tint inside a rounded card reads as square corners
+  (the owner, 11-17: "Fix the corners on the tables here"). Its pinned head is the one place the
   pane's own canvas goes under the tint, and only while rows are scrolled up beneath it, because a
   tint over passing rows lets them read through. A document's code block is the transcript's panel,
   its language and copy over the code and the same theme colours, so a fence reads alike in both.

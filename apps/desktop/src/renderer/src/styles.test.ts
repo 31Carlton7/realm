@@ -5864,6 +5864,34 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
     expect(decl(".documents-rich-surface .ui-block-node-code", "padding")).toBe("0");
   });
 
+  /* The owner, 11-17: "Fix the corners on the tables here". The scroller above starts half the curve
+     in, so the head's tint and the last stripe stopped short of the curve as square boxes inside a
+     rounded card. THE mutants: a band dropped, sized off the inset, placed at the wrong edge, or
+     tinted unlike the row it continues; a document's corner cell rounded off the table's clip. */
+  it("a table's head and last stripe run into its rounded corners", () => {
+    const decl = (sel: string, prop: string) =>
+      bodiesFor(sel).flatMap((b) => [...b.matchAll(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+)`, "g"))].map((m) => m[1]!.trim())).at(-1);
+    const inset = decl(".md-table", "padding-block");
+    // At rest: the head's later declaration is the stuck one, inside the scroll-state query.
+    const tint = bodiesFor(".md thead th").join(";").match(/(?:^|;)\s*background:\s*([^;]+)/)![1]!.trim();
+    expect(tint).toBe("var(--stripe)");
+    expect(decl(".md tbody tr:nth-child(even)", "background")).toBe(tint);
+    expect(decl(".md-table", "--md-table-head-band")).toBe(`linear-gradient(${tint}, ${tint}) top / 100% ${inset} no-repeat`);
+    expect(decl(".md-table", "--md-table-foot-band")).toBe("none");
+    expect(decl(".md-table:has(> .md-scroll > table > tbody > tr:last-child:nth-child(even))", "--md-table-foot-band"))
+      .toBe(`linear-gradient(${tint}, ${tint}) bottom / 100% ${inset} no-repeat`);
+    // Both regimes lay the bands over the card's fill, which the painted one re-declares.
+    expect(decl(".md-table", "background-image")).toBe("var(--md-table-head-band), var(--md-table-foot-band)");
+    expect(decl(":root[data-squircle] .md-table", "background")).toBe("var(--md-table-head-band), var(--md-table-foot-band), paint(rl-squircle)");
+    // A document's table has no scroller and no inset: its corner cells round on the table's own clip.
+    const clip = decl(":root[data-squircle] .documents-rich-surface table", "border-radius");
+    expect(decl(".documents-rich-surface table", "overflow")).toBe("hidden");
+    for (const [cell, corner] of [["tr:first-child > :first-child", "top-left"], ["tr:first-child > :last-child", "top-right"],
+      ["tr:last-child > :first-child", "bottom-left"], ["tr:last-child > :last-child", "bottom-right"]] as const) {
+      expect(decl(`.documents-rich-surface ${cell}`, `border-${corner}-radius`), cell).toBe(clip);
+    }
+  });
+
   it("a pinned head takes the pane's canvas only while rows are scrolled up under it", () => {
     expect(bodiesFor(".md-scroll").join(" ")).toContain("container-type: scroll-state");
     expect(css).toMatch(/@container scroll-state\(scrollable: top\) \{\s*\.md thead th \{ background: linear-gradient\(var\(--stripe\), var\(--stripe\)\) var\(--rl-panel\); \}/);

@@ -5156,8 +5156,19 @@ button.edit-file:hover { background: var(--rl-hover); }
    itself scrolled, both bars ran into its rounded corners and were cut off by them. The scroller is
    square and starts half the curve in from the card's top and foot, which is where the clip's curve
    ends, so neither bar can reach a corner; the rows still run the card's full width. */
+/* The two bands that inset leaves are where the corners are, so each wears the tint of the row beside
+   it: the head's above, and the last row's below when that row is striped. The head and the last
+   stripe then run on into the curve rather than stopping half the curve short of it as square boxes
+   (the owner, 11-17: "Fix the corners on the tables here"). The bands are background layers, so they
+   round with the card's own corner. */
 .md-table { margin: 6px 0 8px; padding-block: calc(var(--r-squircle-card) / 2);
-  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--stripe); overflow: hidden; }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--stripe); overflow: hidden;
+  --md-table-head-band: linear-gradient(var(--stripe), var(--stripe)) top / 100% calc(var(--r-squircle-card) / 2) no-repeat;
+  --md-table-foot-band: none;
+  background-image: var(--md-table-head-band), var(--md-table-foot-band); }
+.md-table:has(> .md-scroll > table > tbody > tr:last-child:nth-child(even)) {
+  --md-table-foot-band: linear-gradient(var(--stripe), var(--stripe)) bottom / 100% calc(var(--r-squircle-card) / 2) no-repeat;
+}
 .md-scroll { max-height: 420px; overflow: auto; container-type: scroll-state; }
 /* KaTeX (rich/math.ts). Display math gets its own scrolling row — a wide derivation must not be the
    thing that widens the transcript column. */
@@ -6741,6 +6752,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    and does not scroll, the head's tint and the stripes round with that clip. */
 :root[data-squircle] .md-table, :root[data-squircle] .documents-rich-surface table { border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle);
   --sq-fill: var(--stripe); --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .md-table { background: var(--md-table-head-band), var(--md-table-foot-band), paint(rl-squircle); }
 /* A tool call's panel is a fenced block's panel on the card rung, painted the same way. */
 :root[data-squircle] .tool-panel { --sq-fill: var(--rl-frame); box-shadow: none;
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
