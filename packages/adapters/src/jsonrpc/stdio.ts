@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import { keepProbeChild } from "../probe-children";
 import { killTree, spawnTarget } from "../spawn-target";
 
 export type JsonRpcId = number | string;
@@ -60,6 +61,9 @@ export type StdioJsonRpcOptions = {
    * once it has answered. POSIX only: on Windows `killTree` already ends the tree.
    */
   ownGroup?: boolean;
+  /** A probe's child: `endProbes` (shutdown) kills it, and its group with `ownGroup`, without waiting on
+   *  the EOF that `dispose` gives it, which a CLI wedged mid-answer ignores. */
+  probe?: boolean;
   onNotification: (n: JsonRpcNotification) => void;
   /** MUST be answered with respond()/respondError() — an unanswered server request stalls the agent's turn forever. */
   onServerRequest: (r: JsonRpcServerRequest) => void;
@@ -92,6 +96,7 @@ export class StdioJsonRpc {
   /** Whether the child leads a process group of its own (`ownGroup`), which `dispose` ends. */
   private readonly group: boolean;
   private readonly killGroup: (pgid: number, signal: NodeJS.Signals) => void;
+  private release: () => void = () => {};
   constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn; platform?: string; killGroup?: (pgid: number, signal: NodeJS.Signals) => void } = {}) {
     const spawnFn = deps.spawn ?? nodeSpawn;
     this.platform = deps.platform ?? process.platform;
@@ -122,6 +127,7 @@ export class StdioJsonRpc {
       this.childExited = true;
       this.die(`${o.command} exited (code ${code ?? "null"}, signal ${signal ?? "null"})`, code, signal, false);
     });
+    if (o.probe) this.release = keepProbeChild(() => this.kill());
   }
 
   get alive(): boolean { return this.dead === null; }
@@ -160,6 +166,17 @@ export class StdioJsonRpc {
     if (!this.dead) this.die("disposed", null, null, true);
     this.child.stdin?.end();
     await this.reap();
+    this.killOwnGroup();
+    this.release();
+  }
+
+  private kill(): void {
+    if (!this.dead) this.die("ended at shutdown", null, null, true);
+    if (!this.childExited) killTree(this.child, "SIGKILL", this.platform);
+    this.killOwnGroup();
+  }
+
+  private killOwnGroup(): void {
     if (this.group && this.child.pid !== undefined) {
       try { this.killGroup(this.child.pid, "SIGKILL"); } catch { /* the group is empty: nothing it started outlived it */ }
     }

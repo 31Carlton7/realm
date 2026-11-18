@@ -1,12 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { newestExecutable } from "../newest-executable";
+import { execProbe } from "../probe-children";
 import { spawnTarget } from "../spawn-target";
-
-const run = promisify(execFile);
 
 /** What `claude auth status --json` answers with. Only the field this file acts on is named; the
  *  command also reports the account, org and plan, which are none of Realm's business here. */
@@ -58,7 +55,7 @@ export function bundledClaude(): string | null {
 /** `execFile`, through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
 function runBin(bin: string, args: string[], o: { timeout: number; env: NodeJS.ProcessEnv }) {
   const t = spawnTarget(bin, args, { env: o.env });
-  return run(t.command, t.args, { ...o, ...t.options });
+  return execProbe(t.command, t.args, { ...o, ...t.options });
 }
 
 async function versionOf(bin: string, env: NodeJS.ProcessEnv, bundled: boolean): Promise<Located> {

@@ -16,6 +16,8 @@ export type CodexConnectionOptions = {
   onLog?: (line: string) => void;
   /** Overridable for tests. A spawned-but-mute `codex app-server` must not hang session creation forever. */
   initializeTimeoutMs?: number;
+  /** A throwaway opened to ask something (the model list), which shutdown ends at once: see `StdioJsonRpcOptions.probe`. */
+  probe?: boolean;
 };
 
 type Buffered = { kind: "note"; method: string; params: unknown } | { kind: "req"; id: JsonRpcId; method: string; params: unknown };
@@ -66,6 +68,7 @@ export class CodexConnection {
       args: opts.args ?? ["app-server"],
       cwd: opts.cwd,
       env: opts.env,
+      probe: opts.probe,
       onNotification: (n) => this.routeNotification(n.method, n.params),
       onServerRequest: (r) => this.routeServerRequest(r.id, r.method, r.params),
       onStderr: (l) => this.onLog?.(l),

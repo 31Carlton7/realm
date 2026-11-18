@@ -358,6 +358,7 @@ export class CodexAdapter implements AgentAdapter {
         args: this.args,
         cwd: process.cwd(),
         initializeTimeoutMs: this.bootTimeoutMs,
+        probe: true,
       }));
       const models: CodexModel[] = [];
       let cursor: string | null = null;
