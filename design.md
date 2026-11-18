@@ -314,11 +314,12 @@ Rules:
   the same words still sharp under it, and the picker read as a dark slab with the transcript showing
   through (11-18). The frost is drawn inside the lens over the pane's own ground, nearly opaque, so the
   words soften under it and no fill of ours is laid on top; off a picture the prompter keeps its tint.
-  One attribute on the root carries it, cleared under Reduce Transparency, the Mac's Low Power Mode or a
-  renderer that cannot draw `backdrop-filter: url()`, and the choice comes back when those clear.
-  Settings names whichever one is holding it back, so the choice never reads as one that did nothing.
-  Realm's own Low power does not: it has already stilled the picture behind the glass, and holding
-  glass back there is why the owner, who keeps Low power on, saw Glass as a solid slab.
+  One attribute on the root carries it, cleared under Reduce Transparency, the Mac's Low Power Mode,
+  Realm's own Low power or a renderer that cannot draw `backdrop-filter: url()`, and the choice comes
+  back when those clear. Settings names whichever one is holding it back, under the Controls row, so
+  the choice never reads as one that did nothing: the owner keeps Low power on, chose Glass, and saw
+  nothing change with nothing saying why (11-18). Where the fix is the Mac's, the line says where in
+  System Settings; where it is Realm's, the line carries Turn off Low power.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha

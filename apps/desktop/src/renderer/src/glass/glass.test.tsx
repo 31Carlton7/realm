@@ -28,7 +28,7 @@ const glassRules = [...stylesCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{
   .filter(([, sel]) => /data-look="glass"|composer-glass/.test(sel!))
   .map(([, sel, body]) => ({ sel: sel!.trim(), body: body! }));
 
-const ALL_CLEAR: GlassConditions = { reduceTransparency: false, lowPowerMode: false, supportsBackdropUrl: true };
+const ALL_CLEAR: GlassConditions = { reduceTransparency: false, lowPower: false, lowPowerMode: false, supportsBackdropUrl: true };
 
 /** A Chromium that takes `backdrop-filter: url()`, which jsdom is not. */
 const chromium = (supports = true) => vi.stubGlobal("CSS", { supports: (prop: string, value: string) => supports && prop === "backdrop-filter" && value.startsWith("url(") });
@@ -112,7 +112,7 @@ describe("glass falls back to plain", () => {
   it("under each condition alone, and only under them", () => {
     expect(shownLook("glass", ALL_CLEAR)).toBe("glass");
     expect(shownLook("plain", ALL_CLEAR)).toBe("plain");
-    for (const key of ["reduceTransparency", "lowPowerMode"] as const) {
+    for (const key of ["reduceTransparency", "lowPower", "lowPowerMode"] as const) {
       expect(shownLook("glass", { ...ALL_CLEAR, [key]: true }), key).toBe("plain");
     }
     expect(shownLook("glass", { ...ALL_CLEAR, supportsBackdropUrl: false })).toBe("plain");
@@ -126,15 +126,15 @@ describe("glass falls back to plain", () => {
     expect(card().hasAttribute("data-look")).toBe(false);
   });
 
-  it("but not under Realm's own Low power, which has already stilled the picture behind it", async () => {
+  it("under Realm's own Low power, and back as soon as it is off", async () => {
     chromium();
     const { store } = await mountSession({ [LOOK_SETTING]: "glass", "ui.lowPower": true });
     expect(store.getState().lowPower).toBe(true);
-    expect(glassLayer()).not.toBeNull();
+    expect(glassLayer()).toBeNull();
     await act(async () => { await store.getState().setLowPower(false); });
     expect(glassLayer()).not.toBeNull();
     await act(async () => { await store.getState().setLowPower(true); });
-    expect(glassLayer()).not.toBeNull();
+    expect(glassLayer()).toBeNull();
   });
 
   it("under the Mac's Low Power Mode, as soon as the window is told", async () => {
@@ -168,9 +168,11 @@ describe("Settings says why glass is held back", () => {
 
   it("names the condition, and says nothing when nothing holds it back", async () => {
     chromium();
-    expect(note(await appearance({ [LOOK_SETTING]: "glass", "ui.lowPower": true }))).toBeNull();
+    expect(note(await appearance({ [LOOK_SETTING]: "glass" }))).toBeNull();
     cleanup();
     expect(note(await appearance({ [LOOK_SETTING]: "plain" }))).toBeNull();
+    cleanup();
+    expect(note(await appearance({ [LOOK_SETTING]: "plain", "ui.lowPower": true }))).toBeNull();
     cleanup();
     document.documentElement.setAttribute("data-low-power-mode", "");
     expect(note(await appearance({ [LOOK_SETTING]: "glass" }))).toBe(PLAIN_REASON_TEXT["low-power-mode"]);
@@ -184,9 +186,46 @@ describe("Settings says why glass is held back", () => {
     expect(note(await appearance({ [LOOK_SETTING]: "glass" }))).toBe(PLAIN_REASON_TEXT["no-backdrop-url"]);
   });
 
-  it("in the order a person can act on: Reduce Transparency first", () => {
-    expect(plainReason("glass", { reduceTransparency: true, lowPowerMode: true, supportsBackdropUrl: false })).toBe("reduce-transparency");
-    expect(plainReason("plain", { reduceTransparency: true, lowPowerMode: true, supportsBackdropUrl: false })).toBeNull();
+  it("says where the Mac's own switches are, and offers no button for them", async () => {
+    chromium();
+    document.documentElement.setAttribute("data-low-power-mode", "");
+    const row = await appearance({ [LOOK_SETTING]: "glass" });
+    expect(note(row)).toBe("Off while Low Power Mode is on, in System Settings ▸ Battery");
+    expect(row.querySelector(".settings-row-detail button")).toBeNull();
+    cleanup();
+    document.documentElement.removeAttribute("data-low-power-mode");
+    reduceTransparency();
+    expect(note(await appearance({ [LOOK_SETTING]: "glass" }))).toBe("Off while Reduce Transparency is on, in System Settings ▸ Accessibility ▸ Display");
+  });
+
+  it("names Realm's Low power, and its button turns it off so glass draws at once", async () => {
+    chromium();
+    const page = item("set-s1", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] });
+    const api = fakeApi({ settings: { [LOOK_SETTING]: "glass", "ui.lowPower": true } });
+    const st = createAppStore(api);
+    await st.getState().boot();
+    render(<StoreContext.Provider value={st}><GlassRoot /><SettingsPage item={page} visible /></StoreContext.Provider>);
+    fireEvent.click(screen.getByRole("radio", { name: "Appearance" }));
+    const row = document.querySelector('[data-setting="look"]') as HTMLElement;
+    expect(note(row)).toBe("Off while Low power is on. Turn off Low power");
+    // Under the row's name, as every row's line is: a third child of the row squeezed the name under the segments.
+    expect(row.querySelector(".settings-row-main > .settings-row-detail")).not.toBeNull();
+    expect(document.documentElement.hasAttribute("data-glass")).toBe(false);
+    await act(async () => { fireEvent.click(within(row).getByRole("button", { name: "Turn off Low power" })); });
+    expect(st.getState().lowPower).toBe(false);
+    expect(api.calls).toContain("setSetting:ui.lowPower=false");
+    expect(document.documentElement.hasAttribute("data-glass")).toBe(true);
+    expect(note(row)).toBeNull();
+  });
+
+  it("in the order a person can act on: Reduce Transparency, the Mac's Low Power Mode, Realm's Low power, then the renderer", () => {
+    const all: GlassConditions = { reduceTransparency: true, lowPower: true, lowPowerMode: true, supportsBackdropUrl: false };
+    expect(plainReason("glass", all)).toBe("reduce-transparency");
+    expect(plainReason("glass", { ...all, reduceTransparency: false })).toBe("low-power-mode");
+    expect(plainReason("glass", { ...all, reduceTransparency: false, lowPowerMode: false })).toBe("low-power");
+    expect(plainReason("glass", { ...all, reduceTransparency: false, lowPowerMode: false, lowPower: false })).toBe("no-backdrop-url");
+    expect(plainReason("glass", ALL_CLEAR)).toBeNull();
+    expect(plainReason("plain", all)).toBeNull();
   });
 });
 
@@ -330,6 +369,8 @@ describe("one look for the whole app", () => {
     await act(async () => { await store.getState().setLook("glass"); });
     expect(root().hasAttribute("data-glass")).toBe(true);
     await act(async () => { await store.getState().setLowPower(true); });
+    expect(root().hasAttribute("data-glass")).toBe(false);
+    await act(async () => { await store.getState().setLowPower(false); });
     expect(root().hasAttribute("data-glass")).toBe(true);
     await act(async () => {
       root().setAttribute("data-low-power-mode", "");
