@@ -120,15 +120,39 @@ describe("the column's title", () => {
     return within(await screen.findByRole("menu", { name: "Versed" }));
   };
 
-  it("is the space's name in its colour — a plain title, with no chevron and nothing to switch", async () => {
+  it("is the space's name in its colour — a heading by that name, with no chevron and nothing to switch", async () => {
     // THE MUTANTS: the profile switcher back at the head; the title a button that opens a list of spaces.
     const { container } = await mount(home());
-    const title = screen.getByRole("heading", { name: "Versed" });
-    expect(title.closest("button")).toBeNull();
+    screen.getByRole("heading", { name: "Versed" });
     const head = container.querySelector(".sb-title")!;
     expect(head.querySelector(".sb-space-icon")!.getAttribute("style")).toContain(hexToRgb(spaceColor("#7c6cff", "light")));
-    expect([...head.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["More for Versed"]);
+    expect([...head.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Open Versed", "More for Versed"]);
     expect(head.querySelector("[data-icon='chevronDown'], .sb-caret")).toBeNull();
+    expect(head.querySelector("[aria-haspopup='listbox']")).toBeNull();
+  });
+
+  it("opens its space's page when the name is clicked, the page a session's breadcrumb opens", async () => {
+    // THE MUTANTS: the name a plain heading again; a click that opens the ··· menu or a list of spaces
+    // instead; the page opened on another space. A native button, so Enter and Space press it too.
+    const { store } = await mount(home());
+    const name = screen.getByRole("button", { name: "Open Versed" });
+    expect(name.tagName).toBe("BUTTON");
+    expect(name).toHaveAttribute("type", "button");
+    expect(name.closest("h2")).toHaveAccessibleName("Versed");
+    expect(name).toHaveTextContent("Versed");
+    fireEvent.click(name);
+    expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s1" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("keeps the right-click menu on the whole row, the name included", async () => {
+    // THE MUTANT: the right-click menu lost to the new button. Its width and hover are styles.test.ts's.
+    const { container } = await mount(home());
+    fireEvent.contextMenu(container.querySelector(".sb-space-title")!, { clientX: 40, clientY: 20 });
+    expect(await screen.findByRole("menu", { name: "Versed" })).toBeInTheDocument();
+    await exited();
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Open Versed" }), { clientX: 40, clientY: 20 });
+    expect(await screen.findByRole("menu", { name: "Versed" })).toBeInTheDocument();
   });
 
   it("draws its ··· at rest in the quiet ink, not only under the pointer", () => {
