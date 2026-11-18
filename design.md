@@ -327,6 +327,10 @@ Rules:
   Settings to change it, so the choice never reads as one that did nothing. Realm's own Low power
   does not hold it back: it has already stilled the picture behind the glass, and holding glass back
   there is why the owner, who keeps Low power on, chose Glass and saw a solid slab (11-18).
+  Nothing inside a glass panel is a solid step either. The picker's effort track, its account's well and
+  the row the pointer or the arrows are on were the opaque hover fills, and on the frost they read as
+  grey slabs laid on glass (the owner, 11-18). They are tints of the ink, the lit row one rung more with
+  the rim's light round it, so the picture's colour runs under them and the row still reads as chosen.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha

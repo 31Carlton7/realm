@@ -595,7 +595,7 @@ function AccountSection({ control, onGrow }: { control: AccountControl; onGrow: 
         <AccountSignInSteps signIn={live} name={control.accounts.find((a) => a.id === adding)?.label ?? "the new account"}
           onCode={(code) => control.onCode(adding, code)} onCancel={() => { setAdding(null); control.onCancel(adding); }} />
       ) : (
-        <div className="mp-account-well" ref={box}>
+        <div className="mp-account-well" ref={box} data-open={open || undefined}>
           {!open && <span className="mp-seg-label">Account</span>}
           {open ? (
             <div className="mp-account-list" role="listbox" aria-label="Accounts">
