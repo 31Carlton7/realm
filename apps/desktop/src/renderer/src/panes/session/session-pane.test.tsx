@@ -1119,7 +1119,7 @@ describe("markdown + summaries", () => {
   });
   it("wraps tables in an .md-scroll container so a wide table scrolls itself, not the transcript (A-M1)", () => {
     const html = renderMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |");
-    expect(html).toContain('<div class="md-scroll"><table>');
+    expect(html).toContain('<div class="md-table"><div class="md-scroll"><table>');
     expect(html.match(/<table>/g)).toHaveLength(1); // wrapped in place, not duplicated
     expect(renderMarkdown("no tables here")).not.toContain("md-scroll");
   });

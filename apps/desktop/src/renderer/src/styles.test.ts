@@ -5805,7 +5805,7 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
 
   it("the check sees the rules it guards", () => {
     // A selector pattern that matched nothing would pass the check above by default.
-    for (const sel of [".md code", ".md-code", ".md-scroll", ".md thead th", ".md .md-callout", ".ui-block",
+    for (const sel of [".md code", ".md-code", ".md-table", ".md thead th", ".md .md-callout", ".ui-block",
       ".documents-rich-surface code", ".documents-rich-surface pre", ".documents-rich-surface th"]) {
       expect(MARKDOWN.test(sel), sel).toBe(true);
       expect(bodiesFor(sel).flatMap(fills), `${sel} has no fill to check`).not.toEqual([]);
@@ -5813,10 +5813,11 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
   });
 
   it("a table is the card rung's painted curve, with its head and every other row tinted", () => {
-    const scroll = bodiesFor(".md-scroll").join(" ");
-    expect(scroll).toContain("border-radius: var(--r-squircle-card)");
-    expect(scroll).toContain("background: var(--stripe)");
-    expect(scroll).not.toContain("box-shadow");
+    const card = bodiesFor(".md-table").join(" ");
+    expect(card).toContain("border-radius: var(--r-squircle-card)");
+    expect(card).toContain("background: var(--stripe)");
+    expect(card).not.toContain("box-shadow");
+    expect(bodiesFor(":root[data-squircle] .md-table").join(" ")).toContain("background: paint(rl-squircle)");
     const painted = bodiesFor(":root[data-squircle] .documents-rich-surface table").join(" ");
     expect(painted).toContain("background: paint(rl-squircle)");
     expect(painted).toContain("--sq-fill: var(--stripe)");
@@ -5828,6 +5829,39 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
     expect(bodiesFor(".documents-rich-surface tr:nth-child(even) > td").join(" ")).toContain("background: var(--stripe)");
     // A collapsed table cannot round its corners.
     expect(bodiesFor(".documents-rich-surface table").join(" ")).toContain("border-collapse: separate");
+  });
+
+  /* A scroller's bars run along its own box. When that box is the rounded panel, or runs the panel's
+     full width to its foot, the bar starts in a corner and the curve cuts it off (the owner, 11-17:
+     "Fix the scrollbar here"). Every sideways-scrolling block keeps its scroller off the panel's
+     edges. THE mutants: a scroller back at the panel's edge, or rounded and tinted itself again. */
+  it("a block's scroller sits inside its panel, clear of the rounded corners", () => {
+    const px = (v: string) => (v === "0" ? 0 : Number(/^(\d+)px$/.exec(v)?.[1] ?? NaN));
+    const decl = (sel: string, prop: string) => {
+      const hits = bodiesFor(sel).flatMap((b) => [...b.matchAll(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+)`, "g"))].map((m) => m[1]!.trim()));
+      expect(hits, `${sel} sets no ${prop}`).not.toEqual([]);
+      return hits.at(-1)!;
+    };
+    const inline = (margin: string) => px(margin.split(" ")[1] ?? margin.split(" ")[0]!);
+    // Fenced code, in the transcript and in a document: the pre scrolls, on the head's 18px inset,
+    // with the panel's own padding under it.
+    for (const pre of [".md-code pre", ".documents-rich-surface .md-code pre"]) {
+      expect(inline(decl(pre, "margin")), pre).toBe(18);
+      expect(px(decl(pre, "padding").split(" ")[1]!), `${pre} pads its sides instead of insetting its box`).toBe(0);
+    }
+    expect(px(decl(".md-code", "padding-bottom"))).toBeGreaterThan(0);
+    // A drawn block's values and its diagram, on the same inset over the block's foot padding.
+    expect(inline(decl(".ui-block-scroll", "margin"))).toBe(18);
+    expect(inline(decl(".ui-diagram", "margin"))).toBe(18);
+    expect(px(decl(".ui-block", "padding-bottom"))).toBeGreaterThan(0);
+    // A table: the card is rounded and tinted, the scroller inside it square and half the curve in.
+    expect(decl(".md-table", "padding-block")).toBe("calc(var(--r-squircle-card) / 2)");
+    expect(decl(".md-table", "overflow")).toBe("hidden");
+    const square = RULES.filter((r) => partsOf(r).some((sel) => /\.md-scroll(?![\w-])/.test(sel)) && /border-radius|background/.test(r.body));
+    expect(square.map((r) => partsOf(r).join(", ")), "the table's scroller is rounded or filled again").toEqual([]);
+    // A drawn block's source while edited is the one bare pre: inset by a transparent border.
+    expect(decl(".documents-rich-surface .ui-block-node-code", "border-width")).toBe("10px 12px");
+    expect(decl(".documents-rich-surface .ui-block-node-code", "padding")).toBe("0");
   });
 
   it("a pinned head takes the pane's canvas only while rows are scrolled up under it", () => {

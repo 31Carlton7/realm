@@ -4093,11 +4093,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    the language label and the copy control are chrome for this block, not a section of it. */
 /* Its ground is the ink's tint, so the block follows the pane under it (thinned, solid, or over a
    picture) instead of standing on it as a slab of the surface colour. */
-.md-code { margin: 6px 0 8px; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--stripe); overflow: hidden; }
+.md-code { margin: 6px 0 8px; padding-bottom: 6px; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--stripe); overflow: hidden; }
 .md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 18px; }
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
-/* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12. */
-.md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg); tab-size: 2; }
+/* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12.
+   The inset is the pre's margin, not its padding: the pre is what scrolls, and its bar runs the width
+   of its own box, so a pre the panel's full width laid its bar into both of the panel's corners. On
+   the 18px inset, 6px above the panel's foot, the bar sits in the straight run between them. The 12px
+   under the last line is room for an overlay bar at its hovered 11px, clear of the descenders. Code
+   clips at the 18px it starts at, as a drawn block's table does (`.ui-block-scroll`). */
+.md-code pre { margin: 0 18px; padding: 4px 0 12px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg); tab-size: 2; }
 /* ── Blocks an agent writes and Realm draws (rich/UiBlock.tsx) ───────────────────────────
    A closed ```mermaid / ```realm-chart / ```realm-compare fence is parked in `.md-block` as its code;
    the drawn block lands beside it and the code steps out of the way, so a body that does not draw
@@ -4186,7 +4191,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* A drawing at its own width, shrunk to fit a narrower column — it is a picture, and a picture
    that fits is read whole — down to two thirds of its size, where its 14px labels stop being
    comfortably legible, and scrolled sideways past that rather than shrunk any further. */
-.ui-diagram { overflow-x: auto; overflow-y: hidden; padding: 4px 18px 0; }
+.ui-diagram { overflow-x: auto; overflow-y: hidden; margin: 4px 18px 0; }
 .ui-diagram svg { display: block; width: 100%; max-width: var(--diagram-w); min-width: calc(var(--diagram-w) * 2 / 3); height: auto; margin: 0 auto; }
 /* The same block in a Markdown document's rich view (documents/UiBlockNode.tsx), drawn where its
    fence is, with the source under the drawing while it is being edited. The editor keeps its spaces
@@ -5147,8 +5152,13 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* renderMarkdown wraps every table in this (A-M1): a wide one scrolls itself rather than the
    transcript, and it is the scroll container the sticky header above sticks to. */
 /* On the card rung's curve with no ring: the tint is its boundary, as a card's fill is. */
-.md-scroll { margin: 6px 0 8px; max-height: 420px; overflow: auto; container-type: scroll-state;
-  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--stripe); }
+/* The card and the scroller are two boxes. A scroller's bars run along its own edges, so when the card
+   itself scrolled, both bars ran into its rounded corners and were cut off by them. The scroller is
+   square and starts half the curve in from the card's top and foot, which is where the clip's curve
+   ends, so neither bar can reach a corner; the rows still run the card's full width. */
+.md-table { margin: 6px 0 8px; padding-block: calc(var(--r-squircle-card) / 2);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--stripe); overflow: hidden; }
+.md-scroll { max-height: 420px; overflow: auto; container-type: scroll-state; }
 /* KaTeX (rich/math.ts). Display math gets its own scrolling row — a wide derivation must not be the
    thing that widens the transcript column. */
 .math-display { margin: 10px 0; padding: 2px 0; overflow-x: auto; overflow-y: hidden; }
@@ -6727,9 +6737,9 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--stripe); box-shadow: none; }
 /* A table is a card in a message: the card rung's curve, the ink's tint for its fill, and no lift.
-   The clip stays at half the curve, which holds the painted one, so the head's tint and the stripes
-   round with it. The same goes for a table in a document, which has no wrapper of its own. */
-:root[data-squircle] .md-scroll, :root[data-squircle] .documents-rich-surface table { border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle);
+   The clip stays at half the curve, which holds the painted one. In a document, which has no wrapper
+   and does not scroll, the head's tint and the stripes round with that clip. */
+:root[data-squircle] .md-table, :root[data-squircle] .documents-rich-surface table { border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle);
   --sq-fill: var(--stripe); --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* A tool call's panel is a fenced block's panel on the card rung, painted the same way. */
 :root[data-squircle] .tool-panel { --sq-fill: var(--rl-frame); box-shadow: none;
@@ -9942,10 +9952,15 @@ span.documents-name:hover { background: none; }
 /* The surface wraps (`pre-wrap`) and a fence must not: code is columns, so a wide block scrolls sideways
    inside itself while the prose around it keeps wrapping. */
 .documents-rich-surface pre { background: var(--stripe); padding: 10px 12px; border-radius: var(--r-ctl); overflow: auto; tab-size: 2; }
+/* The one fence still drawn bare is a drawn block's source while it is edited, and that pre is both the
+   rounded box and the scroller. Its inset is a transparent border instead of padding: the tint paints
+   under a border, the bars run along the padding box inside it, and that box's corners are the curve
+   less the border (1px by 3px), so the bars stay clear of the curve the reader sees. */
+.documents-rich-surface .ui-block-node-code { padding: 0; border: solid transparent; border-width: 10px 12px; }
 /* A fence drawn as the transcript's panel (documents/UiBlockNode.tsx): the panel is the ground, and
    the code inside it sits on the panel's own inset. */
 .documents-rich-surface .md-code { margin: 0.9em 0; }
-.documents-rich-surface .md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); }
+.documents-rich-surface .md-code pre { margin: 0 18px; padding: 4px 0 12px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); }
 /* Through the editor's own root: ProseMirror's stylesheet sets `pre-wrap` on every `pre` at this
    rule's weight, and loads after it. */
 .documents-rich .documents-rich-surface pre { white-space: pre; overflow-wrap: normal; }

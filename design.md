@@ -1013,6 +1013,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   kind the system draws is measured (`data-overlay-scrollbars`), not read from a preference that
   depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth mouse came and
   went. `scrollbar-tracks-live.mjs` looks at both kinds, in both faces.
+- A bar runs along the box that scrolls, so a rounded block never scrolls itself (the owner, 11-17,
+  circling a code block's thumb cut off by its corner: "Fix the scrollbar here"). The block is the
+  rounded tint; what scrolls is an inner box held off the curve, on the block's text inset or past the
+  depth of its corner, so the thumb starts and ends on a straight edge with the block's padding under
+  it. An overlay bar cannot be given track margins without turning classic, so the inset has to be
+  the box itself.
 - A column that opens or closes is a box that clips what it holds, its content riding one slide on
   the box's moving edge; everything beside it — the panes, a page over them, a bar's title — is laid
   out from that edge or moves on the same curve and duration. A layer placed against the window
