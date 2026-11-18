@@ -7100,8 +7100,8 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 
 /* ── Glass (Settings ▸ Appearance ▸ Controls, plain by default) ─────────────────────────────────
    One switch, `data-glass` on the root, set only while glass is chosen AND drawable (glass/look.ts:
-   Reduce Transparency, Low power or a renderer without `backdrop-filter: url()` put plain back). It
-   goes on what floats and what is pressed: the prompter (above), its pickers, the selection bar, the
+   Reduce Transparency, the Mac's Low Power Mode or a renderer without `backdrop-filter: url()` put
+   plain back). It goes on what floats and what is pressed: the prompter (above), its pickers, the selection bar, the
    selected segment of a segmented control, and a switch's knob. A page of settings, a sheet, the
    transcript and the sidebar stay plain: they are read, and glass there would only cost contrast.
 
@@ -7111,11 +7111,19 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    of its surface, because what is behind it there is text and the window's material. */
 .glass-defs { position: absolute; width: 0; height: 0; }
 :root[data-glass] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--glass-frost); }
+/* A picker wears a lens fitted to its own box (glass/fitted-lens.ts reads `--glass-bezel`,
+   `--glass-bend` and `--glass-frost-px` here and names the filter it drew as `--glass-lens`). The
+   frost is in that filter, over the pane's ground, so the words behind it soften rather than reading
+   through; until the filter exists the CSS frost stands in. Off a picture it lays no surface of its
+   own, since the flood is the pane's ground already; over one, only the picture's own dim. */
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker, .selection-bar) {
-  background: color-mix(in srgb, var(--surface) var(--glass-panel-fill), transparent);
-  backdrop-filter: url(#rl-glass-panel) var(--glass-panel-frost); box-shadow: var(--glass-rim), var(--shadow-raised); }
+  --glass-bezel: var(--glass-panel-bezel); --glass-bend: var(--glass-panel-bend); --glass-frost-px: var(--glass-panel-blur);
+  background: none;
+  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-panel-rim), var(--shadow-raised); }
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] {
-  background: none; backdrop-filter: url(#rl-glass-panel) var(--glass-panel-frost) var(--picture-tone); box-shadow: var(--glass-rim); }
+  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--picture-tone);
+  box-shadow: var(--glass-panel-rim); }
 /* The selected segment is a bead of glass on its track: it bends the track's edge under it and
    carries the highlight. The track stays the plain well it was. The settings rail's tabs are
    navigation, not a choice between values, and keep their fill. */

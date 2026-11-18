@@ -9,6 +9,8 @@ import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import { listCap } from "../../state/no-overlay";
 import { PageIcon } from "../../components/PageIcon";
 import { fileMark, type MentionRow } from "./mention-sources";
+import { useFittedLens } from "../../glass/fitted-lens";
+import { useGlassDrawn } from "../../glass/use-look";
 
 /**
  * The scroller inside a typed-into popover (this one and the `/` list), and what it owes the keyboard.
@@ -126,6 +128,7 @@ export function MentionPicker({ rows, activeIndex, anchorRef, appIcons, onPick, 
   // No exit, because this one is driven by typing: it opens and closes between keystrokes, and a
   // ghost of it trailing the caret while the sentence carries on is noise rather than motion.
   const { pos, room } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace, withinPane: true });
+  useFittedLens(ref, useGlassDrawn());
   const active = Math.min(activeIndex, rows.length - 1);
   const { list, hoverRow } = usePickerScroller(active, onHover);
   return createPortal(

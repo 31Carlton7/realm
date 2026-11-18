@@ -13,6 +13,8 @@ import {
 } from "./model-catalog";
 import { prefersReducedMotion } from "../../reduced-motion";
 import type { AgentProbe } from "../../state/store";
+import { useFittedLens } from "../../glass/fitted-lens";
+import { useGlassDrawn } from "../../glass/use-look";
 
 export { formatEffort };
 
@@ -214,6 +216,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
   const ref = useRef<HTMLDivElement>(null);
   // Right-aligned, opening upward from the chip, which sits at the right end of the control row.
   const { pos, closing, room } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true, withinPane: true });
+  useFittedLens(ref, useGlassDrawn());
   /* No taller than the roomier side of the chip, inside its pane and the placement's margins. A
      brand-new session's prompter sits mid-window, where neither side held the whole list, and the
      picker either landed on the chip that opened it or ran off the bottom of the window. Capped, the
