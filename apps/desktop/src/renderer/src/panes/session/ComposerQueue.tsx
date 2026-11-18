@@ -1,5 +1,6 @@
 import { basenameOf, steerNote, type AgentKind, type QueuedPrompt } from "@realm/contracts";
 import { Icon } from "@realm/ui";
+import { formatEffort } from "@realm/view";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import type { SubmitKey } from "../../state/store";
 import { AttachmentTile } from "./AttachmentTile";
@@ -17,6 +18,24 @@ export type QueueActions = {
   /** Put the message in front of `before`, or last when it is null (`sessions.moveQueued`). */
   onMove: (queuedId: string, before: string | null) => void;
 };
+
+/** What the session is set to now, which each queued message is read against, and the name the
+ *  picker's chip gives a model id. */
+export type SessionRun = { model: string | null; effort: string | null; fastMode: boolean; modelName: (model: string | null) => string };
+
+/**
+ * What a queued message will run on that the session is no longer set to — "Opus 5.5 · High" — and
+ * only that part: a message queued on what the picker still says has nothing to add. Null too for a
+ * message from a server that did not keep them.
+ */
+export function runsOnLabel(q: QueuedPrompt, now: SessionRun): string | null {
+  const parts = [
+    q.model !== undefined && q.model !== now.model ? now.modelName(q.model) : null,
+    q.effort !== undefined && q.effort !== now.effort ? (q.effort ? formatEffort(q.effort) : "Default effort") : null,
+    q.fastMode !== undefined && q.fastMode !== now.fastMode ? (q.fastMode ? "Fast" : "Fast off") : null,
+  ].filter((p) => p !== null);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 
 /** From this many waiting, the queue folds to one line until it is asked for: three cards above the
  *  prompter push the box being typed in halfway up the pane. */
@@ -71,11 +90,15 @@ function useLeaving(queued: QueuedPrompt[]): { q: QueuedPrompt; leaving: boolean
  * The send-now sits on the row rather than in the button corner, which is Stop's while a turn runs.
  * What it costs is `steerNote`'s answer and differs by agent.
  *
+ * A message queued on another model, level or fast mode than the session is on now says which under
+ * its text, since that is what its turn runs on (`runsOnLabel`).
+ *
  * A message is edited in place, as plain text: an element chip shows as its `@[label]` token, and
  * taking the token out drops the chip (the server's `keepLiveChips`), exactly as in the prompter.
  */
-export function ComposerQueue({ kind, queued, running, submitKey, actions, pendingMove = null }: {
+export function ComposerQueue({ kind, queued, running, submitKey, actions, run = null, pendingMove = null }: {
   kind: AgentKind; queued: QueuedPrompt[]; running: boolean; submitKey: SubmitKey; actions: QueueActions;
+  run?: SessionRun | null;
   /** A move waiting for this turn to end ("Move after this turn"): said first, since it happens at
    *  the turn's end before anything queued goes, and called off from here. */
   pendingMove?: { to: string; onCancel: () => void } | null;
@@ -227,6 +250,7 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions, pendi
             const elsewhere = q.held && !mine;
             const long = expanded.has(q.id);
             const movable = n >= 2 && !leaving && !mine;
+            const runsOn = run && runsOnLabel(q, run);
             return (
               <li key={q.id} className="composer-queue-item" data-queued-id={q.id}
                 data-leaving={leaving || undefined} inert={leaving || undefined} aria-hidden={leaving || undefined}
@@ -265,6 +289,7 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions, pendi
                         {q.text || <span className="queue-text-empty">Attachments only</span>}
                       </button>
                     )}
+                    {runsOn && <span className="queue-runs" title={`Runs on ${runsOn}`}>{runsOn}</span>}
                     {(mine || elsewhere) && (
                       <span className="queue-held" role="status">
                         <Icon name={mine ? "edit" : "pause"} size={12} />

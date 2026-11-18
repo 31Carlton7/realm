@@ -23,6 +23,7 @@ import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlig
 import { AttachmentTile } from "./AttachmentTile";
 import { DraftTabRow } from "./TabCards";
 import { ComposerQueue, type QueueActions } from "./ComposerQueue";
+import { sessionModelLabel } from "@realm/view";
 import { whenLabel } from "../schedules/SchedulesPage";
 import { TodoStrip } from "./TodoStrip";
 import { WhatChanged, hasChanges } from "./WhatChanged";
@@ -1317,7 +1318,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
       <div className="composer" data-mode={mode} data-look={glass ? "glass" : undefined} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
         {glass && <PrompterGlass />}
         <LimitRow limits={planLimits} />
-        <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} pendingMove={pendingMove} />
+        <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} pendingMove={pendingMove}
+          run={{ model: session.model, effort: session.effort, fastMode: session.fastMode, modelName: (m) => sessionModelLabel(kind, m, agentProbe) }} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         <DraftTabRow tabs={tabs} onRemove={onRemoveTab ?? (() => {})} />
         <SessionRefRow refs={sessionRefs} onRemove={onRemoveSessionRef ?? (() => {})} />
