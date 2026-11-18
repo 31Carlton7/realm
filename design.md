@@ -1214,6 +1214,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   its own transcript, streaming, with its requests answered there; and its foot is only what its owner
   supports — Stop, Open as session and a message for a delegated child, nothing for a harness's own
   agent. Escape goes back to all of them, and the tab remembers which one it was on.
+- A strip of tabs over sub-agents stands in their cards' order: what waits on you, then what is
+  working, then what has ended, so the row moves only when a state does. The ended ones (done, failed
+  or stopped) fold behind one "Show all <n>" at its end that opens them in place; the one being read
+  never folds, even when it ends under the reader (the owner, 11-17).
 - A question is one card whichever agent or server asked it, and it says who is asking first —
   "Codex asks", "Linear's MCP server asks" — because the same question means something different from
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the

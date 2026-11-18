@@ -324,6 +324,7 @@ describe("the orchestrator", () => {
     fireEvent.click(await card(/^Write the tests\./));
     fireEvent.click(await screen.findByRole("button", { name: "Stop Write the tests" }));
     await waitFor(() => expect(api.calls).toContain("interrupt:se2"));
+    fireEvent.click(screen.getByRole("button", { name: "Show all, 1 ended" }));
     fireEvent.click(screen.getByRole("tab", { name: /^Write the migration/ }));
     await screen.findByRole("region", { name: "Sub-agent: Write the migration" });
     expect(screen.queryByRole("button", { name: "Stop Write the migration" })).toBeNull();
@@ -338,6 +339,7 @@ describe("the orchestrator", () => {
     fireEvent.change(field, { target: { value: "Use the existing toggle." } });
     fireEvent.keyDown(field, { key: "Enter" });
     await waitFor(() => expect(api.sent).toContainEqual(expect.objectContaining({ id: "se2", text: "Use the existing toggle." })));
+    fireEvent.click(screen.getByRole("button", { name: "Show all, 1 ended" }));
     fireEvent.click(screen.getByRole("tab", { name: /^Write the migration/ }));
     expect((await screen.findByRole("textbox", { name: "Message Write the migration" })).getAttribute("title"))
       .toBe("Goes to this agent only. If its run was already collected, Parent will not see the reply.");

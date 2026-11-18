@@ -52,18 +52,19 @@ describe("switching between a lead's sub-agents", () => {
     await mount({ transcripts: { se1: [launch("t1", "Audit the mapper")] }, status: { se1: "running" } });
     const strip = await screen.findByRole("tablist", { name: "Sub-agents" });
     await waitFor(() => expect(within(strip).getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent))
-      .toEqual(["All", "Write the migration, Done", "Write the tests, Working", "Audit the mapper, Working"]));
+      .toEqual(["All", "Write the tests, Working", "Audit the mapper, Working"]));
+    expect(within(strip).getByRole("button", { name: "Show all, 1 ended" })).toBeInTheDocument();
     expect(within(strip).getByRole("tab", { name: "All" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("→ moves to the next sibling and takes the keyboard with it; Escape in the viewer goes back to All", async () => {
+  it("← moves to the sibling before and takes the keyboard with it; Escape in the viewer goes back to All", async () => {
     const { store } = await mount({ shown: "se3" });
     await viewer("Write the migration");
     const strip = screen.getByRole("tablist", { name: "Sub-agents" });
     const on = within(strip).getByRole("tab", { name: "Write the migration, Done" });
     on.focus();
-    fireEvent.keyDown(on, { key: "ArrowRight" });
-    // Mutant: change the selection and leave focus behind — the next → would step from the old tab.
+    fireEvent.keyDown(on, { key: "ArrowLeft" });
+    // Mutant: change the selection and leave focus behind — the next ← would step from the old tab.
     await viewer("Write the tests");
     await waitFor(() => expect(within(strip).getByRole("tab", { name: "Write the tests, Working" })).toHaveFocus());
     fireEvent.keyDown(screen.getByRole("heading", { name: "Write the tests" }), { key: "Escape" });
@@ -89,6 +90,67 @@ describe("switching between a lead's sub-agents", () => {
     await mount({ settings: { "ui.agentsShown": { se1: "gone" } } });
     expect(await screen.findByRole("heading", { name: /^Sub-agents/ })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /^Sub-agent:/ })).toBeNull();
+  });
+});
+
+describe("the order of the sub-agents' tabs", () => {
+  const ASK = session("se4", "s1", { title: "Ask about the schema", agentKind: "claude", model: "claude-opus-5-5", status: "waiting_permission",
+    dispatchedBy: { sessionId: "se1", kind: "agent_run" } });
+  const OLD = session("se5", "s1", { title: "Read the logs", agentKind: "claude", model: "claude-opus-5-5", dispatchedBy: { sessionId: "se1", kind: "agent_run" } });
+  const MIXED: DelegatedChild[] = [
+    ...CHILDREN,
+    { session: ASK, goal: "Ask about the schema", startedAt: NOW - 30_000, settledAt: null, outcome: null, report: null, activity: null },
+    { session: OLD, goal: "Read the logs", startedAt: NOW - 400_000, settledAt: NOW - 350_000, outcome: "failed", report: null, activity: null },
+  ];
+  const tabs = () => within(screen.getByRole("tablist", { name: "Sub-agents" })).getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
+  const mixed = (over: Parameters<typeof mount>[0] = {}) => mount({
+    children: MIXED, transcripts: { se1: [launch("t1", "Audit the mapper")] },
+    status: { se1: "running", se4: "waiting_permission", se5: "idle" }, ...over,
+  });
+
+  it("puts what waits on you first, then what is working, and folds what has ended behind Show all", async () => {
+    // THE MUTANTS: the tabs in start order (the old strip); the ended ones left in the row; the count
+    // missing from the fold.
+    await mixed();
+    await waitFor(() => expect(tabs()).toEqual(["All", "Ask about the schema, Needs you", "Write the tests, Working", "Audit the mapper, Working"]));
+    expect(screen.getByRole("button", { name: "Show all, 2 ended" })).toHaveTextContent("Show all 2");
+  });
+
+  it("opens the ended ones in place at the row's end, and folds them again", async () => {
+    // THE MUTANTS: Show all opening the overview instead of the tabs; the ended ones put before the live.
+    await mixed();
+    fireEvent.click(await screen.findByRole("button", { name: "Show all, 2 ended" }));
+    expect(tabs()).toEqual(["All", "Ask about the schema, Needs you", "Write the tests, Working", "Audit the mapper, Working",
+      "Read the logs, Failed", "Write the migration, Done"]);
+    const fewer = screen.getByRole("button", { name: "Show fewer" });
+    expect(fewer).toHaveAttribute("aria-expanded", "true");
+    expect(fewer.previousElementSibling).toHaveAccessibleName("Write the migration, Done");
+    fireEvent.click(fewer);
+    expect(tabs()).toHaveLength(4);
+  });
+
+  it("keeps the tab being read when it has ended, and when it ends under the reader", async () => {
+    // THE MUTANTS: the shown tab folded with the rest; the fold counting the one still on screen.
+    const { store } = await mixed({ shown: "se2" });
+    await viewer("Write the tests");
+    await waitFor(() => expect(tabs()).toContain("Write the tests, Working"));
+    act(() => store.setState({ sessionStatus: { ...store.getState().sessionStatus, se2: "idle" }, delegatedRuns: { se1: [] } }));
+    await waitFor(() => expect(tabs()).toEqual(["All", "Ask about the schema, Needs you", "Audit the mapper, Working", "Write the tests, Stopped"]));
+    expect(screen.getByRole("tab", { name: "Write the tests, Stopped" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Show all, 2 ended" })).toBeInTheDocument();
+  });
+
+  it("holds its order while events stream in, and moves only when a state changes", async () => {
+    // THE MUTANTS: the row re-sorted by latest activity, so a busy agent jumps ahead of a quiet one; the
+    // row frozen, so a sub-agent that starts waiting on you is not brought to the front.
+    const { store } = await mixed({ status: { se1: "running", se4: "running", se5: "idle" } });
+    const before = ["All", "Write the tests, Working", "Audit the mapper, Working", "Ask about the schema, Working"];
+    await waitFor(() => expect(tabs()).toEqual(before));
+    const events = [launch("t1", "Audit the mapper"), under("t1", "c1", "Read", { file_path: "/r/a.ts" }), under("t1", "c2", "Grep", { pattern: "x" })];
+    act(() => store.setState({ transcripts: { ...store.getState().transcripts, se1: { lastSeq: events.length, t: reduceAll(events) } } }));
+    expect(tabs()).toEqual(before);
+    act(() => store.setState({ sessionStatus: { ...store.getState().sessionStatus, se4: "waiting_permission" } }));
+    await waitFor(() => expect(tabs()).toEqual(["All", "Ask about the schema, Needs you", "Write the tests, Working", "Audit the mapper, Working"]));
   });
 });
 
@@ -213,6 +275,7 @@ describe("the report's disclosure", () => {
     fireEvent.click(toggle(await viewer("Write the migration")));
     fireEvent.click(screen.getByRole("tab", { name: "Write the tests, Working" }));
     await viewer("Write the tests");
+    fireEvent.click(screen.getByRole("button", { name: "Show all, 1 ended" }));
     fireEvent.click(screen.getByRole("tab", { name: "Write the migration, Done" }));
     // THE MUTANT: keep the choice in the viewer, which remounts for each sub-agent — it comes back open.
     expect(toggle(await viewer("Write the migration"))).toHaveAttribute("aria-expanded", "false");
