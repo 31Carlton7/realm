@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { useApp } from "../state/store";
-import { shownLook, supportsBackdropUrl, type Look } from "./look";
+import { plainReason, shownLook, supportsBackdropUrl, type GlassConditions, type Look, type PlainReason } from "./look";
 
 const REDUCE_TRANSPARENCY = "(prefers-reduced-transparency: reduce)";
 
@@ -27,11 +27,20 @@ function useLowPowerMode(): boolean {
   );
 }
 
+function useConditions(): GlassConditions {
+  const reduceTransparency = useReduceTransparency();
+  const lowPowerMode = useLowPowerMode();
+  return { reduceTransparency, lowPowerMode, supportsBackdropUrl: supportsBackdropUrl() };
+}
+
 /** The look the app is drawn in now: the setting, put back to plain by `shownLook`'s fallbacks. */
 export function useLook(): Look {
   const pref = useApp((s) => s.look);
-  const lowPower = useApp((s) => s.lowPower);
-  const reduceTransparency = useReduceTransparency();
-  const lowPowerMode = useLowPowerMode();
-  return shownLook(pref, { reduceTransparency, lowPower, lowPowerMode, supportsBackdropUrl: supportsBackdropUrl() });
+  return shownLook(pref, useConditions());
+}
+
+/** Why the chosen glass is drawn plain, or null when it is not held back. */
+export function usePlainReason(): PlainReason | null {
+  const pref = useApp((s) => s.look);
+  return plainReason(pref, useConditions());
 }

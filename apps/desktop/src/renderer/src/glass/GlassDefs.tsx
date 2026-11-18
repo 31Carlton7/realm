@@ -6,7 +6,9 @@ import { useLook } from "./use-look";
 /**
  * The lenses every glass control shares, drawn once while glass is on. Each is a filter in the
  * element's own bounding box (`objectBoundingBox`), so one map serves every box of roughly that shape:
- * a picker's panel, a segment or a switch's knob, whatever its size. The prompter keeps a lens drawn
+ * a segment or a switch's knob, whatever its size. The pickers wear a lens fitted to their own box
+ * (fitted-lens.ts): a share of one panel's band, stretched over pickers of every other shape, bent
+ * almost nothing. The prompter keeps a lens drawn
  * for its own size (PrompterGlass), because it grows from one line to many and a stretched map would
  * thicken its rim as it grew.
  *
@@ -14,7 +16,6 @@ import { useLook } from "./use-look";
  * a person can see.
  */
 export const SHARED_LENSES = {
-  panel: { shape: { width: 620, height: 480, radius: 12 }, size: 256, scale: 0.04 },
   pill: { shape: { width: 64, height: 24, radius: 8 }, size: 128, scale: 0.12 },
   bead: { shape: { width: 16, height: 16, radius: 8 }, size: 64, scale: 0.25 },
 } satisfies Record<string, { shape: LensShape; size: number; scale: number }>;

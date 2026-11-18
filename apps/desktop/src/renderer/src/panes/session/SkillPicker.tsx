@@ -7,6 +7,8 @@ import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import { pickerMaxHeight } from "./MentionPicker";
+import { useFittedLens } from "../../glass/fitted-lens";
+import { useLook } from "../../glass/use-look";
 
 /**
  * Rank a skill against a query. Higher is better; `null` is "does not match at all".
@@ -95,6 +97,7 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const { pos, room } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace, withinPane: true });
+  useFittedLens(ref, useLook() === "glass");
   useAutoHideScrollbar(list);
   /* The list runs out into the search field above it and the footer below it, rather than stopping
      at either edge: a row sliced in half by "Manage skills & folders…" read as the list being

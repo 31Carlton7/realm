@@ -39,7 +39,8 @@ import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
 import { EditPasswordSheet, ImportPasswordsButton, KeychainNeededNotice, KeychainPasswords, PasswordExceptions, PasswordRowActions, SecurityCodesSwitch, UnreadablePasswordsNotice, matchesPasswordSearch } from "./PasswordsSection";
 import { PageRail } from "../../components/page-nav";
-import type { Look } from "../../glass/look";
+import { PLAIN_REASON_TEXT, type Look } from "../../glass/look";
+import { usePlainReason } from "../../glass/use-look";
 import { CATEGORY_COPY, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, tabAvailable, visibleSettingsGroups, type SettingEntry, type SettingsTab } from "./settings-index";
 import { capabilities } from "../../platform";
 
@@ -1079,6 +1080,7 @@ function AppearanceTab() {
   const setClearOverPicture = useApp((s) => s.setClearOverPicture);
   const look = useApp((s) => s.look);
   const setLook = useApp((s) => s.setLook);
+  const plainReason = usePlainReason();
   const run = useApp((s) => s.run);
 
   // The face on screen. Both slots are always editable — the point of two is that you set the one
@@ -1177,7 +1179,7 @@ function AppearanceTab() {
         <div className="settings-row" data-setting="look">
           <div className="settings-row-main"><span className="settings-row-name">Controls</span></div>
           <fieldset className="settings-tabs" aria-label="Controls"
-            title="Glass bends and softens what is behind the prompter, its pickers, switches and segmented controls, and over a background carries the picture's colour. It goes back to plain while Reduce Transparency or Low power is on.">
+            title="Glass bends and softens what is behind the prompter, its pickers, switches and segmented controls, and over a background carries the picture's colour. It goes back to plain while Reduce Transparency or the Mac's Low Power Mode is on.">
             {LOOK_CHOICES.map((c) => (
               <label key={c.look} className="settings-tab" data-selected={look === c.look || undefined}>
                 <input type="radio" name="settings-look" value={c.look} checked={look === c.look}
@@ -1186,6 +1188,8 @@ function AppearanceTab() {
               </label>
             ))}
           </fieldset>
+          {/* Glass chosen and held back says why, so the choice never reads as one that did nothing. */}
+          {plainReason && <span className="settings-row-detail">{PLAIN_REASON_TEXT[plainReason]}</span>}
         </div>
 
         {/* The app's one motion mechanism is the system's `prefers-reduced-motion`, and this is an
