@@ -815,7 +815,7 @@ export class SessionService {
   }
 
   /** Put a queued message's model, level and fast mode back on the session, where they have moved
-   *  since it was queued. */
+   *  since it was queued, and tell the windows: their picker has to say what this turn runs on. */
   private async runQueuedWith(id: string, w: QueuedRun): Promise<void> {
     const s = this.get(id);
     if (s.agentKind !== w.agentKind) return;
@@ -824,7 +824,9 @@ export class SessionService {
       ...(w.effort !== s.effort ? { effort: w.effort } : {}),
       ...(w.fastMode !== s.fastMode ? { fastMode: w.fastMode } : {}),
     };
-    if (Object.keys(o).length > 0) await this.setOptions(id, o);
+    if (Object.keys(o).length === 0) return;
+    await this.setOptions(id, o);
+    this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
   }
 
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from

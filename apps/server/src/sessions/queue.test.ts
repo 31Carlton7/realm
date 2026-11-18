@@ -548,6 +548,21 @@ describe("what a queued message runs on", () => {
     expect([row.model, row.effort]).toEqual(["fake-large", "high"]);
   });
 
+  it("tells the windows, whose picker would otherwise name the model it moved off", async () => {
+    // THE MUTANT: the options put back without a broadcast, so the chip says Sonnet over an Opus turn.
+    const { c, sp, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small" });
+    const changes = () => c.events.filter((e) => e.event === "items.changed" && e.payload.spaceId === sp.id).length;
+    const before = changes();
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.userMessages(session.id).includes("first"));
+    expect(changes()).toBeGreaterThan(before);
+  });
+
   it("changes nothing for a message queued on what the session is still set to", async () => {
     // THE MUTANT: a drain that writes the options whether or not they moved.
     const { fake, seen } = watched();
