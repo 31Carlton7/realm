@@ -45,7 +45,7 @@ Realm is:
 - **Mac-native, not ornamental.** Respect platform geometry, focus, menus, and density without
   imitating Finder chrome. The window's translucency is platform material, not decoration: it is the
   same `NSVisualEffectView` a Finder or Notes window sits on, it answers Reduce Transparency, and it
-  is bounded by what the text on it can survive. Glass laid over an app's own surfaces is the thing
+  is bounded by what the text on it can survive. Glass laid over an app's own surfaces, unasked, is the thing
   to refuse.
 
 The memorable Realm move is the workspace itself: several kinds of work share one pane grammar and
@@ -260,7 +260,8 @@ Rules:
   they hang over whatever is behind them, and keep the overlay stack's edge.
 - No liquid glass, and no translucent slab, anywhere (the owner, 11-04: "I don't want this liquid
   glass like nav background anywhere else in the app"). A bar, a menu, a sheet, a card or a button
-  never wears a backdrop blur or a see-through fill of its own. The window's material shows through
+  never wears a backdrop blur or a see-through fill of its own, unless a person turns Glass on
+  (below). The window's material shows through
   two grounds only, each on its own control: the frame (the rail, the sidebar's column and the strip
   across the window's top), and the panes' one ground under the rim. The prompter is the surface that
   follows a ground rather than standing on its own: an opaque card on a pane thinned by its slider
@@ -296,6 +297,20 @@ Rules:
   cannot blur the canvas, and it stands on the track's blur already). Theme colour keeps the theme's
   solid bubble for whoever wants it (11-17: "with the option to have it be the same as the theme").
   `prompter-ground.test.ts` refuses a theme fill or a shadow on any rule scoped to a picture.
+- Glass is a material a person chooses, once, for the whole app: Settings > Appearance > Controls,
+  Plain by default (the owner, 11-17: he turned the prompter's glass on, saw nothing, and asked for it
+  "throughout the app"). It goes on what floats or is pressed: the prompter, its pickers, the
+  selection bar, the selected segment of a segmented control and a switch's knob. What is read stays
+  plain (a page of settings, a sheet, the transcript, the sidebar, the palette, toasts), because glass
+  there costs contrast and shows nothing. Glass is a lens, a slight blur and a highlight, never a fill
+  of ours: over a picture it lays no surface and no shadow, only the picture's own dim, so it carries
+  the picture's colour. A lens can only bend what is behind it, so the first Glass did nothing: the card
+  bent its own grey face, and the hero had cleared the picture from under the card, leaving the
+  window's material, which an in-page filter cannot see. Glass that does nothing is a setting that
+  lies; prove it with a card of stripes under it before tuning a number. Off a picture a picker keeps
+  most of its surface and the prompter its tint, so the filter never works on the window's bare
+  transparency. One attribute on the root carries it, cleared under Reduce Transparency, Low power or a
+  renderer that cannot draw `backdrop-filter: url()`, and the choice comes back when those clear.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha

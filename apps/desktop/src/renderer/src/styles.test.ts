@@ -1148,7 +1148,20 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        picture itself, so they keep its colour rather than wearing a theme grey on it. Those rules
        are scoped to a pane with a picture, read the one token, and paint no fill of their own. */
     const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ");
-    expect([...new Set(filtering.filter((sel) => !overPicture(sel)))].sort()).toEqual([".edge-blur::after", ".edge-blur::before"]);
+    /* And the glass the owner asked for app-wide (11-17), only behind the root's `data-glass`, which
+       Appearance sets and Reduce Transparency and Low power clear. Every one reads the glass tokens
+       or a shared lens, so the whole material is one set of numbers. */
+    const glass = (sel: string) => sel.startsWith(":root[data-glass] ");
+    expect([...new Set(filtering.filter((sel) => !overPicture(sel) && !glass(sel)))].sort()).toEqual([".edge-blur::after", ".edge-blur::before"]);
+    const glassRules = RULES.filter((r) => partsOf(r).some(glass) && /backdrop-filter:/.test(r.body));
+    expect(glassRules.length).toBeGreaterThanOrEqual(5);
+    for (const r of glassRules) expect(r.body).toMatch(/backdrop-filter: (var\(--glass-|url\(#rl-glass-)/);
+    // Over a picture glass lays nothing of ours on the picture: no surface, no shadow beyond the rim.
+    for (const r of RULES.filter((r) => partsOf(r).some((sel) => glass(sel) && /hero-backdrop|data-over-picture/.test(sel)))) {
+      expect(r.body).not.toMatch(/background:(?!\s*none)/);
+      const shadow = /box-shadow:\s*([^;]+)/.exec(r.body)?.[1];
+      if (shadow) expect(shadow.trim()).toBe("var(--glass-rim)");
+    }
     const picture = RULES.filter((r) => partsOf(r).some(overPicture) && /backdrop-filter:/.test(r.body));
     expect(picture.length).toBeGreaterThanOrEqual(2);
     for (const r of picture) {
@@ -1176,7 +1189,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       }
     };
     walk(repoFile("apps/desktop/src/renderer/src"));
-    expect(inline.filter((f) => !f.endsWith("ScrollFades.tsx"))).toEqual([]);
+    // The one exception is the glass module, a take the owner asked to see on 11-17: a switch in
+    // Appearance, plain by default, and plain again under Reduce Transparency and Low power.
+    expect(inline.filter((f) => !f.endsWith("ScrollFades.tsx") && !f.includes("/src/glass/"))).toEqual([]);
   });
 
   it("nothing is set below 11px, the type scale's own floor for a tiny label", () => {
@@ -1383,6 +1398,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The microphone's level while dictating (Composer.tsx), 0–1, written on the mic's ring each
       // frame; 0 without it.
       "--mic-level",
+      // The prompter's lens (glass/PrompterGlass.tsx), drawn for the card's own size and named only
+      // once its map exists. Read with no fallback on purpose: unset, the backdrop-filter is invalid,
+      // which is none, so the card is plain until the lens is there.
+      "--glass-lens",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);

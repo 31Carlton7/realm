@@ -6646,6 +6646,26 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --sq-radius-top: inherit; --sq-radius-bottom: inherit; --sq-n: inherit;
   background: paint(rl-squircle);
 }
+/* The prompter's glass, when it is chosen (Settings ▸ Appearance ▸ Controls, plain by default; the
+   rest of the app's glass is under "Glass", further down). The layer sits over the card's face and
+   under its content. On a plain pane the face's tint is in the backdrop it bends, so the lens never
+   filters the window's bare transparency (the smudge under "The dissolve"); over a picture the card has
+   no face and the backdrop is the picture's canvas. The editor, the caret and the bars stay ordinary
+   children above it. Under the painter its corner is the circle of half the curve, which the
+   superellipse holds, so the glass never reaches past the card. No lift under it: a shadow round glass
+   reads as a slab. The lens itself is named inline by PrompterGlass (`--glass-lens`), only once its
+   map exists. */
+.composer-glass { position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  border-radius: inherit; corner-shape: inherit; }
+.composer-glass > svg { position: absolute; width: 0; height: 0; }
+.composer[data-look="glass"] { --shadow-card: none; --shadow-card-lift: none; }
+:root[data-squircle] .composer-glass { border-radius: calc(var(--r-squircle) / 2); corner-shape: round; }
+:root[data-squircle] .composer[data-look="glass"]::before { display: none; }
+:root[data-squircle] .composer[data-look="glass"]::after { z-index: -2; }
+:root[data-glass] .composer-glass {
+  backdrop-filter: var(--glass-lens) blur(var(--glass-blur)) saturate(var(--glass-saturate)); box-shadow: var(--glass-rim); }
+/* Over a picture the glass is the picture's ground: the lens, then the slight blur and the dim. */
+:root[data-glass] .session-pane:has(> .hero-backdrop) .composer-glass { backdrop-filter: var(--glass-lens) var(--glass-frost); }
 /* ⌘K's lift, the same way. This is the square at the palette's corners: its `box-shadow` (four
    layers, one of them a ring) drew from the border box, which under the painted regime is a
    RECTANGLE with no radius at all — so a hard-cornered halo sat over the curve the worklet had
@@ -7002,6 +7022,35 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root .session-pane:has(> .hero-backdrop) :is(.composer-goal + .composer-todos, .composer-goal + .composer-overstrip, .composer-todos + .composer-overstrip) { border-radius: 0; }
 :root .session-pane:has(> .hero-backdrop) .composer-understrip {
   border-radius: 0 0 calc(var(--r-squircle) / 2) calc(var(--r-squircle) / 2); clip-path: inset(var(--tuck) -24px -24px -24px); }
+
+/* ── Glass (Settings ▸ Appearance ▸ Controls, plain by default) ─────────────────────────────────
+   One switch, `data-glass` on the root, set only while glass is chosen AND drawable (glass/look.ts:
+   Reduce Transparency, Low power or a renderer without `backdrop-filter: url()` put plain back). It
+   goes on what floats and what is pressed: the prompter (above), its pickers, the selection bar, the
+   selected segment of a segmented control, and a switch's knob. A page of settings, a sheet, the
+   transcript and the sidebar stay plain: they are read, and glass there would only cost contrast.
+
+   Each is a lens from the shared set (glass/GlassDefs.tsx), a slight blur and the highlight
+   (`--glass-rim`). Over a picture nothing of ours is laid on it: no surface, no shadow, only the
+   picture's own dim, so Synth Coast's purple stays purple (11-17). A picker off a picture keeps most
+   of its surface, because what is behind it there is text and the window's material. */
+.glass-defs { position: absolute; width: 0; height: 0; }
+:root[data-glass] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--glass-frost); }
+:root[data-glass] :is(.model-picker, .mention-picker, .skill-picker, .selection-bar) {
+  background: color-mix(in srgb, var(--surface) var(--glass-panel-fill), transparent);
+  backdrop-filter: url(#rl-glass-panel) var(--glass-panel-frost); box-shadow: var(--glass-rim), var(--shadow-raised); }
+:root[data-glass] :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] {
+  background: none; backdrop-filter: url(#rl-glass-panel) var(--glass-panel-frost) var(--picture-tone); box-shadow: var(--glass-rim); }
+/* The selected segment is a bead of glass on its track: it bends the track's edge under it and
+   carries the highlight. The track stays the plain well it was. The settings rail's tabs are
+   navigation, not a choice between values, and keep their fill. */
+:root[data-glass] :is(.documents-modes button[aria-pressed="true"], .seg-opt[data-selected], .settings-tabs > .settings-tab[data-selected], .mp-seg-opt[aria-pressed="true"]) {
+  background: var(--glass-bead); box-shadow: var(--glass-rim);
+  backdrop-filter: url(#rl-glass-pill) saturate(var(--glass-saturate)); }
+/* A switch's knob is a drop of glass over its track: lit, it bends the accent and carries it. */
+:root[data-glass] .switch::after {
+  background: var(--glass-knob); box-shadow: var(--glass-rim), 0 1px 2px #0000003d;
+  backdrop-filter: url(#rl-glass-bead) saturate(var(--glass-saturate)); }
 :root[data-squircle] .install-card {
   --sq-fill: var(--rl-raised); --sq-ring: var(--line); --sq-ring-w: var(--hairline-w);
   box-shadow: var(--rl-shadow);
