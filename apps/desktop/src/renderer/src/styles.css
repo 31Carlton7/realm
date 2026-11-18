@@ -6573,6 +6573,18 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    whatever ground it is laid on. Dark's raised fill already steps off its canvas and keeps it. */
 :root[data-mode="light"]:not([data-squircle]) .msg-user { background: var(--rl-hover); }
 :root[data-mode="light"][data-squircle] .msg-user { --sq-fill: var(--rl-hover); }
+/* Your bubble is see-through by default, on the prompter's ground (the owner, 11-17: "transparent
+   similar coloring to the prompter ... depend on the system transparency"). With no picture dark's
+   raised fill thins with the pane as the prompter's does, and light's is a translucent step already.
+   Over a picture it is the picture, dimmed as the prompter's is (`--picture-veil`, tokens.css), or
+   left as it is under Clear. Theme colour (Settings ▸ Appearance) keeps the solid bubble. Quick chat's
+   window is its own ground and keeps its own step. */
+:root:not([data-mode="light"]):not([data-squircle]):not([data-theme-bubble]) .msg-user:not(.quick-chat *) {
+  background: color-mix(in srgb, var(--rl-raised) var(--prompter-alpha), transparent); }
+:root:not([data-mode="light"])[data-squircle]:not([data-theme-bubble]) .msg-user:not(.quick-chat *) {
+  --sq-fill: color-mix(in srgb, var(--rl-raised) var(--prompter-alpha), transparent); }
+:root:not([data-squircle]):not([data-theme-bubble]) .session-pane:has(> .hero-backdrop) .msg-user:not(.quick-chat *) { background: var(--picture-veil); }
+:root[data-squircle]:not([data-theme-bubble]) .session-pane:has(> .hero-backdrop) .msg-user:not(.quick-chat *) { --sq-fill: var(--picture-veil); }
 /* A message another SESSION delivered keeps its accent ring — traced on the painted curve now,
    rather than as a box-shadow around a rounded rect the fill has already bulged past. */
 :root[data-squircle] .msg-user-row[data-from] .msg-user {
@@ -6969,12 +6981,27 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    about 71% at its 40% floor, so the hints go about 71% of the way and the quiet ink about 36%. Set on
    the dock, not :root, so quick chat's opaque prompter reads 0%. */
 .composer-dock {
-  --prompter-thin: calc((100% - var(--prompter-alpha)) * 100 / 84);
+  --prompter-thin: min(100%, calc((100% - var(--prompter-alpha)) * 100 / 84));
   --rl-text-faint: color-mix(in oklab, var(--ink-2) var(--prompter-thin), var(--ink-3));
   --rl-text-dim: color-mix(in oklab, var(--ink) calc(var(--prompter-thin) / 2), var(--ink-2)); }
 /* Quick chat floats on its own surface and the viewer's ground is opaque, so their prompters stay
    solid; so does code review's question box. */
 .quick-chat, .media-viewer, .cr-ask, :is(.quick-chat, .media-viewer, .cr-ask) .session-pane:has(> .hero-backdrop) { --prompter-alpha: 100%; }
+/* Over a picture or a loop the prompter's ground is the picture (tokens.css, `--picture-ground`): its
+   fill is gone (`--prompter-alpha` is 0% there) and the layer that cast its lift blurs and dims what is
+   behind it instead, with no shadow, since any halo of ours is a neutral glow on the picture's colour
+   (the owner, 11-17). A tab's blur starts at the card's line rather than under the card, where it
+   would be blurred and dimmed twice; these come after the seats so they outrank them. The card's
+   blur keeps its round corners, since the tabs are inset from its sides. */
+:root .session-pane:has(> .hero-backdrop) .composer::before {
+  inset: 0; opacity: 1; box-shadow: none; filter: none;
+  border-radius: calc(var(--r-squircle) / 2); backdrop-filter: var(--picture-ground); }
+:root .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--picture-ground); }
+:root .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip) {
+  border-radius: calc(var(--r-squircle) / 2) calc(var(--r-squircle) / 2) 0 0; clip-path: inset(-24px -24px var(--tuck) -24px); }
+:root .session-pane:has(> .hero-backdrop) :is(.composer-goal + .composer-todos, .composer-goal + .composer-overstrip, .composer-todos + .composer-overstrip) { border-radius: 0; }
+:root .session-pane:has(> .hero-backdrop) .composer-understrip {
+  border-radius: 0 0 calc(var(--r-squircle) / 2) calc(var(--r-squircle) / 2); clip-path: inset(var(--tuck) -24px -24px -24px); }
 :root[data-squircle] .install-card {
   --sq-fill: var(--rl-raised); --sq-ring: var(--line); --sq-ring-w: var(--hairline-w);
   box-shadow: var(--rl-shadow);

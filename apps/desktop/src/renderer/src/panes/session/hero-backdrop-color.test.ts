@@ -88,33 +88,17 @@ describe("the picture reaches the pane's bottom edge", () => {
 });
 
 describe("pictureAlpha", () => {
-  const look = { feather: 32 };
-  const card = { x: 200, y: 300, w: 600, h: 120 };
-
-  it("runs the whole picture above the card, where the greeting sits", () => {
-    expect(pictureAlpha(500, 200, card, look)).toBe(1);
-    expect(pictureAlpha(500, 300 - 32, card, look)).toBeCloseTo(1, 5);
-  });
-
-  it("shows nothing on the card, and feathers back within a feather's width of it", () => {
-    expect(pictureAlpha(500, 360, card, look)).toBe(0);
-    const near = pictureAlpha(200 - 12, 360, card, look), far = pictureAlpha(200 - 32, 360, card, look);
-    expect(near).toBeGreaterThan(0);
-    expect(near).toBeLessThan(far);
-    expect(far).toBeCloseTo(1, 5);
-  });
-
-  it("runs whole below the card, down to the pane's bottom edge", () => {
-    expect(pictureAlpha(50, 420, card, look)).toBe(1);
-    expect(pictureAlpha(500, 420 + 32, card, look)).toBeCloseTo(1, 5);
-    expect(pictureAlpha(50, 2400, card, look)).toBe(1);
+  it("runs the whole picture everywhere, under the prompter too, down to the pane's bottom edge", () => {
+    // THE mutant: a hole cleared round the card again. Its ground is this picture blurred
+    // (`--picture-ground`), and a hole there showed the window's grey through it as a halo (11-17).
+    for (const [x, y] of [[500, 200], [500, 360], [188, 360], [50, 420], [50, 2400]] as const) expect(pictureAlpha(x, y)).toBe(1);
   });
 
   it("lowers the picture under a hush to its level, and only near it", () => {
     const hush = { rect: { x: 300, y: 100, w: 400, h: 40 }, level: 0.3, reach: 40 };
-    expect(pictureAlpha(500, 120, card, look, [hush])).toBeCloseTo(0.3, 5);
-    expect(pictureAlpha(500, 100 - 40, card, look, [hush])).toBeCloseTo(1, 5);
-    expect(pictureAlpha(50, 120, card, look, [hush])).toBe(1);
+    expect(pictureAlpha(500, 120, [hush])).toBeCloseTo(0.3, 5);
+    expect(pictureAlpha(500, 100 - 40, [hush])).toBeCloseTo(1, 5);
+    expect(pictureAlpha(50, 120, [hush])).toBe(1);
   });
 });
 
@@ -131,7 +115,7 @@ describe("a picture shown as it is", () => {
     const px = new Uint8ClampedArray((x1 - x0) * (y1 - y0) * 4);
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
       const i = ((y - y0) * (x1 - x0) + x - x0) * 4;
-      px.set([...busy[y * W + x]!, 255 * pictureAlpha(x + 0.5, y + 0.5, card, look, hushes)], i);
+      px.set([...busy[y * W + x]!, 255 * pictureAlpha(x + 0.5, y + 0.5, hushes)], i);
     }
     return px;
   };

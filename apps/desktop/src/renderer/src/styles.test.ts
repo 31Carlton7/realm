@@ -1143,8 +1143,18 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        A backdrop-filter is how a translucent slab gets made, so the only rules allowed one are the
        edge blur's two layers, which paint no colour and sit where chrome meets a scroller. A menu, a
        sheet, a card or a button that wants depth gets a plain surface and its shadow instead. */
-    const filtering = RULES.filter((r) => /(^|;|\s)(-webkit-)?backdrop-filter:\s*(?!none)/.test(r.body)).flatMap((r) => r.selectors);
-    expect([...new Set(filtering)].sort()).toEqual([".edge-blur::after", ".edge-blur::before"]);
+    const filtering = RULES.filter((r) => /(^|;|\s)(-webkit-)?backdrop-filter:\s*(?!none)/.test(r.body)).flatMap(partsOf);
+    /* One named exception (the owner, 11-17): over a picture the prompter and its tabs blur the
+       picture itself, so they keep its colour rather than wearing a theme grey on it. Those rules
+       are scoped to a pane with a picture, read the one token, and paint no fill of their own. */
+    const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ");
+    expect([...new Set(filtering.filter((sel) => !overPicture(sel)))].sort()).toEqual([".edge-blur::after", ".edge-blur::before"]);
+    const picture = RULES.filter((r) => partsOf(r).some(overPicture) && /backdrop-filter:/.test(r.body));
+    expect(picture.length).toBeGreaterThanOrEqual(2);
+    for (const r of picture) {
+      expect(r.body).toMatch(/backdrop-filter: var\(--picture-ground\)/);
+      expect(r.body).not.toMatch(/background/);
+    }
     // Both layers read the strength tokens, so "subtler" is one edit and no two bands can disagree.
     expect(bodiesFor(".edge-blur::before").join(" ")).toContain("backdrop-filter: blur(var(--fade-blur-near))");
     expect(bodiesFor(".edge-blur::after").join(" ")).toContain("backdrop-filter: blur(var(--fade-blur-far))");

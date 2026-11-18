@@ -1070,6 +1070,10 @@ function AppearanceTab() {
   const setPaneAlpha = useApp((s) => s.setPaneAlpha);
   const reduceMotion = useApp((s) => s.reduceMotion);
   const setReduceMotion = useApp((s) => s.setReduceMotion);
+  const themeBubble = useApp((s) => s.themeBubble);
+  const setThemeBubble = useApp((s) => s.setThemeBubble);
+  const clearOverPicture = useApp((s) => s.clearOverPicture);
+  const setClearOverPicture = useApp((s) => s.setClearOverPicture);
   const run = useApp((s) => s.run);
 
   // The face on screen. Both slots are always editable — the point of two is that you set the one
@@ -1151,6 +1155,20 @@ function AppearanceTab() {
           onChange={(v) => run(() => setPaneAlpha(v))}
           title="How much of the desktop behind the window shows through the panes, all the way to none of the pane at all. Realm starts at the see-through end; over a bright or busy desktop, move it toward opaque to keep text easy to read. Reduce Transparency makes the panes opaque as well." />
 
+        <div className="settings-row" data-setting="your-messages">
+          <div className="settings-row-main"><span className="settings-row-name">Your messages</span></div>
+          <fieldset className="settings-tabs" aria-label="Your messages"
+            title="See-through follows Pane translucency as the prompter does, and over a background shows the picture. Theme colour keeps the theme's solid bubble.">
+            {([[false, "See-through"], [true, "Theme colour"]] as const).map(([v, label]) => (
+              <label key={label} className="settings-tab" data-selected={themeBubble === v || undefined}>
+                <input type="radio" name="settings-your-messages" checked={themeBubble === v}
+                  onChange={() => run(() => setThemeBubble(v))} />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+        </div>
+
         {/* The app's one motion mechanism is the system's `prefers-reduced-motion`, and this is an
             answer to that same question rather than a second one: main has the window report the
             chosen value, so every rule and listener that already honours the Mac honours this. */}
@@ -1185,6 +1203,19 @@ function AppearanceTab() {
       <h3 className="settings-head">Background</h3>
       <div className="settings-group">
         <BackgroundPicker mode={mode} />
+        <div className="settings-row" data-setting="prompter-over-picture">
+          <div className="settings-row-main"><span className="settings-row-name">Prompter over a picture</span></div>
+          <fieldset className="settings-tabs" aria-label="Prompter over a picture"
+            title="Blur shows the picture behind the prompter softened and dimmed so its words read. Clear shows the picture as it is.">
+            {([[false, "Blur"], [true, "Clear"]] as const).map(([v, label]) => (
+              <label key={label} className="settings-tab" data-selected={clearOverPicture === v || undefined}>
+                <input type="radio" name="settings-prompter-over-picture" checked={clearOverPicture === v}
+                  onChange={() => run(() => setClearOverPicture(v))} />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+        </div>
       </div>
 
       <h3 className="settings-head">Text</h3>

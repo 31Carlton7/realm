@@ -42,6 +42,30 @@ describe("Reduce motion", () => {
   });
 });
 
+describe("Your messages and the prompter over a picture", () => {
+  it("start see-through and blurred, and each writes its own key when changed", async () => {
+    const { api, store } = await appearance();
+    const bubble = within(screen.getByRole("group", { name: "Your messages" }));
+    const prompter = within(screen.getByRole("group", { name: "Prompter over a picture" }));
+    expect(bubble.getByRole("radio", { name: "See-through" })).toBeChecked();
+    expect(prompter.getByRole("radio", { name: "Blur" })).toBeChecked();
+    fireEvent.click(bubble.getByRole("radio", { name: "Theme colour" }));
+    await waitFor(() => expect(store.getState().themeBubble).toBe(true));
+    expect(api.calls).toContain("setSetting:ui.themeBubble=true");
+    // THE mutant: one control writing the other's key.
+    expect(store.getState().clearOverPicture).toBe(false);
+    fireEvent.click(prompter.getByRole("radio", { name: "Clear" }));
+    await waitFor(() => expect(store.getState().clearOverPicture).toBe(true));
+    expect(api.calls).toContain("setSetting:ui.clearOverPicture=true");
+  });
+
+  it("reads a saved choice back on launch", async () => {
+    await appearance({ settings: { "ui.themeBubble": true, "ui.clearOverPicture": true } });
+    expect(within(screen.getByRole("group", { name: "Your messages" })).getByRole("radio", { name: "Theme colour" })).toBeChecked();
+    expect(within(screen.getByRole("group", { name: "Prompter over a picture" })).getByRole("radio", { name: "Clear" })).toBeChecked();
+  });
+});
+
 describe("Sidebar and pane translucency", () => {
   it("are two controls over two numbers — moving one leaves the other where it was", async () => {
     vi.stubGlobal("realm", { platform: "darwin" });

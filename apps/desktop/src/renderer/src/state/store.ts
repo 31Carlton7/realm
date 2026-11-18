@@ -929,6 +929,10 @@ export const SETTING_LAST_AGENT = LAST_AGENT_SETTING;
 export const SETTING_LAST_MODELS = "ui.lastModels";
 /** Whether the app keeps its decorative motion off for good. See `lowPower`. */
 const SETTING_LOW_POWER = "ui.lowPower";
+/** Whether the prompter over a picture shows the picture as it is rather than blurred. See `clearOverPicture`. */
+const SETTING_CLEAR_OVER_PICTURE = "ui.clearOverPicture";
+/** Whether your own messages keep the theme's solid bubble. See `themeBubble`. */
+const SETTING_THEME_BUBBLE = "ui.themeBubble";
 /** Whether the playful bits are allowed to run at all. Off unless the stored value is exactly
  *  `true`: a key nobody could read is not a request to be surprised. */
 const SETTING_EASTER_EGGS = "ui.easterEggs";
@@ -1115,6 +1119,12 @@ export type AppState = TeammatesSlice & {
   background: string;
   /** Whether a background that can move does (`ui.backgroundMotion`). On by default. */
   backgroundMotion: boolean;
+  /** Over a picture, whether the prompter's ground is the picture as it is (`ui.clearOverPicture`)
+   *  rather than the picture blurred and dimmed. Off by default: blurred. */
+  clearOverPicture: boolean;
+  /** Whether your own messages keep the theme's solid bubble (`ui.themeBubble`) rather than the
+   *  see-through one on the prompter's ground. Off by default: see-through. */
+  themeBubble: boolean;
   /**
    * Whether the window has the user's attention right now.
    *
@@ -1950,6 +1960,8 @@ export type AppState = TeammatesSlice & {
   setLowPower(v: boolean): Promise<void>;
   setBackground(v: string): Promise<void>;
   setBackgroundMotion(v: boolean): Promise<void>;
+  setClearOverPicture(v: boolean): Promise<void>;
+  setThemeBubble(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
   setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
@@ -4649,7 +4661,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -4676,7 +4688,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion, clearOverPicture, themeBubble] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -4692,6 +4704,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getSetting(SETTING_LAST_MODELS),
           api.getSetting(BACKGROUND_SETTING),
           api.getSetting(BACKGROUND_MOTION_SETTING),
+          api.getSetting(SETTING_CLEAR_OVER_PICTURE),
+          api.getSetting(SETTING_THEME_BUBBLE),
         ]);
         /* Phase 1 kept the look in this window's localStorage. Carried into the setting once, if the
            setting is unset, and then forgotten; a window that never chose one writes nothing. */
@@ -4720,6 +4734,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, lowPower: lowPower === true,
           background: backgroundPref(carriedBackground ?? background), backgroundMotion: backgroundMotion !== false,
+          clearOverPicture: clearOverPicture === true, themeBubble: themeBubble === true,
           paneAlpha: carriedPane, reduceMotion: isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidePanesHidden: sidePanesHidden === true,
@@ -5259,6 +5274,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setBackgroundMotion(v) {
         set({ backgroundMotion: v });
         await api.setSetting(BACKGROUND_MOTION_SETTING, v);
+      },
+      async setClearOverPicture(v) {
+        set({ clearOverPicture: v });
+        await api.setSetting(SETTING_CLEAR_OVER_PICTURE, v);
+      },
+      async setThemeBubble(v) {
+        set({ themeBubble: v });
+        await api.setSetting(SETTING_THEME_BUBBLE, v);
       },
       setWindowActive(v) {
         // Guarded: focus and blur both fire more than once for one switch (the window, then the

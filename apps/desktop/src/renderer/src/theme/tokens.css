@@ -819,20 +819,34 @@ a {
  * prompter should become more transparent with the pane", then "too transparent, it should be
  * slightly less but adjust with the transparency"). Its words hold by moving their ink as well
  * (styles.css, the prompter on a thinned pane). The lift is gone by `--prompter-lift-until`: it shows
- * only on a card that is nearly solid, so on a see-through one there is no halo (11-17). No blur:
- * the picture is already softened where it sits behind the chat, and a blur measured no gain.
+ * only on a card that is nearly solid, so on a see-through one there is no halo (11-17). No blur
+ * on a plain pane: a blur there would reach the window's material and smudge it.
  *
- * Over a picture or a loop the same line starts higher, at `--prompter-over-picture` (the owner,
- * 11-17: over a custom background the 40% card is "a little too transparent"). One number, and the
- * line still runs straight to solid at 84 with no floor of its own. 40% stays with no picture. */
+ * Over a picture or a loop the card has no fill at all, because any fill of ours is a theme grey
+ * laid on the picture's colour (the owner, 11-17, over Synth Coast: "the coloring isn't the same like
+ * purplish coloring"). Its ground is the picture itself, blurred and taken toward black (light: toward
+ * white) by one number, `--picture-dim`, inside the same backdrop filter, so the purple stays purple.
+ * Clear (Settings ▸ Appearance) drops the blur and the dim and leaves the picture as it is. A bubble
+ * of yours over the picture cannot reach it with a backdrop filter (the transcript is the edge
+ * blur's backdrop root), and stands on the track's blur already, so it takes the dim as a veil of
+ * pure black or white at the same share, which is the same brightness step. */
 :root {
   --prompter-lift-until: 92%;
   --prompter-alpha: min(100%, calc(40% + var(--pane-alpha) * 60 / 84));
-  --prompter-over-picture: 70;
+  --picture-blur: 20px;
+  --picture-dim: 0.4;
+  --picture-tone: brightness(calc(1 - var(--picture-dim)));
+  --picture-veil: rgb(0 0 0 / var(--picture-dim));
+  --picture-ground: blur(var(--picture-blur)) var(--picture-tone);
 }
-.session-pane:has(> .hero-backdrop) {
-  --prompter-alpha: min(100%, calc(var(--prompter-over-picture) * 1% + var(--pane-alpha) * (100 - var(--prompter-over-picture)) / 84));
+/* Toward white by the same share: contrast(k) then brightness(b) is c * b * k + b * (1 - k) / 2, which
+ * is (1 - d) * c + d when b = 1 + d and k = (1 - d) / (1 + d). */
+:root[data-mode="light"] {
+  --picture-tone: contrast(calc((1 - var(--picture-dim)) / (1 + var(--picture-dim)))) brightness(calc(1 + var(--picture-dim)));
+  --picture-veil: rgb(255 255 255 / var(--picture-dim));
 }
+:root[data-clear-over-picture] { --picture-ground: none; --picture-veil: transparent; }
+.session-pane:has(> .hero-backdrop) { --prompter-alpha: 0%; }
 
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being

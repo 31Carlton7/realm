@@ -1,10 +1,10 @@
 /**
  * A moving background, drawn on the GPU one frame at a time: the loop's frame printed as the still
  * is (the colour-kept screen, or as it is), and kept readable on every frame by the same rule as the
- * still. Behind an empty session the words are cleared by taking each pixel under them toward the
- * ground only as far as their inks need (hush, chat-backdrop.ts), feathered out round them, and the
- * picture feathers out round the prompter's card. Behind a transcript the frame is softened by the
- * edge blur's deeper radius and every pixel is hushed, as the chat's still is.
+ * still. Behind an empty session the words are cleared by taking each pixel under them toward black
+ * (light: white) only as far as their inks need (hush, chat-backdrop.ts), feathered out round them;
+ * the prompter's card blurs the frame itself, so nothing is cleared round it. Behind a transcript the
+ * frame is softened by the edge blur's deeper radius and every pixel is hushed, as the chat's still is.
  *
  * The still does this on the CPU once, in about 55 ms; a loop has 42 ms a frame and the main thread
  * is the transcript's. Here it is one upload of the video's frame and two or three fragment passes.
@@ -25,7 +25,7 @@ void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
 
 /** hush() in GLSL: the luminance it measures and the eight halvings of the share of the pixel kept. */
 const FRAG_HUSH = `
-uniform vec3 u_ground;
+uniform vec3 u_toward;
 uniform float u_lo, u_hi;
 float lin(float v) { return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); }
 float lum(vec3 c) { return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b); }
@@ -35,9 +35,9 @@ vec3 hush(vec3 p) {
   float keep = 0.0, miss = 1.0;
   for (int i = 0; i < 8; i++) {
     float a = (keep + miss) * 0.5;
-    if (fits(u_ground + (p - u_ground) * a)) keep = a; else miss = a;
+    if (fits(u_toward + (p - u_toward) * a)) keep = a; else miss = a;
   }
-  return u_ground + (p - u_ground) * keep;
+  return u_toward + (p - u_toward) * keep;
 }`;
 
 /** Where a canvas pixel (top-left origin) lands on the frame, laid as coverFit lays the still:
@@ -57,14 +57,13 @@ vec2 coverUv(vec2 frag) {
 }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }`;
 
-/** The empty session's frame: the screen per cell (ditherColor), the hush under the words and the
- *  feather round the card, premultiplied over a clear canvas as the still's mask is. */
+/** The empty session's frame: the screen per cell (ditherColor) and the hush under the words. */
 const FRAG_HERO = `#version 300 es
 precision highp float;
 ${FRAG_HUSH}
 ${FRAG_COVER}
-uniform float u_cell, u_depth, u_dpr, u_feather, u_reach;
-uniform vec4 u_card, u_words;
+uniform float u_cell, u_depth, u_dpr, u_reach;
+uniform vec4 u_words;
 out vec4 o;
 const float BAYER4[16] = float[16](0., 8., 2., 10., 12., 4., 14., 6., 3., 11., 1., 9., 15., 7., 13., 5.);
 float outside(vec2 p, vec4 box, float r) {
@@ -82,8 +81,7 @@ void main() {
   }
   vec2 css = frag / u_dpr;
   if (u_words.z > 0.0) c = mix(c, hush(c), 1.0 - smoothstep(0.0, u_reach, outside(css, u_words, min(u_words.w * 0.5, 24.0))));
-  float a = u_card.z > 0.0 ? smoothstep(0.0, u_feather, outside(css, u_card, 16.0)) : 1.0;
-  o = vec4(c * a, a);
+  o = vec4(c, 1.0);
 }`;
 
 /** The chat's first pass: the frame at the canvas's size, with the screen as the blur after it will
@@ -101,7 +99,7 @@ void main() {
 }`;
 
 /** One direction of a Gaussian blur; the last pass takes what it blurred through the transcript's
- *  track as hushTrack() does (chat-backdrop.ts): the blur and the tint toward the ground by the
+ *  track as hushTrack() does (chat-backdrop.ts): the blur and the tint toward black (light: white) by the
  *  track's weight at this column, mixed with the unblurred print (`u_sharp`), then the hush by the
  *  same weight. A zero-width feather is no track: every pixel is hushed whole, as before. */
 const MAX_TAPS = 24;
@@ -131,7 +129,7 @@ ${last ? `  float wt = 1.0, tint = 0.0;
   }
   vec3 sharp = texture(u_sharp, uv).rgb;
   c = sharp + (c - sharp) * (u_trackMix.z + (1.0 - u_trackMix.z) * wt);
-  c = c + (u_ground - c) * tint;
+  c = c + (u_toward - c) * tint;
   c = mix(c, hush(c), u_trackMix.y + (1.0 - u_trackMix.y) * wt);` : ""}
   o = vec4(c, 1.0);
 }`;
@@ -150,10 +148,10 @@ const linear = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) 
 const lum = ([r, g, b]: Rgb) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 
 /** FRAG_HUSH's hush() for one pixel, written as the shader is, in single precision. */
-export function hushPixel(p: Rgb, ground: Rgb, lo: number, hi: number): Rgb {
+export function hushPixel(p: Rgb, toward: Rgb, lo: number, hi: number): Rgb {
   const f = Math.fround;
   const fits = (c: Rgb) => { const l = f(lum(c)); return l >= f(lo) && l <= f(hi); };
-  const at = (a: number): Rgb => [0, 1, 2].map((k) => f(ground[k]! + f(f(p[k]! - ground[k]!) * a))) as Rgb;
+  const at = (a: number): Rgb => [0, 1, 2].map((k) => f(toward[k]! + f(f(p[k]! - toward[k]!) * a))) as Rgb;
   if (fits(p)) return p;
   let keep = 0, miss = 1;
   for (let i = 0; i < 8; i++) {
@@ -165,14 +163,13 @@ export function hushPixel(p: Rgb, ground: Rgb, lo: number, hi: number): Rgb {
 
 /** What one frame is drawn with. Rects are in the pane's CSS px; an empty one is none. */
 export type LoopUniforms = {
-  ground: Rgb;
+  /** What the hush takes a pixel toward (hushToward, chat-backdrop.ts). */
+  toward: Rgb;
   range: [number, number];
   /** How much darker a screened cell is (COLOR_LOOKS), 0 for a picture shown as it is. */
   depth: number;
   dpr: number;
-  /** The empty session's: the prompter's card the picture feathers out round, and the box round
-   *  the words it is hushed under. */
-  card?: Rect;
+  /** The empty session's: the box round the words it is hushed under. */
   words?: Rect;
   /** The chat's: the blur's standard deviation in canvas px, and the transcript's track in canvas px
    *  (chat-backdrop.ts); with none, every pixel is the track. */
@@ -283,7 +280,7 @@ export class LoopRenderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, frame);
     this.drawn = true;
     const hush = (loc: (n: string) => WebGLUniformLocation | null) => {
-      gl.uniform3fv(loc("u_ground"), u.ground);
+      gl.uniform3fv(loc("u_toward"), u.toward);
       gl.uniform1f(loc("u_lo"), u.range[0]);
       gl.uniform1f(loc("u_hi"), u.range[1]);
     };
@@ -302,9 +299,7 @@ export class LoopRenderer {
       gl.uniform1f(loc("u_cell"), Math.max(1, COLOR_LOOKS["dither-color"].cell));
       gl.uniform1f(loc("u_depth"), u.depth);
       gl.uniform1f(loc("u_dpr"), u.dpr);
-      gl.uniform1f(loc("u_feather"), COLOR_LOOKS["dither-color"].feather);
       gl.uniform1f(loc("u_reach"), HUSH_REACH);
-      gl.uniform4f(loc("u_card"), ...rect(u.card));
       gl.uniform4f(loc("u_words"), ...rect(u.words));
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, w, h);
@@ -361,13 +356,13 @@ export class LoopRenderer {
 
 /** For a live check of the shader against hush(): `px` (RGBA, `w`×`h`, opaque) through the chat's
  *  passes with no blur and no screen, read back off the GPU. */
-export function gpuHush(px: Uint8ClampedArray, w: number, h: number, ground: Rgb, range: [number, number]): Uint8ClampedArray {
+export function gpuHush(px: Uint8ClampedArray, w: number, h: number, toward: Rgb, range: [number, number]): Uint8ClampedArray {
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const r = new LoopRenderer(canvas, "chat");
   try {
-    r.draw(new ImageData(new Uint8ClampedArray(px), w, h), w, h, { ground, range, depth: 0, dpr: 1, sigma: 0 });
+    r.draw(new ImageData(new Uint8ClampedArray(px), w, h), w, h, { toward, range, depth: 0, dpr: 1, sigma: 0 });
     return r.read();
   } finally {
     r.destroy();

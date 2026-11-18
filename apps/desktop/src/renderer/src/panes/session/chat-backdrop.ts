@@ -1,7 +1,9 @@
 /**
  * The picture behind a session's transcript, once it has one: the picture the empty session showed,
- * printed the same way, softened by a light blur, and each pixel taken toward the pane's ground only
- * as far as every ink the transcript reads in needs to keep its ratio over it. Words can scroll over
+ * printed the same way, softened by a light blur, and each pixel taken toward black (light: white)
+ * only as far as every ink the transcript reads in needs to keep its ratio over it. Toward black and
+ * not toward the theme's ground, because a step toward a grey is a grey cast on the picture's colour,
+ * where a step toward black only darkens it (the owner, 11-17). Words can scroll over
  * any pixel, so every pixel answers for them; the dark of a night picture stays whole while its
  * bright clouds come down.
  *
@@ -88,26 +90,36 @@ export function readableRange(ground: Rgb, inks: Rgb[], links: Rgb[] = []): [num
 }
 
 /**
- * Takes each pixel of `px` (RGBA, opaque) toward `ground` only as far as it must for its luminance to
+ * What the hush takes a pixel toward: black on the dark face and white on the light one, which keep
+ * the picture's hue, or the ground itself in the odd theme whose inks would not read over that pole.
+ */
+export function hushToward(pal: Pick<Palette, "ground" | "dark">, [lo, hi]: [number, number]): Rgb {
+  const pole: Rgb = pal.dark ? [0, 0, 0] : [1, 1, 1];
+  const l = luminance(pole);
+  return l >= lo && l <= hi ? pole : pal.ground;
+}
+
+/**
+ * Takes each pixel of `px` (RGBA, opaque) toward `toward` only as far as it must for its luminance to
  * be inside `range`: a pixel already there keeps all of its colour, and one too bright or too dark
  * keeps the most of it that still lets the words read.
  */
-export function hush(px: Uint8ClampedArray, ground: Rgb, [lo, hi]: [number, number]) {
+export function hush(px: Uint8ClampedArray, toward: Rgb, [lo, hi]: [number, number]) {
   const p: Rgb = [0, 0, 0];
   for (let i = 0; i < px.length; i += 4) {
     p[0] = px[i]! / 255; p[1] = px[i + 1]! / 255; p[2] = px[i + 2]! / 255;
-    const keep = keepShare(p, ground, lo, hi);
+    const keep = keepShare(p, toward, lo, hi);
     if (keep === 1) continue;
-    for (let k = 0; k < 3; k++) px[i + k] = Math.round((ground[k]! + (p[k]! - ground[k]!) * keep) * 255);
+    for (let k = 0; k < 3; k++) px[i + k] = Math.round((toward[k]! + (p[k]! - toward[k]!) * keep) * 255);
   }
 }
 
 const mixed: Rgb = [0, 0, 0];
-/** The largest share of `p` over `ground` whose luminance is inside [lo, hi], to 1/256. The ground
- *  fits by construction, so the search always ends on a share that fits. */
-function keepShare(p: Rgb, ground: Rgb, lo: number, hi: number): number {
+/** The largest share of `p` over `toward` whose luminance is inside [lo, hi], to 1/256. `toward`
+ *  fits (hushToward), so the search always ends on a share that fits. */
+function keepShare(p: Rgb, toward: Rgb, lo: number, hi: number): number {
   const fits = (a: number) => {
-    for (let k = 0; k < 3; k++) mixed[k] = ground[k]! + (p[k]! - ground[k]!) * a;
+    for (let k = 0; k < 3; k++) mixed[k] = toward[k]! + (p[k]! - toward[k]!) * a;
     const l = luminance(mixed);
     return l >= lo && l <= hi;
   };
@@ -124,8 +136,8 @@ function keepShare(p: Rgb, ground: Rgb, lo: number, hi: number): number {
  * The transcript's track (the owner, 11-17: on send the picture "shouldn't get so much darker"; the
  * track "where the text and all the content shows up should remain a little bit darker, have a bit
  * of a blur around it, but very, very slight"). The words only ever sit in the transcript's column,
- * so the column, `pad` wider each side, takes the whole hush, a faint step toward the ground
- * (`tint`: darker in dark, lighter in light) and the whole blur. Past it the picture keeps its light:
+ * so the column, `pad` wider each side, takes the whole hush, a faint step toward black
+ * (`tint`: darker in dark, lighter in light, never greyer) and the whole blur. Past it the picture keeps its light:
  * `sideHush` of the hush and `sideBlur` of the blur, reached over a smooth `feather`, so the track has
  * no edge. Sizes in CSS px; the still and the loop's shader both read these.
  */
@@ -150,21 +162,21 @@ export function trackWeight(x: number, t: Track): number {
 /**
  * The chat's still through the track: `px` is the blurred picture and `sharp` the same picture
  * unblurred, both RGBA `w` px wide. Inside the track this is hush() over the blurred picture taken
- * `tint` toward the ground; outside it the picture is mostly sharp and hushed by `sideHush`. With no
- * track (no column yet) every pixel is the track.
+ * `tint` toward `toward` (hushToward); outside it the picture is mostly sharp and hushed by
+ * `sideHush`. With no track (no column yet) every pixel is the track.
  */
-export function hushTrack(px: Uint8ClampedArray, sharp: Uint8ClampedArray, w: number, ground: Rgb, [lo, hi]: [number, number], t?: Track) {
+export function hushTrack(px: Uint8ClampedArray, sharp: Uint8ClampedArray, w: number, toward: Rgb, [lo, hi]: [number, number], t?: Track) {
   const p: Rgb = [0, 0, 0];
   for (let i = 0; i < px.length; i += 4) {
     const wt = t ? trackWeight(((i / 4) % w) + 0.5, t) : 1;
     const blur = TRACK.sideBlur + (1 - TRACK.sideBlur) * wt, tint = t ? TRACK.tint * wt : 0;
     for (let k = 0; k < 3; k++) {
       const c = (sharp[i + k]! + (px[i + k]! - sharp[i + k]!) * blur) / 255;
-      p[k] = c + (ground[k]! - c) * tint;
+      p[k] = c + (toward[k]! - c) * tint;
     }
-    const keep = keepShare(p, ground, lo, hi);
+    const keep = keepShare(p, toward, lo, hi);
     const share = TRACK.sideHush + (1 - TRACK.sideHush) * wt;
     const a = 1 - share * (1 - keep);
-    for (let k = 0; k < 3; k++) px[i + k] = Math.round((ground[k]! + (p[k]! - ground[k]!) * a) * 255);
+    for (let k = 0; k < 3; k++) px[i + k] = Math.round((toward[k]! + (p[k]! - toward[k]!) * a) * 255);
   }
 }

@@ -345,11 +345,18 @@ export function ThemeBridge() {
   const cursorBlink = useApp((s) => s.terminalCursorBlink);
   const cursorStyle = useApp((s) => s.terminalCursorStyle);
   const terminalScheme = useApp((s) => s.terminalColors);
+  const clearOverPicture = useApp((s) => s.clearOverPicture);
+  const themeBubble = useApp((s) => s.themeBubble);
   /* The page zoom, onto `:root` as a number the stylesheet multiplies by. Chromium already scales
      every px when you press ⌘−; what this buys is the surfaces that should give up MORE than their
      share when you do — the prompter's column, today. */
   useZoom();
   const mode = useApplyTheme({ color, pref, themes, overrides, contrast, fonts, groundAlpha, paneAlpha });
+  useEffect(() => {
+    const root = document.documentElement;
+    root.toggleAttribute("data-clear-over-picture", clearOverPicture);
+    root.toggleAttribute("data-theme-bubble", themeBubble);
+  }, [clearOverPicture, themeBubble]);
   // xterm reads its font once, at construction, so a terminal already on screen would keep the old
   // face. A plain effect, not a layout one: it has to run AFTER useApplyTheme has written
   // --font-mono, because the hub reads the computed value off :root.

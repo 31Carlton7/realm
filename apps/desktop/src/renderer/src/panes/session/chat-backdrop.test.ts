@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TRACK, hush, hushTrack, readableRange, trackWeight, type Track } from "./chat-backdrop";
+import { TRACK, hush, hushToward, hushTrack, readableRange, trackWeight, type Track } from "./chat-backdrop";
 import { contrast } from "./hero-backdrop-color";
 import type { Rgb } from "./hero-backdrop";
 
@@ -166,5 +166,42 @@ describe("the transcript's track", () => {
     hushTrack(a, row([0, 0, 0]), 10, dark.ground, range);
     hush(b, dark.ground, range);
     expect(Array.from(a)).toEqual(Array.from(b));
+  });
+});
+
+/* The owner, 11-17, over Synth Coast: "the coloring isn't the same like purplish coloring". A step
+   toward the theme's ground is a step toward a grey; toward black it is only darker. */
+describe("the picture keeps its own colour behind the transcript", () => {
+  const hueOf = ([r, g, b]: Rgb) => {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return { hue: (h * 60 + 360) % 360, sat: max ? d / max : 0 };
+  };
+
+  it("hushes toward black in dark and white in light, or the ground where its inks would not read there", () => {
+    // THE mutant: the ground passed back in (a grey cast on every dimmed pixel).
+    const dr = readableRange(dark.ground, dark.inks), lr = readableRange(light.ground, light.inks);
+    expect(hushToward({ ground: dark.ground, dark: true }, dr)).toEqual([0, 0, 0]);
+    expect(hushToward({ ground: light.ground, dark: false }, lr)).toEqual([1, 1, 1]);
+    expect(hushToward({ ground: dark.ground, dark: true }, [0.05, 0.5])).toEqual(dark.ground);
+  });
+
+  it("keeps a purple's hue and saturation through the track's tint and hush, where the ground would grey it", () => {
+    // Synth Coast's sky, bright enough that the hush has to bring it down, on a grey dark ground.
+    const purple: [number, number, number] = [196, 120, 236];
+    const grey = rgb(60, 60, 64);
+    const range = readableRange(grey, dark.inks);
+    const toward = hushToward({ ground: grey, dark: true }, range);
+    const px = picture(purple), sharp = picture(purple);
+    hushTrack(px, sharp, 1, toward, range);
+    const [out] = pixels(px), before = hueOf(rgb(...purple)), after = hueOf(out!);
+    expect(out![0]).toBeLessThan(purple[0] / 255);
+    expect(Math.abs(after.hue - before.hue)).toBeLessThan(2);
+    expect(Math.abs(after.sat - before.sat)).toBeLessThan(0.02);
+    for (const ink of dark.inks.slice(0, 2)) expect(contrast(ink, out!)).toBeGreaterThanOrEqual(4.5);
+    // The mutant, for the record: toward the grey ground the same pixel loses a third of its saturation.
+    const greyed = picture(purple);
+    hushTrack(greyed, picture(purple), 1, grey, range);
+    expect(hueOf(pixels(greyed)[0]!).sat).toBeLessThan(before.sat - 0.1);
   });
 });
