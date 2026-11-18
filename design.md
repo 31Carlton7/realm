@@ -1028,6 +1028,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   kind the system draws is measured (`data-overlay-scrollbars`), not read from a preference that
   depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth mouse came and
   went. `scrollbar-tracks-live.mjs` looks at both kinds, in both faces.
+- A bar runs along the box that scrolls, so a rounded block never scrolls itself (the owner, 11-17,
+  circling a code block's thumb cut off by its corner: "Fix the scrollbar here"). The block is the
+  rounded tint; what scrolls is an inner box held off the curve, on the block's text inset or past the
+  depth of its corner, so the thumb starts and ends on a straight edge with the block's padding under
+  it. An overlay bar cannot be given track margins without turning classic, so the inset has to be
+  the box itself.
 - A column that opens or closes is a box that clips what it holds, its content riding one slide on
   the box's moving edge; everything beside it — the panes, a page over them, a bar's title — is laid
   out from that edge or moves on the same curve and duration. A layer placed against the window
@@ -1485,6 +1491,20 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Rich and source modes preserve the same document identity.
 - Diffs use color plus signs, line structure, and labels. Color alone never carries add/delete state.
 - Tables use their full evidence width. Headers align with representative cells.
+- Rendered markdown, in a message or a document, stands on tints of the ink and never on a surface
+  (the owner, 11-17: "I don't think we should ever use a solid color for backgrounds of tables or like
+  small code"). A table, inline code, a fenced block, a drawn block and a callout each fill with the
+  ink at low alpha (`--stripe`), so the pane under them shows through at whatever the person set it
+  to, and over their picture; a surface colour there is a patch of another ground on a pane they
+  thinned. A table is a card in the reading: the card rung's painted curve, no ring, its head and
+  every other row the same tint again, rules between rows. A row's tint that meets the card's edge
+  runs on into its curve: where the scroller stands in from the corner, the band it leaves wears the
+  tint of the row beside it, because a square tint inside a rounded card reads as square corners
+  (the owner, 11-17: "Fix the corners on the tables here"). Its pinned head is the one place the
+  pane's own canvas goes under the tint, and only while rows are scrolled up beneath it, because a
+  tint over passing rows lets them read through. A document's code block is the transcript's panel,
+  its language and copy over the code and the same theme colours, so a fence reads alike in both.
+  `styles.test.ts` fails a markdown rule that fills with an opaque token.
 - Charts exist only when a relationship is faster to see than read. Direct-label when possible and
   keep exact values available nearby.
 - The categorical chart palette is fixed and tested as a set. Never hand-edit one series color.

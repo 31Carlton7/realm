@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RichTextEditor } from "./RichTextEditor";
 import { docSchema, openFence, parseMarkdown, serializeMarkdown } from "./markdown-model";
+import { highlightDecorations } from "./code-highlight";
+import { loadRichLibs } from "../session/rich/rich-libs";
 
 /**
  * The blocks an agent writes, in a Markdown document's rich view (`UiBlockNode.tsx`). What matters
@@ -30,7 +32,7 @@ describe("a drawn block in a document", () => {
     const node = container.querySelector(".ui-block-node")!;
     expect(node.querySelector("pre")).toHaveAttribute("hidden");
     expect(container.querySelector('.ui-block[data-kind="compare"] th[data-pick]')?.textContent).toBe("RecommendedSQLite");
-    // The TypeScript fence is ProseMirror's own code block, untouched.
+    // The TypeScript fence is a code block, its text untouched.
     expect(container.querySelector("pre code.language-ts")?.textContent).toBe("const a = 1;");
   });
 
@@ -68,5 +70,37 @@ describe("a drawn block in a document", () => {
     expect(screen.getByRole("button", { name: "Edit source" })).toHaveAttribute("aria-pressed", "true");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Edit source" })); });
     await waitFor(() => expect(container.querySelector(".ui-block-node pre")).toHaveAttribute("hidden"));
+  });
+});
+
+describe("a code block in a document", () => {
+  const CODE = "# Notes\n\n```ts\nconst a = 1;\n```\n";
+
+  it("wears the transcript's panel: its language and a copy control over the code", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const { container, onChange } = await mount(CODE);
+    await waitFor(() => expect(container.querySelector(".md-code .md-code-lang")?.textContent).toBe("ts"));
+    const panel = container.querySelector(".md-code")!;
+    expect(panel.querySelector("pre code.language-ts")?.textContent).toBe("const a = 1;");
+    // The head is chrome: nothing in it is the document's text.
+    expect(panel.querySelector(".md-code-head")).toHaveAttribute("contenteditable", "false");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Copy code" })); });
+    expect(writeText).toHaveBeenCalledWith("const a = 1;");
+    expect(screen.getByRole("button", { name: "Copy code" })).toHaveAttribute("data-copied");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("colours the code with the transcript's highlighter, as decorations the file never sees", async () => {
+    await loadRichLibs();
+    const { container, onChange } = await mount(CODE);
+    await waitFor(() => expect(container.querySelector(".md-code code .hljs-keyword")?.textContent).toBe("const"));
+    expect(container.querySelector(".md-code code .hljs-number")?.textContent).toBe("1");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("leaves a fence in a language with no grammar uncoloured", () => {
+    const doc = parseMarkdown("```nonesuch\nconst a = 1;\n```\n", docSchema);
+    expect(highlightDecorations(doc).find()).toEqual([]);
   });
 });

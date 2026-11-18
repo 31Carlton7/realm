@@ -4033,17 +4033,29 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
 /* An inline marker on a link the agent actually fetched. It sits on the same numbering as the list
    above, so [2] in a sentence and 2 in the disclosure are one page. */
 .md-cite { margin-left: 1px; padding: 0 3px; border-radius: var(--r-chip); vertical-align: super;
-  font-size: 9px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); background: var(--rl-raised); }
+  font-size: 9px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); background: var(--stripe); }
 .md { font-family: var(--font-content); line-height: calc(1.55 + var(--lh-shift)); overflow-wrap: anywhere; }
 .msg-assistant.md { line-height: calc(1.6 + var(--lh-shift)); }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; text-wrap: pretty; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
 /* Tailwind v4 preflight strips list markers app-wide; markdown lists must keep theirs. */
 .md ul { list-style: disc; } .md ol { list-style: decimal; }
-/* Heading scale per audit T2: h1 17/650 tightened, h2 15/650, h3 13/600 differentiated by colour. */
-.md h1, .md h2, .md h3, .md h4 { margin: 12px 0 6px; font-weight: var(--fw-title); line-height: 1.3; }
-.md h1 { font-size: 18px; font-weight: var(--fw-strong); letter-spacing: -0.01em; } .md h2 { font-size: 15px; font-weight: var(--fw-strong); } .md h3 { font-size: 13px; color: var(--rl-text-bright); }
-.md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip); background: var(--rl-raised); }
+/* Headings on the title rungs above the reading size, never under it: an h3 at 13px under 15px prose
+   read as a caption, not a heading. The first two take more air above than below, so a heading
+   belongs to what follows it. */
+.md h1, .md h2, .md h3, .md h4 { margin: 12px 0 6px; font-weight: var(--fw-title); line-height: 1.3; text-wrap: balance; color: var(--rl-text-bright); }
+.md h1, .md h2 { margin-top: 18px; }
+.md h1 { font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -0.01em; } .md h2 { font-size: 18px; font-weight: var(--fw-strong); letter-spacing: -0.01em; }
+.md h3 { font-size: 15px; } .md h4 { font-size: 14px; color: var(--rl-text-dim); }
+/* A list's markers are its structure, not its words: quiet ink, so the items lead. */
+.md li::marker { color: var(--rl-text-faint); }
+.md li + li { margin-top: 2px; }
+.md :is(ul, ol) :is(ul, ol) { margin-bottom: 0; }
+/* Preflight's rule is a full-ink line; a break in prose is a hairline with air round it. */
+.md hr { margin: 16px 0; border: 0; border-top: var(--hairline-w) solid var(--rl-line-strong); }
+/* Inline code is a tint of the ink over whatever the prose is on, never a surface of its own: a
+   solid chip is a patch of another colour on a pane the person thinned, or over their picture. */
+.md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip); background: var(--stripe); }
 /* ── A file path the agent named, made clickable (file-paths.ts) ─────────
    Two forms, one look. Inline code that IS a path keeps its code styling and gains an affordance;
    an absolute path in running text becomes a button that borrows that same styling, so the reader
@@ -4054,7 +4066,7 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
    chip's own fill already reads as a target; the pointer and the tint are the affordance, and the
    tooltip says what a click does. */
 button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip);
-  background: var(--rl-raised); color: inherit; vertical-align: baseline; }
+  background: var(--stripe); color: inherit; vertical-align: baseline; }
 .md .md-path { text-decoration: none;
   transition: color var(--dur-hover) ease; }
 .md .md-path:hover { color: var(--rl-accent); text-decoration: none; }
@@ -4067,7 +4079,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md .md-file:hover .md-file-name { text-decoration: underline; text-underline-offset: 2px; }
 .md .md-file:focus-visible { outline: 2px solid color-mix(in srgb, var(--rl-accent) 55%, transparent); outline-offset: 1px; }
 .md-file-mark { display: inline-block; margin-right: 4px; vertical-align: -2px; }
-.md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--rl-frame); overflow-x: auto; }
+.md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--stripe); overflow-x: auto; }
 .md pre code { padding: 0; background: none; }
 /* Plan 9 W2 — BUI CodeBlock: fenced code is an editor panel now — a surface card behind a hairline
    ring, a header naming the fence's language beside a copy control, and a 12.5/1.65 mono body.
@@ -4079,11 +4091,18 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    from the prose above it, and a ring around a rounded rect is the one thing that makes a large
    radius look like a mistake instead of a decision. The head's divider goes for the same reason —
    the language label and the copy control are chrome for this block, not a section of it. */
-.md-code { margin: 6px 0 8px; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface); overflow: hidden; }
+/* Its ground is the ink's tint, so the block follows the pane under it (thinned, solid, or over a
+   picture) instead of standing on it as a slab of the surface colour. */
+.md-code { margin: 6px 0 8px; padding-bottom: 6px; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--stripe); overflow: hidden; }
 .md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 18px; }
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
-/* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12. */
-.md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg); }
+/* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12.
+   The inset is the pre's margin, not its padding: the pre is what scrolls, and its bar runs the width
+   of its own box, so a pre the panel's full width laid its bar into both of the panel's corners. On
+   the 18px inset, 6px above the panel's foot, the bar sits in the straight run between them. The 12px
+   under the last line is room for an overlay bar at its hovered 11px, clear of the descenders. Code
+   clips at the 18px it starts at, as a drawn block's table does (`.ui-block-scroll`). */
+.md-code pre { margin: 0 18px; padding: 4px 0 12px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg); tab-size: 2; }
 /* ── Blocks an agent writes and Realm draws (rich/UiBlock.tsx) ───────────────────────────
    A closed ```mermaid / ```realm-chart / ```realm-compare fence is parked in `.md-block` as its code;
    the drawn block lands beside it and the code steps out of the way, so a body that does not draw
@@ -4096,7 +4115,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md-block-reason:empty { display: none; }
 /* The fenced-code panel — curve, fill, head — with a drawing where the code was. */
 /* A drawing and its figures are the app's own, in the UI face, wherever the prose around them is set. */
-.ui-block { margin: 6px 0 8px; padding-bottom: 14px; min-width: 0; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface);
+.ui-block { margin: 6px 0 8px; padding-bottom: 14px; min-width: 0; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--stripe);
   font-family: var(--font-ui); line-height: 20px; overflow-wrap: normal; }
 .ui-block[data-source] { margin-bottom: 4px; }
 .ui-block-head { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px 0 18px; }
@@ -4106,7 +4125,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .ui-block-sub { flex: none; font-size: 12px; color: var(--ink-2); }
 .ui-block-acts { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
 .ui-block-acts .tool-copy { margin-left: 0; }
-.ui-block-act[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+.ui-block-act[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
 .ui-block-copied { color: var(--rl-success); }
 .ui-chart { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 2px 18px 0; }
 /* The prose's list indent is for prose; a block's lists — a legend, bars, sparklines — sit on its edge. */
@@ -4155,7 +4174,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .ui-block .ui-compare td { color: var(--ink); min-width: 120px; }
 /* The pick stands on one raised band down its column, rounded at its two ends — a surface step,
    never the accent, which is for what can be clicked. Its name says so in words above it. */
-.ui-block .ui-compare [data-pick] { background: var(--hover); }
+.ui-block .ui-compare [data-pick] { background: var(--rl-active); }
 .ui-block .ui-compare [data-end="top"] { border-radius: var(--r-panel) var(--r-panel) 0 0; }
 .ui-block .ui-compare [data-end="bottom"] { border-radius: 0 0 var(--r-panel) var(--r-panel); }
 .ui-compare-pick { display: block; margin-bottom: 2px; font-size: 11px; font-weight: var(--fw-label); color: var(--accent-ink); }
@@ -4163,7 +4182,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    sits 6px in, so a card's text starts on the head's edge and the pick's fill reaches past it. */
 .ui-compare-cards { display: flex; flex-direction: column; gap: 4px; margin: 0 6px; }
 .ui-compare-card { padding: 10px 12px; border-radius: var(--r-panel); }
-.ui-compare-card[data-pick] { background: var(--hover); }
+.ui-compare-card[data-pick] { background: var(--rl-active); }
 .ui-compare-card .ui-compare-option { font-size: 13px; font-weight: var(--fw-title); color: var(--ink); }
 .ui-compare-card dl { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 0; }
 .ui-compare-pair { display: grid; grid-template-columns: minmax(72px, 38%) minmax(0, 1fr); gap: 10px; font-size: 13px; }
@@ -4172,7 +4191,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* A drawing at its own width, shrunk to fit a narrower column — it is a picture, and a picture
    that fits is read whole — down to two thirds of its size, where its 14px labels stop being
    comfortably legible, and scrolled sideways past that rather than shrunk any further. */
-.ui-diagram { overflow-x: auto; overflow-y: hidden; padding: 4px 18px 0; }
+.ui-diagram { overflow-x: auto; overflow-y: hidden; margin: 4px 18px 0; }
 .ui-diagram svg { display: block; width: 100%; max-width: var(--diagram-w); min-width: calc(var(--diagram-w) * 2 / 3); height: auto; margin: 0 auto; }
 /* The same block in a Markdown document's rich view (documents/UiBlockNode.tsx), drawn where its
    fence is, with the source under the drawing while it is being edited. The editor keeps its spaces
@@ -4192,10 +4211,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    ink and hover alike — the same object the user's own message shows. */
 .md a.msg-chip { color: var(--accent-ink); }
 .md a.msg-chip:hover { text-decoration: none; }
-.md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
+.md blockquote { margin: 0 0 8px; padding: 2px 12px; border-left: 2px solid var(--rl-line-strong); color: var(--rl-text-dim); }
 /* A 1px low-alpha outline keeps an image's edge legible on any surface it lands on. Pure white in
    dark mode / pure black in light — a tinted neutral would pick up the ground and read as dirt. */
-.md img { max-width: 100%; border-radius: var(--r-chip); outline: 1px solid var(--picture-outline); outline-offset: -1px; }
+.md img { max-width: 100%; height: auto; border-radius: var(--r-panel); outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 /* The handover seam. A rule across the whole column with the sentence set into it, because that is
    what it reports: everything above is one agent's voice, everything below is another's. Centred,
    so it reads as a division of the transcript rather than as something either side said. */
@@ -5095,15 +5114,17 @@ button.edit-file:hover { background: var(--rl-hover); }
 
 /* ── Markdown: callouts, task lists, tables, math ─────────────────────────── */
 /* GitHub admonitions (`> [!WARNING]`). Left rail in the state's own colour, header in the same —
-   the marker exists to say WHICH of the five it is, and a uniform grey bar throws that away. */
-.md-callout { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--rl-line-strong); border-radius: 0 var(--r-chip) var(--r-chip) 0;
-  background: var(--inset); color: var(--rl-text-dim); }
+   the marker exists to say WHICH of the five it is, and a uniform grey bar throws that away.
+   The ground is the ink's tint, as code's is, and the rail runs inside the rounded box rather than
+   squaring off one side of it. Under `.md` so it outranks the plain quote it is drawn from. */
+.md .md-callout { margin: 8px 0; padding: 10px 14px 10px 16px; border-left: 0; border-radius: var(--r-panel);
+  background: var(--stripe); box-shadow: inset 2px 0 0 var(--callout-rail, var(--rl-line-strong)); color: var(--rl-text-dim); }
 .md-callout > :last-child { margin-bottom: 0; }
 .md-callout-head { margin-bottom: 3px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
-.md-callout[data-kind="tip"] { border-left-color: var(--green); } .md-callout[data-kind="tip"] .md-callout-head { color: var(--rl-success); }
-.md-callout[data-kind="warning"], .md-callout[data-kind="caution"] { border-left-color: var(--orange); }
+.md-callout[data-kind="tip"] { --callout-rail: var(--green); } .md-callout[data-kind="tip"] .md-callout-head { color: var(--rl-success); }
+.md-callout[data-kind="warning"], .md-callout[data-kind="caution"] { --callout-rail: var(--orange); }
 .md-callout[data-kind="warning"] .md-callout-head, .md-callout[data-kind="caution"] .md-callout-head { color: var(--rl-warning); }
-.md-callout[data-kind="important"] { border-left-color: var(--accent); } .md-callout[data-kind="important"] .md-callout-head { color: var(--rl-accent); }
+.md-callout[data-kind="important"] { --callout-rail: var(--accent); } .md-callout[data-kind="important"] .md-callout-head { color: var(--rl-accent); }
 /* GFM task lists. The bullet is dropped for the checkbox — two markers on one row is one too many. */
 .md li:has(> input[type="checkbox"]) { list-style: none; margin-left: -20px; }
 .md input[type="checkbox"] { appearance: none; width: 12px; height: 12px; margin-right: 7px; border-radius: 3px; vertical-align: -1px;
@@ -5112,17 +5133,43 @@ button.edit-file:hover { background: var(--rl-hover); }
   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E");
   box-shadow: none; }
 /* Tables (AICSS "Data Table"): rules between rows only, a quiet header, numbers right-aligned on
-   tabular figures so a column of them lines up on the decimal point. */
+   tabular figures so a column of them lines up on the decimal point. The head and every other row
+   are the ink's tint over the table's own, so the whole table follows the pane under it. */
 .md table { width: 100%; margin: 0; border-collapse: collapse; font-size: 13px; }
-.md th, .md td { border: 0; border-bottom: var(--hairline-w) solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.md th, .md td { border: 0; border-bottom: var(--hairline-w) solid var(--line); padding: 7px 12px; text-align: left; vertical-align: top; }
 .md thead th { position: sticky; top: 0; font-size: 12px; font-weight: var(--fw-label);
-  color: var(--rl-text-faint); background: var(--rl-panel); }
+  color: var(--rl-text-dim); background: var(--stripe); }
+.md tbody tr:nth-child(even) { background: var(--stripe); }
 .md tbody tr:last-child td { border-bottom: 0; }
-.md tbody tr:hover { background: var(--rl-hover); }
+.md tbody tr:hover > td { background: var(--rl-hover); }
+/* A tint over rows scrolled up under the head would let them read through it, so only while there
+   are rows under it does the head take the pane's own canvas beneath its tint. At rest it is the
+   tint alone. */
+@container scroll-state(scrollable: top) {
+  .md thead th { background: linear-gradient(var(--stripe), var(--stripe)) var(--rl-panel); }
+}
 .md td[align="right"], .md th[align="right"] { text-align: right; font-variant-numeric: tabular-nums; }
 /* renderMarkdown wraps every table in this (A-M1): a wide one scrolls itself rather than the
    transcript, and it is the scroll container the sticky header above sticks to. */
-.md-scroll { margin: 6px 0 8px; max-height: 420px; overflow: auto; border-radius: var(--r-ctl); box-shadow: var(--shadow-hairline); }
+/* On the card rung's curve with no ring: the tint is its boundary, as a card's fill is. */
+/* The card and the scroller are two boxes. A scroller's bars run along its own edges, so when the card
+   itself scrolled, both bars ran into its rounded corners and were cut off by them. The scroller is
+   square and starts half the curve in from the card's top and foot, which is where the clip's curve
+   ends, so neither bar can reach a corner; the rows still run the card's full width. */
+/* The two bands that inset leaves are where the corners are, so each wears the tint of the row beside
+   it: the head's above, and the last row's below when that row is striped. The head and the last
+   stripe then run on into the curve rather than stopping half the curve short of it as square boxes
+   (the owner, 11-17: "Fix the corners on the tables here"). The bands are background layers, so they
+   round with the card's own corner. */
+.md-table { margin: 6px 0 8px; padding-block: calc(var(--r-squircle-card) / 2);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--stripe); overflow: hidden;
+  --md-table-head-band: linear-gradient(var(--stripe), var(--stripe)) top / 100% calc(var(--r-squircle-card) / 2) no-repeat;
+  --md-table-foot-band: none;
+  background-image: var(--md-table-head-band), var(--md-table-foot-band); }
+.md-table:has(> .md-scroll > table > tbody > tr:last-child:nth-child(even)) {
+  --md-table-foot-band: linear-gradient(var(--stripe), var(--stripe)) bottom / 100% calc(var(--r-squircle-card) / 2) no-repeat;
+}
+.md-scroll { max-height: 420px; overflow: auto; container-type: scroll-state; }
 /* KaTeX (rich/math.ts). Display math gets its own scrolling row — a wide derivation must not be the
    thing that widens the transcript column. */
 .math-display { margin: 10px 0; padding: 2px 0; overflow-x: auto; overflow-y: hidden; }
@@ -6719,7 +6766,13 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    floating over the pane, and a shadow under one would lift it off the transcript it belongs to.
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
-:root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+:root[data-squircle] .md-code { --sq-fill: var(--stripe); box-shadow: none; }
+/* A table is a card in a message: the card rung's curve, the ink's tint for its fill, and no lift.
+   The clip stays at half the curve, which holds the painted one. In a document, which has no wrapper
+   and does not scroll, the head's tint and the stripes round with that clip. */
+:root[data-squircle] .md-table, :root[data-squircle] .documents-rich-surface table { border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle);
+  --sq-fill: var(--stripe); --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .md-table { background: var(--md-table-head-band), var(--md-table-foot-band), paint(rl-squircle); }
 /* A tool call's panel is a fenced block's panel on the card rung, painted the same way. */
 :root[data-squircle] .tool-panel { --sq-fill: var(--rl-frame); box-shadow: none;
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
@@ -6727,7 +6780,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .tool-body .fd-file { --sq-fill: var(--rl-frame); box-shadow: none;
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* A drawn block is the same panel the code it replaced was, painted the same way. */
-:root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
+:root[data-squircle] .ui-block { --sq-fill: var(--stripe); box-shadow: none; }
 /* The Agents tab's composer, on the prompter's curve and painted like it; its focus edge moves to
    the painter, because a box-shadow would trace the square border box `border-radius: 0` leaves. */
 :root[data-squircle] :is(.subagents-compose, .subagent-view-compose) { --sq-fill: var(--surface); }
@@ -9264,8 +9317,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .memory-reader-body .documents-rich { height: auto; }
 .memory-reader-body .documents-rich-scroll { overflow: visible; }
 .memory-reader-body .documents-rich .documents-rich-surface { padding: 0; font-size: 15px; }
-.memory-reader-body .documents-rich-surface a { color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
-.memory-reader-body .documents-rich-surface a:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* Editing, and a new memory: the source editor takes what the head leaves. */
 .memory-editor-body { flex: 1; min-height: 0; display: flex; padding: 0 8px 8px; }
 /* Concentric with the sheet: its 20px corner less the 8px between them. */
@@ -9941,6 +9992,7 @@ span.documents-name:hover { background: none; }
 /* Soft line breaks are preserved as real newlines in the model, so they must render as breaks. */
 .documents-rich-surface { white-space: pre-wrap; font-family: var(--font-content); line-height: calc(1.65 + var(--lh-shift)); font-size: 14px; }
 .documents-rich-surface > * + * { margin-top: 0.7em; }
+.documents-rich-surface :is(h1, h2, h3) { text-wrap: balance; color: var(--rl-text-bright); }
 .documents-rich-surface h1 { font-size: 1.55em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface h2 { font-size: 1.3em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface h3 { font-size: 1.12em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
@@ -9950,28 +10002,54 @@ span.documents-name:hover { background: none; }
 .documents-rich-surface ul { list-style: disc; }
 .documents-rich-surface ol { list-style: decimal; }
 .documents-rich-surface li > p { margin: 0; }
-.documents-rich-surface blockquote { border-left: 2px solid var(--rl-line); padding-left: 0.9em; color: var(--rl-text-dim); }
-.documents-rich-surface code { font-family: var(--font-mono); font-size: 0.9em; background: var(--field); padding: 0.1em 0.3em; border-radius: var(--r-sm); }
+.documents-rich-surface li::marker { color: var(--rl-text-faint); }
+.documents-rich-surface blockquote { border-left: 2px solid var(--rl-line-strong); padding-left: 0.9em; color: var(--rl-text-dim); }
+/* A link is the transcript's: colour and weight, the underline on hover. */
+.documents-rich-surface a { color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
+.documents-rich-surface a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.documents-rich-surface hr { margin: 1.4em 0; border: 0; border-top: var(--hairline-w) solid var(--rl-line-strong); }
+/* The transcript's inline code: the ink's tint, on the chip rung. */
+.documents-rich-surface code { font-family: var(--font-mono); font-size: 0.9em; background: var(--stripe); padding: 0.1em 0.3em; border-radius: var(--r-chip); }
 /* The surface wraps (`pre-wrap`) and a fence must not: code is columns, so a wide block scrolls sideways
    inside itself while the prose around it keeps wrapping. */
-.documents-rich-surface pre { background: var(--rl-raised); padding: 10px 12px; border-radius: var(--r-ctl); box-shadow: var(--shadow-hairline); overflow: auto; }
+.documents-rich-surface pre { background: var(--stripe); padding: 10px 12px; border-radius: var(--r-ctl); overflow: auto; tab-size: 2; }
+/* The one fence still drawn bare is a drawn block's source while it is edited, and that pre is both the
+   rounded box and the scroller. Its inset is a transparent border instead of padding: the tint paints
+   under a border, the bars run along the padding box inside it, and that box's corners are the curve
+   less the border (1px by 3px), so the bars stay clear of the curve the reader sees. */
+.documents-rich-surface .ui-block-node-code { padding: 0; border: solid transparent; border-width: 10px 12px; }
+/* A fence drawn as the transcript's panel (documents/UiBlockNode.tsx): the panel is the ground, and
+   the code inside it sits on the panel's own inset. */
+.documents-rich-surface .md-code { margin: 0.9em 0; }
+.documents-rich-surface .md-code pre { margin: 0 18px; padding: 4px 0 12px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); }
 /* Through the editor's own root: ProseMirror's stylesheet sets `pre-wrap` on every `pre` at this
    rule's weight, and loads after it. */
 .documents-rich .documents-rich-surface pre { white-space: pre; overflow-wrap: normal; }
 .documents-rich-surface pre code { background: none; padding: 0; }
-.documents-rich-surface img { max-width: 100%; border-radius: var(--r-ctl); }
+.documents-rich-surface img { max-width: 100%; height: auto; border-radius: var(--r-panel); outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 /* Tables. `fixed` layout because a table in a document pane must not widen the column it lives in —
    a long cell wraps instead, which is what a reader wants and what `auto` refuses to do. */
+/* Separate borders, because a collapsed table cannot round its corners: the rules are drawn INSIDE
+   the table, under and between cells, and its edge is the curve of its tint. */
 .documents-rich-surface table {
-  width: 100%; table-layout: fixed; border-collapse: collapse; margin: 0.9em 0; font-size: 13px;
+  width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; margin: 0.9em 0; font-size: 13px;
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--stripe); overflow: hidden;
 }
 .documents-rich-surface th, .documents-rich-surface td {
-  padding: 6px 10px; text-align: left; vertical-align: top;
-  border: var(--hairline-w) solid var(--rl-line); overflow-wrap: anywhere;
+  padding: 7px 12px; text-align: left; vertical-align: top;
+  border: 0; border-bottom: var(--hairline-w) solid var(--rl-line); overflow-wrap: anywhere;
 }
+.documents-rich-surface :is(th, td) + :is(th, td) { border-left: var(--hairline-w) solid var(--rl-line); }
+.documents-rich-surface tr:last-child > :is(th, td) { border-bottom: 0; }
+.documents-rich-surface tr:nth-child(even) > td { background: var(--stripe); }
+/* The corner cells round with the table, in case its clip does not reach a cell's own tint. */
+.documents-rich-surface tr:first-child > :first-child { border-top-left-radius: calc(var(--r-squircle-card) / 2); }
+.documents-rich-surface tr:first-child > :last-child { border-top-right-radius: calc(var(--r-squircle-card) / 2); }
+.documents-rich-surface tr:last-child > :first-child { border-bottom-left-radius: calc(var(--r-squircle-card) / 2); }
+.documents-rich-surface tr:last-child > :last-child { border-bottom-right-radius: calc(var(--r-squircle-card) / 2); }
 /* The header row is the table's own label, so it carries the weight and the tint — a rule alone
    leaves a reader counting rows to find out which one names the columns. */
-.documents-rich-surface th { background: var(--rl-frame); font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.documents-rich-surface th { background: var(--stripe); font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .documents-rich-surface th > p, .documents-rich-surface td > p { margin: 0; }
 /* ProseMirror's own cell-selection overlay, tinted to the theme rather than its default blue. */
 .documents-rich-surface .selectedCell::after {

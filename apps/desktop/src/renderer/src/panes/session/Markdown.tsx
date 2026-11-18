@@ -144,6 +144,8 @@ function markCitations(doc: Document, cite: readonly string[]): void {
 /** Post-sanitize DOM pass (DOMParser is inert — never executes scripts; the input is already
  *  DOMPurify-clean, and everything added here is our own static markup):
  *  - A-M1: a wide table must scroll inside its own container instead of stretching the transcript.
+ *    The card is a second box around that scroller, so the scroller's bars can sit clear of the
+ *    card's rounded corners.
  *  - Plan 9 W2 (BUI CodeBlock): each fenced block becomes an editor panel — a header naming the
  *    fence's language beside a copy control, the <pre> as the body. The button is inert HTML;
  *    the Markdown component below wires it up by delegation. */
@@ -170,9 +172,12 @@ function decorate(html: string, cite: readonly string[]): string {
     quote.setAttribute("data-kind", kind);
   }
   for (const table of Array.from(doc.body.querySelectorAll("table"))) {
+    const card = doc.createElement("div");
+    card.className = "md-table";
     const wrap = doc.createElement("div");
     wrap.className = "md-scroll";
-    table.replaceWith(wrap);
+    table.replaceWith(card);
+    card.appendChild(wrap);
     wrap.appendChild(table);
   }
   for (const pre of Array.from(doc.body.querySelectorAll("pre"))) {
