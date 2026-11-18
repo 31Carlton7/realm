@@ -10,9 +10,9 @@ import { useSpaceTint } from "./use-sidebar-model";
  * The column's title: the space it shows, by name (direction A, the owner 11-03).
  *
  * A plain title, not a switcher — the rail's tiles change the space and the rail's avatar the
- * profile, so a chevron here would be a third way to do one of those. A quiet "···" comes up under
- * the pointer (and stays for the keyboard) with what can be done about the space, the same list a
- * right-click on its tile opens. Rename turns the name into a field in place.
+ * profile, so a chevron here would be a third way to do one of those. A "···" in the quiet ink, always
+ * drawn, opens what can be done about the space, the same list a right-click on its tile opens. Rename
+ * turns the name into a field in place.
  */
 export function SpaceTitle() {
   const space = useApp((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId));

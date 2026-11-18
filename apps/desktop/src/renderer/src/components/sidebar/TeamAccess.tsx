@@ -2,6 +2,7 @@ import { PERMISSION_MODES, type TeamAccess } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect } from "react";
 import { useApp } from "../../state/store";
+import { teamAccessKey } from "../../state/teammates-slice";
 import { ChipMenu, permissionMark, useBypassConfirm } from "../../panes/session/Composer";
 import type { MenuItem } from "../Menu";
 
@@ -18,16 +19,18 @@ function teamAccessShown(access: TeamAccess): string | null {
  * Team access, at the head of the space's Team list: one mode for every teammate in the space, now and
  * for teammates made later. The rungs are the prompter's permission control's, mark and word. A
  * teammate edited on its own afterwards makes the team Mixed, and picking a rung again puts everyone
- * back on it.
+ * back on it. Its × puts the card away for this space until the space's access changes.
  */
 export function TeamAccessRow({ spaceId }: { spaceId: string }) {
   const access = useApp((s) => s.teamAccess[spaceId]);
   const loadTeamAccess = useApp((s) => s.loadTeamAccess);
   const setTeamAccess = useApp((s) => s.setTeamAccess);
+  const closedOn = useApp((s) => s.teamAccessClosed[spaceId]);
+  const closeTeamAccess = useApp((s) => s.closeTeamAccess);
   const run = useApp((s) => s.run);
   const [confirmBypass, setConfirmBypass] = useBypassConfirm();
   useEffect(() => { run(() => loadTeamAccess(spaceId)); }, [run, loadTeamAccess, spaceId]);
-  if (!access) return null;
+  if (!access || closedOn === teamAccessKey(access)) return null;
   const shown = teamAccessShown(access);
   const mark = shown ? permissionMark(shown) : null;
   const differ = access.mode ? access.teammates.filter((t) => t.mode !== access.mode).length : 0;
@@ -47,6 +50,10 @@ export function TeamAccessRow({ spaceId }: { spaceId: string }) {
       <span className="settings-row-name">Team access</span>
       <ChipMenu ariaLabel="Team access" title={title} warning={shown === "bypassPermissions"} icon={mark?.icon} iconSize={14} caret={false}
         placement="down" label={mark?.label ?? "Mixed"} items={items} />
+      <button type="button" className="item-act sb-team-access-close" aria-label="Close Team access"
+        title="Close until the team's access changes" onClick={() => run(() => closeTeamAccess(spaceId))}>
+        <Icon name="close" size={14} />
+      </button>
       {confirmBypass && (
         <button type="button" className="composer-chip bypass-confirm"
           onClick={() => { setConfirmBypass(false); run(() => setTeamAccess(spaceId, "bypassPermissions")); }}>

@@ -617,14 +617,14 @@ kbd { font: 11px var(--font-mono); }
    where the back button is"). The caps start 8px into the row, so 17px puts them 25px down. */
 :root { --col-head-top: 17px; }
 .sb-title { flex: none; display: flex; align-items: center; padding-top: var(--col-head-top); }
-/* The space's name as the column's title (SpaceTitle): plain, its "···" coming up under the pointer
-   and staying while its menu is open or the keyboard is on it. */
+/* The space's name as the column's title (SpaceTitle): plain, its "···" always drawn in the quiet ink
+   (the owner, 11-17: "should be persistent and shouldn't show every time we hover"), lit under the
+   pointer and while its menu is open like any row action. */
 .sb-space-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 2px 0 8px; }
 .sb-space-name { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 input.sb-space-name { flex: 1; }
-.sb-space-more { margin-left: auto; opacity: 0; }
-.sb-space-title:hover .sb-space-more, .sb-space-more:focus-visible, .sb-space-more[aria-expanded="true"] { opacity: 1; }
+.item-act.sb-space-more { margin-left: auto; color: var(--rl-text-faint); }
 .sb-profile-mark { flex: none; display: grid; place-items: center; }
 .sb-header-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .sb-header .icon-btn[data-dragging] { opacity: .45; }
@@ -11172,7 +11172,11 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 /* Team access heads the list as a lone settings card, its chip at the far end and the line under Full
    access across the card's whole width. */
 .settings-row.sb-team-access { flex-wrap: wrap; gap: 4px 8px; padding: 8px 8px 8px 12px; margin-bottom: 6px; }
-.sb-team-access > .settings-row-name { flex: 1; min-width: 0; }
+/* Its close sits 2px after the chip, as the header's actions sit, quiet until the pointer is on it; the
+   × puts the card away for this space until the space's access next changes. Name, chip and close
+   share one line at the sidebar's default width, and a narrower one clips the name, never the row. */
+.sb-team-access-close { margin-left: -6px; color: var(--rl-text-faint); }
+.sb-team-access > .settings-row-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-team-access > .settings-row-desc { padding: 0 4px 4px 0; }
 /* A group the person made is a caption over its teammates, the column's one nesting. Its caret comes
    up under the pointer, after the name, and stays while the group is folded so a folded group says so. */
