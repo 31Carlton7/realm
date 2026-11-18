@@ -7093,8 +7093,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 /* ── Glass (Settings ▸ Appearance ▸ Controls, plain by default) ─────────────────────────────────
    One switch, `data-glass` on the root, set only while glass is chosen AND drawable (glass/look.ts:
    Reduce Transparency, the Mac's Low Power Mode or a renderer without `backdrop-filter: url()` put
-   plain back). It
-   goes on what floats and what is pressed: the prompter (above), its pickers, the selection bar, the
+   plain back). It goes on what floats and what is pressed: the prompter (above), its pickers, the selection bar, the
    selected segment of a segmented control, and a switch's knob. A page of settings, a sheet, the
    transcript and the sidebar stay plain: they are read, and glass there would only cost contrast.
 

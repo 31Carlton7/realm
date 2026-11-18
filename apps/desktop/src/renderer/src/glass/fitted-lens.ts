@@ -137,4 +137,4 @@ export function useFittedLens(ref: RefObject<HTMLElement | null>, on: boolean) {
 }
 
 /** For tests: what the module holds. */
-export const lensCache = { maps: () => maps.size, filters: () => filters.size };
+export const lensCache = { filters: () => filters.size };

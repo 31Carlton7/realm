@@ -7,10 +7,9 @@ import { useLook } from "./use-look";
  * The lenses every glass control shares, drawn once while glass is on. Each is a filter in the
  * element's own bounding box (`objectBoundingBox`), so one map serves every box of roughly that shape:
  * a segment or a switch's knob, whatever its size. The pickers wear a lens fitted to their own box
- * (fitted-lens.ts): a share of one panel's band, stretched over pickers of every other shape, bent
- * almost nothing. The prompter keeps a lens drawn
- * for its own size (PrompterGlass), because it grows from one line to many and a stretched map would
- * thicken its rim as it grew.
+ * (fitted-lens.ts), because one panel's map stretched over pickers of every other shape bent almost
+ * nothing. The prompter keeps a lens drawn for its own size (PrompterGlass), because it grows from
+ * one line to many and a stretched map would thicken its rim as it grew.
  *
  * `scale` is the bend as a share of the box: a small control needs a bigger share to bend anything
  * a person can see.

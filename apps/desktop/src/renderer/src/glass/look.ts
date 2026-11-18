@@ -14,8 +14,8 @@
  *
  * Realm's own Low power is not one of them. It stops what repaints every frame, and it has already
  * stopped the loop behind the glass, so the lens has a still picture to bend and redraws only when
- * something moves under it. Holding glass back there was what made Glass look
- * like a solid slab on the owner's Mac, where Low power is on for good (11-18).
+ * something moves under it. Holding glass back there was what made Glass look like a solid slab on
+ * the owner's Mac, where Low power is on for good (11-18).
  */
 
 export type Look = "plain" | "glass";
