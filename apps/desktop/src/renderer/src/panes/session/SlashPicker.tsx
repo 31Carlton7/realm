@@ -5,7 +5,7 @@ import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { pickerMaxHeight, usePickerScroller } from "./MentionPicker";
 import type { SlashCommand } from "./slash-commands";
 import { useFittedLens } from "../../glass/fitted-lens";
-import { useLook } from "../../glass/use-look";
+import { useGlassDrawn } from "../../glass/use-look";
 
 /**
  * The prompter's `/`-command popover — the same surface, keys and anchoring as the `@`-mention
@@ -31,7 +31,7 @@ export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover,
   // No exit, matching the mention picker: this opens and closes between keystrokes, and a ghost of
   // it trailing the caret while the sentence carries on is noise rather than motion.
   const { pos, room } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, onPlace, withinPane: true });
-  useFittedLens(ref, useLook() === "glass");
+  useFittedLens(ref, useGlassDrawn());
   const active = Math.min(activeIndex, commands.length - 1);
   const { list, hoverRow } = usePickerScroller(active, onHover);
   return createPortal(

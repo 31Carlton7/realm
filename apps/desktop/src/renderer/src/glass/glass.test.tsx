@@ -400,6 +400,20 @@ describe("what goes on glass, and what stays plain", () => {
   });
 });
 
+describe("a picker's glass", () => {
+  const pickerRules = () => cssRules.filter((r) => r.sel.startsWith(":root[data-glass]") && /\.model-picker/.test(r.sel));
+  it("wears its fitted lens, with a CSS frost only until the lens exists", () => {
+    const rules = pickerRules();
+    expect(rules.length).toBeGreaterThan(0);
+    for (const r of rules) expect(r.body, r.sel).toMatch(/backdrop-filter:\s*var\(--glass-lens, var\(--glass-panel-frost\)\)/);
+    expect(stylesCss).not.toMatch(/url\(#rl-glass-panel\)/);
+  });
+  it("lays no surface of its own on the frost, over a picture or off one", () => {
+    for (const r of pickerRules()) expect(r.body, r.sel).not.toMatch(/background:\s*(?!none)[^;]*var\(--surface/);
+    expect(pickerRules()[0]!.body).toMatch(/background:\s*none/);
+  });
+});
+
 describe("a picker over a picture", () => {
   function Picker({ inPicture }: { inPicture: boolean }) {
     const anchorRef = useRef<HTMLButtonElement>(null);

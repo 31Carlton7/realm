@@ -44,3 +44,16 @@ export function usePlainReason(): PlainReason | null {
   const pref = useApp((s) => s.look);
   return plainReason(pref, useConditions());
 }
+
+/** Whether glass is drawn now: the root's `data-glass`, which GlassRoot sets from `useLook`. A surface
+ *  outside the store (the selection bar in a test) reads the same one switch. */
+export function useGlassDrawn(): boolean {
+  return useSyncExternalStore(
+    (changed) => {
+      const watch = new MutationObserver(changed);
+      watch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-glass"] });
+      return () => watch.disconnect();
+    },
+    () => document.documentElement.hasAttribute("data-glass"),
+  );
+}

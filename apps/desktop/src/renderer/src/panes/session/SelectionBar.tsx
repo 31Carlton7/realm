@@ -2,7 +2,7 @@ import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { placeBar, selectionTarget, type Placement } from "./selection-bar";
 import { useFittedLens } from "../../glass/fitted-lens";
-import { useLook } from "../../glass/use-look";
+import { useGlassDrawn } from "../../glass/use-look";
 
 /** How long the copy control holds its ✓ — MessageActions' and Markdown's beat, so every copy in the
  *  transcript settles at the same pace. */
@@ -48,7 +48,7 @@ export function SelectionBar({ scrollRef, wrapRef, onQuote }: {
   const [at, setAt] = useState<Placement | null>(null);
   const [copied, setCopied] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
-  useFittedLens(bar, useLook() === "glass");
+  useFittedLens(bar, useGlassDrawn());
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 

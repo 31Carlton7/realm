@@ -7104,15 +7104,19 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    of its surface, because what is behind it there is text and the window's material. */
 .glass-defs { position: absolute; width: 0; height: 0; }
 :root[data-glass] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--glass-frost); }
-/* A picker wears a lens fitted to its own box (glass/fitted-lens.ts reads `--glass-bezel` and
-   `--glass-bend` here and names the map it drew as `--glass-lens`); until that map exists the frost is
-   drawn alone, never a filter that names nothing. */
+/* A picker wears a lens fitted to its own box (glass/fitted-lens.ts reads `--glass-bezel`,
+   `--glass-bend` and `--glass-frost-px` here and names the filter it drew as `--glass-lens`). The
+   frost is in that filter, over the pane's ground, so the words behind it soften rather than reading
+   through; until the filter exists the CSS frost stands in. Off a picture it lays no surface of its
+   own, since the flood is the pane's ground already; over one, only the glass's own dim. */
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker, .selection-bar) {
-  --glass-bezel: var(--glass-panel-bezel); --glass-bend: var(--glass-panel-bend);
-  background: color-mix(in srgb, var(--surface) var(--glass-panel-fill), transparent);
-  backdrop-filter: var(--glass-panel-frost) var(--glass-lens,); box-shadow: var(--glass-panel-rim), var(--shadow-raised); }
+  --glass-bezel: var(--glass-panel-bezel); --glass-bend: var(--glass-panel-bend); --glass-frost-px: var(--glass-panel-blur);
+  background: none;
+  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-panel-rim), var(--shadow-raised); }
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] {
-  background: none; backdrop-filter: var(--glass-panel-frost) var(--picture-tone) var(--glass-lens,); box-shadow: var(--glass-panel-rim); }
+  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--glass-tone);
+  box-shadow: var(--glass-panel-rim); }
 /* The selected segment is a bead of glass on its track: it bends the track's edge under it and
    carries the highlight. The track stays the plain well it was. The settings rail's tabs are
    navigation, not a choice between values, and keep their fill. */

@@ -1,15 +1,18 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bendAt, bezelField } from "./bezel-lens";
 import { fitLens, lensCache } from "./fitted-lens";
 
 /** A box jsdom can measure: its size, its corner and its lens tokens. */
-function box(width: number, height: number, { radius = 12, bezel = 16, bend = 12 } = {}) {
+function box(width: number, height: number, { radius = 12, bezel = 16, bend = 12, frost = 10 } = {}) {
   const el = document.createElement("div");
   Object.defineProperty(el, "offsetWidth", { configurable: true, get: () => width });
   Object.defineProperty(el, "offsetHeight", { configurable: true, get: () => height });
   el.style.borderRadius = `${radius}px`;
   el.style.setProperty("--glass-bezel", `${bezel}px`);
   el.style.setProperty("--glass-bend", `${bend}px`);
+  el.style.setProperty("--glass-frost-px", `${frost}px`);
   document.body.append(el);
   return {
     el,
@@ -87,6 +90,36 @@ describe("a fitted lens", () => {
     expect(document.getElementById(id)).toBeNull();
   });
 
+  it("floods the pane's ground under the backdrop, then frosts it, then bends the frost", () => {
+    // A backdrop filter's result is laid OVER the backdrop: frosting a see-through pane without a
+    // ground left the words behind sharp under a faint haze.
+    canvasStub();
+    const a = box(320, 480);
+    const stop = fitLens(a.el);
+    const filter = document.getElementById(lensOf(a.el)!)!;
+    const steps = [...filter.children].map((n) => n.tagName);
+    expect(steps).toEqual(["feFlood", "feComposite", "feGaussianBlur", "feImage", "feDisplacementMap"]);
+    expect(filter.querySelector("feFlood")!.getAttribute("style")).toContain("var(--glass-ground)");
+    const over = filter.querySelector("feComposite")!;
+    expect([over.getAttribute("in"), over.getAttribute("in2"), over.getAttribute("operator")]).toEqual(["SourceGraphic", "ground", "over"]);
+    expect(filter.querySelector("feGaussianBlur")!.getAttribute("stdDeviation")).toBe("10");
+    expect(filter.querySelector("feDisplacementMap")!.getAttribute("in")).toBe("frost");
+    stop();
+  });
+
+  it("is a different filter for a different frost, and skips the blur at none", () => {
+    canvasStub();
+    const a = box(320, 480, { frost: 10 });
+    const b = box(320, 480, { frost: 0 });
+    const stops = [fitLens(a.el), fitLens(b.el)];
+    expect(lensOf(a.el)).not.toBe(lensOf(b.el));
+    const plain = document.getElementById(lensOf(b.el)!)!;
+    expect(plain.querySelector("feGaussianBlur")).toBeNull();
+    expect(plain.querySelector("feDisplacementMap")!.getAttribute("in")).toBe("solid");
+    for (const stop of stops) stop();
+    expect(lensCache.filters()).toBe(0);
+  });
+
   it("is shared by boxes of one size, follows a resize, and goes with its last user", () => {
     canvasStub();
     const a = box(320, 480);
@@ -115,5 +148,14 @@ describe("a fitted lens", () => {
     const empty = box(0, 0);
     fitLens(empty.el);
     expect(empty.el.style.getPropertyValue("--glass-lens")).toBe("");
+  });
+});
+
+describe("the surfaces that wear one", () => {
+  it("every glass picker and the selection bar fit a lens to their own box while glass is drawn", () => {
+    for (const name of ["ModelPicker", "MentionPicker", "SlashPicker", "SkillPicker", "SelectionBar"]) {
+      const src = readFileSync(join(__dirname, "../panes/session", `${name}.tsx`), "utf8");
+      expect(src, name).toMatch(/useFittedLens\((ref|bar), useGlassDrawn\(\)\)/);
+    }
   });
 });

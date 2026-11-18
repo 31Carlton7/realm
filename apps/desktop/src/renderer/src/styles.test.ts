@@ -1149,7 +1149,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        are scoped to a pane with a picture, read the one token, and paint no fill of their own. */
     const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ");
     /* And the glass the owner asked for app-wide (11-17), only behind the root's `data-glass`, which
-       Appearance sets and Reduce Transparency and Low power clear. Every one reads the glass tokens
+       Appearance sets and Reduce Transparency and the Mac's Low Power Mode clear. Every one reads the glass tokens
        or a shared lens, so the whole material is one set of numbers. */
     const glass = (sel: string) => sel.startsWith(":root[data-glass] ");
     expect([...new Set(filtering.filter((sel) => !overPicture(sel) && !glass(sel)))].sort()).toEqual([".edge-blur::after", ".edge-blur::before"]);
@@ -1160,7 +1160,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     for (const r of RULES.filter((r) => partsOf(r).some((sel) => glass(sel) && /hero-backdrop|data-over-picture/.test(sel)))) {
       expect(r.body).not.toMatch(/background:(?!\s*none)/);
       const shadow = /box-shadow:\s*([^;]+)/.exec(r.body)?.[1];
-      if (shadow) expect(shadow.trim()).toBe("var(--glass-rim)");
+      if (shadow) expect(shadow.trim()).toMatch(/^var\(--glass-(panel-)?rim\)$/);
     }
     const picture = RULES.filter((r) => partsOf(r).some(overPicture) && /backdrop-filter:/.test(r.body));
     expect(picture.length).toBeGreaterThanOrEqual(2);
