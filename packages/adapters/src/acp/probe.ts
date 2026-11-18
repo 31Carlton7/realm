@@ -1,14 +1,12 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { acpSessionConfig } from "@realm/contracts";
 import { StdioJsonRpc, withTimeout } from "../jsonrpc/stdio";
+import { execProbe } from "../probe-children";
 import { spawnTarget } from "../spawn-target";
 
-const exec = promisify(execFile);
-/** `execFile` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
+/** `execProbe` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
 const run = (bin: string, args: string[], o: { timeout: number; env?: NodeJS.ProcessEnv }) => {
   const t = spawnTarget(bin, args, { env: o.env });
-  return exec(t.command, t.args, { ...o, ...t.options });
+  return execProbe(t.command, t.args, { ...o, ...t.options });
 };
 
 /**
@@ -82,6 +80,7 @@ export async function fetchAcpCatalog(
       // A throwaway: once it has answered, nothing it started — Hermes starts the MCP servers in its
       // own config at boot — is worth keeping, and none of it may outlive the probe under launchd.
       ownGroup: true,
+      probe: true,
       onNotification: () => {},
       // The probe declares no capabilities and prompts nothing, so any server request is one it cannot
       // honour; answering (rather than ignoring) keeps the child from wedging on an unanswered frame.
