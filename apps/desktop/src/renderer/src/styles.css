@@ -7108,14 +7108,14 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    `--glass-bend` and `--glass-frost-px` here and names the filter it drew as `--glass-lens`). The
    frost is in that filter, over the pane's ground, so the words behind it soften rather than reading
    through; until the filter exists the CSS frost stands in. Off a picture it lays no surface of its
-   own, since the flood is the pane's ground already; over one, only the glass's own dim. */
+   own, since the flood is the pane's ground already; over one, only the picture's own dim. */
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker, .selection-bar) {
   --glass-bezel: var(--glass-panel-bezel); --glass-bend: var(--glass-panel-bend); --glass-frost-px: var(--glass-panel-blur);
   background: none;
   backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate));
   box-shadow: var(--glass-panel-rim), var(--shadow-raised); }
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] {
-  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--glass-tone);
+  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--picture-tone);
   box-shadow: var(--glass-panel-rim); }
 /* The selected segment is a bead of glass on its track: it bends the track's edge under it and
    carries the highlight. The track stays the plain well it was. The settings rail's tabs are

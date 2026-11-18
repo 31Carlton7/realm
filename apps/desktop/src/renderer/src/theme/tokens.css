@@ -865,9 +865,6 @@ a {
      pane's own ground, most of the way opaque, so the window's material still shows a little. */
   --glass-ground: var(--canvas);
   --glass-ground-alpha: .95;
-  /* Over a picture, glass takes it a little toward black (light: white), lighter than the prompter's
-     dim, so a picker's rows read and the picture stays its colour. */
-  --glass-tone: brightness(.8);
   /* A panel's bezel: how far in its edge curves and how far the rim bends what is under it. */
   --glass-panel-bezel: 14px;
   --glass-panel-bend: 10px;
@@ -882,7 +879,6 @@ a {
 :root[data-mode="light"] {
   --glass-rim: inset 0 1px 0 rgb(255 255 255 / .85), inset 0 0 0 var(--hairline-w) rgb(0 0 0 / .07);
   --glass-bead: rgb(255 255 255 / .6);
-  --glass-tone: contrast(.8) brightness(1.1);
   --glass-panel-rim: inset 1px 1px 0 rgb(255 255 255 / .9), inset -1px -1px 0 rgb(255 255 255 / .6),
     inset 0 0 0 var(--hairline-w) rgb(0 0 0 / .08);
 }

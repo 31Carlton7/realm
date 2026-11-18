@@ -307,10 +307,18 @@ Rules:
   the picture's colour. A lens can only bend what is behind it, so the first Glass did nothing: the card
   bent its own grey face, and the hero had cleared the picture from under the card, leaving the
   window's material, which an in-page filter cannot see. Glass that does nothing is a setting that
-  lies; prove it with a card of stripes under it before tuning a number. Off a picture a picker keeps
-  most of its surface and the prompter its tint, so the filter never works on the window's bare
-  transparency. One attribute on the root carries it, cleared under Reduce Transparency, Low power or a
+  lies; prove it with a card of stripes under it before tuning a number. A lens is drawn for the box it
+  bends, at its own size: one map stretched over every picker bent almost nothing. And a frost over a
+  see-through pane is no frost at all, because Chromium lays a backdrop filter's result over the
+  backdrop rather than in its place: between the words the pane is clear, so the blur was a haze over
+  the same words still sharp under it, and the picker read as a dark slab with the transcript showing
+  through (11-18). The frost is drawn inside the lens over the pane's own ground, nearly opaque, so the
+  words soften under it and no fill of ours is laid on top; off a picture the prompter keeps its tint.
+  One attribute on the root carries it, cleared under Reduce Transparency, the Mac's Low Power Mode or a
   renderer that cannot draw `backdrop-filter: url()`, and the choice comes back when those clear.
+  Settings names whichever one is holding it back, so the choice never reads as one that did nothing.
+  Realm's own Low power does not: it has already stilled the picture behind the glass, and holding
+  glass back there is why the owner, who keeps Low power on, saw Glass as a solid slab.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha
