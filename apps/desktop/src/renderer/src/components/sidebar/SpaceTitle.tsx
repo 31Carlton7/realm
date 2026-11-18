@@ -4,7 +4,7 @@ import { useApp } from "../../state/store";
 import { Menu } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 import { useSpaceMenu } from "./space-menu";
-import { useSpaceTint } from "./use-sidebar-model";
+import { useOpenSpacePage, useSpaceTint } from "./use-sidebar-model";
 
 /**
  * The column's title: the space it shows, by name (direction A, the owner 11-03).
@@ -13,6 +13,11 @@ import { useSpaceTint } from "./use-sidebar-model";
  * profile, so a chevron here would be a third way to do one of those. A "···" in the quiet ink, always
  * drawn, opens what can be done about the space, the same list a right-click on its tile opens. Rename
  * turns the name into a field in place.
+ *
+ * The name and its icon are one button that opens the space's page, the page a session's breadcrumb
+ * opens (the owner, 11-18: "you click it and then you see the main page for managing the space"). It
+ * stays the column's heading, by the space's name, so the button is the heading's content rather than
+ * a heading of its own.
  */
 export function SpaceTitle() {
   const space = useApp((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId));
@@ -20,6 +25,7 @@ export function SpaceTitle() {
   const renameSpaceInColumn = useApp((s) => s.renameSpaceInColumn);
   const tint = useSpaceTint(space?.color);
   const items = useSpaceMenu(space);
+  const openSpacePage = useOpenSpacePage();
   const [menu, setMenu] = useState<{ at: { x: number; y: number } | null } | null>(null);
   const more = useRef<HTMLButtonElement>(null);
   if (!space) return null;
@@ -27,12 +33,23 @@ export function SpaceTitle() {
     e.preventDefault();
     setMenu({ at: e.clientX === 0 && e.clientY === 0 ? null : { x: e.clientX, y: e.clientY } });
   };
+  const icon = <span className="sb-space-icon" style={tint ? { color: tint } : undefined} aria-hidden="true"><SpaceIcon icon={space.icon} size={16} /></span>;
   return (
     <div className="sb-space-title" onContextMenu={onContextMenu}>
-      <span className="sb-space-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={16} /></span>
-      {renaming
-        ? <SpaceNameInput id={space.id} name={space.name} onDone={() => renameSpaceInColumn(null)} />
-        : <h2 className="sb-space-name" title={space.name}>{space.name}</h2>}
+      {renaming ? (
+        <span className="sb-space-open">
+          {icon}
+          <SpaceNameInput id={space.id} name={space.name} onDone={() => renameSpaceInColumn(null)} />
+        </span>
+      ) : (
+        <h2 className="sb-space-head" aria-label={space.name}>
+          <button type="button" className="sb-space-open" aria-label={`Open ${space.name}`} title={`Open the page for ${space.name}`}
+            onClick={() => openSpacePage(space.id)}>
+            {icon}
+            <span className="sb-space-name">{space.name}</span>
+          </button>
+        </h2>
+      )}
       <button ref={more} type="button" className="item-act sb-space-more" aria-label={`More for ${space.name}`} aria-haspopup="menu"
         aria-expanded={menu !== null} title="Space settings and more" onClick={() => setMenu((o) => (o ? null : { at: null }))}>
         <Icon name="more" size={14} />
