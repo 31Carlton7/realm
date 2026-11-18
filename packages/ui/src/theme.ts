@@ -78,19 +78,23 @@ export const clampGroundAlpha = (pct: number): number =>
   Math.round(Math.min(GROUND_ALPHA_RANGE.max, Math.max(GROUND_ALPHA_RANGE.min, pct)));
 
 /**
- * The panes' share of the same material, over their OWN range — and since Plan 26, their own control.
+ * The panes' share of the same material, over their OWN range and, since Plan 26, their own control.
  *
  * The sidebar holds short labels and the panes hold the reading, and a pane's ground is whatever the
- * desktop behind the window happens to be. The DEFAULT, 84, is measured, not chosen
+ * desktop behind the window happens to be. `READING_PANE_ALPHA`, 84, is measured, not chosen
  * (`pane-ground.test.ts` walks it): composite each face's `--canvas` over a white desktop and over a
- * black one and 84% opacity is the thinnest at which `--ink` still clears WCAG AA on every face. That
- * is the default's promise. The range itself runs to 0 (the owner, 11-15): below 84, body text over a
- * bright or busy desktop gets harder to read, and the control says so instead of stopping there.
+ * black one and 84% opacity is the thinnest at which `--ink` still clears WCAG AA on every face. It is
+ * where the prompter goes solid and where the light face's range is pinned.
+ *
+ * The DEFAULT is the range's see-through end (the owner, 11-17: "by default, we should have the
+ * maximum amount of transparency turned on"). It reaches every home with no stored value, which is a
+ * home whose slider was never moved; a value set by hand is the stored one and is kept.
  */
 /* 84 since the light ramp moved to near-white paper (canvas 0.985): every light face gained headroom,
    and Rosé Pine's light face is now the one that binds. It was 86. */
 export const PANE_ALPHA_RANGE = { min: 0, max: 100 } as const;
-export const DEFAULT_PANE_ALPHA = 84;
+export const READING_PANE_ALPHA = 84;
+export const DEFAULT_PANE_ALPHA = PANE_ALPHA_RANGE.min;
 
 export const clampPaneAlpha = (pct: number): number =>
   Math.round(Math.min(PANE_ALPHA_RANGE.max, Math.max(PANE_ALPHA_RANGE.min, pct)));

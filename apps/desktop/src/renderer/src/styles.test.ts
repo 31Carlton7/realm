@@ -1514,9 +1514,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(handedAtClick).toEqual([]);
   });
 
-  it("a page hides the panes' bars and their dividers, which would otherwise run up through its clear bar", () => {
+  it("a page hides the panes and their dividers, which would otherwise show through its see-through ground", () => {
     // Reported in the live check: a split's divider drawn as a stray rule across the page's top row.
-    expect(bodiesFor(":root:has(.page-overlay) .main .panel-bar").join(" ")).toContain("visibility: hidden");
+    expect(bodiesFor(":root:has(.page-overlay) .main :is(.panel, .view-panel):not(.page-overlay *)").join(" ")).toContain("visibility: hidden");
     expect(bodiesFor(":root:has(.page-overlay) .main .resize-handle").join(" ")).toContain("visibility: hidden");
   });
 
@@ -1791,14 +1791,14 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(layers).toContain("radial-gradient(circle at 0 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)) right 0 top var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat");
     expect(main).toContain("--sheet-l: 0px");
     expect(bodiesFor(".app[data-sidebar-folded] > .main").join(" ")).toContain("--sheet-l: var(--frame-r)");
-    // The sheet starts at the rim, and is the same sheet under a page in the page's ground.
+    // The sheet starts at the rim, and a page stands on this same sheet rather than painting its own.
     expect(layers.at(-1)).toBe("var(--sheet)");
     const sheet = RULES.filter((r) => r.body.includes("--sheet:"));
-    expect(sheet.map((r) => r.selectors)).toEqual([[".main", ".page-overlay"]]);
+    expect(sheet.map((r) => r.selectors)).toEqual([[".main"]]);
     const sheetLayers = splitSelectors(sheet[0]!.body.replace(/^--sheet:\s*/, "").replace(/;$/, ""));
     expect(sheetLayers.length).toBe(4);
     for (const l of sheetLayers) expect(l).toMatch(/top var\(--frame-top\)|calc\(100% - var\(--frame-top\) - var\(--frame-r\)\)/);
-    expect(bodiesFor(".page-overlay").join(" ")).toContain("--sheet-fill: var(--rl-panel); background: var(--sheet)");
+    expect(bodiesFor(".page-overlay").join(" ")).toContain("background: none");
     // The rim: the sidebar's line and radius, along the top from the strip's foot, turning at the
     // right edge; folded, down the left edge beside the rail and round that corner too.
     const rim = bodiesFor(".main::after").join(" ");

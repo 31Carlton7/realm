@@ -1121,7 +1121,7 @@ function AppearanceTab() {
         <TranslucencyRow id="pane-translucency" label="Pane translucency" amount="Pane transparency"
           alpha={paneAlpha} range={PANE_ALPHA_RANGE} fallback={DEFAULT_PANE_ALPHA} material={material}
           onChange={(v) => run(() => setPaneAlpha(v))}
-          title="How much of the desktop behind the window shows through the panes, all the way to none of the pane at all. At the default, body text keeps its contrast over any desktop; past it, text gets harder to read over a bright or busy one. Reduce Transparency makes the panes opaque as well." />
+          title="How much of the desktop behind the window shows through the panes, all the way to none of the pane at all. Realm starts at the see-through end; over a bright or busy desktop, move it toward opaque to keep text easy to read. Reduce Transparency makes the panes opaque as well." />
 
         {/* The app's one motion mechanism is the system's `prefers-reduced-motion`, and this is an
             answer to that same question rather than a second one: main has the window report the

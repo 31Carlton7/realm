@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, type Mode } from "@realm/ui";
+import { READING_PANE_ALPHA, PANE_ALPHA_RANGE, type Mode } from "@realm/ui";
 import { CONTRAST_FLOOR, DEFAULT_SELECTION, deriveVars, REALM_SEED, themeVars, type ThemeName } from "@realm/ui/src/themes";
 import { parseOklch, srgb, srgbLuminance, type Oklch } from "@realm/contracts";
 
@@ -42,7 +42,7 @@ describe("the prompter's fill follows Pane translucency", () => {
     expect(prompter.light(PANE_ALPHA_RANGE.min)).toBeCloseTo(40, 5);
     expect(prompter.dark(40)).toBeCloseTo(40 + 40 * 60 / 84, 5);
     for (const face of faces) {
-      expect(prompter[face](DEFAULT_PANE_ALPHA)).toBeCloseTo(100, 5);
+      expect(prompter[face](READING_PANE_ALPHA)).toBeCloseTo(100, 5);
       expect(prompter[face](PANE_ALPHA_RANGE.max)).toBeCloseTo(100, 5);
     }
     expect(stylesCss).toMatch(/:root\[data-squircle\] \.composer \{ --sq-fill: color-mix\(in srgb, var\(--surface\) var\(--prompter-alpha\), transparent\); \}/);
@@ -56,7 +56,7 @@ describe("the prompter's fill follows Pane translucency", () => {
     // the place you type), a flat stretch anywhere below the default, or a floor or a different start.
     for (const face of faces) for (const v of slider) {
       const p = pane[face](v), c = prompter[face](v);
-      if (v >= DEFAULT_PANE_ALPHA) { expect(c, `${face} at ${v}`).toBeCloseTo(100, 5); continue; }
+      if (v >= READING_PANE_ALPHA) { expect(c, `${face} at ${v}`).toBeCloseTo(100, 5); continue; }
       expect(c - p, `${face} at ${v}`).toBeGreaterThanOrEqual(8);
       expect(c, `${face} at ${v}`).toBeLessThan(prompter[face](v + 1));
       expect(c, `${face} at ${v}`).toBeCloseTo(40 + v * 60 / 84, 5);

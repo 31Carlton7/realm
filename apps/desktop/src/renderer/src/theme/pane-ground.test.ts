@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, deriveVars, PANE_ALPHA_RANGE, REALM_SEED, seedFor, THEMES, themeModes, type Mode, type ThemeName } from "@realm/ui";
+import { DEFAULT_GROUND_ALPHA, READING_PANE_ALPHA, deriveVars, PANE_ALPHA_RANGE, REALM_SEED, seedFor, THEMES, themeModes, type Mode, type ThemeName } from "@realm/ui";
 import { CONTRAST_FLOOR } from "@realm/ui/src/themes";
 import { parseOklch, srgb, srgbLuminance, type Oklch } from "@realm/contracts";
 
@@ -30,7 +30,7 @@ const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tok
 /** The DEFAULT `--pane-alpha`, as a fraction: the promise that body text clears AA over any desktop
  *  is the default's (the owner, 11-15, let the range run to 0). Read from the default rather than
  *  restated: the point of this suite is to fail when that number moves. */
-const PANE_ALPHA = DEFAULT_PANE_ALPHA / 100;
+const PANE_ALPHA = READING_PANE_ALPHA / 100;
 
 /** A ground's opacity rule from tokens.css, `calc(…)` or `min(calc(…), calc(…))` over a slider's
  *  `var(--ground-alpha)` or `var(--pane-alpha)`, evaluated at a slider value in %. */
@@ -127,7 +127,7 @@ describe("the light face is nearly opaque", () => {
 
   it("at the defaults the light sidebar is ~80% and the panes 92%, against the dark 55% and 84%", () => {
     expect(at(sidebar, DEFAULT_GROUND_ALPHA)).toBeCloseTo(79.75, 1);
-    expect(at(pane, DEFAULT_PANE_ALPHA)).toBeCloseTo(92, 1);
+    expect(at(pane, READING_PANE_ALPHA)).toBeCloseTo(92, 1);
   });
 
   it("fully opaque still means opaque, in the light face too", () => {
@@ -141,7 +141,7 @@ describe("the light face is nearly opaque", () => {
     expect(at(sidebar, PANE_ALPHA_RANGE.min)).toBeCloseTo(0, 1);
     expect(at(pane, PANE_ALPHA_RANGE.min)).toBeCloseTo(0, 1);
     for (const v of [DEFAULT_GROUND_ALPHA, 70, 90]) expect(at(sidebar, v)).toBeCloseTo(55 + v * 0.45, 1);
-    for (const v of [DEFAULT_PANE_ALPHA, 90, 96]) expect(at(pane, v)).toBeCloseTo(92 + (v - 84) * 0.5, 1);
+    for (const v of [READING_PANE_ALPHA, 90, 96]) expect(at(pane, v)).toBeCloseTo(92 + (v - 84) * 0.5, 1);
   });
 
   it("Reduce Transparency still wins over the light rule — it is more specific than a bare :root", () => {
@@ -170,5 +170,30 @@ describe("a themed palette's sidebar wears the theme", () => {
   it("still goes opaque under Reduce Transparency, which a bare :root would no longer reach", () => {
     const reduce = tokensCss.slice(tokensCss.indexOf("@media (prefers-reduced-transparency: reduce)"));
     expect(reduce.slice(0, reduce.indexOf("\n}") + 2)).toContain(':root[data-mode="dark"][data-theme]:not([data-theme="realm"]) { --sidebar-ground: var(--page); }');
+  });
+});
+
+/* A page (Settings and every other destination page) stands on the same ground as a session (the
+   owner, 11-17: "the settings panes should also reflect the transparency that we use in the session
+   panes"). `.main` paints the panes' sheet at Pane translucency; a page that paints its own ground over
+   it is either opaque, or a second layer of the same alpha and denser than a session at every setting. */
+describe("a page's ground is the panes' ground", () => {
+  const stylesCss = readFileSync(repoFile("apps/desktop/src/renderer/src/styles.css"), "utf8");
+  const rule = (sel: string) => new RegExp(`^${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{([^}]*)\\}`, "m").exec(stylesCss)?.[1] ?? "";
+
+  it("paints nothing of its own, on the overlay or the page", () => {
+    // THE mutants: the overlay back on `--sheet-fill: var(--rl-panel)` (opaque Settings), or `.page`
+    // back on `--rl-panel`, or either on `--pane-ground` (a second layer, denser than a session).
+    for (const sel of [".page-overlay", ".page"]) {
+      const body = rule(sel);
+      expect(body, sel).toMatch(/background: none;/);
+      expect(body, sel).not.toMatch(/--sheet-fill|--rl-panel|--pane-ground|--canvas/);
+    }
+    expect(stylesCss).toMatch(/\.main \{[^}]*--sheet-fill: var\(--pane-ground\)/);
+  });
+
+  it("hides the panes it covers, which would otherwise show through it", () => {
+    // THE mutant: only the bars hidden, as when the page was opaque; the transcript reads through Settings.
+    expect(stylesCss).toContain(":root:has(.page-overlay) .main :is(.panel, .view-panel):not(.page-overlay *) { visibility: hidden; }");
   });
 });
