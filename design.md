@@ -251,14 +251,18 @@ Rules:
   paper, toward the ink, as grey grouped boxes sit on a light window.
   What floats over content keeps its shadow: menus, popovers, sheets, toasts and the prompter. A thing a person picks up rather than reads — a file
   wherever it is shown, a saved turn, the device's toolbar — stands on the same surface through one
-  token of its own (`--rl-object-shadow`, the owner's 10-05 rule that they all match). A picture in the
+  token of its own (`--rl-object-shadow`, the owner's 10-05 rule that they all match). A file named on
+  a line of a list is read rather than picked up, so there it is its mark alone, as a file tree draws
+  one: the Documents home once set every row's mark on a lifted tile, and a column of small raised
+  squares read as cards down the list (the owner, 11-17: "just show the icon itself and no
+  background"). A picture in the
   transcript stays its own frame. Floating things — menus, popovers, sheets, toasts — are not cards:
   they hang over whatever is behind them, and keep the overlay stack's edge.
 - No liquid glass, and no translucent slab, anywhere (the owner, 11-04: "I don't want this liquid
   glass like nav background anywhere else in the app"). A bar, a menu, a sheet, a card or a button
   never wears a backdrop blur or a see-through fill of its own. The window's material shows through
   two grounds only, each on its own control: the frame (the rail, the sidebar's column and the strip
-  across the window's top), and the panes' one ground under the rim. The prompter is the one surface that
+  across the window's top), and the panes' one ground under the rim. The prompter is the surface that
   follows a ground rather than standing on its own: an opaque card on a pane thinned by its slider
   "sticks out like a sore thumb" (the owner, 11-16), so the card and the tabs above and below it take
   the pane's alpha a step denser, all the way down with it, and go solid with the pane under Reduce
@@ -268,6 +272,9 @@ Rules:
   notch. It stays the same quiet fill, with no blur, no sheen and no bright edge; its lift fades as it
   thins, because a dark halo round a card you can see through reads as dirt rather than height. The strip over the panes once
   read as a frosted band because the reading dissolved up into it; nothing scrolls under it now.
+  The controls at the head of the Documents home follow the same number for the same reason: the
+  search field and New were the two solid things on a pane thinned to its end (the owner, 11-17), so
+  they thin with it in every state, and the pointer never brings a solid button back.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha

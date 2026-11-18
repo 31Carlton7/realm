@@ -9762,10 +9762,18 @@ span.documents-name:hover { background: none; }
 .docs-home-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
 .docs-home-search { position: relative; flex: 1; min-width: 0; display: block; }
 .docs-home-search > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--rl-text-faint); pointer-events: none; }
-.docs-home-search > .search-field { --search-h: 32px; padding-left: 32px; padding-right: 44px; }
+/* The head's two controls thin with the pane, as the prompter does and by the same number (the owner,
+   11-17: "if the transparency is higher… it should also be reflected on those elements"). Solid, they
+   were the two opaque things on a see-through pane. Every state of New thins, or the pointer would
+   bring a solid button back. Reduce Transparency takes the alpha back to 100%. */
+.docs-home-search > .search-field { --search-h: 32px; padding-left: 32px; padding-right: 44px;
+  background: color-mix(in srgb, var(--field) var(--prompter-alpha), transparent); }
+:root[data-squircle] .docs-home-search > .search-field { --sq-fill: color-mix(in srgb, var(--field) var(--prompter-alpha), transparent); }
 /* ⌘P, from the keymap — said inside the field it opens, until something is typed there. */
 .docs-home-kbd { position: absolute; right: 9px; top: 50%; translate: 0 -50%; pointer-events: none; }
-.docs-home-new { --btn-h: 32px; padding: 0 9px; gap: 5px; }
+.docs-home-new { --btn-h: 32px; padding: 0 9px; gap: 5px; --fill: color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent); }
+.docs-home-new:hover:not(:disabled) { --fill: color-mix(in srgb, var(--hover) var(--prompter-alpha), transparent); }
+.docs-home-new:is([data-pressed], :active:focus-visible):not(:disabled) { --fill: color-mix(in srgb, var(--hover-2) var(--prompter-alpha), transparent); }
 .docs-home-new-chevron { color: var(--rl-text-faint); }
 /* A column so a page with nothing on it can centre its one message; sections are flex items that
    keep their own height (`min-height: auto`), so a long list still scrolls rather than squashing. */
@@ -9785,10 +9793,9 @@ span.documents-name:hover { background: none; }
 .docs-home-open:hover { background: var(--rl-hover); }
 .docs-home-open:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
 .docs-home-glyph { flex: none; display: grid; place-items: center; color: var(--rl-text-dim); }
-/* A file in the list is its square, as in the Library's rows — the glyph on the tile's fill, under the
-   object's border and shadow — at the row's own scale. Only a file's: the Create row's mark is not one. */
-.docs-home-glyph[data-type] { width: 24px; height: 24px; border-radius: var(--r-chip); corner-shape: squircle;
-  background: var(--rl-tile); box-shadow: var(--rl-object-shadow); }
+/* A file in the list is its mark alone, as a file tree draws it (the owner, 11-17: "just show the icon
+   itself and no background… very similar to VS Code"). No tile and no shadow: a line of the list is
+   read, not picked up, and a raised square at the head of every line read as a column of cards. */
 .docs-home-glyph[data-type="document"], .docs-home-glyph[data-type="video"], .docs-home-glyph[data-type="audio"] { color: var(--rl-accent); }
 .docs-home-glyph[data-type="image"] { color: var(--rl-success); }
 .docs-home-glyph[data-type="data"] { color: var(--orange); }
