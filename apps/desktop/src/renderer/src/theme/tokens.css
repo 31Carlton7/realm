@@ -848,41 +848,50 @@ a {
 :root[data-clear-over-picture] { --picture-ground: none; --picture-veil: transparent; }
 .session-pane:has(> .hero-backdrop) { --prompter-alpha: 0%; }
 
-/* Glass (Settings ▸ Appearance ▸ Controls; styles.css, "Glass"): a lens, a slight blur and a
- * highlight. The blur is slight on purpose, so the lens has something sharp to bend; over a picture
- * it takes the picture's own dim (`--picture-tone`), never a fill. A panel of rows (the pickers) is
- * read rather than glanced at, so it frosts deeper. The highlight is one lit top edge and a hairline,
- * white in both faces: light falling on glass, not a colour laid on it. A bead (a selected segment,
- * a switch's knob) is the one place glass carries a fill, a share of white, so a control's position
- * reads at a glance. */
+/* Glass (Settings ▸ Appearance ▸ Controls; styles.css, "Glass"): a lens fitted to each surface, a
+ * frost and a lit rim, near clear as macOS 26's is. Each kind of surface has its own bezel (how far in
+ * its edge curves) and bend (how far the rim pulls what is under it): a panel's is deep, a control's
+ * (a segment, a knob) is most of its radius. The frost is slight on what is glanced at, so the lens has something sharp to
+ * bend, and deep on a panel of rows, which is read over a transcript; over a picture it takes the
+ * picture's own dim (`--picture-tone`), never a fill. The rim is specular light, brightest top left and
+ * again bottom right, white in both faces: light falling on glass, not a colour laid on it. A bead (a
+ * selected segment, a switch's knob) is the one place glass carries a fill, a share of white, so a
+ * control's position reads at a glance. */
 :root {
   --glass-blur: 4px;
   --glass-panel-blur: 10px;
+  --glass-control-blur: 1px;
   --glass-saturate: 1.5;
-  --glass-frost: blur(var(--glass-blur)) saturate(var(--glass-saturate)) var(--picture-tone);
+  --glass-tone: saturate(var(--glass-saturate)) var(--picture-tone);
+  --glass-frost: blur(var(--glass-blur)) var(--glass-tone);
   --glass-panel-frost: blur(var(--glass-panel-blur));
-  /* What a fitted lens floods under the backdrop before it frosts it (glass/fitted-lens.ts): the
-     pane's own ground, most of the way opaque, so the window's material still shows a little. */
+  /* What a panel's lens floods under the backdrop before it frosts it (glass/fitted-lens.ts): the
+     pane's own ground, opaque, since Chromium lays the result over the backdrop and any share left
+     clear shows the words behind it sharp (11-18: at .95 the transcript read through the picker). */
   --glass-ground: var(--canvas);
-  --glass-ground-alpha: .95;
-  /* A panel's bezel: how far in its edge curves and how far the rim bends what is under it. */
+  --glass-panel-ground: 1;
+  /* What a panel lays on the picture's dim: light lifts it a little more, toward the white macOS's
+     light glass reads as over a picture. */
+  --glass-panel-tone: saturate(1);
+  --glass-prompter-bezel: 18px;
+  --glass-prompter-bend: 12px;
   --glass-panel-bezel: 14px;
   --glass-panel-bend: 10px;
-  /* Light on a panel's rim, brighter where it faces the light (top left) and again where it catches
-     it on the way out (bottom right), as macOS 26 draws its glass. */
-  --glass-panel-rim: inset 1px 1px 0 rgb(255 255 255 / .22), inset -1px -1px 0 rgb(255 255 255 / .1),
-    inset 0 0 0 var(--hairline-w) rgb(255 255 255 / .06);
-  --glass-rim: inset 0 1px 0 rgb(255 255 255 / .16), inset 0 0 0 var(--hairline-w) rgb(255 255 255 / .07);
+  --glass-control-bezel: 6px;
+  --glass-control-bend: 4px;
+  --glass-rim-w: 1px;
+  --glass-specular: conic-gradient(from -45deg, rgb(255 255 255 / .34), rgb(255 255 255 / .06) 25%, rgb(255 255 255 / .18) 50%, rgb(255 255 255 / .06) 75%, rgb(255 255 255 / .34));
+  --glass-rim: inset 1px 1px 0 rgb(255 255 255 / .2), inset -1px -1px 0 rgb(255 255 255 / .1);
   --glass-bead: rgb(255 255 255 / .12);
   --glass-knob: rgb(255 255 255 / .6);
 }
 :root[data-mode="light"] {
-  --glass-rim: inset 0 1px 0 rgb(255 255 255 / .85), inset 0 0 0 var(--hairline-w) rgb(0 0 0 / .07);
+  --glass-panel-tone: brightness(1.08);
+  --glass-specular: conic-gradient(from -45deg, rgb(255 255 255 / .95), rgb(0 0 0 / .06) 25%, rgb(255 255 255 / .7) 50%, rgb(0 0 0 / .06) 75%, rgb(255 255 255 / .95));
+  --glass-rim: inset 1px 1px 0 rgb(255 255 255 / .9), inset -1px -1px 0 rgb(255 255 255 / .6), inset 0 0 0 var(--hairline-w) rgb(0 0 0 / .07);
   --glass-bead: rgb(255 255 255 / .6);
-  --glass-panel-rim: inset 1px 1px 0 rgb(255 255 255 / .9), inset -1px -1px 0 rgb(255 255 255 / .6),
-    inset 0 0 0 var(--hairline-w) rgb(0 0 0 / .08);
 }
-:root[data-clear-over-picture] { --glass-frost: saturate(var(--glass-saturate)); }
+:root[data-clear-over-picture] { --glass-tone: saturate(var(--glass-saturate)); --glass-frost: var(--glass-tone); }
 
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being

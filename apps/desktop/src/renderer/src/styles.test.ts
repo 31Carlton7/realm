@@ -1165,7 +1165,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     for (const r of RULES.filter((r) => partsOf(r).some((sel) => glass(sel) && /hero-backdrop|data-over-picture/.test(sel)))) {
       expect(r.body).not.toMatch(/background:(?!\s*none)/);
       const shadow = /box-shadow:\s*([^;]+)/.exec(r.body)?.[1];
-      if (shadow) expect(shadow.trim()).toMatch(/^var\(--glass-(panel-)?rim\)$/);
+      if (shadow) expect(shadow.trim()).toMatch(/^(none|var\(--glass-(panel-)?rim\))$/);
     }
     const picture = RULES.filter((r) => partsOf(r).some(overPicture) && /backdrop-filter:/.test(r.body));
     expect(picture.length).toBeGreaterThanOrEqual(2);
@@ -1403,9 +1403,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The microphone's level while dictating (Composer.tsx), 0–1, written on the mic's ring each
       // frame; 0 without it.
       "--mic-level",
-      // The prompter's lens (glass/PrompterGlass.tsx), drawn for the card's own size and named only
-      // once its map exists. Read with no fallback on purpose: unset, the backdrop-filter is invalid,
-      // which is none, so the card is plain until the lens is there.
+      // A glass surface's fitted lens (glass/fitted-lens.ts), drawn for its own box and named on it
+      // once its map exists; every rule reads it with a CSS frost to stand in until then.
       "--glass-lens",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));

@@ -9,7 +9,6 @@ under their own licenses, whose texts sit beside them:
 | iOS device runner, derived from [Maestro](https://github.com/mobile-dev-inc/Maestro)'s XCTest runner | `resources/ios-device-runner/` | Apache-2.0 (`LICENSE` and `NOTICE` there) |
 | [Inter](https://rsms.me/inter/) | `apps/desktop/src/renderer/src/assets/fonts/` | SIL Open Font License 1.1 (`OFL-Inter.txt`) |
 | [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | `apps/desktop/src/renderer/src/assets/fonts/`, `apps/ios/Realm/Fonts/` | SIL Open Font License 1.1 (`OFL.txt`, `JetBrainsMono-OFL.txt`) |
-| Glass lens, cut down from [@samasante/liquid-glass](https://www.npmjs.com/package/@samasante/liquid-glass) 0.1.1 | `apps/desktop/src/renderer/src/glass/vendor/lens-samasante.ts` | MIT (`LICENSE-samasante-liquid-glass` there) |
 
 Not in this repository: the [Hugeicons Pro](https://hugeicons.com) icon packages, which official builds install
 from Hugeicons' own registry under Realm's commercial license with them. They are not covered by Realm's MIT

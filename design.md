@@ -314,6 +314,13 @@ Rules:
   the same words still sharp under it, and the picker read as a dark slab with the transcript showing
   through (11-18). The frost is drawn inside the lens over the pane's own ground, nearly opaque, so the
   words soften under it and no fill of ours is laid on top; off a picture the prompter keeps its tint.
+  Every glass surface wears its own fitted lens, the prompter, a selected segment and a switch's knob
+  as much as a picker, each with its own bezel: a stretched map is the thing macOS's glass never
+  looks like, a rim of the same width on every edge whatever the box. Its light is specular and runs
+  the whole way round, brightest top left and again bottom right, never a single lit top edge. A
+  number in a filter is not a number until it is measured on the screen it draws on: Chromium reads
+  a backdrop filter's blur in device pixels but its bend in CSS pixels, so the picker's 10px frost
+  drew 5px on a Retina screen and the transcript still read through it (11-18, bars under three boxes).
   One attribute on the root carries it, cleared under Reduce Transparency, the Mac's Low Power Mode or a
   renderer that cannot draw `backdrop-filter: url()`, and the choice comes back when those clear.
   Settings names whichever one is holding it back, under the Controls row, with where in System
