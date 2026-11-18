@@ -32,6 +32,21 @@ describe("a document's code colours", () => {
     expect(view.state.doc.textContent).toBe("const a = 1;");
     view.destroy();
   });
+
+  it("land on the right characters in code holding <, >, &, and both quotes", async () => {
+    libs.hljs = (await import("../session/rich/highlight-grammars")).default;
+    const code = "if (a < b && c > d) s = \"<&>\" + 'it\\'s' + `t${a}`; // a & b";
+    const doc = parseMarkdown("```ts\n" + code + "\n```\n", docSchema);
+    const view = new EditorView(document.createElement("div"), { state: EditorState.create({ doc, plugins: [codeHighlight()] }) });
+    const coloured = (cls: string) => Array.from(view.dom.querySelectorAll(`.${cls}`), (el) => el.textContent);
+    expect(coloured("hljs-keyword")).toEqual(["if"]);
+    expect(coloured("hljs-string")).toEqual(["\"<&>\"", "'it\\'s'", "`t", "${a}", "`"]);
+    // A span inside a span carries both classes, as the transcript's nested markup does.
+    expect(coloured("hljs-string.hljs-subst")).toEqual(["${a}"]);
+    expect(coloured("hljs-comment")).toEqual(["// a & b"]);
+    expect(view.dom.querySelector("pre")?.textContent).toBe(code);
+    view.destroy();
+  });
 });
 
 describe("an edit to a document", () => {
@@ -119,6 +134,16 @@ describe("an edit to a document", () => {
     view.dispatch(view.state.tr.setNodeMarkup(ts.pos, undefined, { language: "ts" }));
     expect(view.dom.innerHTML).toBe(rebuilt());
     expect(view.dom.querySelector("pre .hljs-keyword")?.textContent).toBe("const");
+  });
+
+  it("colours a paragraph turned into a code block", () => {
+    const between = nth("paragraph", 1);
+    view.dispatch(view.state.tr.insertText("const z = 0;", between.pos + 1, between.pos + between.node.nodeSize - 1));
+    expect(highlighted).not.toHaveBeenCalled();
+    const p = nth("paragraph", 1);
+    view.dispatch(view.state.tr.setBlockType(p.pos + 1, p.pos + 1, docSchema.nodes["codeBlock"]!, { language: "ts" }));
+    expect(view.dom.innerHTML).toBe(rebuilt());
+    expect(view.dom.querySelectorAll("pre")[1]?.querySelector(".hljs-keyword")?.textContent).toBe("const");
   });
 
   it("comes out as a full rebuild would after splits, joins, pastes and deletes", () => {

@@ -1,5 +1,6 @@
 import type { Node as PmNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { Mapping, StepMap } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { uiBlockKind } from "@realm/contracts";
 import { grammarFor, highlightToHtml } from "../session/rich/highlight";
@@ -30,21 +31,26 @@ function blockDecorations(node: PmNode, pos: number): Decoration[] {
   if (uiBlockKind(language)) return [];
   const html = highlightToHtml(node.textContent, grammarFor(language));
   if (!html.includes("<span")) return [];
-  const parsed = document.createElement("template");
-  parsed.innerHTML = html;
   const decorations: Decoration[] = [];
+  const open: string[] = [];
   let at = pos + 1;
-  const walk = (parent: ParentNode, classes: string) => {
-    for (const child of Array.from(parent.childNodes)) {
-      if (child instanceof Element) { walk(child, `${classes} ${child.className}`.trim()); continue; }
-      const length = child.textContent?.length ?? 0;
-      if (classes && length) decorations.push(Decoration.inline(at, at + length, { class: classes }));
-      at += length;
-    }
+  let run = 0;
+  const endRun = () => {
+    if (open.length && run) decorations.push(Decoration.inline(at, at + run, { class: open.join(" ") }));
+    at += run;
+    run = 0;
   };
-  walk(parsed.content, "");
+  // highlight.js writes only spans, text and its five escapes, so the string is read as it stands.
+  // Parsing it into DOM cost more than highlighting the block.
+  for (const [token, classAttr] of html.matchAll(HLJS_TOKEN)) {
+    if (classAttr !== undefined) { endRun(); open.push(classAttr); continue; }
+    if (token === "</span>") { endRun(); open.pop(); continue; }
+    run += token.startsWith("&") ? 1 : token.length;
+  }
   return decorations;
 }
+
+const HLJS_TOKEN = /<span class="([^"]*)">|<\/span>|&(?:amp|lt|gt|quot|#x27);|[^<&]+/g;
 
 /**
  * The colours after an edit: the old ones carried through it, and only the code blocks it touched
@@ -64,11 +70,20 @@ function rehighlightTouched(tr: Transaction, old: DecorationSet, before: PmNode)
     const to = pos + node.nodeSize - 1;
     const was = before.nodeAt(back.map(pos));
     const touched = changed.some(([a, b]) => a <= to && b >= from)
-      || was?.type !== node.type || was.attrs["language"] !== node.attrs["language"];
-    if (touched) set = set.remove(set.find(from, to)).add(tr.doc, blockDecorations(node, pos));
+      || was?.attrs["language"] !== node.attrs["language"];
+    if (touched) set = clearRange(set, from, to, tr.doc).add(tr.doc, blockDecorations(node, pos));
     return false;
   });
   return set;
+}
+
+/**
+ * The set without its decorations inside from..to. `DecorationSet.remove` matches each one it is
+ * given against every decoration in the block, which for a few hundred lines of code is most of a
+ * keystroke. Mapping through a same-size replace of the range drops them in one pass instead.
+ */
+function clearRange(set: DecorationSet, from: number, to: number, doc: PmNode): DecorationSet {
+  return set.map(new Mapping([new StepMap([from, to - from, to - from])]), doc);
 }
 
 export function codeHighlight(): Plugin<DecorationSet> {
