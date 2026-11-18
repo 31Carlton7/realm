@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.17.1 - 2026-11-17
+
+- Realm can ask for Calendar, Reminders and Contacts. Before this release the signed app was missing the two permissions macOS checks for, so it refused without ever showing its prompt. If one of them already shows as off in System Settings, Privacy & Security, switch it on there.
+- A sub-agent that starts a background command is no longer called done while that command is still running. Realm waits until the command reports back and the sub-agent has answered it, and the report says it waited. Recaps are now written one at a time, so ending several sessions at once no longer starts several at the same moment.
+- Realm closes without hanging. Quitting no longer waits on an agent that started late, a connection still answering a request, or a scripted turn that was stopped partway.
+
 ## v2.17.0 - 2026-11-17
 
 Backgrounds can move.
