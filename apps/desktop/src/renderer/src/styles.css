@@ -192,6 +192,15 @@
   --r-float: 16px;                               /* --radius-window: composer, sheets, palette */
   --r-pill: 999px;                               /* --radius-pill */
   --hit-min: 40px;                               /* the smallest desktop press target (design.md) */
+  /* The squircle ladder. Everything the painter draws stands on one of these, and nothing else
+     (styles.test.ts fails a radius off it):
+     - a surface, at n = 4: --r-squircle (36), --r-squircle-screen (28), --r-squircle-msg (26) or
+       --r-squircle-card (20);
+     - a control, at --sq-n-ctl: its own height times --sq-ratio-ctl (tokens.css), so a 30px tab and
+       a 32px search field are one shape rather than two numbers;
+     - a media well: its tile times --sq-ratio-media.
+     The fixed --r-ctl and --r-chip under `corner-shape` are the old controls' corner, still to move onto
+     the control rung: at n = 4, 13px on a 30px box reads square beside a painted control. */
   /* The floating cards the paint worklet draws. Its own rung rather than a step off --r-float:
      a superellipse at a given radius reads visually smaller than a circular corner at the same
      one, so the two scales were never going to stay in step by arithmetic. Every squircle surface
@@ -6494,7 +6503,9 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    Chromium draws as the curve itself. */
 :root[data-squircle] .btn,
 :root[data-squircle] .ghost-chip,
-:root[data-squircle] .palette-opt {
+:root[data-squircle] .palette-opt,
+:root[data-squircle] .documents-tab,
+:root[data-squircle] .docs-home-open {
   border-radius: 0;
   background: paint(rl-squircle);
   /* ONE line, not one per state. Every fill above is `--fill` now, so this reads the same property
@@ -6538,7 +6549,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    IN, from a wide clear band down to its width, on the same timing as every other ring. A filled
    control takes the ring in its label's colour, because an accent ring inside an accent fill is no
    ring at all. */
-:root[data-squircle] :is(.btn, .ghost-chip, .palette-opt):focus-visible {
+:root[data-squircle] :is(.btn, .ghost-chip, .palette-opt, .docs-home-open):focus-visible {
   outline: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px;
   animation: rl-focus-ring-painted var(--dur-slow) var(--spring-smooth); }
 :root[data-squircle] .btn.primary:focus-visible { --sq-ring: color-mix(in srgb, var(--rl-accent-contrast) 75%, transparent); }
@@ -9628,10 +9639,12 @@ button.cr-finding-where:hover { text-decoration: underline; }
   display: flex; align-items: center; gap: 2px; padding: 6px 8px; overflow-x: auto;
   flex: 0 0 auto; overflow-y: hidden; scrollbar-width: none;
 }
-.documents-tab { display: flex; align-items: center; border-radius: var(--r-ctl); corner-shape: squircle; flex: 0 0 auto;
-  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
-.documents-tab:hover { background: var(--rl-hover); }
-.documents-tab[data-active] { background: var(--rl-active); }
+.documents-tab { --btn-h: 30px; display: flex; align-items: center; height: var(--btn-h); flex: 0 0 auto;
+  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  --fill: transparent; background: var(--fill);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease; }
+.documents-tab:hover { --fill: var(--rl-hover); }
+.documents-tab[data-active] { --fill: var(--rl-active); }
 .documents-tab-label {
   display: flex; align-items: center; gap: 6px; padding: 5px 4px 5px 9px; max-width: 200px;
   min-width: 0; font-size: 13px; color: var(--rl-text-dim);
@@ -9786,12 +9799,13 @@ span.documents-name:hover { background: none; }
 .docs-home-rows { flex: none; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .docs-home-row { position: relative; display: flex; align-items: center; min-width: 0; }
 .docs-home-open {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px;
-  text-align: left; border-radius: var(--r-ctl); corner-shape: squircle; font-size: 13px; color: var(--rl-text-bright);
-  transition: background-color var(--dur-hover) ease;
+  --btn-h: 32px; flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: var(--btn-h); padding: 0 8px;
+  text-align: left; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; font-size: 13px; color: var(--rl-text-bright);
+  --fill: transparent; background: var(--fill);
+  transition: background-color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
-.docs-home-open:hover { background: var(--rl-hover); }
-.docs-home-open:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
+.docs-home-open:hover { --fill: var(--rl-hover); }
+.docs-home-open:is([data-pressed], :active:focus-visible) { --fill: var(--rl-active); }
 .docs-home-glyph { flex: none; display: grid; place-items: center; color: var(--rl-text-dim); }
 /* A file in the list is its mark alone, as a file tree draws it (the owner, 11-17: "just show the icon
    itself and no background… very similar to VS Code"). No tile and no shadow: a line of the list is
