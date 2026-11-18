@@ -768,6 +768,21 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
+  it("does not interrupt a turn that was over before its turn/start response was read", async () => {
+    // The response and every frame of the turn arrive in one read, so turn/completed is handled before
+    // the code awaiting the response runs. MUTANT: take the response's turn id regardless, and the
+    // interrupt below goes to the finished turn, which the fixture answers with an extra idle pair.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "INSTANT", attachments: [] });
+    const done = ["idle", "running", "running", "idle", "idle"];
+    await waitFor(() => expect(statuses(evs)).toEqual(done));
+    await handle.interrupt();
+    await handle.send({ text: "again", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["hello", "hello"]));
+    await waitFor(() => expect(statuses(evs)).toEqual([...done, "running", "running", "idle", "idle"]));
+    await handle.dispose();
+  });
+
   it("records setOptions but reports that it only applies at the next thread start", async () => {
     const logs: string[] = [];
     const { handle, evs } = await booted({ onLog: (l) => logs.push(l) });
