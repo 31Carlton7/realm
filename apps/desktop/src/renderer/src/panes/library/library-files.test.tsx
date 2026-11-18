@@ -727,19 +727,30 @@ describe("taking a file back out of the Library", () => {
   it("keeps the page where it was: a file taken out of the second page leaves both pages showing", async () => {
     /* THE mutant: ask again for the first page only, as a filter change does — the list is cut back to
        sixty under someone who had scrolled past them, and their place is gone. */
-    const sentinels: { cb: IntersectionObserverCallback; el: Element }[] = [];
+    // Watching only until disconnected, as a real observer is: the pager drops each one for the next.
+    let sentinels: { cb: IntersectionObserverCallback; el: Element; io: object }[] = [];
     vi.stubGlobal("IntersectionObserver", class {
       constructor(private cb: IntersectionObserverCallback) {}
-      observe(el: Element) { sentinels.push({ cb: this.cb, el }); }
+      observe(el: Element) { sentinels.push({ cb: this.cb, el, io: this }); }
       unobserve() {}
-      disconnect() {}
+      disconnect() { sentinels = sentinels.filter((s) => s.io !== this); }
       takeRecords() { return []; }
     });
     const many = Array.from({ length: LIBRARY_PAGE_SIZE + 5 }, (_, i) => added(`f${String(i).padStart(3, "0")}.md`, 1_700_000_000_000 - i));
     await mountWithToasts(many);
     await screen.findByText("f000.md");
-    act(() => { for (const s of sentinels.filter((o) => o.el.classList.contains("library-more"))) s.cb([{ isIntersecting: true, target: s.el } as IntersectionObserverEntry], {} as IntersectionObserver); });
-    await screen.findByText("f064.md");
+    /* Scrolled to the end until the second page is in. The pager observes its sentinel again in an
+       effect after each render, so the first page can be on screen while the only observer is the one
+       whose list was still empty: CI's "Unable to find … f064.md". A real observer reports once when
+       it starts watching, so each one is fired once. */
+    const fired = new Set<object>();
+    await waitFor(() => {
+      for (const s of sentinels.filter((o) => o.el.classList.contains("library-more") && !fired.has(o.io))) {
+        fired.add(s.io);
+        act(() => { s.cb([{ isIntersecting: true, target: s.el } as IntersectionObserverEntry], {} as IntersectionObserver); });
+      }
+      expect(screen.getByText("f064.md")).toBeTruthy();
+    });
     await removeFromMenu("f062.md");
     await waitFor(() => expect(screen.queryByText("f062.md")).toBeNull());
     expect(document.querySelectorAll(".library-tile")).toHaveLength(LIBRARY_PAGE_SIZE + 4);
