@@ -1,10 +1,7 @@
-import { execFile } from "node:child_process";
 import { realpathSync, statSync } from "node:fs";
-import { promisify } from "node:util";
 import { compareVersions, parseVersion } from "@realm/contracts";
+import { execProbe } from "./probe-children";
 import { executablesOnPath, spawnTarget } from "./spawn-target";
-
-const exec = promisify(execFile);
 
 type Env = Record<string, string | undefined>;
 
@@ -59,7 +56,7 @@ function versionOf(path: string, env: Env, platform: string): Promise<string | n
   let cached = versionCache.get(key);
   if (!cached) {
     const t = spawnTarget(path, ["--version"], { env, platform });
-    cached = exec(t.command, t.args, { timeout: 5000, env: env as NodeJS.ProcessEnv, ...t.options }).then(
+    cached = execProbe(t.command, t.args, { timeout: 5000, env: env as NodeJS.ProcessEnv, ...t.options }).then(
       ({ stdout }) => parseVersion(stdout),
       () => null,
     );

@@ -254,6 +254,8 @@ export class SessionService {
    *  turn's — and a steered message, which takes no checkpoint, starts the moment the settle lands. */
   private measuring = new Map<string, Promise<void>>();
   private closing = false;
+  /** Set by `stopProbing`: the app is closing, and a probe started now would spawn past `endProbes`. */
+  private probingStopped = false;
   /** The questions open right now, by requestId, from whichever feed raised them — what an answer is
    *  read against to learn which of it is masked. */
   private asked = new Map<string, { sessionId: string; card: AskCard }>();
@@ -434,11 +436,17 @@ export class SessionService {
   /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
   async probeAll({ force = false }: { force?: boolean } = {}): Promise<ProbeResult[]> {
     const probes = await Promise.all(Object.values(this.d.adapters).map((a) => this.probeAdapter(a, force)));
+    // A probe refused or ended at shutdown says nothing about the CLI, and the notifications record
+    // each agent's availability in the db for the next launch to compare against.
+    if (this.probingStopped) return probes;
     // Every probe that actually ran reports here — the feed's agent_probe rows come from the same
     // results the install card renders, never from a second probe of their own.
     this.d.notifications?.probeResults(probes);
     return probes;
   }
+
+  /** Closing: no probe starts from here on. Called with `endProbes`, which ends those already out. */
+  stopProbing(): void { this.probingStopped = true; }
 
   /**
    * One adapter's row. A CLI that crashed or hung on its last probe is not spawned again until
@@ -447,11 +455,12 @@ export class SessionService {
    * probe is somebody asking on purpose, so it asks the CLI regardless.
    */
   private async probeAdapter(adapter: AgentAdapter, force: boolean): Promise<ProbeResult> {
+    if (this.probingStopped) return { kind: adapter.kind, available: false, version: null, loggedIn: null, reason: "Realm is shutting down" };
     const held = this.probeBackoff.get(adapter.kind);
     if (held && !force && Date.now() < held.until) return held.row;
     const row = await adapter.probe().catch((e: unknown): ProbeResult =>
       ({ kind: adapter.kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
-    if (row.crashed) {
+    if (row.crashed && !this.probingStopped) {
       const held = { ...row, reason: `couldn't check: ${row.reason ?? "the CLI crashed"}` };
       this.probeBackoff.set(adapter.kind, { until: Date.now() + PROBE_CRASH_BACKOFF_MS, row: held });
       return held;

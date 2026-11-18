@@ -1,13 +1,11 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { probeCrashed } from "../acp/probe";
+import { execProbe } from "../probe-children";
 import { spawnTarget } from "../spawn-target";
 
-const exec = promisify(execFile);
-/** `execFile` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
+/** `execProbe` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
 const run = (bin: string, args: string[], o: { timeout: number }) => {
   const t = spawnTarget(bin, args);
-  return exec(t.command, t.args, { ...o, ...t.options });
+  return execProbe(t.command, t.args, { ...o, ...t.options });
 };
 
 /** True when the failure text looks like codex's own "you're not logged in" message, not some other error. */

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_LOGIN_HINTS } from "@realm/contracts";
@@ -8,6 +9,8 @@ import { createApp, defaultAdapters, type App } from "./app";
 import { openDatabase } from "./db/database";
 import { dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
+import { SettingsStore } from "./store/settings";
+import { LAST_PROBE_KEY } from "./notifications/service";
 
 const FAKE_ACP = fileURLToPath(new URL("../../../packages/adapters/src/acp/fixtures/fake-acp-agent.mjs", import.meta.url));
 
@@ -90,4 +93,75 @@ describe("first-boot profile seeding", () => {
     const app = await createApp({ home, port: 0 }); apps.push(app);
     expect(new ProfilesStore(app.db).list().map((p) => p.name)).toEqual(["Work"]);
   });
+});
+
+describe("closing the app", () => {
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+  it("ends an agent probe still running, and what that probe started", async () => {
+    // A catalog probe that never answers session/new, ignores its closed stdin, and has started a child
+    // of its own, as Hermes and opencode can be at quit. MUTANT: leave probes out of close and both outlive it.
+    const marker = join(tempDir("realm-probe-"), "child.pid");
+    const set = { FAKE_ACP_MUTE_SESSION_NEW: "1", FAKE_ACP_IGNORE_EOF: "1", FAKE_ACP_CHILD_PID: marker };
+    Object.assign(process.env, set);
+    try {
+      await withGeminiStub(async () => {
+        const app = await createApp({ home: tempDir("realm-home-"), port: 0, adapters: { "acp:gemini": defaultAdapters()["acp:gemini"]! } });
+        void app.sessions.probe({ force: true }).catch(() => {});
+        while (!existsSync(marker) || !readFileSync(marker, "utf8")) await new Promise((r) => setTimeout(r, 20));
+        const grandchild = Number(readFileSync(marker, "utf8"));
+        const agent = Number(execFileSync("ps", ["-o", "ppid=", "-p", String(grandchild)], { encoding: "utf8" }).trim());
+        try {
+          await app.close();
+          const by = Date.now() + 1_000;
+          while ((alive(agent) || alive(grandchild)) && Date.now() < by) await new Promise((r) => setTimeout(r, 20));
+          expect({ agent: alive(agent), grandchild: alive(grandchild) }).toEqual({ agent: false, grandchild: false });
+        } finally {
+          for (const pid of [agent, grandchild]) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+        }
+      });
+    } finally {
+      for (const k of Object.keys(set)) delete process.env[k];
+    }
+  }, 20_000);
+
+  it("starts no probe once it has begun closing", async () => {
+    // MUTANT: drop the stopProbing check and this probe spawns its agent during close.
+    const marker = join(tempDir("realm-probe-"), "child.pid");
+    process.env.FAKE_ACP_CHILD_PID = marker;
+    try {
+      await withGeminiStub(async () => {
+        const app = await createApp({ home: tempDir("realm-home-"), port: 0, adapters: { "acp:gemini": defaultAdapters()["acp:gemini"]! } });
+        const closing = app.close();
+        const rows = await app.sessions.probe({ force: true });
+        await closing;
+        await new Promise((r) => setTimeout(r, 300));
+        expect({ spawned: existsSync(marker), reason: rows[0]?.reason }).toEqual({ spawned: false, reason: "Realm is shutting down" });
+      });
+    } finally {
+      delete process.env.FAKE_ACP_CHILD_PID;
+      if (existsSync(marker)) { try { process.kill(Number(readFileSync(marker, "utf8")), "SIGKILL"); } catch { /* gone */ } }
+    }
+  }, 20_000);
+
+  it("keeps a probe refused at shutdown out of the availability the next launch compares against", async () => {
+    // MUTANT: let a stopped probeAll report and Gemini is stored as unavailable, with a feed row saying so.
+    const home = tempDir("realm-home-");
+    const db = openDatabase(dbPath(home));
+    new SettingsStore(db).set(LAST_PROBE_KEY, { "acp:gemini": true });
+    db.close();
+    await withGeminiStub(async () => {
+      const app = await createApp({ home, port: 0, adapters: { "acp:gemini": defaultAdapters()["acp:gemini"]! } });
+      const closing = app.close();
+      await app.sessions.probe({ force: true });
+      await closing;
+    });
+    const after = openDatabase(dbPath(home));
+    try {
+      expect(new SettingsStore(after).get(LAST_PROBE_KEY)).toEqual({ "acp:gemini": true });
+      expect(after.prepare("SELECT COUNT(*) AS n FROM notifications").get()).toEqual({ n: 0 });
+    } finally {
+      after.close();
+    }
+  }, 20_000);
 });
