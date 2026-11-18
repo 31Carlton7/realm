@@ -21,14 +21,14 @@ export type QueueActions = {
 
 /** What the session is set to now, which each queued message is read against, and the name the
  *  picker's chip gives a model id. */
-export type SessionRun = { model: string | null; effort: string | null; fastMode: boolean; modelName: (model: string | null) => string };
+type SessionRun = { model: string | null; effort: string | null; fastMode: boolean; modelName: (model: string | null) => string };
 
 /**
  * What a queued message will run on that the session is no longer set to — "Opus 5.5 · High" — and
  * only that part: a message queued on what the picker still says has nothing to add. Null too for a
  * message from a server that did not keep them.
  */
-export function runsOnLabel(q: QueuedPrompt, now: SessionRun): string | null {
+function runsOnLabel(q: QueuedPrompt, now: SessionRun): string | null {
   const parts = [
     q.model !== undefined && q.model !== now.model ? now.modelName(q.model) : null,
     q.effort !== undefined && q.effort !== now.effort ? (q.effort ? formatEffort(q.effort) : "Default effort") : null,
