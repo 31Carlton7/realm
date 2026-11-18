@@ -349,7 +349,7 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
   it("the code preview is the palette on the row, as edited, in the app's own syntax roles", async () => {
     const { store } = await openPage("Appearance");
     const preview = (face: "Light" | "Dark") =>
-      screen.getByRole("group", { name: `${face} theme` }).parentElement!.querySelector(".code-preview") as HTMLElement;
+      screen.getByRole("group", { name: `${face} theme` }).closest(".settings-row")!.querySelector(".code-preview") as HTMLElement;
     // THE private-table mutant: give the preview its own colours instead of the --syn-* roles the
     // stylesheet maps highlight.js onto. It would look plausible and would stop being a preview of
     // anything the transcript does.

@@ -2,6 +2,7 @@ import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { plainCode, withCode } from "../../components/with-code";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { BackgroundPicker } from "../../components/settings/BackgroundPicker";
+import { FoldedList } from "../../components/settings/FoldedList";
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
@@ -688,7 +689,7 @@ function CodePreview({ vars }: { vars: Record<string, string> }) {
  * an import owes you — where it came from, and how much of it Realm had to work out. A theme whose
  * file stated three of the thirteen colours looks like a theme until you notice it is mostly Realm.
  */
-function ImportedThemes({ face, live }: { face: Mode; live?: boolean }) {
+function ImportedThemes({ face, selected, live }: { face: Mode; selected: ThemeName; live?: boolean }) {
   const themes = useApp((s) => s.customThemes);
   const importThemeFile = useApp((s) => s.importThemeFile);
   const removeCustomTheme = useApp((s) => s.removeCustomTheme);
@@ -699,8 +700,8 @@ function ImportedThemes({ face, live }: { face: Mode; live?: boolean }) {
   const mine = themes.filter((t) => t.mode === face);
   return (
     <div className="theme-vsc-list" data-setting={live ? "vscode-theme" : undefined}>
-      {mine.map((t) => (
-        <div key={t.id} className="theme-vsc">
+      {mine.length > 0 && <FoldedList items={mine} keyOf={(t) => t.id} chosen={selected} listClass="theme-vsc-rows" render={(t) => (
+        <div className="theme-vsc">
           <span className="theme-vsc-name">{t.label}</span>
           {/* What the file did not say. Silent when it said everything, because a note that appears
               every time is a note nobody reads by the third import. */}
@@ -712,7 +713,7 @@ function ImportedThemes({ face, live }: { face: Mode; live?: boolean }) {
           <button type="button" className="btn-quiet" aria-label={`Remove ${t.label}`}
             onClick={() => run(() => removeCustomTheme(t.id))}>Remove</button>
         </div>
-      ))}
+      )} />}
       <button type="button" className="btn-quiet theme-vsc-add"
         onClick={() => run(async () => {
           const id = await importThemeFile();
@@ -886,11 +887,12 @@ function PaletteChoices({ face, selected, onSelect, live }:
   const contrast = useApp((s) => s.contrast);
   return (
     <>
-      <fieldset className="theme-grid" aria-label={face === "light" ? "Light theme" : "Dark theme"}>
-        {offered.map((t) => {
+      <FoldedList items={offered} keyOf={(t) => t.name} chosen={selected} listClass="theme-grid"
+        label={face === "light" ? "Light theme" : "Dark theme"}
+        render={(t) => {
           const [page, surface, accent, string, line] = themeSwatches(t.name, face);
           return (
-            <label key={t.name} className="theme-card" data-selected={selected === t.name || undefined}
+            <label className="theme-card" data-selected={selected === t.name || undefined}
               style={{ background: page, borderColor: surface }}>
               <input type="radio" name={`settings-palette-${face}`} value={t.name} checked={selected === t.name}
                 onChange={() => onSelect(t.name)} />
@@ -900,9 +902,8 @@ function PaletteChoices({ face, selected, onSelect, live }:
               <span className="theme-card-name" style={{ color: accent }}>{t.label}</span>
             </label>
           );
-        })}
-      </fieldset>
-      <ImportedThemes face={face} live={live} />
+        }} />
+      <ImportedThemes face={face} selected={selected} live={live} />
       {/* The blurb, the code preview and the three seed fields are all answers to "what does this
           palette actually look like in use" — a question you ask once, while choosing, and never
           again. Open, they were two screens of chrome per face, on a tab whose other six settings

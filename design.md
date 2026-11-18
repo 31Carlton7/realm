@@ -1038,7 +1038,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   ordinary one, a tick on every wrap that no encoder setting within the size removed. So the player
   closes it: the last frame drawn is held and dissolved into the new ones over a third of a second, in
   the shader and from the one decoder, never a second video. A window decodes one loop at most, the one in the pane the keyboard is in, and
-  every pane showing that loop draws from it; another pane shows its still. It stops, for the still,
+  every pane showing that loop draws from it; another pane shows its still. A look that moves wears
+  the play mark in its tile's corner, on the disc an attached picture's remove sits on, and its name
+  says "moves" to VoiceOver, so a moving picture is known before it is picked. It stops, for the still,
   under the Motion switch, Reduce motion, Low power, the Mac's Low Power Mode, and a window that is
   hidden, minimised or covered. Covered is asked of macOS, not of the page: main keeps an occluded
   window compositing for the browser agent, so to Chromium a covered window is visible and goes on
@@ -1135,6 +1137,16 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   it now lists the rest of the space's own sessions in place, and Activity keeps its own toggle. For
   the same reason a Needs you row drops the name of the space on screen — the column's head already
   says it, and the title needs the width — and keeps it in its accessible name.
+- A long list of choices folds after three rows (the owner, 11-17, on Appearance's themes and
+  backgrounds: "there's just so many lists of items and there's a lot to scroll through"). Under the
+  rows a "Show all <n>" names the whole list's count, as the sidebar's does, and opens the rest IN
+  PLACE, never in a sheet: the rows grow in on the disclosure's height and fade, and "Show fewer"
+  folds them again. A row is a row of the grid at the width it has, not three items. While folded,
+  the chosen one is always in those rows, taking the last place there when it was picked elsewhere
+  (an import, the prompter), because a choice hidden behind a control reads as no choice; while
+  open, the order holds still, so a pick never moves a tile out from under the pointer. A list's
+  "Add…" tile is its first tile and outside the count, so the way to add is never folded away
+  (`FoldedList.tsx`).
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a
   profile's or a space's page — draws them IN the sidebar's column while it is up, rather than as a
   rail beside the sidebar: two side-by-side lists of places, the left one about somewhere else, read

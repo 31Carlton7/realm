@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS, REDUCED_MOTION_KEY } from "@realm/contracts";
+import { PAGE_REF_IDS, REDUCED_MOTION_KEY, type BackgroundImage } from "@realm/contracts";
 import { CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE, paneAlphaFromGround } from "@realm/ui";
 import { SettingsPage } from "./SettingsPage";
+import { GALLERY } from "../session/backdrop-gallery";
 import { SETTING_PANE_ALPHA, StoreContext, createAppStore } from "../../state/store";
+import { resetYourBackgrounds } from "../../state/your-backgrounds";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 
 const pageItem = item("set-s1", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] });
@@ -189,7 +191,8 @@ describe("Background", () => {
     expect(grid().getByRole("radio", { name: "Sky and Cliffs" })).toBeChecked();
     expect(grid().getAllByRole("radio").map((r) => (r as HTMLInputElement).value).slice(0, 2)).toEqual(["off", "shuffle"]);
     expect(screen.getByRole("switch", { name: "Background motion" })).toBeDisabled();
-    fireEvent.click(grid().getByRole("radio", { name: "Haze" }));
+    fireEvent.click(screen.getByRole("button", { name: `Show all ${GALLERY.length + 2}` }));
+    fireEvent.click(grid().getByRole("radio", { name: "Haze, moves" }));
     await waitFor(() => expect(store.getState().background).toBe("haze"));
     expect(api.calls).toContain("setSetting:ui.background=haze");
     expect(screen.getByRole("switch", { name: "Background motion" })).toBeEnabled();
@@ -203,5 +206,57 @@ describe("Background", () => {
     await waitFor(() => expect(store.getState().background).toBe("off"));
     // No pictures yet: the empty state offers the way to add one.
     expect(screen.getByRole("button", { name: "Add image…" })).toBeInTheDocument();
+  });
+
+  it("marks a look that moves on its tile and in its name, and no still one", async () => {
+    // THE MUTANTS: the mark drawn on every tile, or on none; the mark only seen, never said.
+    await appearance();
+    const tile = (name: string) => grid().getByRole("radio", { name }).closest("label")!;
+    expect(tile("Sunlit Reef, moves").querySelector(".backdrop-moves")).not.toBeNull();
+    expect(tile("Sky and Cliffs").querySelector(".backdrop-moves")).toBeNull();
+    expect(document.querySelectorAll(".backdrop-moves")).toHaveLength(GALLERY.filter((g) => g.motion).length);
+  });
+
+  it("folds the looks after three rows and keeps the chosen one among them", async () => {
+    await appearance({ settings: { "ui.background": "synth-coast" } });
+    const shown = document.querySelector('[aria-label="Background"] > .backdrop-grid')!;
+    expect([...shown.querySelectorAll("input")].map((r) => r.value)).toEqual(["off", "shuffle", "synth-coast"]);
+    expect(grid().getByRole("radio", { name: "Synth Coast, moves" })).toBeChecked();
+  });
+});
+
+describe("Your images", () => {
+  const image = (n: number): BackgroundImage => ({
+    id: `p${n}`, name: `Picture ${n}`, added: n, effect: "dither-color", asIs: false, width: 1600, height: 1000, loop: null,
+  });
+
+  it("folds after three rows with Add image… always first, and keeps the chosen one among them", async () => {
+    // THE MUTANTS: Add image… drawn last, where Show all folds it away; the chosen picture left folded.
+    const pictures = [1, 2, 3, 4, 5, 6, 7].map(image);
+    resetYourBackgrounds();
+    vi.stubGlobal("realm", { platform: "darwin", backgrounds: { list: async () => pictures, image: async () => null } });
+    try {
+      await appearance({ settings: { "ui.background": "mine:p6" } });
+      const mine = await screen.findByRole("group", { name: "Your images" });
+      const shown = mine.querySelector(":scope > .backdrop-grid")!;
+      expect(shown.firstElementChild).toBe(within(mine).getByRole("button", { name: "Add image…" }));
+      expect([...shown.querySelectorAll("input")].map((r) => r.value)).toEqual(["mine:p1", "mine:p6"]);
+      expect(within(mine).getByRole("radio", { name: "Picture 6" })).toBeChecked();
+      const row = mine.closest(".fold") as HTMLElement;
+      fireEvent.click(within(row).getByRole("button", { name: "Show all 7" }));
+      expect(within(row).getByRole("button", { name: "Show fewer" })).toBeInTheDocument();
+    } finally { cleanup(); resetYourBackgrounds(); vi.unstubAllGlobals(); }
+  });
+});
+
+describe("Themes", () => {
+  it("a chosen palette past the fold is in the rows shown, and the rest open under Show all", async () => {
+    // THE MUTANT: a choice made elsewhere (an import, the prompter) left folded out of sight.
+    await appearance({ settings: { "ui.themeName.dark": "rosepine" } });
+    const dark = within(screen.getByRole("group", { name: "Dark theme" }));
+    expect(dark.getByRole("radio", { name: "Rosé Pine" })).toBeChecked();
+    const row = screen.getByRole("group", { name: "Dark theme" }).closest(".fold")!;
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: /^Show all \d+$/ }));
+    expect(within(row as HTMLElement).getByRole("button", { name: "Show fewer" })).toBeInTheDocument();
   });
 });

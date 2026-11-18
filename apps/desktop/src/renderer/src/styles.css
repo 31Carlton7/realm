@@ -10546,7 +10546,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    Each card is painted in the theme it names, so the row is a set of previews rather than a list of
    words. auto-fill rather than a fixed column count: this field sits in a settings pane whose width
    is whatever the user left the split at. */
-.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; }
+.theme-grid { --fold-gap: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: var(--fold-gap); }
 .theme-card {
   display: flex; flex-direction: column; gap: 8px; padding: 10px;
   border: 1px solid; border-radius: var(--r-panel); corner-shape: squircle; box-shadow: var(--shadow-card-lift);
@@ -10564,6 +10564,21 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .theme-card-swatches span { width: 14px; height: 14px; border-radius: 999px; }
 .theme-card-name { font-size: 13px; font-weight: var(--fw-label); }
 
+/* ── A long list folded after three rows (FoldedList.tsx) ─────────────────────
+   The rest opens in place under the rows shown: the row height grows from nothing (the disclosure's
+   0fr to 1fr) while the rows fade in, and closing is the shorter of the two. Each list names its own
+   gap as `--fold-gap`, so the folded rows start one gap under the shown ones. The clip reaches 4px past
+   its box, the room a tile's 2px selection ring and its 2px-offset focus outline take, so neither is
+   cut at the edge. Reduce motion makes both a cut through the global rule. */
+.fold { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fold-group { min-width: 0; margin: 0; padding: 0; border: 0; }
+.fold-rest { display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows var(--dur-fast) var(--ease-in-out-strong), opacity var(--dur-fast) var(--ease-fade); }
+.fold-rest[data-open] { grid-template-rows: 1fr; opacity: 1; transition-duration: var(--dur-base); }
+.fold-clip { min-height: 0; overflow: clip; overflow-clip-margin: 4px; }
+.fold-clip > * { margin-top: 0; padding-top: var(--fold-gap); }
+.fold-more { align-self: flex-start; }
+
 /* ── Imported VS Code themes ──────────────────────────────────────────────
    Under the grid, not in it. Importing is a thing you do once, and a card shaped like a palette that
    is actually a file picker is a card that repaints nothing when pressed. Each import gets a LINE
@@ -10573,6 +10588,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    below, and a second rule under that name is one the first one wins — which is exactly what
    happened, and turned this row into a column. */
 .theme-vsc-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.theme-vsc-rows { --fold-gap: 2px; display: flex; flex-direction: column; gap: var(--fold-gap); }
 .theme-vsc { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 13px; color: var(--rl-text-dim); }
 /* The NAME is the elastic column and everything after it packs right — one growing item and no auto
    margins, rather than the two `margin-left: auto` this first had, which split the free space
@@ -11129,7 +11145,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 /* Settings ▸ Appearance ▸ Background (BackgroundPicker.tsx). The App icon grid's grammar at a
    picture's proportions: no fill until hovered, the chosen tile the same 2px accent ring. A picture
    wears the picture outline; Off is the plain ground, Shuffle four of the looks. */
-.backdrop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 4px; margin: 0; padding: 0; border: 0; }
+.backdrop-grid { --fold-gap: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: var(--fold-gap); margin: 0; padding: 0; border: 0; }
 .backdrop-opt { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 6px;
   border-radius: var(--r-panel); color: inherit; background: none; font: inherit; text-align: left; transition: background-color var(--dur-hover) ease; }
 .backdrop-opt:hover { background: var(--rl-hover); }
@@ -11142,6 +11158,10 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .backdrop-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .backdrop-mosaic { display: grid; grid-template-columns: 1fr 1fr; width: 100%; height: 100%; }
 .backdrop-mosaic img { min-height: 0; }
+/* A tile that moves says so in its corner, on the disc an attached picture's remove sits on, so it
+   reads on any picture. */
+.backdrop-moves { position: absolute; top: 4px; right: 4px; display: grid; place-items: center;
+  width: 16px; height: 16px; border-radius: 50%; color: var(--rl-on-media); background: rgb(0 0 0 / .62); pointer-events: none; }
 .backdrop-name { font-size: 12px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .backdrop-opt[data-selected] .backdrop-name { color: var(--rl-text-bright); }
 .backdrop-drop { border-radius: var(--r-panel); }
