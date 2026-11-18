@@ -722,7 +722,10 @@ acronym that is uppercase anyway (a file extension on a tile).
   noun because "Ask each time" is the word beside it. A word that has a way out already (Plan and Ask
   back to Build) takes the click; a goal's word does not, because its strip holds Pause and Drop one
   row up. On a narrow row these words yield before the model's name loses a letter, the goal's first,
-  since the card's tint and the strip still say the rest.
+  since the card's tint and the strip still say the rest. That tint is the whole of the card's part:
+  the state's tone washed over its ground, held over a picture, and nothing drawn round it. A ring in
+  the mode's colour round the prompter and its tabs was the loudest edge in the window, and the owner found it ugly
+  (11-18); a word plus a wash already say the mode twice.
 - A toggle names its state or carries `aria-pressed`, never both — "Unfocus Two, pressed" is a
   sentence at war with itself. Which one it takes is a fact about the accessible NAME, so it may not
   become a difference in the fill: "this control is on" gets ONE appearance across a bar, or the
