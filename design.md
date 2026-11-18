@@ -667,6 +667,15 @@ and dimmed twice; where one tucks under the other's curve, split the corner by r
 height the curve crosses the lower box's side, so each blur keeps its own corner and neither stubs
 past the other.
 
+The prompter, the band above it and the strip below it are one object, so they wear one corner: the
+prompter's rung on the painter's curve, in Plain and in Glass, over a picture and without one. Its
+edge was lost twice without anyone removing it (the owner, 11-18: "bring back the squircle borders
+on the prompter"). Over a picture its blurs went onto a circle of half the radius, and the blur's
+edge, not the faint ring, is the contour the eye reads. Under Glass the face, ring and all, sits
+under the lens, so the edge is the glass's own rim, and a rim that takes `border-radius: inherit`
+without `corner-shape` traces a circle. Every box that draws part of the prompter's edge (a blur,
+the lens, the rim) states the curve as well as the radius.
+
 A list whose rows carry more than one line each is a list of cards, not of rows. Rows separated by
 nothing but a line break read as one block of prose, which is what makes a page of them feel like
 splattered text however carefully each row is written. Give them air and a surface; do not give them

@@ -90,8 +90,8 @@ it("brings the system notices in on the transcript's own entrance rung, from the
    blurring box's own corner cuts its blur (a mask or a `shape()` clip does not, on Chromium 156). A
    circle of half the radius sat beside the painted superellipse, and a cut at the tuck stood the
    strip's top corners out under the card's curve (the owner, 11-18). */
+const PICTURE = ":root[data-squircle] .session-pane:has(> .hero-backdrop) ";
 describe("the prompter's blurs over a picture", () => {
-  const PICTURE = ":root[data-squircle] .session-pane:has(> .hero-backdrop) ";
   const px = (v: string) => Number(/^([\d.]+)px$/.exec(v.trim())?.[1] ?? NaN);
   const R = px(/--r-squircle:\s*([^;]+);/.exec(css)![1]!);
   const INSET = px(/--sq-seat-inset:\s*([^;]+);/.exec(bodiesFor(":root[data-squircle] .composer + .composer-understrip").join(" "))![1]!);
@@ -108,15 +108,76 @@ describe("the prompter's blurs over a picture", () => {
     expect(strip).toContain("corner-shape: squircle");
   });
 
-  it("hands the strip the card's corner from where the card's curve crosses the strip's sides", () => {
+  it("hands each seated strip the card's corner from where the card's curve crosses the strip's sides", () => {
     // The painter's n = 4 corner of radius R, at the strip's side INSET in from the card's: its height
-    // above the card's bottom. The strip's blur reaches exactly that high, and the card's stops there.
+    // above the card's edge. The strip's blur reaches exactly that far, and the card's stops there.
     const crossing = R - R * (1 - ((R - INSET) / R) ** 4) ** 0.25;
     expect(Math.abs(DROP - crossing)).toBeLessThan(0.05);
-    expect(bodiesFor(`${PICTURE}.composer:has(+ .composer-understrip)::before`).join(" ")).toMatch(/clip-path: inset\(0 0 var\(--seat-drop\) 0\);/);
-    expect(bodiesFor(":root[data-squircle][data-glass] .session-pane:has(> .hero-backdrop) .composer:has(+ .composer-understrip) .composer-glass").join(" "))
-      .toMatch(/clip-path: inset\(0 0 var\(--seat-drop\) 0\);/);
+    // The card stops short of whichever edge a strip tucks under, the band above as the strip below.
+    expect(bodiesFor(".composer").join(" ")).toContain("--seat-top: 0px; --seat-bottom: 0px;");
+    expect(bodiesFor(":is(.composer-goal, .composer-todos, .composer-overstrip) + .composer").join(" ")).toContain("--seat-top: var(--seat-drop);");
+    expect(bodiesFor(".composer:has(+ .composer-understrip)").join(" ")).toContain("--seat-bottom: var(--seat-drop);");
+    for (const sel of [`${PICTURE}.composer::before`, ":root[data-squircle][data-glass] .session-pane:has(> .hero-backdrop) .composer-glass"])
+      expect(bodiesFor(sel).join(" "), sel).toContain("clip-path: inset(var(--seat-top) 0 var(--seat-bottom) 0);");
     expect(bodiesFor(`${PICTURE}.composer + .composer-understrip`).join(" ")).toContain("clip-path: inset(calc(var(--tuck) - var(--seat-drop)) -24px -24px -24px);");
+    expect(bodiesFor(`${PICTURE}:is(.composer-goal, .composer-todos, .composer-overstrip):has(+ .composer)`).join(" "))
+      .toContain("clip-path: inset(-24px -24px calc(var(--tuck) - var(--seat-drop)) -24px);");
+  });
+});
+
+/* The prompter lost its squircle edge to circles laid over it: its blur over a picture (#484) and its
+   glass (#498) went onto a circle of half the radius, the glass with `corner-shape: round`, and the
+   band above the card kept that circle after the strip below was fixed (the owner, 11-18: "bring back
+   the squircle borders on the prompter"). The card, the band above it and the strip below are one
+   object, so they wear one corner: the painter's, at the prompter's rung, in every look. */
+describe("the prompter's squircle edge", () => {
+  const BAND = [".composer-goal", ".composer-todos", ".composer-overstrip"];
+  const PROMPTER = /\.composer(-glass|-goal|-todos|-overstrip|-understrip)?\b(?!-)/;
+
+  it("draws its hairline on the painted curve, plain or glass, with a picture or without", () => {
+    // Plain: the face paints the card's ring, and nothing under the painter takes it away.
+    expect(bodiesFor(":root[data-squircle] .composer").join(" ")).toContain("--sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);");
+    const face = bodiesFor(":root[data-squircle] .composer::after").join(" ");
+    expect(face).toContain("background: paint(rl-squircle);");
+    expect(face).toContain("--sq-ring: inherit; --sq-ring-w: inherit;");
+    const dropped = RULES.filter((r) => r.selectors.some((s) => s.startsWith(":root[data-squircle]") && /\.composer(\[[^\]]*\])?(:[\w-]+)*(::after)?$/.test(s) && !s.includes(".quick-chat")))
+      .filter((r) => /--sq-ring-w:\s*0|--sq-ring:\s*transparent/.test(r.body));
+    expect(dropped.map((r) => r.selectors.join(", "))).toEqual([]);
+    // Glass: the lens covers the face, so the edge is the glass's own rim, cut on the same curve.
+    expect(bodiesFor(":root[data-squircle] .composer-glass").join(" ")).toContain("border-radius: var(--r-squircle); corner-shape: squircle;");
+    const rim = RULES.find((r) => r.selectors.some((s) => s.startsWith(":root[data-glass] :is(.composer-glass,") && s.endsWith("::before")))!;
+    expect(rim.body).toContain("border-radius: inherit;");
+    expect(rim.body).toContain("background: var(--glass-specular);");
+    expect(bodiesFor(":root[data-glass] .composer-glass::before").join(" ")).toContain("corner-shape: inherit;");
+  });
+
+  it("never puts the prompter back on a round corner", () => {
+    const round = RULES.filter((r) => r.selectors.some((s) => PROMPTER.test(s)) && /corner-shape:\s*round/.test(r.body));
+    expect(round.map((r) => r.selectors.join(", "))).toEqual([]);
+    // Under the painter, every box that cuts the prompter's blur or glass is on the curve, not the
+    // circle of half the radius the fallback keeps.
+    const cut = RULES.filter((r) => r.selectors.some((s) => s.startsWith(":root[data-squircle]") && PROMPTER.test(s) && /hero-backdrop|composer-glass/.test(s)))
+      .filter((r) => /border-radius:/.test(r.body));
+    expect(cut.length).toBeGreaterThanOrEqual(4);
+    for (const r of cut) {
+      expect(r.body, r.selectors.join(", ")).not.toMatch(/\/ 2\)/);
+      expect(r.body, r.selectors.join(", ")).toContain("corner-shape: squircle");
+    }
+  });
+
+  it("gives the card, the band above it and the strip below one corner", () => {
+    // Painted: one rung and one exponent for all three.
+    const paint = RULES.find((r) => r.selectors.includes(":root[data-squircle] .composer") && r.body.includes("paint(rl-squircle)"))!;
+    for (const sel of [".composer", ...BAND, ".composer-understrip"]) expect(paint.selectors, sel).toContain(`:root[data-squircle] ${sel}`);
+    expect(paint.body).toContain("--sq-radius-top: var(--r-squircle); --sq-radius-bottom: var(--r-squircle);");
+    expect(bodiesFor(":root[data-squircle] .composer-understrip").join(" ")).toContain("--sq-radius-bottom: var(--r-squircle);");
+    const exponent = RULES.filter((r) => r.selectors.some((s) => /^:root\[data-squircle\] \.composer(-goal|-todos|-overstrip|-understrip)?$/.test(s)) && /--sq-n:/.test(r.body));
+    expect(exponent.map((r) => r.selectors.join(", "))).toEqual([]);
+    for (const seat of [":root[data-squircle] .composer-goal:has(+ .composer)", ":root[data-squircle] .composer + .composer-understrip"])
+      expect(bodiesFor(seat).join(" "), seat).toContain("--sq-seat-radius: var(--r-squircle); --sq-seat-inset: 10px;");
+    // Over a picture the band's blur takes the painted radius it stands on (the card's and the strip's
+    // are held above).
+    expect(bodiesFor(`${PICTURE}:is(${BAND.join(", ")})`).join(" ")).toContain("border-radius: var(--sq-radius-top) var(--sq-radius-top) 0 0; corner-shape: squircle;");
   });
 });
 
