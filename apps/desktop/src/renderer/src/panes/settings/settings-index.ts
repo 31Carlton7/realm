@@ -138,6 +138,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "contrast", tab: "appearance", label: "Contrast", terms: "ink text legibility readability" },
   { id: "sidebar-translucency", tab: "appearance", label: "Sidebar translucency", terms: "transparency transparent vibrancy material opacity window" },
   { id: "pane-translucency", tab: "appearance", label: "Pane translucency", terms: "transparency transparent vibrancy material opacity window" },
+  { id: "your-messages", tab: "appearance", label: "Your messages", terms: "bubble chat transparency see-through theme colour color solid" },
+  { id: "prompter-over-picture", tab: "appearance", label: "Prompter over a picture", terms: "composer background blur clear transparency see-through" },
   { id: "reduce-motion", tab: "appearance", label: "Reduce motion", terms: "animation movement accessibility" },
   { id: "app-icon", tab: "appearance", label: "App icon", terms: "dock logo alternate custom realm",
     available: () => capabilities().dockIcons && typeof window.realm?.appIcon?.set === "function" },
