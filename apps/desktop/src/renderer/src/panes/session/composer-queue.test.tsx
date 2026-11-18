@@ -512,7 +512,37 @@ describe("what a queued message runs on", () => {
       queuedOn("same", {}),
     ], "claude", "queue", { ...now });
     fireEvent.click(screen.getByRole("button", { name: /Show all/ }));
-    expect(runs()).toEqual(["Opus 5.5", "High", "Opus 5.5 · XHigh", null]);
+    expect(runs()).toEqual(["Opus 5.5", "High effort", "Opus 5.5 · XHigh", null]);
+  });
+
+  /* The case the owner asked about: a turn running on Opus, the picker moved to Sonnet, a message
+   * queued. It was queued on what the picker says, and it still runs on something other than what is
+   * running now, so it is named. */
+  it("names a message queued after the picker moved, against the turn that is running", async () => {
+    // THE MUTANT: rows read against the picker alone, which leaves exactly this row blank.
+    const queued = [queuedOn("after", {}), queuedOn("before", { model: "claude-opus-5-5", effort: "high" })];
+    const { store } = await mount(queued, "claude", "queue", { ...now });
+    act(() => { store.getState().applySessionQueue("se1", queued, null, { model: "claude-opus-5-5", effort: "high", fastMode: false }); });
+    expect(runs()).toEqual(["Sonnet 5.5 · Medium", "Opus 5.5 · High"]);
+  });
+
+  it("leaves a row blank that matches both the picker and the running turn", async () => {
+    // THE MUTANT: a part named when it differs from the turn alone, ignoring that it matches both.
+    const queued = [queuedOn("same", {})];
+    const { store } = await mount(queued, "claude", "queue", { ...now });
+    act(() => { store.getState().applySessionQueue("se1", queued, null, { ...now }); });
+    expect(runs()).toEqual([null]);
+  });
+
+  it("keeps the running turn through a reorder shown before the server answers", async () => {
+    // THE MUTANT: a local reorder that forgets the turn, and blanks the row until the next broadcast.
+    const queued = [queuedOn("a", {}), queuedOn("b", {})];
+    const { store } = await mount(queued, "claude", "queue", { ...now });
+    act(() => { store.getState().applySessionQueue("se1", queued, null, { model: "claude-opus-5-5", effort: "medium", fastMode: false }); });
+    act(() => { store.getState().applySessionQueue("se1", [queued[1]!, queued[0]!]); });
+    expect(runs()).toEqual(["Sonnet 5.5", "Sonnet 5.5"]);
+    act(() => { store.getState().applySessionQueue("se1", []); });
+    expect("se1" in store.getState().queueTurns).toBe(false);
   });
 
   it("says the default rather than a blank where the message asked for none", async () => {

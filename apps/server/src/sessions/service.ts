@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, defaultModelKey, readModelDefaults, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type TabRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, defaultModelKey, readModelDefaults, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type TabRef, type QueuedPrompt, type QueueTurn, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, runsInFullAccess, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import { ASKS_IN_FULL_ACCESS, fullAccessAllows, fullAccessLogLine } from "@realm/contracts";
@@ -219,6 +219,11 @@ export class SessionService {
   /** Sessions switched to a permission mode their running engine takes only at launch. The engine is
    *  started again — same conversation, the row's mode — before the next message goes out. */
   private restartOwed = new Set<string>();
+  /** What the running turn went out on, per session, from its delivery to its settle (`QueueTurn`). */
+  private turnOn = new Map<string, QueueTurn>();
+  /** What a queued message's turn moved on the session (`set`), and what the session said before it
+   *  (`was`): put back when that turn ends, so the picker is again what the person last chose. */
+  private putBack = new Map<string, { was: Partial<QueueTurn>; set: Partial<QueueTurn> }>();
   /** `QUEUE_HOLD_TTL_MS`, as a field so a test can wait out a hold without waiting ten minutes. */
   queueHoldTtlMs = QUEUE_HOLD_TTL_MS;
   /** The reply each session is streaming, as far as its deltas have got (`sessions.streaming`).
@@ -805,27 +810,63 @@ export class SessionService {
     return this.movesUnderWay.get(id) ?? null;
   }
 
+  /** What the running turn went out on, or null between turns. */
+  queueTurn(id: string): QueueTurn | null {
+    this.get(id);
+    return this.turnOn.get(id) ?? null;
+  }
+
   private wireQueue(id: string): QueuedPrompt[] {
     const held = this.queueHolds.get(id)?.queuedId;
     return (this.queued.get(id) ?? []).map((w) => ({ ...w.prompt, held: w.prompt.id === held }));
   }
 
   private broadcastQueue(id: string): void {
-    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id), move: this.pendingMove(id) });
+    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id), move: this.pendingMove(id), turn: this.turnOn.get(id) ?? null });
   }
 
   /** Put a queued message's model, level and fast mode back on the session, where they have moved
-   *  since it was queued, and tell the windows: their picker has to say what this turn runs on. */
+   *  since it was queued, and tell the windows: their picker has to say what this turn runs on. What
+   *  the session said before is kept for the turn's end (`putBackAfterTurn`). */
   private async runQueuedWith(id: string, w: QueuedRun): Promise<void> {
     const s = this.get(id);
     if (s.agentKind !== w.agentKind) return;
-    const o = {
+    const o: Partial<QueueTurn> = {
       ...(w.model !== s.model ? { model: w.model } : {}),
       ...(w.effort !== s.effort ? { effort: w.effort } : {}),
       ...(w.fastMode !== s.fastMode ? { fastMode: w.fastMode } : {}),
     };
-    if (Object.keys(o).length === 0) return;
+    const keys = Object.keys(o) as (keyof QueueTurn)[];
+    if (keys.length === 0) return;
+    // A second message sent into the same turn (a steer on Codex) keeps the first one's `was`: that
+    // is what the person had chosen.
+    const prev = this.putBack.get(id);
+    const was = Object.fromEntries(keys.map((k) => [k, s[k]])) as Partial<QueueTurn>;
+    this.putBack.set(id, { was: { ...was, ...prev?.was }, set: { ...prev?.set, ...o } });
     await this.setOptions(id, o);
+    this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
+  }
+
+  /** Record what this turn goes out on, and tell a prompter with rows waiting. */
+  private noteTurnOn(id: string): void {
+    const { model, effort, fastMode } = this.get(id);
+    this.turnOn.set(id, { model, effort, fastMode });
+    if (this.queued.has(id)) this.broadcastQueue(id);
+  }
+
+  /**
+   * The turn a queued message ran ended: the session goes back to what it said before that message
+   * moved it, unless the picker moved during the turn — then the person's choice stands. Called on
+   * the settle, ahead of the drain, and synchronous up to `setOptions`' own write of the row, so the
+   * next queued message reads the session as put back.
+   */
+  private async putBackAfterTurn(id: string): Promise<void> {
+    const owed = this.putBack.get(id);
+    this.putBack.delete(id);
+    const s = this.d.sessions.get(id);
+    if (!owed || !s) return;
+    if (!(Object.keys(owed.set) as (keyof QueueTurn)[]).every((k) => s[k] === owed.set[k])) return;
+    await this.setOptions(id, owed.was);
     this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
   }
 
@@ -848,6 +889,7 @@ export class SessionService {
     await this.grantMentionedApps(id, msg);
     if (msg.permissionMode !== undefined && msg.permissionMode !== this.get(id).permissionMode) await this.setOptions(id, { permissionMode: msg.permissionMode });
     if (msg.runsWith) await this.runQueuedWith(id, msg.runsWith);
+    this.noteTurnOn(id);
     // Stopped the way the idle sweep stops an engine, so this message starts a fresh one that resumes
     // the conversation in the mode the old one could not switch to.
     if (this.restartOwed.delete(id)) void this.reap(id);
@@ -1658,6 +1700,8 @@ export class SessionService {
     this.queueHolds.delete(id);
     this.drainOwed.delete(id);
     this.restartOwed.delete(id);
+    this.turnOn.delete(id);
+    this.putBack.delete(id);
     this.streamed.delete(id);
     this.pendingMoves.delete(id);
     this.moveAborts.get(id)?.abort();
@@ -2672,6 +2716,11 @@ export class SessionService {
         // those starts the next turn, and a cursor read after that would describe the wrong one.
         this.noteTurnCursor(id, before);
         this.d.checkpoints?.endTurn(id);
+        // Ahead of the drain below and of a Send now waiting on this settle, on a Stop as well: what a
+        // queued message's turn changed on the session is over with the turn.
+        this.turnOn.delete(id);
+        void this.putBackAfterTurn(id).catch(() => {});
+        if (this.queued.has(id)) this.broadcastQueue(id);
         void this.d.summaries?.onSettled(id);
         /* The turn that was blocking the queue just ended — unless the USER ended it, in which case
          * the queue stays parked. Stop has to mean stop: a queued message that started a fresh turn

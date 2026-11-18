@@ -1,4 +1,4 @@
-import { basenameOf, steerNote, type AgentKind, type QueuedPrompt } from "@realm/contracts";
+import { basenameOf, steerNote, type AgentKind, type QueuedPrompt, type QueueTurn } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { formatEffort } from "@realm/view";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
@@ -19,21 +19,25 @@ export type QueueActions = {
   onMove: (queuedId: string, before: string | null) => void;
 };
 
-/** What the session is set to now, which each queued message is read against, and the name the
- *  picker's chip gives a model id. */
-type SessionRun = { model: string | null; effort: string | null; fastMode: boolean; modelName: (model: string | null) => string };
+/** What the session is set to now and what its running turn went out on (null between turns), which
+ *  each queued message is read against, and the name the picker's chip gives a model id. */
+type SessionRun = QueueTurn & { turn: QueueTurn | null; modelName: (model: string | null) => string };
 
 /**
- * What a queued message will run on that the session is no longer set to — "Opus 5.5 · High" — and
- * only that part: a message queued on what the picker still says has nothing to add. Null too for a
- * message from a server that did not keep them.
+ * What a queued message will run on, where that is not what the picker says now or not what the
+ * turn running went out on — "Opus 5.5 · XHigh" — and only those parts. A message queued after the
+ * picker moved mid-turn matches the picker and not the turn, and is named; one matching both has
+ * nothing to add. A level alone says what it is a level of. Null too for a message from a server
+ * that did not keep them.
  */
 function runsOnLabel(q: QueuedPrompt, now: SessionRun): string | null {
-  const parts = [
-    q.model !== undefined && q.model !== now.model ? now.modelName(q.model) : null,
-    q.effort !== undefined && q.effort !== now.effort ? (q.effort ? formatEffort(q.effort) : "Default effort") : null,
-    q.fastMode !== undefined && q.fastMode !== now.fastMode ? (q.fastMode ? "Fast" : "Fast off") : null,
-  ].filter((p) => p !== null);
+  const differs = <K extends keyof QueueTurn>(k: K, v: QueueTurn[K] | undefined) =>
+    v !== undefined && (v !== now[k] || (now.turn !== null && v !== now.turn[k]));
+  const model = differs("model", q.model) ? now.modelName(q.model ?? null) : null;
+  // Beside a model the level reads as the chip writes it, "Opus 5.5 · XHigh".
+  const level = !differs("effort", q.effort) ? null
+    : !q.effort ? "Default effort" : model ? formatEffort(q.effort) : `${formatEffort(q.effort)} effort`;
+  const parts = [model, level, differs("fastMode", q.fastMode) ? (q.fastMode ? "Fast" : "Fast off") : null].filter((p) => p !== null);
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 

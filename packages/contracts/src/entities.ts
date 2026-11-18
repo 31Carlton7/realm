@@ -465,3 +465,7 @@ export const QueuedPromptSchema = z.object({
   fastMode: z.boolean().optional(),
 });
 export type QueuedPrompt = z.infer<typeof QueuedPromptSchema>;
+/** The model, level and fast mode the session's running turn went out on, beside its queue: a queued
+ *  row names what it runs on against this as well as against the picker, which may have moved since. */
+export const QueueTurnSchema = z.object({ model: z.string().nullable(), effort: z.string().nullable(), fastMode: z.boolean() });
+export type QueueTurn = z.infer<typeof QueueTurnSchema>;

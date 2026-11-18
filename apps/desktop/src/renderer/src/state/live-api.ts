@@ -165,8 +165,8 @@ export const liveApi = (): Api => ({
   editQueuedPrompt: async (id, queuedId, text) => (await rpc().call("sessions.editQueued", { id, queuedId, text })).edited,
   moveQueuedPrompt: async (id, queuedId, before) => { await rpc().call("sessions.moveQueued", { id, queuedId, before }); },
   sessionQueue: async (id) => {
-    const { queued, move } = await rpc().call("sessions.queued", { id });
-    return { queued, move: move ?? null };
+    const { queued, move, turn } = await rpc().call("sessions.queued", { id });
+    return { queued, move: move ?? null, turn: turn ?? null };
   },
   planLimits: async () => (await rpc().call("limits.get", {})).limits,
   recordFeedback: async (id, messageId, rating) => { await rpc().call("sessions.recordFeedback", { id, messageId, rating }); },

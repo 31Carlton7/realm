@@ -27,7 +27,7 @@ import {
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
-  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
+  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type QueueTurn, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -439,7 +439,7 @@ export type Api = TeammatesApi & {
   /** `sessions.moveQueued` — put a queued message in front of `before`, or last when it is null. */
   moveQueuedPrompt(id: string, queuedId: string, before: string | null): Promise<void>;
   /** `sessions.queued` — the messages waiting behind the turn, and any move waiting or under way. */
-  sessionQueue(id: string): Promise<{ queued: QueuedPrompt[]; move: PendingMove | null }>;
+  sessionQueue(id: string): Promise<{ queued: QueuedPrompt[]; move: PendingMove | null; turn?: QueueTurn | null }>;
   /** `limits.get` — every provider's plan quota as last reported. */
   planLimits(): Promise<PlanLimits[]>;
   recordFeedback(id: string, messageId: string, rating: Rating | null): Promise<void>;
@@ -1369,6 +1369,9 @@ export type AppState = TeammatesSlice & {
   /** Messages waiting for a session's current turn to end, oldest first, from `session.queue`. The
    *  key is dropped when a queue empties, so a session with nothing waiting holds nothing here. */
   sessionQueues: Record<string, QueuedPrompt[]>;
+  /** What each session's running turn went out on, beside its queue (`session.queue`'s `turn`): held
+   *  only while something is waiting, since only a queued row reads it. */
+  queueTurns: Record<string, QueueTurn>;
   /** Where a move asked for with "Move after this turn" goes, while it waits for the turn to end:
    *  the server's queue `move` with no step yet, from `session.queue` and `sessions.queued`. The
    *  prompter's queue says so and can call it off. Dropped once the move starts, ends or is cancelled. */
@@ -2247,7 +2250,9 @@ export type AppState = TeammatesSlice & {
    *  called directly only where a caller must see the stream's current text without waiting. */
   flushSessionDeltas(): void;
   applySessionStatus(sessionId: string, status: SessionStatus): void;
-  applySessionQueue(sessionId: string, queued: QueuedPrompt[], move?: PendingMove | null): void;
+  /** `turn` left out keeps what the session's last read said: a reorder shown before the server
+   *  answers knows nothing about the turn. */
+  applySessionQueue(sessionId: string, queued: QueuedPrompt[], move?: PendingMove | null, turn?: QueueTurn | null): void;
   applyPlanLimits(limits: PlanLimits[]): void;
   refreshPlanLimits(): Promise<void>;
   refreshSessionQueue(sessionId: string): Promise<void>;
@@ -4665,7 +4670,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, queueTurns: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -6384,7 +6389,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       applyPlanLimits(limits) { set({ planLimits: limits }); },
       async refreshPlanLimits() { set({ planLimits: await api.planLimits() }); },
-      applySessionQueue(sessionId, queued, move = null) {
+      applySessionQueue(sessionId, queued, move = null, turn) {
         // An empty queue drops its key rather than storing `[]`: the prompter asks "is anything
         // waiting", and one shape for "no" is fewer than two.
         const rest = { ...get().sessionQueues };
@@ -6392,11 +6397,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A move with a step is under way, and the transcript's progress row says so instead.
         const pendingMoves = { ...get().pendingMoves };
         if (move && move.step === null) pendingMoves[sessionId] = move.to; else delete pendingMoves[sessionId];
-        set({ sessionQueues: rest, pendingMoves });
+        const queueTurns = { ...get().queueTurns };
+        if (turn !== undefined) delete queueTurns[sessionId];
+        if (turn && queued.length > 0) queueTurns[sessionId] = turn;
+        if (queued.length === 0) delete queueTurns[sessionId];
+        set({ sessionQueues: rest, pendingMoves, queueTurns });
       },
       async refreshSessionQueue(sessionId) {
-        const { queued, move } = await api.sessionQueue(sessionId);
-        get().applySessionQueue(sessionId, queued, move);
+        const { queued, move, turn = null } = await api.sessionQueue(sessionId);
+        get().applySessionQueue(sessionId, queued, move, turn);
       },
       async refreshSavedTurns(sessionId) {
         get().applySavedTurns(sessionId, await api.savedTurns(sessionId));
