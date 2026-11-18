@@ -3533,7 +3533,9 @@ body { --focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, tr
 :root[data-mode="dark"] { --link-over-picture: color-mix(in oklab, var(--accent) 50%, var(--ink)); }
 .session-pane:has(> .hero-backdrop[data-phase="chat"]) {
   --rl-text-dim: var(--ink-2-over-picture); --chat-link: var(--link-over-picture); }
-.session-pane:has(> .hero-backdrop[data-phase="chat"]) .md a:not(.msg-chip) { color: var(--chat-link, var(--rl-accent)); }
+/* A footnote's number and back arrow keep their quiet ink: this rule outranks theirs. */
+.session-pane:has(> .hero-backdrop[data-phase="chat"]) .md a:not(.msg-chip, [data-footnote-ref], [data-footnote-backref]) {
+  color: var(--chat-link, var(--rl-accent)); }
 /* Dropping a file anywhere on the pane. Inset from the panel edge rather than flush to it, so the
    glow reads as this pane's — in a four-way split a flush ring would run straight into its
    neighbour's and the two would look like one target.

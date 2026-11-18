@@ -5773,7 +5773,19 @@ describe("ink over a picture behind the chat", () => {
     expect(bodiesFor(":root").join(" ")).toContain("--ink-2-over-picture: color-mix(in oklab, var(--ink) 50%, var(--ink-2))");
     expect(bodiesFor(':root[data-mode="light"]').join(" ")).toContain("--link-over-picture: var(--accent-ink)");
     expect(bodiesFor(':root[data-mode="dark"]').join(" ")).toContain("--link-over-picture: color-mix(in oklab, var(--accent) 50%, var(--ink))");
-    expect(bodiesFor(scope + " .md a:not(.msg-chip)").join(" ")).toContain("color: var(--chat-link, var(--rl-accent))");
+    expect(bodiesFor(scope + " .md a:not(.msg-chip, [data-footnote-ref], [data-footnote-backref])").join(" "))
+      .toContain("color: var(--chat-link, var(--rl-accent))");
+  });
+
+  it("leaves a footnote's number and back arrow in their quiet ink", () => {
+    // THE MUTANT: a scoped link colour that outranks `.md a[data-footnote-ref]` and paints the
+    // number in the link accent over a picture (seen in the Synth Coast captures).
+    const scoped = RULES.flatMap((r) => r.selectors.filter((sel) => /\S\s+\.md a\b/.test(sel) && /(^|[\s;])color:/.test(r.body)));
+    expect(scoped.length).toBeGreaterThan(0);
+    for (const sel of scoped) {
+      expect(sel).toContain("[data-footnote-ref]");
+      expect(sel).toContain("[data-footnote-backref]");
+    }
   });
 });
 
