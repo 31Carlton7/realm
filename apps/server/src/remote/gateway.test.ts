@@ -868,9 +868,11 @@ describe("Plan 29's parity: the queue, sub-agents and Review on a paired phone",
     expect(MobileCalls["session.open"].result.parse(await phone.call("session.open", { id })).queued).toEqual([]);
     const queues: unknown[] = [];
     phone.on("session.queue", (p) => { queues.push(p); });
-    const running = phone.waitFor("session.status", (p) => { const e = MobileEvents["session.status"].parse(p); return e.id === id && e.status === "running" ? e : undefined; });
-    await phone.call("session.send", { id, text: "take your time" });
-    await running;
+    // The turn waits on a permission card until the queue is done with, rather than running for a
+    // set time: a 3.6 s turn left this test under a second of its 5 s on an idle Mac, and CI ran out.
+    const asked = nextEvent(r.mac, "session.event", (p) => p.sessionId === id && p.event.type === "permission_request");
+    await phone.call("session.send", { id, text: "run it" });
+    const card = await asked;
 
     // THE MUTANT: leave `session.queue` among the broadcasts the gateway drops, and none of these comes.
     let next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.length === 1 ? queueOf(p, id) : undefined);
@@ -896,14 +898,17 @@ describe("Plan 29's parity: the queue, sub-agents and Review on a paired phone",
     expect(MobileCalls["session.queue"].result.parse(await phone.call("session.queue", { id })).queued.map((q) => q.text)).toEqual(["first, edited"]);
 
     // The turn ends and the queue drains into the next one, as the edit left it.
-    const sent = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "user" && row.text === "first, edited"), 15_000);
-    next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.length === 0 ? queueOf(p, id) : undefined, 15_000);
+    const sent = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "user" && row.text === "first, edited"));
+    next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.length === 0 ? queueOf(p, id) : undefined);
+    await r.mac.call("sessions.respondPermission", { id, requestId: (card.event.payload as { requestId: string }).requestId, decision: "allow" });
     await next;
     await sent;
     // Too late to hold what has gone out.
     await expect(phone.call("session.holdQueued", { id, queuedId: first!.id, held: true })).rejects.toMatchObject({ code: "NOT_FOUND" });
     // Only the session the phone has open: another's queue never reaches it.
-    await r.mac.call("sessions.send", { id: other, text: "take your time" });
+    const otherAsked = nextEvent(r.mac, "session.event", (p) => p.sessionId === other && p.event.type === "permission_request");
+    await r.mac.call("sessions.send", { id: other, text: "run it" });
+    await otherAsked;
     await r.mac.call("sessions.send", { id: other, text: "not for the phone", delivery: "queue" });
     await new Promise((res) => setTimeout(res, 300));
     expect(queues.every((p) => MobileEvents["session.queue"].parse(p).id === id)).toBe(true);
