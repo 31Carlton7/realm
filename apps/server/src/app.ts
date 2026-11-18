@@ -2016,7 +2016,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    */
   const closeApp = async (): Promise<void> => {
     // An agent probe still asking its CLI goes first and at once: opencode and Hermes ignore the EOF a
-    // dispose gives them, and would hold the quit for the probe's own timeout.
+    // dispose gives them, and would hold the quit for the probe's own timeout. No new one starts after.
+    sessions.stopProbing();
     endProbes();
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     claudeBackfill?.stop(); // likewise for Claude's memory: no run starts on a closing handle
@@ -2059,6 +2060,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     remote.close();
     await access?.close();
     await rpc.close();
+    // Again, for a probe that was already past `stopProbing` and still resolving its CLI then, and
+    // spawned while the steps above ran.
+    endProbes();
     db.close();
   };
 

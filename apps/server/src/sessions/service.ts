@@ -254,6 +254,8 @@ export class SessionService {
    *  turn's — and a steered message, which takes no checkpoint, starts the moment the settle lands. */
   private measuring = new Map<string, Promise<void>>();
   private closing = false;
+  /** Set by `stopProbing`: the app is closing, and a probe started now would spawn past `endProbes`. */
+  private probingStopped = false;
   /** The questions open right now, by requestId, from whichever feed raised them — what an answer is
    *  read against to learn which of it is masked. */
   private asked = new Map<string, { sessionId: string; card: AskCard }>();
@@ -446,7 +448,11 @@ export class SessionService {
    * probe, a dozen crash reports in twenty minutes); its row says Realm couldn't check it. A forced
    * probe is somebody asking on purpose, so it asks the CLI regardless.
    */
+  /** Closing: no probe starts from here on. Called with `endProbes`, which ends those already out. */
+  stopProbing(): void { this.probingStopped = true; }
+
   private async probeAdapter(adapter: AgentAdapter, force: boolean): Promise<ProbeResult> {
+    if (this.probingStopped) return { kind: adapter.kind, available: false, version: null, loggedIn: null, reason: "Realm is shutting down" };
     const held = this.probeBackoff.get(adapter.kind);
     if (held && !force && Date.now() < held.until) return held.row;
     const row = await adapter.probe().catch((e: unknown): ProbeResult =>

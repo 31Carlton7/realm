@@ -122,4 +122,23 @@ describe("closing the app", () => {
       for (const k of Object.keys(set)) delete process.env[k];
     }
   }, 20_000);
+
+  it("starts no probe once it has begun closing", async () => {
+    // MUTANT: drop the stopProbing check and this probe spawns its agent during close.
+    const marker = join(tempDir("realm-probe-"), "child.pid");
+    process.env.FAKE_ACP_CHILD_PID = marker;
+    try {
+      await withGeminiStub(async () => {
+        const app = await createApp({ home: tempDir("realm-home-"), port: 0, adapters: { "acp:gemini": defaultAdapters()["acp:gemini"]! } });
+        const closing = app.close();
+        const rows = await app.sessions.probe({ force: true });
+        await closing;
+        await new Promise((r) => setTimeout(r, 300));
+        expect({ spawned: existsSync(marker), reason: rows[0]?.reason }).toEqual({ spawned: false, reason: "Realm is shutting down" });
+      });
+    } finally {
+      delete process.env.FAKE_ACP_CHILD_PID;
+      if (existsSync(marker)) { try { process.kill(Number(readFileSync(marker, "utf8")), "SIGKILL"); } catch { /* gone */ } }
+    }
+  }, 20_000);
 });
