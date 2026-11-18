@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.18.0 - 2026-11-18
+
+Realm lets the picture through.
+
+### New
+
+- Glass, a look for Realm's floating controls. In Settings, Appearance, Controls, choose Plain or Glass. Glass is a lens with a lit edge on the prompter, the pickers, the selection bar, the selected part of each segmented control and the switch knobs. Over a picture it bends the picture itself and adds no fill of its own. Plain is the default, and Glass goes back to Plain under Reduce transparency, Low power and the Mac's Low Power Mode.
+- Import a theme from Appearance. "Import a theme" under each face's themes lists the themes your installed editors carry (VS Code, Insiders, Cursor, Windsurf and VSCodium), then "Choose a theme file" and "Describe a theme". Picking one opens a new session with the import already asked for, and Realm switches to it.
+- Footnotes in an agent's answer. A small number sits in the line, the notes sit under a hairline at the end of the message, and clicking a number or its back arrow jumps within that message.
+- Two new choices in Settings, Appearance. "Prompter over a picture" is Blur (the default) or Clear, which shows the picture as it is. "Your messages" is See-through (the default) or Theme colour, which keeps the solid bubble.
+
+### Improved
+
+- Over a picture or a loop, the prompter and your messages take the picture's colour instead of laying a grey on it. The prompter's ground is the picture itself, blurred and dimmed, and the brownish glow round it is gone.
+- Panes start fully see-through on a new install. If you moved the Pane translucency slider, your setting is kept. Settings and the other pages stand on the same ground as a session.
+- Long lists in Appearance fold after three rows, with "Show all" to open the rest in place. The theme grids, imported themes, backgrounds and your images all fold, and a choice past the fold still shows. Backgrounds that move wear a play mark.
+- Markdown sits on light tints of the text colour, so the pane and the picture show through tables, code and inline code. Tables are rounded cards, headings, lists, quotes and callouts are calmer, and code in Documents has the same language label, copy button and colours as in a chat. Typing in a document with long code blocks is much quicker.
+- The Agents tab orders its sub-agent tabs like its cards: waiting on you first, then working, then ended. Ended ones fold behind "Show all", and the tab you are reading never folds.
+- The "···" beside the space's name is always shown, not only on hover. The Team access card can be closed, and it comes back only when the team's access changes.
+- The Documents home draws each file as its mark alone, and its search and New thin with the pane. Document tabs and the home's rows share the rounding of Realm's other controls, and the home tab is now the same height as the rest.
+
+### Fixed
+
+- Footnotes in an answer no longer show as raw text.
+- Scrollbars on code blocks and wide tables stay off the rounded corners, and a table's tinted head and rows run all the way into its corners.
+- Callouts in markdown are drawn as callouts again, not as plain quotes.
+
 ## v2.17.2 - 2026-11-17
 
 - Quitting Realm ends the agent checks it had running. The checks Realm runs to see which agents are installed (opencode, Hermes, Cursor and others) no longer keep running after the app has closed, and neither does anything they started. A check cut short by quitting no longer marks that agent as unavailable the next time Realm opens.
