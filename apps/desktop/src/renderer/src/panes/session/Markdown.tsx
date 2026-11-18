@@ -273,7 +273,8 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
       e.preventDefault();
       const id = (note.getAttribute("href") ?? "").slice(1);
       const to = Array.from(body.current?.querySelectorAll("[id]") ?? []).find((el) => el.id === id);
-      to?.scrollIntoView({ block: "nearest" });
+      // Centred, so the note clears the fade at the transcript's foot and the prompter docked over it.
+      to?.scrollIntoView({ block: "center" });
       return;
     }
     const session = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-session]") : null;
