@@ -14,6 +14,9 @@ import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
 import { EmptyState } from "../../components/EmptyState";
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
+import { FoldedList } from "../../components/settings/FoldedList";
+import { SpaceIcon } from "../../components/SpaceIcon";
+import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
 import { SessionsList } from "./SessionsList";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -76,15 +79,15 @@ export function EnvironmentList({ spaceId }: { spaceId: string }) {
       {rows.length === 0
         ? <p className="env-empty">This space has not run anything yet, so it has no checkout on record.</p>
         : (
-          <ul className="env-list">
-            {rows.map(({ e, here, running, lastAt, git }) => {
+          // Three cards, then the rest behind "Show all", in the same order (design.md).
+          <FoldedList items={rows} keyOf={(r) => r.e.id} chosen={null} listClass="env-list" render={({ e, here, running, lastAt, git }) => {
               const branch = git?.branch ?? e.branch;
               // A worktree is named by its branch — its folder keeps the name it was made with, which
               // an untitled session's branch has since outgrown — so its git line carries only counts.
               const name = e.kind === "primary" ? spaceName : e.kind === "worktree" && branch ? branch : e.path.replace(/\/+$/, "").split("/").pop();
               const counts = git ? [git.dirty > 0, git.ahead > 0, git.behind > 0].some(Boolean) : false;
               return (
-                <li key={e.id} className="env-row" data-kind={e.kind}>
+                <div className="env-row" data-kind={e.kind}>
                   <div className="env-main">
                     <Icon name={e.kind === "worktree" ? "branch" : "folder"} size={14} />
                     <span className="env-name" title={name}>{name}</span>
@@ -115,10 +118,9 @@ export function EnvironmentList({ spaceId }: { spaceId: string }) {
                       <button type="button" className="btn-quiet" onClick={() => run(() => askRemoveWorktree(e.id))}>Remove…</button>
                     )}
                   </div>
-                </li>
+                </div>
               );
-            })}
-          </ul>
+            }} />
         )}
     </div>
   );
@@ -142,38 +144,57 @@ function GeneralTab({ spaceId }: { spaceId: string }) {
   const commitHex = (v: string) => { const h = v.trim().toLowerCase(); setHex(h); if (HEX.test(h) && h !== space.color) run(() => updateSpace({ id: space.id, color: h })); };
 
   return (
-    <div className="form">
-      <label className="field"><span>Name</span>
-        <input aria-label="Space name" value={name} onChange={(e) => setName(e.target.value)} onBlur={commitName}
-          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
-      </label>
-      <div className="field"><span>Icon</span>
-        <IconPicker icon={space.icon} profileId={space.profileId} onPick={(ic) => run(() => updateSpace({ id: space.id, icon: ic }))} />
-      </div>
-      <div className="field"><span>Color</span>
-        <div className="swatches" role="radiogroup" aria-label="Color">
-          {SPACE_COLORS.map((c) => (
-            <button key={c} type="button" role="radio" aria-checked={space.color === c} aria-label={`Color ${c}`} className="swatch" data-selected={space.color === c || undefined}
-              style={{ background: c }} onClick={() => commitHex(c)} />
-          ))}
-          <input aria-label="Custom color" className="hex" value={hex} onChange={(e) => commitHex(e.target.value)} placeholder="#rrggbb" spellCheck={false} />
+    <div className="space-general">
+      <div className="settings-group">
+        <label className="settings-row space-row">
+          <span className="settings-row-main"><span className="settings-row-name">Name</span></span>
+          <input className="search-field" aria-label="Space name" value={name} spellCheck={false} onChange={(e) => setName(e.target.value)} onBlur={commitName}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+        </label>
+        <div className="settings-row space-row">
+          <span className="settings-row-main"><span className="settings-row-name">Icon</span></span>
+          <div className="space-row-control">
+            <IconPicker icon={space.icon} profileId={space.profileId} buttonClass="btn" onPick={(ic) => run(() => updateSpace({ id: space.id, icon: ic }))} />
+          </div>
         </div>
+        <div className="settings-row space-row">
+          <span className="settings-row-main"><span className="settings-row-name">Color</span></span>
+          <div className="swatches" role="radiogroup" aria-label="Color">
+            {SPACE_COLORS.map((c) => (
+              <button key={c} type="button" role="radio" aria-checked={space.color === c} aria-label={`Color ${c}`} className="swatch" data-selected={space.color === c || undefined}
+                style={{ background: c }} onClick={() => commitHex(c)} />
+            ))}
+            <input aria-label="Custom color" className="search-field hex" value={hex} onChange={(e) => commitHex(e.target.value)} placeholder="#rrggbb" spellCheck={false} />
+          </div>
+        </div>
+        <label className="settings-row space-row">
+          <span className="settings-row-main"><span className="settings-row-name">Profile</span></span>
+          {/* The field is the search field's own painted shape; the select lies clear over it. */}
+          <span className="search-field space-select">
+            <select aria-label="Profile" value={space.profileId} onChange={(e) => run(() => updateSpace({ id: space.id, profileId: e.target.value }))}>
+              {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <Icon name="chevronDown" size={14} />
+          </span>
+        </label>
       </div>
-      <label className="field"><span>Profile</span>
-        <select aria-label="Profile" value={space.profileId} onChange={(e) => run(() => updateSpace({ id: space.id, profileId: e.target.value }))}>
-          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </label>
-      <div className="form-actions danger-zone">
-        {confirmDelete ? (
-          <>
-            <span className="muted">Delete “{space.name}” and its items?</span>
-            <button type="button" className="btn" onClick={() => setConfirmDelete(false)}>Cancel</button>
-            {/* No sheet to close (the page dies with the space): deleteSpace removes the space, its
-                items — this page included — and activates a neighbour. */}
-            <button type="button" className="btn danger" onClick={() => run(() => deleteSpace(space.id))}>Delete</button>
-          </>
-        ) : <button type="button" className="btn danger" onClick={() => setConfirmDelete(true)}>Delete space…</button>}
+      <div className="settings-group">
+        <div className="settings-row space-row danger-zone">
+          {confirmDelete ? (
+            <>
+              <span className="settings-row-main"><span className="settings-row-name">Delete “{space.name}” and its items?</span></span>
+              <button type="button" className="btn" onClick={() => setConfirmDelete(false)}>Cancel</button>
+              {/* No sheet to close (the page dies with the space): deleteSpace removes the space, its
+                  items — this page included — and activates a neighbour. */}
+              <button type="button" className="btn danger" onClick={() => run(() => deleteSpace(space.id))}>Delete</button>
+            </>
+          ) : (
+            <>
+              <span className="settings-row-main"><span className="settings-row-name">Delete this space</span></span>
+              <button type="button" className="btn danger" onClick={() => setConfirmDelete(true)}>Delete space…</button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -620,6 +641,7 @@ export function SpacePage({ item }: PaneProps) {
   const navigateInPane = useApp((s) => s.navigateInPane);
   const openSkillPage = useApp((s) => s.openSkillPage);
   const run = useApp((s) => s.run);
+  const tint = useSpaceTint(space?.color);
 
   if (!space) return <div className="pane-placeholder muted">This space no longer exists.</div>;
   const label = PAGE_TABS.find((t) => t.id === tab)?.label ?? "General";
@@ -643,12 +665,14 @@ export function SpacePage({ item }: PaneProps) {
         </fieldset>
         </PageRail>
         <PageScroll wide={tab === "tasks" || tab === "sessions"}>
-          {/* The head names what the page SHOWS — the section — and the space it is seen from beside
-              it, as Settings and the Library do (design.md). Plain text: the space's colour is carried
-              by its icon in the sidebar, where a person tells spaces apart. */}
-          <header className="page-head">
-            <div className="page-title"><h1>{label}</h1></div>
-            <span className="page-vantage">{space.name}</span>
+          {/* A space's page is about one thing, the space, so its head is the space — its icon in its
+              colour and its name — and the section it shows is the line under it (design.md). */}
+          <header className="page-head space-page-head">
+            <span className="space-page-icon" style={tint ? { color: tint } : undefined} aria-hidden="true"><SpaceIcon icon={space.icon} size={20} /></span>
+            <div className="page-title">
+              <h1>{space.name}</h1>
+              <h2 className="space-page-section">{label}</h2>
+            </div>
           </header>
           {tab === "general" && <GeneralTab spaceId={spaceId} />}
           {tab === "memory" && <MemoryTab spaceId={spaceId} />}
