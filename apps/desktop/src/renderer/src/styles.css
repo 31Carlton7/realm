@@ -629,9 +629,17 @@ kbd { font: 11px var(--font-mono); }
 /* The space's name as the column's title (SpaceTitle): plain, its "···" always drawn in the quiet ink
    (the owner, 11-17: "should be persistent and shouldn't show every time we hover"), lit under the
    pointer and while its menu is open like any row action. */
-.sb-space-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 2px 0 8px; }
+.sb-space-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 2px 0 0; }
+/* The name and its icon are the button that opens the space's page, lit under the pointer the way the
+   Back that takes this row's place on a page is: its 8px inset is the one the title had, so the icon
+   stands where it stood, and the gap after the name stays the column's to drag the window by. */
+.sb-space-head { flex: 0 1 auto; min-width: 0; margin: 0; display: flex; }
+.sb-space-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
+  border-radius: var(--r-ctl); corner-shape: squircle; }
+button.sb-space-open:hover { background: var(--rl-hover); }
 .sb-space-name { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+span.sb-space-open { flex: 1; }
 input.sb-space-name { flex: 1; }
 .item-act.sb-space-more { margin-left: auto; color: var(--rl-text-faint); }
 .sb-profile-mark { flex: none; display: grid; place-items: center; }

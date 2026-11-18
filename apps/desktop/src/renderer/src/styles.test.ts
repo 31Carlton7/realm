@@ -498,6 +498,11 @@ describe("§6 motion table", () => {
     // The space's name is the unbounded part of its row, so it is what gives way.
     expect(bodiesFor(".sb-space-title").join(" ")).toContain("min-width: 0");
     expect(bodiesFor(".sb-space-name").join(" ")).toContain("text-overflow: ellipsis");
+    // The name is a button that opens the space's page, lit under the pointer like the Back in its
+    // place, and only as wide as the name: the rest of the row stays the window's to drag by.
+    expect(bodiesFor(".sb-space-head").join(" ")).toContain("flex: 0 1 auto");
+    expect(bodiesFor("button.sb-space-open:hover").join(" ")).toContain("background: var(--rl-hover)");
+    expect(bodiesFor(".sb-space-open").join(" ")).toContain(bodiesFor(".sb-page-back")[0]!.match(/border-radius: [^;]+/)![0]);
     expect(bodiesFor(".sb-header-actions").join(" ")).toContain("flex: none");
   });
 
