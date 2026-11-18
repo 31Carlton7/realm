@@ -178,6 +178,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__space_switch": internal,
   "realm-workspace__space_create": internal,
   "realm-workspace__settings_set": internal,
+  "realm-workspace__theme_import": internal,
 
   "realm-schedule__schedule_create": internal,
 

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { readMode, vscodeToSeed, type SeedReport, type StoredTheme, type VsCodeTheme } from "@realm/contracts";
+import { readMode, vscodeToSeed, type EditorTheme, type SeedReport, type StoredTheme, type VsCodeTheme } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 
 /**
@@ -87,9 +88,76 @@ export function readThemeFile(path: string, depth = 0): VsCodeTheme {
 
 const INCLUDE_DEPTH = 4;
 
+/** A folder of editor extensions, each extension a folder with its `package.json`. */
+export type ExtensionsFolder = { editor: string; dir: string };
+
+/** Where the editors that take VS Code themes keep their extensions: the ones a person installed,
+ *  under their home, and the ones the app ships with, inside it. */
+export function editorExtensionFolders(home = homedir()): ExtensionsFolder[] {
+  const app = (name: string) => `/Applications/${name}.app/Contents/Resources/app/extensions`;
+  return [
+    { editor: "VS Code", dir: join(home, ".vscode/extensions") }, { editor: "VS Code", dir: app("Visual Studio Code") },
+    { editor: "VS Code Insiders", dir: join(home, ".vscode-insiders/extensions") }, { editor: "VS Code Insiders", dir: app("Visual Studio Code - Insiders") },
+    { editor: "Cursor", dir: join(home, ".cursor/extensions") }, { editor: "Cursor", dir: app("Cursor") },
+    { editor: "Windsurf", dir: join(home, ".windsurf/extensions") }, { editor: "Windsurf", dir: app("Windsurf") },
+    { editor: "VSCodium", dir: join(home, ".vscode-oss/extensions") }, { editor: "VSCodium", dir: app("VSCodium") },
+  ];
+}
+
+/**
+ * The colour themes one extensions folder holds, from each extension's `contributes.themes`. Read
+ * only. A label the manifest leaves to its translations (`%themeLabel%`, as the built-in themes do)
+ * is looked up in `package.nls.json`. An extension that will not parse, or a theme whose file is not
+ * there, is skipped rather than failing the folder.
+ */
+export function themesInFolder({ editor, dir }: ExtensionsFolder): EditorTheme[] {
+  let extensions: string[];
+  try { extensions = readdirSync(dir).sort(); } catch { return []; }
+  const out: EditorTheme[] = [];
+  for (const name of extensions) {
+    const extension = join(dir, name);
+    let manifest: { contributes?: { themes?: unknown } };
+    try { manifest = parseJsonc(readFileSync(join(extension, "package.json"), "utf8")) as typeof manifest; } catch { continue; }
+    const themes = manifest?.contributes?.themes;
+    if (!Array.isArray(themes)) continue;
+    let nls: Record<string, unknown> = {};
+    try { nls = parseJsonc(readFileSync(join(extension, "package.nls.json"), "utf8")) as Record<string, unknown>; } catch { /* labels stay as written */ }
+    for (const t of themes as { label?: unknown; path?: unknown; uiTheme?: unknown }[]) {
+      if (typeof t?.path !== "string") continue;
+      const path = resolve(extension, t.path);
+      if (!existsSync(path)) continue;
+      let label = typeof t.label === "string" ? t.label : basename(path, extname(path));
+      const key = /^%(.+)%$/.exec(label)?.[1];
+      if (key && typeof nls[key] === "string") label = nls[key] as string;
+      const mode = t.uiTheme === "vs" || t.uiTheme === "hc-light" ? "light" : "dark";
+      out.push({ label, path, mode, editor });
+    }
+  }
+  return out;
+}
+
 export class ThemesService {
   readonly root: string;
-  constructor(d: { home: string }) { this.root = themesRoot(d.home); }
+  private readonly editorFolders: ExtensionsFolder[];
+  constructor(d: { home: string; editorFolders?: ExtensionsFolder[] }) {
+    this.root = themesRoot(d.home);
+    this.editorFolders = d.editorFolders ?? editorExtensionFolders();
+  }
+
+  /** The editors' themes not imported yet, each file once: an import is known by the file it came
+   *  from, and the same theme reached through two folders is one theme. */
+  installed(): EditorTheme[] {
+    const seen = new Set(this.list().map((t) => t.source.file));
+    const out: EditorTheme[] = [];
+    for (const folder of this.editorFolders) {
+      for (const theme of themesInFolder(folder)) {
+        if (seen.has(theme.path)) continue;
+        seen.add(theme.path);
+        out.push(theme);
+      }
+    }
+    return out;
+  }
 
   /** Every theme in the folder, newest name order. A file that will not parse is SKIPPED rather than
    *  failing the list: one bad theme must not cost the user the rest of them. */

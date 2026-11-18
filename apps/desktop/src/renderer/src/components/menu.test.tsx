@@ -148,6 +148,38 @@ describe("Menu placement", () => {
     });
 
   });
+
+  /** Appearance's Import menu: a list of installed themes, then "Choose a theme file…" and
+   *  "Describe a theme…". The stylesheet's 60vh cap scrolled it while the window had room for every
+   *  row, and its last row sat under the dissolve. jsdom window: 1024×768. */
+  describe("an anchored menu fits the roomier side of its control", () => {
+    it("is capped at the room on the roomier side, not the stylesheet's 60vh", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor(500) });
+      // Above: 500 - 4 gap - 6 margin = 490. Below: 768 - 6 - 520 - 4 = 238.
+      expect(screen.getByRole("menu").style.maxHeight).toBe("490px");
+    });
+
+    it("a menu taller than the room below opens whole above, its last row inside the window", () => {
+      const TALL = 470; // past 60vh (460.8) and past the 238 below, inside the 490 above
+      const orig = Element.prototype.getBoundingClientRect;
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        return this.classList.contains("menu") ? rect(0, TALL, 0, 160) : orig.call(this);
+      });
+      mount([plain("Choose a theme file…"), plain("Describe a theme…")], { anchorRef: anchor(500) });
+      const menu = screen.getByRole("menu");
+      const top = parseFloat(menu.style.top);
+      expect(top).toBe(500 - TALL - 4);
+      expect(top + TALL).toBeLessThanOrEqual(768 - 6);
+      expect(TALL).toBeLessThanOrEqual(parseFloat(menu.style.maxHeight));
+    });
+
+    it("a menu placed at a point keeps the stylesheet's cap", () => {
+      withMenuHeight();
+      mount([plain("A")], { at: { x: 40, y: 40 } });
+      expect(screen.getByRole("menu").style.maxHeight).toBe("");
+    });
+  });
 });
 
 describe("Menu dismissal by its own trigger (I6)", () => {

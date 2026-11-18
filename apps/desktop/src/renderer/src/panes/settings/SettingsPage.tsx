@@ -14,9 +14,10 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
   CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
-import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type BrowserCredential, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
+import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type BrowserCredential, type EditorTheme, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
 import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
+import { Menu, type MenuItem } from "../../components/Menu";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
 import { useBypassConfirm } from "../session/Composer";
@@ -691,9 +692,7 @@ function CodePreview({ vars }: { vars: Record<string, string> }) {
  */
 function ImportedThemes({ face, selected, live }: { face: Mode; selected: ThemeName; live?: boolean }) {
   const themes = useApp((s) => s.customThemes);
-  const importThemeFile = useApp((s) => s.importThemeFile);
   const removeCustomTheme = useApp((s) => s.removeCustomTheme);
-  const setThemeName = useApp((s) => s.setThemeName);
   const run = useApp((s) => s.run);
   // Only the ones with THIS face. A dark import has nothing to offer the light slot, and listing it
   // under a grid that cannot select it would be a row that does nothing.
@@ -714,16 +713,44 @@ function ImportedThemes({ face, selected, live }: { face: Mode; selected: ThemeN
             onClick={() => run(() => removeCustomTheme(t.id))}>Remove</button>
         </div>
       )} />}
-      <button type="button" className="btn-quiet theme-vsc-add"
-        onClick={() => run(async () => {
-          const id = await importThemeFile();
-          // Selected on arrival, for the face it actually has: importing a theme and then having to
-          // find it in the grid is two steps where the first one already said what you wanted.
-          if (id) await setThemeName(face, id);
-        })}>
-        Import a VS Code theme…
-      </button>
+      <ImportThemeButton face={face} />
     </div>
+  );
+}
+
+/**
+ * Import a theme: a menu of what needs no typing first, the themes the editors on this Mac have
+ * installed for this face, grouped by editor; then a theme file; then a theme described in words.
+ * Each opens a new session with the import under way in its prompter, and the agent's
+ * `theme_import` puts the theme on when it lands. The list is read when the menu opens, so a theme
+ * installed in an editor a minute ago is on it.
+ */
+function ImportThemeButton({ face }: { face: Mode }) {
+  const listEditorThemes = useApp((s) => s.listEditorThemes);
+  const importThemeInSession = useApp((s) => s.importThemeInSession);
+  const run = useApp((s) => s.run);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const [installed, setInstalled] = useState<EditorTheme[] | null>(null);
+  const items: MenuItem[] = [];
+  let editor: string | null = null;
+  for (const theme of installed ?? []) {
+    if (theme.editor !== editor) items.push({ kind: "header", label: theme.editor });
+    editor = theme.editor;
+    items.push({ label: theme.label, title: theme.path, onSelect: () => run(() => importThemeInSession(theme)) });
+  }
+  if (items.length > 0) items.push({ kind: "separator" });
+  items.push(
+    { label: "Choose a theme file…", onSelect: () => run(() => importThemeInSession("file")) },
+    { label: "Describe a theme…", onSelect: () => run(() => importThemeInSession("describe")) },
+  );
+  return (
+    <>
+      <button ref={anchor} type="button" className="btn-quiet theme-vsc-add" aria-haspopup="menu" aria-expanded={installed !== null}
+        onClick={() => run(async () => setInstalled((await listEditorThemes()).filter((t) => t.mode === face)))}>
+        Import a theme
+      </button>
+      {installed && <Menu anchorRef={anchor} label="Import a theme" onClose={() => setInstalled(null)} items={items} />}
+    </>
   );
 }
 

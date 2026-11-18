@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_PERMISSION_MODE_KEY, SETTING_THEME } from "@realm/contracts";
+import { DEFAULT_PERMISSION_MODE_KEY, SETTING_THEME, type StoredTheme } from "@realm/contracts";
 import { createSettingsTools, type SettingsDeps } from "./settings";
 
 /**
@@ -8,11 +8,12 @@ import { createSettingsTools, type SettingsDeps } from "./settings";
  * name, with values from its closed lists; the user's card before a write; every window told.
  */
 
-function setup(o: { allow?: boolean; stored?: Record<string, unknown> } = {}) {
+function setup(o: { allow?: boolean; stored?: Record<string, unknown>; importTheme?: SettingsDeps["themes"]["import"] } = {}) {
   const table = new Map<string, unknown>(Object.entries(o.stored ?? {}));
   const calls = { gates: [] as { toolKey: string; title: string }[], broadcasts: [] as { event: string; payload: Record<string, unknown> }[] };
   const deps: SettingsDeps = {
     settings: { get: (k) => table.get(k) ?? null, set: (k, v) => { table.set(k, v); } },
+    themes: { import: o.importTheme ?? (() => { throw new Error("no theme expected"); }) },
     broker: { gate: async (_s, toolKey, title) => { calls.gates.push({ toolKey, title }); return o.allow === false ? { allowed: false, reason: "the user denied this action" } : { allowed: true }; } },
     rpc: { broadcast: (event: string, payload: Record<string, unknown>) => { calls.broadcasts.push({ event, payload }); } } as unknown as SettingsDeps["rpc"],
   };
@@ -71,5 +72,63 @@ describe("settings_set", () => {
     const s = setup({ stored: { [SETTING_THEME]: "light" } });
     expect(text(await s.call("settings_set", { name: "theme", value: "light" }))).toBe(`theme is already "light".`);
     expect(s.calls.gates).toEqual([]);
+  });
+});
+
+describe("theme_import", () => {
+  const ayuLight: StoredTheme = { id: "ayu-light", label: "Ayu Light", mode: "light", seed: { bg: "#fcfcfc" } as StoredTheme["seed"], source: { file: "/x/ayu-light.json", derived: [] } };
+  const imports = (o: { allow?: boolean; fail?: boolean; stored?: Record<string, unknown> } = {}) => {
+    const paths: string[] = [];
+    const s = setup({ allow: o.allow, stored: o.stored, importTheme: (path) => { paths.push(path); if (o.fail) throw new Error(`no file at ${path}`); return ayuLight; } });
+    return { ...s, paths };
+  };
+
+  it("asks, imports the file, and puts the face the theme is for on it in every window", async () => {
+    // THE MUTANTS: importing without asking; the theme imported but not worn; the windows left on the
+    // old palette until a restart; the light theme written to the dark face.
+    const s = imports();
+    const r = await s.call("theme_import", { path: "/x/ayu-light.json" });
+    expect(r.isError).toBe(false);
+    expect(s.calls.gates).toEqual([{ toolKey: "theme_import", title: "Import the colour theme at /x/ayu-light.json and switch Realm to it" }]);
+    expect(s.paths).toEqual(["/x/ayu-light.json"]);
+    expect(s.table.get("ui.themeName.light")).toBe("ayu-light");
+    expect(s.table.has("ui.themeName.dark")).toBe(false);
+    expect(s.calls.broadcasts).toEqual([
+      { event: "themes.changed", payload: {} },
+      { event: "settings.changed", payload: { key: "ui.themeName.light", value: "ayu-light" } },
+    ]);
+    expect(text(r)).toContain("Ayu Light is imported and is Realm's light theme now");
+  });
+
+  it("switches a window set to the other face to the theme's, and says so", async () => {
+    // THE MUTANT: the theme set on a face nobody is looking at, so the import shows no change.
+    const s = imports({ stored: { [SETTING_THEME]: "dark" } });
+    const r = await s.call("theme_import", { path: "/x/ayu-light.json" });
+    expect(s.table.get(SETTING_THEME)).toBe("light");
+    expect(s.calls.broadcasts.at(-1)).toEqual({ event: "settings.changed", payload: { key: SETTING_THEME, value: "light" } });
+    expect(text(r)).toContain("Switched to light to show it; Appearance switches back.");
+  });
+
+  it("leaves a window already on the theme's face, or following macOS, where it is", async () => {
+    // THE MUTANTS: a switch on every import, which pins a window that follows macOS to one face.
+    for (const face of ["light", "system"]) {
+      const s = imports({ stored: { [SETTING_THEME]: face } });
+      const r = await s.call("theme_import", { path: "/x/ayu-light.json" });
+      expect(s.table.get(SETTING_THEME)).toBe(face);
+      expect(s.calls.broadcasts.map((b) => b.payload.key)).not.toContain(SETTING_THEME);
+      expect(text(r)).not.toContain("Switched");
+    }
+  });
+
+  it("imports nothing when the user says no, and says why a file would not import", async () => {
+    const denied = imports({ allow: false });
+    expect(text(await denied.call("theme_import", { path: "/x/ayu-light.json" }))).toBe("the user denied this action");
+    expect(denied.paths).toEqual([]);
+    const failed = imports({ fail: true });
+    const r = await failed.call("theme_import", { path: "/x/gone.json" });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toBe("Couldn't import /x/gone.json: no file at /x/gone.json");
+    expect(failed.table.size).toBe(0);
+    expect(failed.calls.broadcasts).toEqual([]);
   });
 });

@@ -74,6 +74,16 @@ export const StoredThemeSchema = z.object({
 });
 export type StoredTheme = z.infer<typeof StoredThemeSchema>;
 
+/** A colour theme an editor on this Mac has installed (VS Code, Cursor and their kin), offered for
+ *  import by the file it ships in. `editor` is the app it was found in, for the menu's heads. */
+export const EditorThemeSchema = z.object({
+  label: z.string(),
+  path: z.string(),
+  mode: z.enum(["dark", "light"]),
+  editor: z.string(),
+});
+export type EditorTheme = z.infer<typeof EditorThemeSchema>;
+
 /** A font family fetched from Google Fonts and kept under `~/Realm/fonts`. */
 export const InstalledFontSchema = z.object({
   family: z.string(),

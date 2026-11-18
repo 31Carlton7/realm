@@ -1670,7 +1670,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       turnOrigin: (id) => team?.turnOrigin(id) ?? "something other than the person",
       turnOf,
     }),
-    createSettingsTools({ settings, broker: browserBroker, rpc }),
+    createSettingsTools({ settings, themes, broker: browserBroker, rpc }),
     // `machine_status`: the Mac's memory and what of Realm's is heavy, read before heavy work.
     createMachineStatusTools({
       report: async () => {

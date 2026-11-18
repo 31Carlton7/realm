@@ -1147,6 +1147,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   open, the order holds still, so a pick never moves a tile out from under the pointer. A list's
   "Add…" tile is its first tile and outside the count, so the way to add is never folded away
   (`FoldedList.tsx`).
+- A thing people already get done by asking the prompter is offered as a control that opens a new
+  session with the request under way, not as a second, lesser path beside it (the owner, 11-17: "most
+  of mine I just added by asking the prompter"). Import a theme lists first what needs no typing (the
+  themes the editors on this Mac installed), then a file, then "describe one", which leaves its
+  request in the prompter for the words only the person has; the agent's tool wears the result when
+  it lands.
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a
   profile's or a space's page — draws them IN the sidebar's column while it is up, rather than as a
   rail beside the sidebar: two side-by-side lists of places, the left one about somewhere else, read

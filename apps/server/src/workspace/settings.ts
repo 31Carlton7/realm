@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { AGENT_SETTINGS, AGENT_SETTING_NAMES, type AgentSettingName } from "@realm/contracts";
+import { AGENT_SETTINGS, AGENT_SETTING_NAMES, SETTING_THEME_NAME, type AgentSettingName, type StoredTheme } from "@realm/contracts";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
@@ -18,6 +18,7 @@ import type { WorkspaceToolGroup } from "./agent-tools";
  */
 export type SettingsDeps = {
   settings: { get(key: string): unknown; set(key: string, value: unknown): void };
+  themes: { import(path: string): StoredTheme };
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
 };
@@ -25,6 +26,7 @@ export type SettingsDeps = {
 const names = AGENT_SETTING_NAMES as [AgentSettingName, ...AgentSettingName[]];
 const SettingsGetArgs = z.object({ name: z.enum(names).optional() }).strict();
 const SettingsSetArgs = z.object({ name: z.string().min(1), value: z.union([z.string(), z.boolean()]) }).strict();
+const ThemeImportArgs = z.object({ path: z.string().min(1) }).strict();
 
 const listing = AGENT_SETTING_NAMES.map((n) => `${n} (${AGENT_SETTINGS[n].values.map((v) => JSON.stringify(v)).join(" | ")})`).join("; ");
 
@@ -51,6 +53,16 @@ const TOOLS: Tool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "theme_import",
+    description: "Import a VS Code colour theme file (.json or .jsonc) into Realm and switch the face it is for, light or dark, to it, when the user asks for a theme. The file can be one an editor on this Mac has installed (its extensions folders, such as ~/.vscode/extensions or ~/.cursor/extensions, hold each theme's file), one the user named, or one you wrote to make the theme they described: a VS Code theme with `type` and `colors`, at least editor.background, editor.foreground and an accent such as focusBorder. Asks the user for permission unless you are in Full access.",
+    inputSchema: {
+      type: "object",
+      properties: { path: { type: "string", description: "absolute path of the theme file" } },
+      required: ["path"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export function createSettingsTools(d: SettingsDeps): WorkspaceToolGroup {
@@ -59,6 +71,7 @@ export function createSettingsTools(d: SettingsDeps): WorkspaceToolGroup {
     handlers: {
       settings_get: async (_ctx, raw) => get(d, raw),
       settings_set: async (ctx, raw) => setOne(d, ctx, raw),
+      theme_import: async (ctx, raw) => importTheme(d, ctx, raw),
     },
   };
 }
@@ -98,4 +111,32 @@ async function setOne(d: SettingsDeps, ctx: ProviderCallContext, raw: unknown): 
   d.settings.set(s.key, value);
   d.rpc.broadcast("settings.changed", { key: s.key, value });
   return ok(`${name} is ${JSON.stringify(value)} now (it was ${JSON.stringify(was)}). The window has it already.`);
+}
+
+/** Import the file as Settings' own import does, then wear it: the face the theme is for takes it, and
+ *  every window is told of both, so the theme is on screen when the call returns. A window set to the
+ *  other face is switched to this one, the way settings_set theme switches it, or the change would not
+ *  show. One following macOS is left alone: which face that is, only the window knows. */
+async function importTheme(d: SettingsDeps, ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
+  const args = parseArgs(ThemeImportArgs, raw); if ("error" in args) return args.error;
+  const { path } = args.value;
+  const gate = await d.broker.gate(ctx.sessionId, "theme_import", `Import the colour theme at ${path} and switch Realm to it`, { path });
+  if (!gate.allowed) return err(gate.reason);
+  let theme: StoredTheme;
+  try { theme = d.themes.import(path); }
+  catch (e) { return err(`Couldn't import ${path}: ${e instanceof Error ? e.message : String(e)}`); }
+  d.rpc.broadcast("themes.changed", {});
+  const key = SETTING_THEME_NAME[theme.mode];
+  d.settings.set(key, theme.id);
+  d.rpc.broadcast("settings.changed", { key, value: theme.id });
+  const face = current(d, "theme");
+  if (face !== "system" && face !== theme.mode) {
+    d.settings.set(AGENT_SETTINGS.theme.key, theme.mode);
+    d.rpc.broadcast("settings.changed", { key: AGENT_SETTINGS.theme.key, value: theme.mode });
+  }
+  const shown = face === "system"
+    ? ` It shows whenever macOS is ${theme.mode}; settings_set theme "${theme.mode}" shows it now if the user wants that.`
+    : face === theme.mode ? "" : ` Switched to ${theme.mode} to show it; Appearance switches back.`;
+  const derived = theme.source.derived.length > 0 ? ` The file did not state ${theme.source.derived.length} of its 13 colours (${theme.source.derived.join(", ")}); Realm worked those out.` : "";
+  return ok(`${theme.label} is imported and is Realm's ${theme.mode} theme now.${shown}${derived}`);
 }

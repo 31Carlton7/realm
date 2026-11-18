@@ -4,6 +4,10 @@ import { TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY } from "./te
 
 /** Light, dark, or follow macOS. The palette each face wears is a second setting, not this one. */
 export const SETTING_THEME = "ui.theme";
+/** The palette each face wears: a built-in theme's name or an imported theme's id. Not on the list
+ *  below, because its values are whatever is installed; `theme_import` is the one tool that sets it,
+ *  to the theme it has just imported. */
+export const SETTING_THEME_NAME = { light: "ui.themeName.light", dark: "ui.themeName.dark" } as const;
 /** Which key sends a message: Return, or ⌘Return (and Return makes a new line). */
 export const SETTING_SUBMIT_KEY = "ui.submitKey";
 

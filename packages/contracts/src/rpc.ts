@@ -18,7 +18,7 @@ import {
   PROJECT_FILES_LIMIT, PROJECT_FILES_LIMIT_MAX, PROJECT_GREP_LIMIT, PROJECT_GREP_LIMIT_MAX,
   PROJECT_QUERY_MAX, ProjectFilesResultSchema, ProjectGrepResultSchema,
 } from "./project-search";
-import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
+import { CatalogFontSchema, EditorThemeSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema, McpSignInOptionsSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
 import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MemoryClaudeBackfillSchema, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
@@ -1066,6 +1066,9 @@ export const Methods = {
   /** Translate a VS Code colour theme at `path` and keep it. Re-importing the same file name
    *  replaces it, which is what makes "fix it and import again" work. */
   "themes.import": { params: z.object({ path: z.string().min(1) }), result: StoredThemeSchema },
+  /** The colour themes the editors on this Mac have installed and Realm has not imported yet, read
+   *  from their extension folders and never written to. */
+  "themes.installed": { params: z.object({}), result: z.object({ themes: z.array(EditorThemeSchema) }) },
   /** Forget one. A face still naming it falls back to `realm`, which is `paletteFor`'s own rule. */
   "themes.remove": { params: z.object({ id: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
 /**

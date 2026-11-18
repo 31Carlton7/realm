@@ -128,6 +128,7 @@ export const liveApi = (): Api => ({
   listThemes: () => rpc().call("themes.list", {}),
   pickThemeFile: () => window.realm.pickThemeFile(),
   importTheme: (path) => rpc().call("themes.import", { path }),
+  listEditorThemes: () => rpc().call("themes.installed", {}),
   removeTheme: async (id) => { await rpc().call("themes.remove", { id }); },
   listInstalledFonts: () => rpc().call("fonts.installed", {}),
   fontCatalog: () => rpc().call("fonts.catalog", {}),
