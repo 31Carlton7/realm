@@ -182,24 +182,33 @@ describe("the prompter over a picture", () => {
     expect(thin(40)).toBeCloseTo(60 * 100 / 84, 5);
   });
 
-  it("is the picture blurred and dimmed by filters alone, toward black in dark and white in light", () => {
-    // THE mutants: a colour mixed into the ground, a blur without the dim, or a light face that dims
-    // toward black (a grey wash on a bright picture).
+  it("is the picture blurred and dimmed, toward black in dark and white in light, by the pane's number", () => {
+    // THE mutants: a colour mixed into the ground, a blur without the dim, a light face that dims
+    // toward black (a grey wash on a bright picture), or the fixed share back where the pane measures.
     expect(token("--picture-ground")).toBe("blur(var(--picture-blur)) var(--picture-tone)");
-    expect(token("--picture-tone")).toBe("brightness(calc(1 - var(--picture-dim)))");
-    const light = /:root\[data-mode="light"\] \{([^}]*)\}/.exec(prompterBlock)![1]!;
-    expect(token("--picture-tone", light)).toBe("contrast(calc((1 - var(--picture-dim)) / (1 + var(--picture-dim)))) brightness(calc(1 + var(--picture-dim)))");
+    expect(token("--picture-frost")).toBe("blur(var(--picture-blur))");
+    expect(token("--picture-tone")).toBe("brightness(calc(1 - var(--plain-dim)))");
+    const light = /:root\[data-mode="light"\], :root\[data-mode="light"\] :is\(\.session-pane, \[data-over-picture\]\) \{([^}]*)\}/.exec(prompterBlock)![1]!;
+    expect(token("--picture-tone", light)).toBe("contrast(calc((1 - var(--plain-dim)) / (1 + var(--plain-dim)))) brightness(calc(1 + var(--plain-dim)))");
     // That pair is exactly a share `d` of white mixed in, for every channel value.
     const d = Number(token("--picture-dim"));
     expect(d).toBeGreaterThan(0);
     expect(d).toBeLessThan(0.5);
     const k = (1 - d) / (1 + d), b = 1 + d;
     for (const c of [0, 0.2, 0.5, 0.8, 1]) expect(b * (k * (c - 0.5) + 0.5)).toBeCloseTo((1 - d) * c + d, 9);
-    // The bubble's veil is the same step as a fill: pure black or white at the same share.
-    expect(token("--picture-veil")).toBe("rgb(0 0 0 / var(--picture-dim))");
-    expect(token("--picture-veil", light)).toBe("rgb(255 255 255 / var(--picture-dim))");
-    // Clear drops the blur and the dim, and nothing else.
-    expect(prompterBlock).toContain(":root[data-clear-over-picture] { --picture-ground: none; --picture-veil: transparent; }");
+    // The veil is the same step as a fill: pure black or white at the same share.
+    expect(token("--picture-veil")).toBe("rgb(0 0 0 / var(--plain-dim))");
+    expect(token("--picture-veil", light)).toBe("rgb(255 255 255 / var(--plain-dim))");
+    // Clear drops the blur and the dim, and nothing else, on the pane and the picker as well as the root.
+    expect(prompterBlock).toContain(":root[data-clear-over-picture], :root[data-clear-over-picture] :is(.session-pane, [data-over-picture]) { --picture-ground: none; --picture-frost: none; --picture-veil: transparent; }");
+  });
+
+  it("takes the pane's measured number, the picture's own until then, wherever a pane or a picker can set it", () => {
+    // THE mutants: the tones left on the root alone (a pane's measured dim never reaching them), or the
+    // fallback lost (no dim before the first measure).
+    expect(token("--plain-dim")).toBe("var(--picture-dim)");
+    const tones = /:root, \.session-pane, \[data-over-picture\] \{([^}]*)\}/.exec(prompterBlock)![1]!;
+    for (const name of ["--picture-tone", "--picture-veil", "--picture-frost", "--picture-ground"]) expect(tones, name).toContain(`${name}:`);
   });
 
   it("dims glass by a number of its own in dark, the picture's own until the pane measures one, and the picture's own in light", () => {
@@ -212,11 +221,12 @@ describe("the prompter over a picture", () => {
     expect(token("--glass-picture-tone", tones)).toBe("brightness(calc(1 - var(--glass-dim)))");
     expect(token("--glass-tone", tones)).toBe("saturate(var(--glass-saturate)) var(--glass-picture-tone)");
     expect(token("--glass-frost", tones)).toBe("blur(var(--glass-blur)) var(--glass-tone)");
-    expect(glassBlock).toContain(':root[data-mode="light"], :root[data-mode="light"] :is(.session-pane, [data-over-picture]) { --glass-picture-tone: var(--picture-tone); }');
+    // Light glass takes the pane's number toward white, never the picture's own fixed tone.
+    expect(glassBlock).toMatch(/:root\[data-mode="light"\], :root\[data-mode="light"\] :is\(\.session-pane, \[data-over-picture\]\) \{\s*--glass-picture-tone: contrast\(calc\(\(1 - var\(--glass-dim\)\) \/ \(1 \+ var\(--glass-dim\)\)\)\) brightness\(calc\(1 \+ var\(--glass-dim\)\)\); \}/);
     // Clear still drops the dim from the glass, on the pane and the picker as well as the root.
     expect(glassBlock).toMatch(/:root\[data-clear-over-picture\], :root\[data-clear-over-picture\] :is\(\.session-pane, \[data-over-picture\]\) \{\s*--glass-tone: saturate\(var\(--glass-saturate\)\); --glass-frost: var\(--glass-tone\); \}/);
-    // Plain over a picture keeps the picture's own ground.
-    expect(rules.find((r) => r.sel === `${scope} :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip)`)!.body).toBe("backdrop-filter: var(--picture-ground);");
+    // Plain over a picture keeps the picture's own blur.
+    expect(rules.find((r) => r.sel === `${scope} :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip)`)!.body).toBe("backdrop-filter: var(--picture-frost);");
   });
 
   it("casts no halo there, and blurs the picture from the layer that cast it", () => {
@@ -225,7 +235,7 @@ describe("the prompter over a picture", () => {
     const lift = rules.find((r) => r.sel === `${scope} .composer::before`)!.body;
     expect(lift).toContain("box-shadow: none;");
     expect(lift).toContain("opacity: 1;");
-    expect(lift).toContain("backdrop-filter: var(--picture-ground);");
+    expect(lift).toContain("backdrop-filter: var(--picture-frost);");
     expect(stylesCss).toMatch(/:root\[data-squircle\] \.composer::before \{[^}]*box-shadow: var\(--prompter-lift\);/);
   });
 

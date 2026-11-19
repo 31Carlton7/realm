@@ -279,11 +279,12 @@ describe("the prompter's lens", () => {
     const src = readFileSync(join(__dirname, "PrompterGlass.tsx"), "utf8");
     expect(src).toMatch(/useFittedLens\(ref, true\)/);
   });
-  it("floods the pane's ground under a picture in dark, so a see-through picture cannot show back through the dim", () => {
+  it("floods the pane's ground under a picture, so a see-through picture cannot show back through the dim", () => {
     // THE mutant: no flood, where the guard draws a bright picture see-through and the white sky came
-    // back through the prompter's dim (placeholder 2.14:1). Never in light or Clear, which stay as they were.
+    // back through the prompter's dim (placeholder 2.14:1). In both faces, since light's dim is measured
+    // too; never under Clear, which shows the picture as it is.
     const flood = cssRules.filter((r) => /\.composer-glass$/.test(r.sel) && /--glass-ground-share/.test(r.body));
-    expect(flood.map((r) => r.sel)).toEqual([':root[data-glass]:not([data-mode="light"]):not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass']);
+    expect(flood.map((r) => r.sel)).toEqual([":root[data-glass]:not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass"]);
     expect(flood[0]!.body).toMatch(/--glass-ground-share:\s*1/);
   });
   it("frosts nothing when the picture is to be seen clear", () => {
@@ -489,7 +490,7 @@ describe("the account switcher in Plain", () => {
   });
 
   it("over a picture stands the whole picker on the picture, blurred and dimmed, and its wells and lit row on tints", () => {
-    const panel = rule(".model-picker[data-over-picture]").body;
+    const panel = rule(":is(.model-picker, .mention-picker, .skill-picker)[data-over-picture]").body;
     expect(panel).toMatch(/background:\s*none/);
     expect(panel).toMatch(/box-shadow:\s*none/);
     expect(panel).toMatch(/backdrop-filter:\s*var\(--picture-ground\)/);
@@ -502,8 +503,8 @@ describe("the account switcher in Plain", () => {
   it("keeps its solid surface and its steps under Reduce Transparency", () => {
     // Every rule that stands the picker on the picture sits in the one block the preference turns off.
     const block = stylesCss.replace(/\/\*[\s\S]*?\*\//g, "").match(/@media \(prefers-reduced-transparency: no-preference\) \{((?:\s*[^{}]+\{[^{}]*\})*)\s*\}/)?.[1] ?? "";
-    const overPicture = cssRules.filter((r) => r.sel.startsWith(".model-picker[data-over-picture]"));
-    expect(overPicture.length).toBe(3);
+    const overPicture = cssRules.filter((r) => r.sel.includes("[data-over-picture]") && !r.sel.startsWith(":root[data-glass]"));
+    expect(overPicture.length).toBe(4);
     for (const r of overPicture) expect(block, r.sel).toContain(r.sel);
   });
 });

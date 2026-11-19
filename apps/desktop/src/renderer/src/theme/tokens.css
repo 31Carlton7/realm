@@ -856,23 +856,35 @@ a {
  * Clear (Settings ▸ Appearance) drops the blur and the dim and leaves the picture as it is. A bubble
  * of yours over the picture cannot reach it with a backdrop filter (the transcript is the edge
  * blur's backdrop root), and stands on the track's blur already, so it takes the dim as a veil of
- * pure black or white at the same share, which is the same brightness step. */
+ * pure black or white at the same share, which is the same brightness step. The prompter and its tabs
+ * take the dim the same way, as a veil over the blur (`--picture-frost`), because the guard may draw a
+ * bright picture see-through and Chromium lays a backdrop filter's result over the backdrop, so a dim
+ * inside the filter let the picture back through it (11-18: over a white sky the placeholder stood at
+ * 1.03:1). The share is `--plain-dim`: the pane measures it off the picture each time it draws it, as
+ * the least its words need and never less than `--picture-dim` (glass/glass-dim.ts), so a bright
+ * picture is dimmed further and every other keeps the picture's own dim. A picker is portalled out of
+ * the pane and is handed its pane's number, so the tones that read it are declared again wherever it
+ * can be set. */
 :root {
   --prompter-lift-until: 92%;
   --prompter-alpha: min(100%, calc(40% + var(--pane-alpha) * 60 / 84));
   --picture-blur: 20px;
   --picture-dim: 0.4;
-  --picture-tone: brightness(calc(1 - var(--picture-dim)));
-  --picture-veil: rgb(0 0 0 / var(--picture-dim));
+  --plain-dim: var(--picture-dim);
+}
+:root, .session-pane, [data-over-picture] {
+  --picture-tone: brightness(calc(1 - var(--plain-dim)));
+  --picture-veil: rgb(0 0 0 / var(--plain-dim));
+  --picture-frost: blur(var(--picture-blur));
   --picture-ground: blur(var(--picture-blur)) var(--picture-tone);
 }
 /* Toward white by the same share: contrast(k) then brightness(b) is c * b * k + b * (1 - k) / 2, which
  * is (1 - d) * c + d when b = 1 + d and k = (1 - d) / (1 + d). */
-:root[data-mode="light"] {
-  --picture-tone: contrast(calc((1 - var(--picture-dim)) / (1 + var(--picture-dim)))) brightness(calc(1 + var(--picture-dim)));
-  --picture-veil: rgb(255 255 255 / var(--picture-dim));
+:root[data-mode="light"], :root[data-mode="light"] :is(.session-pane, [data-over-picture]) {
+  --picture-tone: contrast(calc((1 - var(--plain-dim)) / (1 + var(--plain-dim)))) brightness(calc(1 + var(--plain-dim)));
+  --picture-veil: rgb(255 255 255 / var(--plain-dim));
 }
-:root[data-clear-over-picture] { --picture-ground: none; --picture-veil: transparent; }
+:root[data-clear-over-picture], :root[data-clear-over-picture] :is(.session-pane, [data-over-picture]) { --picture-ground: none; --picture-frost: none; --picture-veil: transparent; }
 .session-pane:has(> .hero-backdrop) { --prompter-alpha: 0%; }
 
 /* Glass (Settings ▸ Appearance ▸ Controls; styles.css, "Glass"): a lens fitted to each surface, a
@@ -884,8 +896,9 @@ a {
  * under its prompter and pickers each time it draws it (glass/glass-dim.ts), as the least its words
  * need, so a dark picture keeps its light and colour as macOS's glass does; it is `--picture-dim`
  * until then. A picker is portalled out of the pane and is handed its pane's number,
- * so the tones that read it are declared again wherever it can be set. Light keeps the picture's own
- * dim (`--picture-tone`). The rim is specular light, brightest top left and
+ * so the tones that read it are declared again wherever it can be set. In light the dim goes toward
+ * white, by the pane's number where it is more than the picture's own (over Arcade the picker's quiet
+ * words stood at 1.42:1 on the fixed share), and by the picture's own until then. The rim is specular light, brightest top left and
  * again bottom right, white in both faces: light falling on glass, not a colour laid on it. A bead (a
  * selected segment, a switch's knob) is the one place glass carries a fill, a share of white, so a
  * control's position reads at a glance. */
@@ -933,7 +946,8 @@ a {
   --glass-tone: saturate(var(--glass-saturate)) var(--glass-picture-tone);
   --glass-frost: blur(var(--glass-blur)) var(--glass-tone);
 }
-:root[data-mode="light"], :root[data-mode="light"] :is(.session-pane, [data-over-picture]) { --glass-picture-tone: var(--picture-tone); }
+:root[data-mode="light"], :root[data-mode="light"] :is(.session-pane, [data-over-picture]) {
+  --glass-picture-tone: contrast(calc((1 - var(--glass-dim)) / (1 + var(--glass-dim)))) brightness(calc(1 + var(--glass-dim))); }
 :root[data-clear-over-picture], :root[data-clear-over-picture] :is(.session-pane, [data-over-picture]) {
   --glass-tone: saturate(var(--glass-saturate)); --glass-frost: var(--glass-tone); }
 
