@@ -454,7 +454,7 @@ function HomeCard(props: FileProps) {
   const source = file.abs ? previewSourceOf(file.name, file.type) : null;
   const seen = useSeen(cell, source !== null);
   const thumb = useThumbnail(source === "thumbnail" ? file.abs : null, "card", seen);
-  const read = useCardPreview(file.abs, source, seen);
+  const read = useCardPreview(file.abs, source, seen, file.ts);
   const picture = thumb ?? (read?.kind === "picture" ? read.url : null);
   const hit = matchRun(file.name, query);
   return (

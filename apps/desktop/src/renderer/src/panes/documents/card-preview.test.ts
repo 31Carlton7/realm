@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { headLines, previewSourceOf } from "./card-preview";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// pdf.js is not loaded in jsdom; a first page that never comes is what the turn's limit is for.
+const firstPagePicture = vi.hoisted(() => vi.fn((): Promise<string | null> => new Promise(() => {})));
+vi.mock("./pdf-source", () => ({ firstPagePicture }));
+
+import { JOB_LIMIT_MS, TEXT_HEAD, headLines, loadCardPreview, previewSourceOf, resetCardPreviews } from "./card-preview";
 
 const bytes = (s: string) => new TextEncoder().encode(s);
 
@@ -22,5 +27,41 @@ describe("a card's preview", () => {
     expect(headLines(bytes("one\ntwo\nthr"), true)).toBe("one\ntwo");
     expect(headLines(bytes("one\ntwo\nthr"), false)).toBe("one\ntwo\nthr");
     expect(headLines(bytes("PK\u0003\u0004\u0000\u0000"), false)).toBeNull();
+  });
+});
+
+describe("drawing a card's preview", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); resetCardPreviews(); });
+  const files = (mtime: () => number) => {
+    const readRange = vi.fn(async () => bytes("# Plan\n\nShip it.\n"));
+    vi.stubGlobal("realm", { files: { readRange, stat: vi.fn(async (path: string) => ({ path, size: 18, mtimeMs: mtime() })) } });
+    return readRange;
+  };
+
+  it("gives back a turn a PDF never answers, so the cards after it still draw", async () => {
+    /* Two PDFs whose first pages never come take both turns. THE MUTANT: no limit on a turn, and no
+       Markdown, text or PDF card draws again for the life of the window. */
+    vi.useFakeTimers();
+    files(() => 1);
+    const a = loadCardPreview("/w/a.pdf", "pdf");
+    const b = loadCardPreview("/w/b.pdf", "pdf");
+    const md = loadCardPreview("/w/plan.md", "markdown");
+    await vi.advanceTimersByTimeAsync(JOB_LIMIT_MS + 50);
+    expect(await a).toBeNull();
+    expect(await b).toBeNull();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await md).toMatchObject({ kind: "markdown" });
+  });
+
+  it("reads a file again when it has changed since its preview was drawn, and not when it has not", async () => {
+    // THE MUTANT: the preview kept by path alone, so a plan the agent rewrote shows its old top.
+    let mtime = 100;
+    const readRange = files(() => mtime);
+    await loadCardPreview("/w/plan.md", "markdown");
+    await loadCardPreview("/w/plan.md", "markdown");
+    expect(readRange.mock.calls).toEqual([["/w/plan.md", 0, TEXT_HEAD]]);
+    mtime = 200;
+    await loadCardPreview("/w/plan.md", "markdown");
+    expect(readRange).toHaveBeenCalledTimes(2);
   });
 });

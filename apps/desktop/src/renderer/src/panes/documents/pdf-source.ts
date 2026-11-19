@@ -4,6 +4,7 @@ import {
 } from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import { PT_TO_PX, type PageSize, type PdfPlace } from "./pdf-layout";
+import { rangeAnswerer } from "./range-reads";
 
 /**
  * The one seam onto pdf.js. Everything the viewer asks of a PDF — its pages' sizes, a page drawn into
@@ -92,12 +93,15 @@ export function openPdf(url: string): { promise: Promise<PdfDocument>; cancel: (
 /** How many bytes pdf.js asks for at once while it finds the first page: its own default chunk. */
 const RANGE_CHUNK = 64 * 1024;
 
-/** pdf.js's range transport, answered by `read` instead of an HTTP server. */
+/** pdf.js's range transport, answered by `read` instead of an HTTP server (`rangeAnswerer`): a range
+ *  read in pieces, and `fail` when one cannot be. */
 class ReadTransport extends PDFDataRangeTransport {
-  constructor(length: number, private readonly read: (start: number, length: number) => Promise<Uint8Array | null>) { super(length, new Uint8Array(0)); }
-  override requestDataRange(begin: number, end: number): void {
-    void this.read(begin, end - begin).then((chunk) => { if (chunk) this.onDataRange(begin, chunk); });
+  private readonly answer: (begin: number, end: number) => void;
+  constructor(length: number, read: (start: number, length: number) => Promise<Uint8Array | null>, fail: () => void) {
+    super(length, new Uint8Array(0));
+    this.answer = rangeAnswerer(read, (begin, chunk) => this.onDataRange(begin, chunk), fail);
   }
+  override requestDataRange(begin: number, end: number): void { this.answer(begin, end); }
 }
 
 /** One worker for every card's first page, made when the first one is drawn: a PDF viewer opened
@@ -108,26 +112,32 @@ let cardWorker: PDFWorker | null = null;
  * A PDF's first page as a picture `width` CSS pixels wide, for a card, as a data: URL. The file is
  * read in the pieces pdf.js asks for — its cross-reference at the end, then the first page's objects
  * — and never fetched whole (`disableAutoFetch`), so a large scan costs only the reads its first page
- * needs. Null for a file that does not open, or asks for a password.
+ * needs. Null for a file that does not open, asks for a password, cannot be read or would cost more
+ * than its budget to draw: each of those ends the task, so a card never waits on a page that will
+ * not come.
  */
 export async function firstPagePicture(length: number, read: (start: number, length: number) => Promise<Uint8Array | null>,
   width: number): Promise<string | null> {
   cardWorker ??= new PDFWorker();
+  const gone = Promise.withResolvers<never>();
+  gone.promise.catch(() => {});
   const task = getDocument({
-    range: new ReadTransport(length, read), rangeChunkSize: RANGE_CHUNK, disableAutoFetch: true, disableStream: true,
+    range: new ReadTransport(length, read, () => gone.reject(new Error("unreadable"))), rangeChunkSize: RANGE_CHUNK, disableAutoFetch: true, disableStream: true,
     worker: cardWorker, cMapUrl: assets("cmaps"), cMapPacked: true, standardFontDataUrl: assets("standard_fonts"),
     wasmUrl: assets("wasm"), iccUrl: assets("iccs"), useWorkerFetch: true, enableXfa: false,
   });
-  task.onPassword = () => { void task.destroy(); };
+  task.onPassword = () => gone.reject(new Error("password"));
+  // Whichever comes first: the page, or the reason it never will.
+  const until = <T,>(p: Promise<T>): Promise<T> => Promise.race([p, gone.promise]);
   try {
-    const doc = await task.promise;
-    const page = await doc.getPage(1);
+    const doc = await until(task.promise);
+    const page = await until(doc.getPage(1));
     const vp = page.getViewport({ scale: 1 });
     const canvas = document.createElement("canvas");
     const scaled = page.getViewport({ scale: (width * (window.devicePixelRatio || 1)) / vp.width });
     canvas.width = Math.floor(scaled.width);
     canvas.height = Math.floor(scaled.height);
-    await page.render({ canvas, viewport: scaled }).promise;
+    await until(page.render({ canvas, viewport: scaled }).promise);
     // A data: URL, as every thumbnail is: the page's `img-src` admits no blob:.
     return canvas.toDataURL("image/png");
   } catch {
