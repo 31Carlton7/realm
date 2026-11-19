@@ -1,4 +1,6 @@
 import Foundation
+import RealmKit
+import Security
 import UIKit
 
 /// What this phone says about itself to the Mac.
@@ -59,6 +61,8 @@ enum LaunchOptions {
     static var stagedPhoto: String? { UserDefaults.standard.string(forKey: "stagePhoto") }
     /// Reads every network as cellular, for a video's question about sending over one.
     static var costlyNetwork: Bool { UserDefaults.standard.bool(forKey: "costlyNetwork") }
+    /// Refuses the paired Macs' keychain read, as a device does for a build signed without the team's group.
+    static var unreadablePairing: Bool { UserDefaults.standard.bool(forKey: "unreadablePairing") }
     #else
     static let costlyNetwork = false
     #endif
@@ -68,3 +72,18 @@ enum LaunchOptions {
         return count > 0 ? count : nil
     }
 }
+
+#if DEBUG
+/// The keychain, with the paired Macs refused as a device refuses a group it was not signed for.
+struct UnreadablePairingStore: SecureStore {
+    let keychain = KeychainStore()
+
+    func read(_ account: String) throws -> Data? {
+        if account == Vault.macsAccount { throw KeychainError(status: errSecMissingEntitlement) }
+        return try keychain.read(account)
+    }
+
+    func write(_ data: Data, for account: String) throws { try keychain.write(data, for: account) }
+    func delete(_ account: String) throws { try keychain.delete(account) }
+}
+#endif

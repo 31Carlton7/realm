@@ -4,7 +4,7 @@ import Foundation
 /// the Macs it is paired with, and the push ids it has already shown.
 public struct Vault: Sendable {
     static let identityAccount = "device-identity"
-    static let macsAccount = "paired-macs"
+    public static let macsAccount = "paired-macs"
     static let seenPushesAccount = "seen-pushes"
 
     public let store: any SecureStore
