@@ -239,6 +239,29 @@ describe("the prompter over a picture", () => {
     expect(stylesCss).toMatch(/:root\[data-squircle\] \.composer::before \{[^}]*box-shadow: var\(--prompter-lift\);/);
   });
 
+  it("lays the prompter's veil only while transparency is wanted, so Reduce Transparency keeps its tabs solid", () => {
+    // THE mutant: the veil outside the no-preference block, which outranks the tabs' own fill and
+    // turns the strips round a solid prompter into a see-through veil under Reduce Transparency.
+    const blocks: string[] = [];
+    let outside = stylesCss;
+    for (let at = outside.indexOf("@media (prefers-reduced-transparency: no-preference) {"); at >= 0; at = outside.indexOf("@media (prefers-reduced-transparency: no-preference) {")) {
+      let depth = 0, end = at;
+      for (let i = outside.indexOf("{", at); i < outside.length; i++) {
+        if (outside[i] === "{") depth++;
+        else if (outside[i] === "}" && --depth === 0) { end = i + 1; break; }
+      }
+      blocks.push(outside.slice(at, end));
+      outside = outside.slice(0, at) + outside.slice(end);
+    }
+    const prompter = /\.composer(::before|-goal|-todos|-overstrip|-understrip)/;
+    const veiled = (css: string) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, sel, body]) => prompter.test(sel!) && /var\(--picture-veil\)/.test(body!)).map(([, sel]) => sel!.trim());
+    expect(veiled(outside)).toEqual([]);
+    const inside = veiled(blocks.join("\n"));
+    expect(inside).toContain(`${scope} .composer::before`);
+    expect(inside.filter((sel) => /composer-understrip/.test(sel))).toHaveLength(2);
+  });
+
   it("starts each tab's blur at the card's line, so nothing is blurred and dimmed twice", () => {
     // THE mutant: a tab left on the seat's `clip-path: none`, its blur doubled under the card's.
     expect(rules.find((r) => r.sel === `${scope} .composer-understrip`)!.body).toContain("clip-path: inset(var(--tuck) -24px -24px -24px);");

@@ -7067,13 +7067,17 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    blur keeps its round corners, since the tabs are inset from its sides. */
 :root .session-pane:has(> .hero-backdrop) .composer::before {
   inset: 0; opacity: 1; box-shadow: none; filter: none;
-  border-radius: calc(var(--r-squircle) / 2); backdrop-filter: var(--picture-frost); background: var(--picture-veil); }
+  border-radius: calc(var(--r-squircle) / 2); backdrop-filter: var(--picture-frost); }
 :root .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--picture-frost); }
 /* The dim is a veil over the blur rather than a filter in it (tokens.css, `--picture-veil`): a dim in
    the filter let a see-through picture back through it. On a tab the veil is its fill, the painted one
-   under the painter; Glass dims in its own filter and lays no veil. */
-:root:not([data-glass]):not([data-squircle]) .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { background: var(--picture-veil); }
-:root[data-squircle]:not([data-glass]) .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { --sq-fill: var(--picture-veil); }
+   under the painter; Glass dims in its own filter and lays no veil. Reduce Transparency keeps the
+   prompter solid over a picture (tokens.css), so there the tabs keep their solid fill too. */
+@media (prefers-reduced-transparency: no-preference) {
+  :root .session-pane:has(> .hero-backdrop) .composer::before { background: var(--picture-veil); }
+  :root:not([data-glass]):not([data-squircle]) .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { background: var(--picture-veil); }
+  :root[data-squircle]:not([data-glass]) .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { --sq-fill: var(--picture-veil); }
+}
 :root .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip) {
   border-radius: calc(var(--r-squircle) / 2) calc(var(--r-squircle) / 2) 0 0; clip-path: inset(-24px -24px var(--tuck) -24px); }
 :root .session-pane:has(> .hero-backdrop) :is(.composer-goal + .composer-todos, .composer-goal + .composer-overstrip, .composer-todos + .composer-overstrip) { border-radius: 0; }
