@@ -116,7 +116,11 @@ const ms = (v: string) => (v.trim().endsWith("ms") ? parseFloat(v) : parseFloat(
  * Keep `el` wearing the edge blur at the ends that are open: its filter is named on it as
  * `--edge-blur`, which the stylesheet applies (and takes away under Low power and Reduce
  * Transparency). An end that opens slides its blur in from the bar, and one that closes slides it
- * back out; with both closed and settled the element wears none. Returns the update and the cleanup.
+ * back out; with both closed and settled the element wears none. A band is only as far in as its end
+ * is open, all the way once the content runs a band's depth past the bar: at full strength the moment
+ * an end opened, the foot band smudged the last line when the scroll stood 34px short of the end, with
+ * nothing passing under the bar (11-18). Scrolling moves it with the scroll. Returns the update and
+ * the cleanup.
  */
 export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: boolean) => void; stop: () => void } {
   if (!defs?.isConnected) {
@@ -136,6 +140,13 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
   const shown = { top: 0, bottom: 0 };
   let frame = 0;
   let last = 0;
+  /** How far in `end`'s band may be: the content past the bar there, over the band's depth. */
+  const open = (end: "top" | "bottom") => {
+    if (!want[end] || !shape) return want[end] ? 1 : 0;
+    const past = end === "top" ? el.scrollTop : el.scrollHeight - el.clientHeight - el.scrollTop;
+    const depth = end === "top" ? shape.top : shape.bottom;
+    return depth > 0 ? Math.max(0, Math.min(1, past / depth)) : 1;
+  };
 
   const place = () => {
     if (!images || !shape) return;
@@ -160,9 +171,9 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
     last = now;
     let moving = false;
     for (const end of ["top", "bottom"] as const) {
-      const goal = want[end] ? 1 : 0;
+      const goal = open(end);
       if (shown[end] === goal) continue;
-      shown[end] = goal > shown[end] ? Math.min(1, shown[end] + (by || 1 / 60)) : Math.max(0, shown[end] - (by || 1 / 60));
+      shown[end] = goal > shown[end] ? Math.min(goal, shown[end] + (by || 1 / 60)) : Math.max(goal, shown[end] - (by || 1 / 60));
       moving ||= shown[end] !== goal;
     }
     place();
@@ -172,17 +183,26 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
   // Drawn the first time an end opens, so a scroller that never moves builds nothing.
   const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => { if (shape) fit(); });
   sized?.observe(el);
+  // The scroll is already continuous, so a band follows it at once rather than easing after it.
+  const scrolled = () => {
+    if (frame || !images) return;
+    shown.top = open("top");
+    shown.bottom = open("bottom");
+    place();
+  };
+  el.addEventListener("scroll", scrolled, { passive: true });
   return {
     set(start, end) {
       want.top = start;
       want.bottom = end;
       if (!shape && (start || end)) fit();
-      if (!images) { shown.top = start ? 1 : 0; shown.bottom = end ? 1 : 0; return; }
+      if (!images) { shown.top = open("top"); shown.bottom = open("bottom"); return; }
       if (!frame) { last = 0; frame = requestAnimationFrame(step); }
     },
     stop() {
       if (frame) cancelAnimationFrame(frame);
       sized?.disconnect();
+      el.removeEventListener("scroll", scrolled);
       filter.remove();
       el.style.removeProperty("--edge-blur");
     },
