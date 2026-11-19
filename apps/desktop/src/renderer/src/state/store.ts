@@ -15,6 +15,7 @@ import type { PickedElement } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
+import { parseSpaceScreens, sameScreen, screensSettingKey, type SpaceScreen, type SpaceScreens } from "./space-screens";
 import {
   allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findPanel, itemIdOfLeaf, openItem as layoutOpen, sideTabsOf, tabOwner, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
@@ -3606,9 +3607,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     let layoutHydrated = false;
     /** Where this window keeps its view of `pid`: a window opened for one of the profile's spaces keeps
      *  its own, so it and the profile's other window never write over each other's panes. */
-    const windowViewKey = (pid: string): string => {
+    const windowSpaceOf = (pid: string): string | null => {
       const bound = api.boundSpaceId();
-      return viewSettingKey(pid, get().spaces.some((sp) => sp.id === bound && sp.profileId === pid) ? bound : null);
+      return get().spaces.some((sp) => sp.id === bound && sp.profileId === pid) ? bound : null;
+    };
+    const windowViewKey = (pid: string): string => viewSettingKey(pid, windowSpaceOf(pid));
+    /** The screen this window last showed of each space (`SpaceScreen`), stored beside its view and
+     *  keyed the same way, so a relaunch and a second window each bring back their own. */
+    let spaceScreens: SpaceScreens = {};
+    let screensTimer: ReturnType<typeof setTimeout> | null = null;
+    const persistScreens = async () => {
+      if (screensTimer) { clearTimeout(screensTimer); screensTimer = null; }
+      const pid = get().activeProfileId;
+      if (!pid) return;
+      const mine = Object.fromEntries(Object.entries(spaceScreens)
+        .filter(([sid]) => get().spaces.some((sp) => sp.id === sid && sp.profileId === pid)));
+      await api.setSetting(screensSettingKey(pid, windowSpaceOf(pid)), mine);
+    };
+    const scheduleScreensPersist = () => {
+      if (screensTimer) clearTimeout(screensTimer);
+      screensTimer = setTimeout(() => { screensTimer = null; get().run(persistScreens); }, PERSIST_DEBOUNCE_MS);
     };
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
@@ -3725,6 +3743,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  profile's view), and on `pagehide`. */
     const flushPersist = async () => {
       if (quickTimer) await persistQuickChat();
+      if (screensTimer) await persistScreens();
       if (persistTimer) await persist();
     };
     /** The active profile's spaces' ids. */
@@ -4561,13 +4580,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       });
       const epoch = profileEpoch;
       const ids = profileSpaceIds();
-      await Promise.all([
+      const [screens] = await Promise.all([
+        api.getSetting(screensSettingKey(pid, windowSpaceOf(pid))).catch(() => null),
         // `refreshItems`, not a bare load: it also clears the page items an older build left behind.
         ...ids.map((sid) => get().refreshItems(sid)),
         get().refreshSessions(), get().refreshEnvironments(), get().refreshProjects(),
       ]);
       if (epoch !== profileEpoch) return;
+      const stored = parseSpaceScreens(screens);
+      spaceScreens = { ...spaceScreens, ...stored };
       await restoreView(last);
+      if (epoch !== profileEpoch) return;
+      // The view brings back the panes; a page left up over the space the window comes back in is
+      // the rest of what was on screen. Read from what was stored: landing in the restored view has
+      // already been recorded, without the page.
+      const cur = currentSpaceOf(get());
+      const page = cur ? stored[cur]?.page : null;
+      if (cur && page && !get().pageOverlay) set({ pageOverlay: { ...page, spaceId: cur } });
       // The session with the keyboard gets its checkout's git context, as an open does.
       const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
       if (focused?.kind === "session") refreshGitFor(focused.refId);
@@ -4600,6 +4629,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return true;
     };
 
+    /** The item whose pane has the keyboard, or undefined when the focused pane holds nothing. */
+    const focusedItemOf = (s: AppState): Item | undefined => {
+      const leaf = s.layout && s.focusedLeafId ? findLeaf(s.layout, s.focusedLeafId) : null;
+      // In the side panel, the session whose tab is showing is the one in focus.
+      const id = leaf?.tabs ? (leaf.itemId ? tabOwner(leaf, leaf.itemId) : undefined) ?? leaf.itemId : leaf?.itemId ?? null;
+      return id ? s.items.find((i) => i.id === id) ?? (s.peek?.item.id === id ? s.peek.item : undefined) : undefined;
+    };
+
     /* ── The current space ────────────────────────────────────────────────────────────────────────
        DERIVED, never chosen: the space of the session in focus, else the one last current in this
        profile, else its first. Kept in `activeSpaceId` because thirty readers already ask that field
@@ -4613,10 +4650,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // A space's own Overview, while it is up, is about that space — and its New session button
       // means that space.
       if (s.pageOverlay?.kind === "space-page" && mine(s.pageOverlay.refId)) return s.pageOverlay.refId;
-      const leaf = s.layout && s.focusedLeafId ? findLeaf(s.layout, s.focusedLeafId) : null;
-      // In the side panel, the session whose tab is showing is the one in focus.
-      const id = leaf?.tabs ? (leaf.itemId ? tabOwner(leaf, leaf.itemId) : undefined) ?? leaf.itemId : leaf?.itemId ?? null;
-      const item = id ? s.items.find((i) => i.id === id) ?? (s.peek?.item.id === id ? s.peek.item : undefined) : undefined;
+      // Any other page is opened over a space, and put back over the one a switch went to.
+      if (s.pageOverlay && mine(s.pageOverlay.spaceId)) return s.pageOverlay.spaceId;
+      const item = focusedItemOf(s);
       if (item && mine(item.spaceId)) return item.spaceId;
       const last = s.lastSpaceByProfile[pid];
       if (mine(last)) return last;
@@ -4662,10 +4698,35 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const next = pushStop(t, stop);
       if (next !== t) set({ windowTrail: next });
     };
-    storeApi.subscribe(() => { if (trailHeld === 0) noteStop(); });
+    /** Record what the window shows of its current space. Run a microtask after the write that asked,
+     *  so a move made of several writes in one go — `openItem` puts the page away and THEN moves the
+     *  focus — is recorded once, where it landed, and not as the page closing over the space being left. */
+    const noteScreen = () => {
+      const s = get();
+      const spaceId = currentSpaceOf(s);
+      if (!spaceId || !layoutHydrated) return;
+      // A peek is a look, not a place: what is left is the session it was opened beside, as `persist` keeps.
+      const focused = focusedItemOf(s);
+      const shown = focused && s.peek?.item.id === focused.id ? s.items.find((i) => i.id === s.peek!.owner) : focused;
+      const page = s.pageOverlay?.spaceId === spaceId ? { kind: s.pageOverlay.kind, refId: s.pageOverlay.refId } : null;
+      // A page over a space keeps the item that had the keyboard there before it, for when it closes.
+      const itemId = shown?.spaceId === spaceId ? shown.id : page ? spaceScreens[spaceId]?.itemId ?? null : null;
+      if (!itemId && !page) return;
+      const screen: SpaceScreen = { itemId, page };
+      if (sameScreen(spaceScreens[spaceId], screen)) return;
+      spaceScreens = { ...spaceScreens, [spaceId]: screen };
+      scheduleScreensPersist();
+    };
+    let screenNoted = false;
+    const queueScreenNote = () => {
+      if (screenNoted) return;
+      screenNoted = true;
+      queueMicrotask(() => { screenNoted = false; noteScreen(); });
+    };
+    storeApi.subscribe(() => { if (trailHeld === 0) { noteStop(); queueScreenNote(); } });
     const holdTrail = async <T,>(fn: () => Promise<T>): Promise<T> => {
       trailHeld++;
-      try { return await fn(); } finally { if (--trailHeld === 0) noteStop(); }
+      try { return await fn(); } finally { if (--trailHeld === 0) { noteStop(); queueScreenNote(); } }
     };
 
     /** Toast ids, per window: the id is what a toast's timer and its exit are keyed to. */
@@ -4873,6 +4934,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (get().activeProfileId !== space.profileId) return;
         // Remembered first: with nothing focused, this is the space a new session goes to.
         set({ lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: id } });
+        /* Where this window left the space, put back as it was: the same pane, with its side pane, and
+           the page that was up over it. A session that was deleted or archived since is not guessed
+           at — the space's Overview, which lists what it has — unless a page was up over it. */
+        const left = spaceScreens[id];
+        if (left) {
+          const item = get().items.find((i) => i.id === left.itemId && i.spaceId === id && !i.archived);
+          if (item) await get().openItem(item.id);
+          if (left.page) { set({ pageOverlay: { ...left.page, spaceId: id } }); return; }
+          if (!item) get().openSpacePage(id);
+          return;
+        }
         // A page about a space follows: its Overview re-pointed is the same question asked of this one.
         const page = get().pageOverlay;
         if (page?.kind === "space-page") { set({ pageOverlay: { kind: "space-page", refId: id, spaceId: id } }); return; }
