@@ -7094,6 +7094,12 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .session-pane:has(> .hero-backdrop) .composer::before {
   border-radius: var(--r-squircle); corner-shape: squircle; clip-path: inset(var(--seat-top) 0 var(--seat-bottom) 0); }
 :root[data-squircle][data-glass] .session-pane:has(> .hero-backdrop) .composer-glass { clip-path: inset(var(--seat-top) 0 var(--seat-bottom) 0); }
+/* In Plain the dim is the card's veil, not its filter, and a seated strip paints its veil only outside
+   the card's curve, so a card cut short left a band of the picture blurred but not dimmed where the
+   strip tucks under it (11-18: a line of the raw sky between the prompter and its under-strip). Plain's
+   card runs to its own curve: the band is blurred twice, which a blurred picture does not show, and
+   dimmed once. */
+:root[data-squircle]:not([data-glass]) .session-pane:has(> .hero-backdrop) .composer::before { clip-path: none; }
 :root[data-squircle] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip) {
   border-radius: var(--sq-radius-top) var(--sq-radius-top) 0 0; corner-shape: squircle; }
 :root[data-squircle] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip):has(+ .composer) {

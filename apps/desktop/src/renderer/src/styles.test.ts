@@ -119,6 +119,9 @@ describe("the prompter's blurs over a picture", () => {
     expect(bodiesFor(".composer:has(+ .composer-understrip)").join(" ")).toContain("--seat-bottom: var(--seat-drop);");
     for (const sel of [`${PICTURE}.composer::before`, ":root[data-squircle][data-glass] .session-pane:has(> .hero-backdrop) .composer-glass"])
       expect(bodiesFor(sel).join(" "), sel).toContain("clip-path: inset(var(--seat-top) 0 var(--seat-bottom) 0);");
+    // THE mutant: Plain's card cut short too, which leaves the seat blurred but undimmed, since its
+    // dim is the card's veil and the strip paints its own only outside the card's curve.
+    expect(bodiesFor(':root[data-squircle]:not([data-glass]) .session-pane:has(> .hero-backdrop) .composer::before').join(" ")).toContain("clip-path: none;");
     expect(bodiesFor(`${PICTURE}.composer + .composer-understrip`).join(" ")).toContain("clip-path: inset(calc(var(--tuck) - var(--seat-drop)) -24px -24px -24px);");
     expect(bodiesFor(`${PICTURE}:is(.composer-goal, .composer-todos, .composer-overstrip):has(+ .composer)`).join(" "))
       .toContain("clip-path: inset(-24px -24px calc(var(--tuck) - var(--seat-drop)) -24px);");
