@@ -12,6 +12,7 @@ import { QuickChat } from "../components/QuickChat";
 import { useAnchoredPopover } from "../components/use-anchored-popover";
 import { PrompterGlass } from "./PrompterGlass";
 import { GLASS_CONTROLS, GlassRoot } from "./GlassDefs";
+import { ROW_TINT } from "./glass-dim";
 import { reduceAll } from "../panes/session/transcript-model";
 import { LOOK_SETTING, PLAIN_REASON_TEXT, plainReason, shownLook, type GlassConditions } from "./look";
 
@@ -421,6 +422,14 @@ describe("inside a glass picker", () => {
       expect(shares, name).toHaveLength(2);
       for (const t of shares) expect(parseInt(overlay(t).slice(7), 16), `${name}: ${t}`).toBeLessThan(0x40);
     }
+  });
+
+  it("measures dark glass's dim against the tint the lit row is filled with", () => {
+    // THE mutant: the token renamed under glass-dim.ts, which then reads no tint and solves for bare
+    // glass, leaving the words on a lit row over a white sky under their ratio.
+    expect(faces(ROW_TINT.slice(2)), ROW_TINT).toHaveLength(2);
+    const lit = inside().find((r) => /\.mp-row\[data-active\]/.test(r.sel) && /\.mp-account-row:hover/.test(r.sel))!;
+    expect(lit.body).toContain(`background: var(${ROW_TINT})`);
   });
 
   it("lights the row the pointer or the arrows are on with the rim's specular light", () => {

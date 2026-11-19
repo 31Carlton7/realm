@@ -25,6 +25,9 @@ export const GLASS_DIM_TAIL = 0.01;
 export const PICKER_REACH = 480;
 /** One sample per this many CSS px, which the glass's own frost blurs together anyway. */
 const SAMPLE_PX = 8;
+/** The token the picker's lit row is filled with (tokens.css). A name the stylesheet does not define
+ *  reads as no tint at all, so the test holds this one to it. */
+export const ROW_TINT = "--row-tint";
 
 const clamp = (v: number) => Math.min(1, Math.max(0, v));
 
@@ -106,7 +109,7 @@ function glassInks(pane: Element, resolve: (css: string) => Rgb): GlassInk[] {
   ];
 }
 
-/** The picker's lit row (`--glass-row`), the lightest tint a word on the glass stands on, read as
+/** The picker's lit row (`ROW_TINT`), the lightest tint a word on the glass stands on, read as
  *  its colour and alpha off one pixel laid over black and over white. */
 function glassTint(pane: Element): GlassTint | null {
   const g = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
@@ -114,7 +117,7 @@ function glassTint(pane: Element): GlassTint | null {
   const over = (ground: string) => {
     g.fillStyle = ground;
     g.fillRect(0, 0, 1, 1);
-    g.fillStyle = getComputedStyle(pane).getPropertyValue("--glass-row");
+    g.fillStyle = getComputedStyle(pane).getPropertyValue(ROW_TINT);
     g.fillRect(0, 0, 1, 1);
     const d = g.getImageData(0, 0, 1, 1).data;
     return [d[0]! / 255, d[1]! / 255, d[2]! / 255];
