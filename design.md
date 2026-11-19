@@ -639,6 +639,14 @@ a control that moves onto the ladder moves onto the painter as well. `styles.tes
 painted corner off the ladder, and the count of controls still on the old fixed corner may only go
 down.
 
+A segmented control stands on that ladder twice: its track takes its own height times the control
+ratio, and its chosen segment takes the track's corner less the gap between them, both on the
+control's curve. A glass segment's corner is a blur, which only its own border box can cut, so there
+Chromium draws the curve (`--corner-ctl`, the painter's exponent written as a `superellipse()`), and
+the rim takes the curve along with the radius. With the radius alone the rim traced a circle round the
+squircle, lit unevenly and doubled at each corner, inside a track whose corner was not concentric
+with it (the owner, 11-19). `styles.test.ts` holds every track and segment to this.
+
 The large composer squircle is a product signature, and its role is broader than the composer. It
 belongs on any surface that is a **panel the eye rests in** rather than a row it scans past: the
 composer, a fenced code block, a commit or review card, an install card. What it does not belong on
