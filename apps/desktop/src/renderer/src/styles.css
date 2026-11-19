@@ -3821,47 +3821,27 @@ body { --focus-ring-field: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, tr
 [data-dissolve~="start"] { --dissolve-top: var(--fade-top-h, 40px); }
 [data-dissolve~="end"] { --dissolve-bottom: var(--fade-h, 68px); }
 
-/* The edge blur (`EdgeBlur` in ScrollFades.tsx): where chrome sits over a scroller — the pane bar
-   and the prompter over the transcript, the pane bar over a page's column — the content blurs
-   progressively as it reaches the bar, as it does under Photos' toolbar. Two layers per band, both
-   ramped in by their masks so neither has an edge: a shallow blur right at the boundary, and a
-   deeper one over the band's outer part. The fade itself is the scroller's mask above; the bands
-   paint no colour, so there is no slab, only less detail. It is the one place a backdrop-filter is
-   allowed (styles.test.ts holds it there).
-   Right inset = the 10px scrollbar: the thumb is chrome, and one blurred halfway down reads as a
-   scrollbar that stops short. */
-/* The scroller's parent is the bands' backdrop root, so they blur the content and never the window
-   ground behind it: over a translucent pane, a blur that reached the ground filtered the window's own
-   transparency and laid a grey stripe with a step at its end (measured on a real capture, 2–4 levels).
-   Opacity is the backdrop-root trigger that leaves `position: fixed` children alone. */
+/* The edge blur (`useEdgeBlur` in ScrollFades.tsx, drawn by components/edge-blur.ts): where chrome
+   sits over a scroller (the pane bar and the prompter over the transcript, the pane bar over a
+   page's column), the content blurs progressively as it reaches the bar, as it does under Photos'
+   toolbar. It is a filter on the scroller, named as `--edge-blur` only while an end is open, so what
+   passes under the bar is replaced by its blurred self rather than doubled by a blurred copy laid
+   over it. The fade itself is the scroller's mask above; the filter paints no colour. */
+/* The scroller's parent is a backdrop root, so a backdrop filter drawn over the content (the
+   selection bar's glass) takes the content and never the window ground behind it: over a
+   translucent pane, a blur that reached the ground filtered the window's own transparency and laid a
+   grey stripe with a step at its end (measured on a real capture, 2–4 levels). Opacity is the
+   backdrop-root trigger that leaves `position: fixed` children alone. */
 .transcript-wrap, .page-scroll { opacity: 0.999; }
-.edge-blur { position: absolute; left: 0; right: 10px; pointer-events: none; z-index: 1;
-  opacity: 0; transition: opacity var(--dur-fast) ease; }
-.edge-blur[data-on] { opacity: 1; }
-.edge-blur[data-edge="top"] { top: 0; height: var(--fade-top-h, 40px); }
-.edge-blur[data-edge="bottom"] { bottom: 0; height: var(--fade-h, 68px); }
-.edge-blur::before, .edge-blur::after { content: ""; position: absolute; inset: 0; }
-.edge-blur::before { backdrop-filter: blur(var(--fade-blur-near)); -webkit-backdrop-filter: blur(var(--fade-blur-near)); }
-.edge-blur::after { backdrop-filter: blur(var(--fade-blur-far)); -webkit-backdrop-filter: blur(var(--fade-blur-far)); }
-.edge-blur[data-edge="bottom"]::before {
-  mask-image: linear-gradient(to bottom, transparent 0, #000 60%); -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 60%); }
-.edge-blur[data-edge="bottom"]::after {
-  mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); }
-.edge-blur[data-edge="top"]::before {
-  mask-image: linear-gradient(to top, transparent 0, #000 60%); -webkit-mask-image: linear-gradient(to top, transparent 0, #000 60%); }
-.edge-blur[data-edge="top"]::after {
-  mask-image: linear-gradient(to top, transparent 30%, #000 78%); -webkit-mask-image: linear-gradient(to top, transparent 30%, #000 78%); }
-/* A page's column bleeds past `.page-scroll` for focus rings; the bands follow the column's clip. */
-.page-scroll > .edge-blur { left: calc(-1 * var(--page-bleed)); right: calc(-1 * var(--page-bleed)); }
-.page-scroll > .edge-blur[data-edge="top"] { top: calc(-1 * var(--page-bleed)); }
-.session-pane[data-composer="hero"] .edge-blur { display: none; }
-/* Low Power: the bands re-filter on every frame an agent writes under them, so they go and the mask
+.transcript, .page-scroll > .page-content { filter: var(--edge-blur, none); }
+.session-pane[data-composer="hero"] .transcript { filter: none; }
+/* Low Power: the blur re-filters on every frame an agent writes under it, so it goes and the mask
    alone fades the edge. Not merely unfocused — a blur that came and went with focus would be the one
    thing in the window to change as someone clicked back into it. */
-:root[data-quiet="always"] .edge-blur { display: none; }
+:root[data-quiet="always"] .transcript, :root[data-quiet="always"] .page-scroll > .page-content { filter: none; }
 /* Asked for less translucency: the mask still fades the edge; the blur goes. */
 @media (prefers-reduced-transparency: reduce) {
-  .edge-blur::before, .edge-blur::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .transcript, .page-scroll > .page-content { filter: none; }
 }
 
 /* The same on its side, for a strip that scrolls sideways. A horizontal scroller that dissolved by
@@ -6755,6 +6735,11 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 /* Over a picture the glass is the picture's ground: the lens with its slight frost, then the dim. */
 :root[data-glass] .session-pane:has(> .hero-backdrop) .composer-glass { backdrop-filter: var(--glass-lens, blur(var(--glass-blur))) var(--glass-tone); }
 :root[data-glass][data-clear-over-picture] .composer-glass { --glass-frost-px: 0px; }
+/* In dark the lens floods the pane's ground under the picture before it dims it, as a picker's does.
+   The guard may draw a bright picture see-through, and Chromium lays the filter's result over the
+   backdrop, so a see-through result let the picture back through the dim: over a white sky the
+   placeholder stood on a ground half again lighter than the dim allowed (11-18). */
+:root[data-glass]:not([data-mode="light"]):not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass { --glass-ground-share: 1; }
 /* ⌘K's lift, the same way. This is the square at the palette's corners: its `box-shadow` (four
    layers, one of them a ring) drew from the border box, which under the painted regime is a
    RECTANGLE with no radius at all — so a hard-cornered halo sat over the curve the worklet had
@@ -7115,11 +7100,14 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate));
   box-shadow: var(--shadow-raised); }
 /* Over a picture its quiet words take a step toward the secondary ink, as the prompter's do when it
-   thins: the frost is the picture's own colour, and in light the specs line stood at 2.95:1 on it. */
+   thins: the frost is the picture's own colour, and in light the specs line stood at 2.95:1 on it. In
+   dark they take the whole step, as the prompter's do over a picture, because the dim is worked out
+   for the secondary ink (glass/glass-dim.ts) and a dark picture keeps its light. */
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] {
   --rl-text-faint: color-mix(in oklab, var(--ink-2) 50%, var(--ink-3));
-  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--picture-tone) var(--glass-panel-tone);
+  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--glass-picture-tone) var(--glass-panel-tone);
   box-shadow: none; }
+:root[data-glass]:not([data-mode="light"]) :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] { --rl-text-faint: var(--ink-2); }
 /* Inside a glass picker nothing is a solid step: the effort track, the account's well, the overflow's
    segments and the sign-in panel are a tint of the ink over the frost, and the row the pointer or the
    arrows are on is one rung more with the rim's light round it, so it reads as lit glass rather than a

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { attachEdgeBlur } from "./edge-blur";
 
 /**
  * The two ends of a scroller, dissolved when there is something under them.
@@ -88,20 +89,22 @@ export function useDissolve(ref: RefObject<HTMLElement | null>, axis: "y" | "x" 
  * The edge blur: the progressive blur a scroller wears where chrome sits over it — the pane bar
  * above the transcript, the prompter below it, a page's column under the pane bar. Content blurs
  * softly as it nears the bar, the way Photos dissolves a grid under its toolbar, and no slab is
- * drawn: each band is two backdrop-blurred layers whose masks ramp them in, so nothing has an edge.
- *
- * The bands are SIBLINGS of the scroller, laid in its positioned parent, because a backdrop-filter
- * inside the scroller would be faded by the scroller's own mask. The fade is still the mask's
- * (`useDissolve`); the bands only take the detail out of what is fading. Only chrome over content
- * gets one: a menu, a sheet or a list in a card keeps the mask alone on its plain surface.
+ * drawn: the blur is a filter on the scroller itself (`edge-blur.ts`), so what passes under the bar
+ * is replaced by its blurred self rather than having a blurred copy laid over it. The fade is still
+ * the mask's (`useDissolve`). Only chrome over content gets one: a menu, a sheet or a list in a card
+ * keeps the mask alone on its plain surface.
  */
-export function EdgeBlur({ start, end }: { start: boolean; end: boolean }) {
-  return (
-    <>
-      <div className="edge-blur" data-edge="top" data-on={start || undefined} aria-hidden="true" />
-      <div className="edge-blur" data-edge="bottom" data-on={end || undefined} aria-hidden="true" />
-    </>
-  );
+export function useEdgeBlur(ref: RefObject<HTMLElement | null>, { start, end }: { start: boolean; end: boolean }) {
+  const blur = useRef<{ el: HTMLElement; set: (start: boolean, end: boolean) => void; stop: () => void } | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (blur.current?.el !== el) {
+      blur.current?.stop();
+      blur.current = el ? { el, ...attachEdgeBlur(el) } : null;
+    }
+    blur.current?.set(start, end);
+  });
+  useEffect(() => () => { blur.current?.stop(); blur.current = null; }, []);
 }
 
 /**
@@ -148,10 +151,9 @@ export function PageScroll({ children, wide = false }: { children: ReactNode;
    *  of files, the Tasks lens — rather than one of prose. */
   wide?: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const edges = useDissolve(scroller);
+  useEdgeBlur(scroller, useDissolve(scroller));
   return (
     <div className="page-scroll">
-      <EdgeBlur {...edges} />
       <div className="page-content" ref={scroller} data-wide={wide || undefined}>{children}</div>
     </div>
   );
