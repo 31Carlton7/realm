@@ -25,7 +25,7 @@ import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { startBackdropState } from "./backdrop-state";
-import { readTextFile } from "./read-text";
+import { readFileRange, readTextFile } from "./read-text";
 import {
   addBackgrounds, backgroundImageUrl, backgroundLoopFile, listBackgrounds, removeBackground, setBackgroundPoster, updateBackground, type FirstFrame, type Reencode,
 } from "./backgrounds";
@@ -2025,6 +2025,8 @@ ipcMain.handle("media:transcode", async (_e, path: unknown): Promise<string> => 
 ipcMain.handle("files:stat", (_e, path: unknown) => statFile(path));
 /** A file's text, for the media viewer to draw as the documents pane would (read-text.ts). */
 ipcMain.handle("files:read-text", (_e, path: unknown) => readTextFile(path));
+/** A few bytes of a listed file, for the preview on its card (read-text.ts). */
+ipcMain.handle("files:read-range", (_e, path: unknown, start: unknown, length: unknown) => readFileRange(path, start, length));
 /**
  * One folder of a space or a checkout, newest first (`browse.ts`) — what a session's file browser
  * lists.

@@ -477,6 +477,12 @@ a {
    * is left to win is the curve's, not the radius's, which is what --sq-n-ctl below is for.
    */
   --sq-ratio-ctl: 0.48;
+  /* How much of a space's colour its tile is filled with, over whatever is under it. The rail's tiles
+   * stand on the rail's own ground. A space page's head tile stands on the pane and thins with it by
+   * the prompter's number, so it starts higher: at the pane's default, its 28% thinned to 40% is
+   * 11%, where 16% came to 6% and the tile all but left the light face. */
+  --space-tile-tint: 16%;
+  --space-head-tint: 28%;
   /* The radius a squircular MEDIA WELL takes, against the 0.48 a control takes.
    *
    * A tile is not a control, and the ceiling argument above is why it needs its own number rather
@@ -576,6 +582,19 @@ a {
   /* What a card wore before, kept for an OBJECT: a thing picked up rather than read (a file's tile, a
    * saved turn, the device's toolbar) still stands on the surface (`--rl-object-shadow`). */
   --object-lift: 0 1px 2px #00000029, 0 4px 14px -4px #00000038;
+  /* A card on the documents home's grid: the one card that keeps an edge and a lift, because it was
+   * asked for by name (design.md, "A file's card on the documents grid"). Stow's light glass card,
+   * a step fainter again: a face that catches a little light at the top, a lit top edge with a
+   * hairline round it, and a lift under it. No blur. */
+  --doc-card-fill: var(--overlay-lighten-100);
+  --doc-card-fill-hover: var(--overlay-lighten-200);
+  --doc-card-fill-press: var(--overlay-lighten-300);
+  --doc-card-sheen: linear-gradient(to bottom, var(--overlay-lighten-100), transparent 60%, var(--overlay-lighten-50));
+  --doc-card-edge: inset 0 var(--hairline-w) 0 var(--overlay-lighten-600), inset 0 0 0 var(--hairline-w) var(--overlay-lighten-100);
+  --doc-card-lift: 0 0 0 var(--hairline-w) #00000033, 0 1px 2px #0000001f, 0 5px 14px #0000001a;
+  --doc-card-lift-hover: 0 0 0 var(--hairline-w) #00000038, 0 2px 4px #00000024, 0 10px 22px #0000002e;
+  /* How far the preview stands in from the card's edge, so its corner is the card's less this. */
+  --doc-card-inset: 6px;
   /* A floating WINDOW's own edge, resting and under the pointer — the quick chat today.
    * Its own pair rather than the card ring: a card sits on a pane and takes most of its boundary
    * from the surface step, where a window floats over whatever happens to be behind it and the line
@@ -639,6 +658,14 @@ a {
   /* An object keeps its lift (`--rl-object-shadow`): heavier than dark's in proportion, and falling
      down, so it never reads as a soft line round all four edges. */
   --object-lift: 0 1px 2px #0307121a, 0 2px 8px -2px #03071214;
+  /* The grid's card on paper: white, most of the way opaque, under a lift that falls down. */
+  --doc-card-fill: var(--overlay-lighten-1100);
+  --doc-card-fill-hover: var(--overlay-lighten-1300);
+  --doc-card-fill-press: var(--overlay-lighten-1000);
+  --doc-card-sheen: linear-gradient(to bottom, var(--overlay-lighten-800), transparent 60%);
+  --doc-card-edge: inset 0 var(--hairline-w) 0 var(--overlay-lighten-1400), inset 0 0 0 var(--hairline-w) var(--overlay-lighten-900);
+  --doc-card-lift: 0 0 0 var(--hairline-w) #0307120f, 0 1px 2px #0307120a, 0 5px 14px #0307120d;
+  --doc-card-lift-hover: 0 0 0 var(--hairline-w) #03071214, 0 2px 4px #0307120d, 0 12px 24px #03071217;
   /* Heavier steps than the dark face, not the mirrored ones: black on a near-white ground loses more
      of itself than white on a near-black one, so the same rungs would land as no border and no
      hover. Same correction the pane divider needed. */
@@ -884,17 +911,18 @@ a {
   --glass-rim: inset 1px 1px 0 rgb(255 255 255 / .2), inset -1px -1px 0 rgb(255 255 255 / .1);
   --glass-bead: rgb(255 255 255 / .12);
   --glass-knob: rgb(255 255 255 / .6);
-  /* A well and a lit row inside a glass panel (styles.css, "Glass"): tints of the ink, the row a rung more. */
-  --glass-well: var(--overlay-lighten-300);
-  --glass-row: var(--overlay-lighten-400);
+  /* A well and a lit row inside a see-through picker (Glass, or Plain over a picture) and in the
+     account switcher in either look (styles.css): tints of the ink, the row a rung more. */
+  --well-tint: var(--overlay-lighten-300);
+  --row-tint: var(--overlay-lighten-400);
 }
 :root[data-mode="light"] {
   --glass-panel-tone: brightness(1.08);
   --glass-specular: conic-gradient(from -45deg, rgb(255 255 255 / .95), rgb(0 0 0 / .06) 25%, rgb(255 255 255 / .7) 50%, rgb(0 0 0 / .06) 75%, rgb(255 255 255 / .95));
   --glass-rim: inset 1px 1px 0 rgb(255 255 255 / .9), inset -1px -1px 0 rgb(255 255 255 / .6), inset 0 0 0 var(--hairline-w) rgb(0 0 0 / .07);
   --glass-bead: rgb(255 255 255 / .6);
-  --glass-well: var(--overlay-darken-200);
-  --glass-row: var(--overlay-darken-300);
+  --well-tint: var(--overlay-darken-200);
+  --row-tint: var(--overlay-darken-300);
 }
 :root[data-clear-over-picture] { --glass-tone: saturate(var(--glass-saturate)); --glass-frost: var(--glass-tone); }
 

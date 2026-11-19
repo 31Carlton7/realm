@@ -1,5 +1,6 @@
-import { basenameOf, steerNote, type AgentKind, type QueuedPrompt } from "@realm/contracts";
+import { basenameOf, steerNote, type AgentKind, type QueuedPrompt, type QueueTurn } from "@realm/contracts";
 import { Icon } from "@realm/ui";
+import { formatEffort } from "@realm/view";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import type { SubmitKey } from "../../state/store";
 import { AttachmentTile } from "./AttachmentTile";
@@ -17,6 +18,28 @@ export type QueueActions = {
   /** Put the message in front of `before`, or last when it is null (`sessions.moveQueued`). */
   onMove: (queuedId: string, before: string | null) => void;
 };
+
+/** What the session is set to now and what its running turn went out on (null between turns), which
+ *  each queued message is read against, and the name the picker's chip gives a model id. */
+type SessionRun = QueueTurn & { turn: QueueTurn | null; modelName: (model: string | null) => string };
+
+/**
+ * What a queued message will run on, where that is not what the picker says now or not what the
+ * turn running went out on — "Opus 5.5 · XHigh" — and only those parts. A message queued after the
+ * picker moved mid-turn matches the picker and not the turn, and is named; one matching both has
+ * nothing to add. A level alone says what it is a level of. Null too for a message from a server
+ * that did not keep them.
+ */
+function runsOnLabel(q: QueuedPrompt, now: SessionRun): string | null {
+  const differs = <K extends keyof QueueTurn>(k: K, v: QueueTurn[K] | undefined) =>
+    v !== undefined && (v !== now[k] || (now.turn !== null && v !== now.turn[k]));
+  const model = differs("model", q.model) ? now.modelName(q.model ?? null) : null;
+  // Beside a model the level reads as the chip writes it, "Opus 5.5 · XHigh".
+  const level = !differs("effort", q.effort) ? null
+    : !q.effort ? "Default effort" : model ? formatEffort(q.effort) : `${formatEffort(q.effort)} effort`;
+  const parts = [model, level, differs("fastMode", q.fastMode) ? (q.fastMode ? "Fast" : "Fast off") : null].filter((p) => p !== null);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 
 /** From this many waiting, the queue folds to one line until it is asked for: three cards above the
  *  prompter push the box being typed in halfway up the pane. */
@@ -71,11 +94,15 @@ function useLeaving(queued: QueuedPrompt[]): { q: QueuedPrompt; leaving: boolean
  * The send-now sits on the row rather than in the button corner, which is Stop's while a turn runs.
  * What it costs is `steerNote`'s answer and differs by agent.
  *
+ * A message queued on another model, level or fast mode than the session is on now says which under
+ * its text, since that is what its turn runs on (`runsOnLabel`).
+ *
  * A message is edited in place, as plain text: an element chip shows as its `@[label]` token, and
  * taking the token out drops the chip (the server's `keepLiveChips`), exactly as in the prompter.
  */
-export function ComposerQueue({ kind, queued, running, submitKey, actions, pendingMove = null }: {
+export function ComposerQueue({ kind, queued, running, submitKey, actions, run = null, pendingMove = null }: {
   kind: AgentKind; queued: QueuedPrompt[]; running: boolean; submitKey: SubmitKey; actions: QueueActions;
+  run?: SessionRun | null;
   /** A move waiting for this turn to end ("Move after this turn"): said first, since it happens at
    *  the turn's end before anything queued goes, and called off from here. */
   pendingMove?: { to: string; onCancel: () => void } | null;
@@ -227,6 +254,7 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions, pendi
             const elsewhere = q.held && !mine;
             const long = expanded.has(q.id);
             const movable = n >= 2 && !leaving && !mine;
+            const runsOn = run && runsOnLabel(q, run);
             return (
               <li key={q.id} className="composer-queue-item" data-queued-id={q.id}
                 data-leaving={leaving || undefined} inert={leaving || undefined} aria-hidden={leaving || undefined}
@@ -265,6 +293,8 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions, pendi
                         {q.text || <span className="queue-text-empty">Attachments only</span>}
                       </button>
                     )}
+                    {/* Its words in a tooltip only once a narrow row has cut them short. */}
+                    {runsOn && <span className="queue-runs" data-tip="clipped"><span data-tip-text>{runsOn}</span></span>}
                     {(mine || elsewhere) && (
                       <span className="queue-held" role="status">
                         <Icon name={mine ? "edit" : "pause"} size={12} />

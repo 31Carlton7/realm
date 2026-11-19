@@ -150,6 +150,10 @@ contextBridge.exposeInMainWorld("realm", {
     /** The file's text, up to the documents pane's ceiling; null when it is not there (main/read-text.ts). */
     readText: (path: string): Promise<{ ok: true; text: string } | { ok: false; reason: "large" | "binary" } | null> =>
       ipcRenderer.invoke("files:read-text", path),
+    /** `length` bytes from `start`, fewer at the end of the file, at most 1 MB; null when it is not a
+     *  regular file (main/read-text.ts). What a card draws a text or PDF preview from. */
+    readRange: (path: string, start: number, length: number): Promise<Uint8Array | null> =>
+      ipcRenderer.invoke("files:read-range", path, start, length),
     /** One folder under `root`, newest first — the session file browser's whole data source. Null
      *  when the folder cannot be read or the path points outside the root it was given. */
     browse: (root: string, dir: string): Promise<{ dir: string; truncated: boolean;
