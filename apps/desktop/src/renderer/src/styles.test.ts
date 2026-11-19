@@ -2058,7 +2058,10 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
       /* A CHILD taking its parent's corner is not a surface of its own. The palette's head and foot
          round themselves so nothing square meets the painted curve behind them — painting each of
          them would give the card three stacked fills instead of one. */
-      .filter((sel) => !/^\.palette > /.test(sel));
+      .filter((sel) => !/^\.palette > /.test(sel))
+      /* Nor is a card's preview, which takes the card's corner less its inset and clips a picture —
+         a fill painted behind an image would be under it, so Chromium's own curve draws the clip. */
+      .filter((sel) => sel !== ".docs-card-preview" && sel !== ".docs-card-preview[data-shows=\"picture\"]::after");
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });

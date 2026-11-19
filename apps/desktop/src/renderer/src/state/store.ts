@@ -962,6 +962,9 @@ const SIGN_IN_ORDER: Record<AgentSignIn["state"], number> = { starting: 0, brows
 /** How the Library lays its files out. Its own key, not the session browser's: the Library opens on
  *  tiles, as Codex's does, and a person who reads a folder as rows has not said anything about it. */
 export const SETTING_LIBRARY_VIEW = "ui.libraryView";
+/** How the documents pane's home lays its files out. Its own key again: a pane that is often a narrow
+ *  column beside a session is read as rows until the person asks for the previews. */
+export const SETTING_DOCUMENTS_VIEW = "ui.documentsView";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
  *  ever read together — a position with no conversation to put in it is nothing. Named in
  *  `@realm/view`, because the server reads the session id from it to leave the quick chat out of
@@ -1180,6 +1183,8 @@ export type AppState = TeammatesSlice & {
   filesView: FilesView;
   /** The Library's grid or rows (`SETTING_LIBRARY_VIEW`); tiles unless the person chose rows. */
   libraryView: FilesView;
+  /** The documents home's rows or cards (`SETTING_DOCUMENTS_VIEW`); rows unless the person chose cards. */
+  documentsView: FilesView;
   /** Bumped each time this window adds files to the Library, takes them out, or puts them back. A list
    *  of the Library's files already on screen — the page's own, the documents pane's home under it —
    *  asks again when it moves. */
@@ -1987,6 +1992,8 @@ export type AppState = TeammatesSlice & {
   setFilesView(view: FilesView): Promise<void>;
   /** Lay the Library's files out as `view`, and remember it (`SETTING_LIBRARY_VIEW`). */
   setLibraryView(view: FilesView): Promise<void>;
+  /** Lay the documents home out as `view`, and remember it (`SETTING_DOCUMENTS_VIEW`). */
+  setDocumentsView(view: FilesView): Promise<void>;
   /** Set the sidebar's width, clamped to SIDEBAR_WIDTH and persisted on a debounce. */
   setSidebarWidth(px: number): Promise<void>;
   setSubmitKey(v: SubmitKey): Promise<void>;
@@ -4731,7 +4738,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, queueTurns: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, queueTurns: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", documentsView: "list", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -4758,13 +4765,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion, clearOverPicture, themeBubble, look] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, documentsView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion, clearOverPicture, themeBubble, look] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_QUICK_CHAT),
           api.getSetting(SETTING_FILES_VIEW),
           api.getSetting(SETTING_LIBRARY_VIEW),
+          api.getSetting(SETTING_DOCUMENTS_VIEW),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
@@ -4816,6 +4824,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           filesView: filesView === "grid" ? "grid" : "list",
           // Tiles unless the row says rows — the same posture the other way round.
           libraryView: libraryView === "list" ? "list" : "grid",
+          documentsView: documentsView === "grid" ? "grid" : "list",
           // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
           // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
@@ -5419,6 +5428,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setLibraryView(view) {
         set({ libraryView: view });
         await api.setSetting(SETTING_LIBRARY_VIEW, view);
+      },
+      async setDocumentsView(view) {
+        set({ documentsView: view });
+        await api.setSetting(SETTING_DOCUMENTS_VIEW, view);
       },
       async setSidebarWidth(px) {
         // Clamped before it is stored rather than only before it is painted, for the reason
