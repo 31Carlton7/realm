@@ -120,6 +120,17 @@ Treat a Realm screen as a field of work, not a stack of cards.
   and the column already say Settings or Library, and a third copy of that word was the one heading
   on the page that said nothing about what was under it. Each section in the column wears a glyph
   beside its name, as Codex's do, so eleven pages are found by shape before they are read.
+- A page about ONE object is headed by that object, not by its section. A space's page is the space:
+  its icon in its colour and its name at the title rung, and the section it shows on the line under
+  it. Every section there is a part of that one space, and "General" over the fields that rename and
+  recolour it named nothing the reader did not already see lit in the column. An area's page (Settings,
+  the Library) keeps naming its section, because the area is already the bar's name. The space's
+  General tab is the settings card at a size meant for editing: a label column of one width, then
+  fields and buttons at 36px on the search field's and the button's own painted shapes, which are a
+  proportion of their height, so a bigger control keeps the curve of the Documents search field and
+  its New button. The card, the fields and the buttons thin with the pane by the prompter's number,
+  and nothing on them casts a shadow (the owner, 11-18, on the old page: "very minimal and small",
+  "maybe bigger inputs").
 - A page's head scrolls away with its page: it is the first thing in the column, never a band pinned
   above it (the owner, 10-05: "the header shouldn't be sticky at all"). Pinned, a head is chrome the
   page keeps paying for at every scroll position to repeat a name the bar already holds. What stays
@@ -307,10 +318,35 @@ Rules:
   the picture's colour. A lens can only bend what is behind it, so the first Glass did nothing: the card
   bent its own grey face, and the hero had cleared the picture from under the card, leaving the
   window's material, which an in-page filter cannot see. Glass that does nothing is a setting that
-  lies; prove it with a card of stripes under it before tuning a number. Off a picture a picker keeps
-  most of its surface and the prompter its tint, so the filter never works on the window's bare
-  transparency. One attribute on the root carries it, cleared under Reduce Transparency, Low power or a
+  lies; prove it with a card of stripes under it before tuning a number. A lens is drawn for the box it
+  bends, at its own size: one map stretched over every picker bent almost nothing. And a frost over a
+  see-through pane is no frost at all, because Chromium lays a backdrop filter's result over the
+  backdrop rather than in its place: between the words the pane is clear, so the blur was a haze over
+  the same words still sharp under it, and the picker read as a dark slab with the transcript showing
+  through (11-18). The frost is drawn inside the lens over the pane's own ground, nearly opaque, so the
+  words soften under it and no fill of ours is laid on top; off a picture the prompter keeps its tint.
+  Every glass surface wears its own fitted lens, the prompter, a selected segment and a switch's knob
+  as much as a picker, each with its own bezel: a stretched map is the thing macOS's glass never
+  looks like, a rim of the same width on every edge whatever the box. Its light is specular and runs
+  the whole way round, brightest top left and again bottom right, never a single lit top edge. A
+  number in a filter is not a number until it is measured on the screen it draws on: Chromium reads
+  a backdrop filter's blur in device pixels but its bend in CSS pixels, so the picker's 10px frost
+  drew 5px on a Retina screen and the transcript still read through it (11-18, bars under three boxes).
+  One attribute on the root carries it, cleared under Reduce Transparency, the Mac's Low Power Mode or a
   renderer that cannot draw `backdrop-filter: url()`, and the choice comes back when those clear.
+  Settings names whichever one is holding it back, under the Controls row, with where in System
+  Settings to change it, so the choice never reads as one that did nothing. Realm's own Low power
+  does not hold it back: it has already stilled the picture behind the glass, and holding glass back
+  there is why the owner, who keeps Low power on, chose Glass and saw a solid slab (11-18).
+  Nothing inside a glass panel is a solid step either. The picker's effort track, its account's well and
+  the row the pointer or the arrows are on were the opaque hover fills, and on the frost they read as
+  grey slabs laid on glass (the owner, 11-18). They are tints of the ink, the lit row one rung more with
+  the rim's light round it, so the picture's colour runs under them and the row still reads as chosen.
+  Plain follows the same rule wherever there is something to see through. The account switcher's well
+  and the row under the pointer are those tints in either look, and over a picture the Plain picker is
+  a surface over a picture like any other: no fill and no lift, the picture blurred and dimmed by the
+  prompter's own ground, its wells and lit row on the tints and no rim, because rims are glass. With no
+  picture it keeps its surface, since a plain pane cannot blur and the transcript would read through it.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha
@@ -1537,6 +1573,18 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   between its words and keeps its extension whole — breaking anywhere is how Codex's own tile ends
   in "…pd" over "f". A tile that wide needs a picture minted for it — the 96px mark the composer's
   chips use is a smear there — so the size is named, not assumed.
+- A file's card on the documents grid is the one card that keeps an edge and a lift, because the
+  owner asked for it by name (11-18): a grid in the documents pane "where we can see previews of the
+  items", with "these shadows and borders around the cards" the way Stow draws them. That ask is newer
+  and narrower than the rule that a card is its fill alone, so it covers these cards and no others.
+  It is Stow's light glass card a step fainter: a face that catches a little light at its top, a lit
+  top edge inside a hairline, and a soft lift that deepens under the pointer, with no blur, because
+  nothing passes behind a card and a blur per card is hundreds of layers. A press is still a fill, not
+  a size. The card is a preview, then the name on two lines, then the row's quiet line, so every card
+  is one height and a row of them lines up. The preview is drawn from the file's head and never from
+  the whole file: a picture's thumbnail, a PDF's first page from the pieces of it that page needs,
+  the top of a text file, and the mark for anything else. Rows or cards is one choice, remembered, and
+  rows are the default, since the pane is most often a narrow column beside a session.
 - A file's mark is its own logo, the one a developer already reads a file tree by (Material Icon
   Theme's, vendored in `assets/file-icons`): a `.ts` is the blue TS square, a `package.json` Node's
   hexagon, by the name first and then the extension, and Realm's coarse glyph only where the set has

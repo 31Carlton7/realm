@@ -498,6 +498,11 @@ describe("§6 motion table", () => {
     // The space's name is the unbounded part of its row, so it is what gives way.
     expect(bodiesFor(".sb-space-title").join(" ")).toContain("min-width: 0");
     expect(bodiesFor(".sb-space-name").join(" ")).toContain("text-overflow: ellipsis");
+    // The name is a button that opens the space's page, lit under the pointer like the Back in its
+    // place, and only as wide as the name: the rest of the row stays the window's to drag by.
+    expect(bodiesFor(".sb-space-head").join(" ")).toContain("flex: 0 1 auto");
+    expect(bodiesFor("button.sb-space-open:hover").join(" ")).toContain("background: var(--rl-hover)");
+    expect(bodiesFor(".sb-space-open").join(" ")).toContain(bodiesFor(".sb-page-back")[0]!.match(/border-radius: [^;]+/)![0]);
     expect(bodiesFor(".sb-header-actions").join(" ")).toContain("flex: none");
   });
 
@@ -1146,10 +1151,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     const filtering = RULES.filter((r) => /(^|;|\s)(-webkit-)?backdrop-filter:\s*(?!none)/.test(r.body)).flatMap(partsOf);
     /* One named exception (the owner, 11-17): over a picture the prompter and its tabs blur the
        picture itself, so they keep its colour rather than wearing a theme grey on it. Those rules
-       are scoped to a pane with a picture, read the one token, and paint no fill of their own. */
-    const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ");
+       are scoped to a pane with a picture, read the one token, and paint no fill of their own. The
+       model picker opened over a picture stands on it the same way (11-18). */
+    const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ") || sel === ".model-picker[data-over-picture]";
     /* And the glass the owner asked for app-wide (11-17), only behind the root's `data-glass`, which
-       Appearance sets and Reduce Transparency and Low power clear. Every one reads the glass tokens
+       Appearance sets and Reduce Transparency and the Mac's Low Power Mode clear. Every one reads the glass tokens
        or a shared lens, so the whole material is one set of numbers. */
     const glass = (sel: string) => sel.startsWith(":root[data-glass] ");
     expect([...new Set(filtering.filter((sel) => !overPicture(sel) && !glass(sel)))].sort()).toEqual([".edge-blur::after", ".edge-blur::before"]);
@@ -1160,13 +1166,13 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     for (const r of RULES.filter((r) => partsOf(r).some((sel) => glass(sel) && /hero-backdrop|data-over-picture/.test(sel)))) {
       expect(r.body).not.toMatch(/background:(?!\s*none)/);
       const shadow = /box-shadow:\s*([^;]+)/.exec(r.body)?.[1];
-      if (shadow) expect(shadow.trim()).toBe("var(--glass-rim)");
+      if (shadow) expect(shadow.trim()).toMatch(/^(none|var\(--glass-(panel-)?rim\))$/);
     }
     const picture = RULES.filter((r) => partsOf(r).some(overPicture) && /backdrop-filter:/.test(r.body));
     expect(picture.length).toBeGreaterThanOrEqual(2);
     for (const r of picture) {
       expect(r.body).toMatch(/backdrop-filter: var\(--picture-ground\)/);
-      expect(r.body).not.toMatch(/background/);
+      expect(r.body).not.toMatch(/background(?!:\s*none)/);
     }
     // Both layers read the strength tokens, so "subtler" is one edit and no two bands can disagree.
     expect(bodiesFor(".edge-blur::before").join(" ")).toContain("backdrop-filter: blur(var(--fade-blur-near))");
@@ -1315,6 +1321,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // A space page's head tile (SpacePage.tsx): the space's colour, set inline beside `color`
+      // because the painter cannot read `currentcolor`.
+      "--space-tint",
       // The video player's volume track, painted from the value the slider holds (VideoPlayer.tsx).
       "--video-volume",
       // A PDF page's scale (PdfView.tsx), set inline per page: pdf.js's text layer sizes every run of
@@ -1398,9 +1407,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The microphone's level while dictating (Composer.tsx), 0–1, written on the mic's ring each
       // frame; 0 without it.
       "--mic-level",
-      // The prompter's lens (glass/PrompterGlass.tsx), drawn for the card's own size and named only
-      // once its map exists. Read with no fallback on purpose: unset, the backdrop-filter is invalid,
-      // which is none, so the card is plain until the lens is there.
+      // A glass surface's fitted lens (glass/fitted-lens.ts), drawn for its own box and named on it
+      // once its map exists; every rule reads it with a CSS frost to stand in until then.
       "--glass-lens",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
@@ -2051,7 +2059,10 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
       /* A CHILD taking its parent's corner is not a surface of its own. The palette's head and foot
          round themselves so nothing square meets the painted curve behind them — painting each of
          them would give the card three stacked fills instead of one. */
-      .filter((sel) => !/^\.palette > /.test(sel));
+      .filter((sel) => !/^\.palette > /.test(sel))
+      /* Nor is a card's preview, which takes the card's corner less its inset and clips a picture —
+         a fill painted behind an image would be under it, so Chromium's own curve draws the clip. */
+      .filter((sel) => sel !== ".docs-card-preview" && sel !== ".docs-card-preview[data-shows=\"picture\"]::after");
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });
@@ -5945,4 +5956,40 @@ describe("the prompter's mode label", () => {
     expect(body).toContain("font-weight: var(--fw-body)");
     expect(body).not.toMatch(/color:|background/);
   });
+});
+
+it("draws a space's page in tints that thin with the pane, on the app's own painted controls", () => {
+  /* THE MUTANTS: the card back on the settings card's fill (solid on the light face); a field or a
+     button on a solid fill, or one that no longer thins with the pane; a card casting a shadow; the
+     page's controls on a fixed corner instead of the search field's and the button's; Glass drawing
+     a look of its own rather than the shared bead. */
+  const general = bodiesFor(".space-general").join(" ");
+  expect(general).toContain("--space-card: color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent)");
+  expect(general).toContain("--space-field: color-mix(in srgb, var(--field) var(--prompter-alpha), transparent)");
+  expect(bodiesFor(".space-general .settings-row").join(" ")).toContain("background: var(--space-card)");
+  expect(bodiesFor(":root[data-squircle] .space-general .settings-row").join(" ")).toContain("--sq-fill: var(--space-card)");
+  expect(bodiesFor(".space-general .search-field").join(" ")).toContain("background: var(--space-field)");
+  expect(bodiesFor(".space-general .search-field").join(" ")).toContain("--search-h: 36px");
+  expect(bodiesFor(":root[data-squircle] .space-general .search-field").join(" ")).toContain("--sq-fill: var(--space-field)");
+  const buttons = bodiesFor(".space-general .btn").join(" ");
+  expect(buttons).toContain("--btn-h: 36px");
+  expect(buttons).toContain("--fill: color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent)");
+  for (const sel of [".space-general .settings-row", ".space-general .search-field", ".space-general .btn"]) {
+    expect(bodiesFor(sel).join(" "), sel).not.toMatch(/box-shadow:(?!\s*none)|border-radius:\s*\d/);
+  }
+  expect(bodiesFor(":root[data-glass] .space-general :is(.search-field, .btn:not(.danger))").join(" "))
+    .toMatch(/--space-field: var\(--glass-bead\);\s*--fill: var\(--glass-bead\)/);
+  expect(bodiesFor(".space-page-pane .env-row").join(" ")).toContain("color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent)");
+  // The head's icon stands in a tile of the rail's tint, the space's own colour, thinned with the pane.
+  const tile = bodiesFor(".space-page-icon").join(" ");
+  expect(tile).toContain("--tile-h: 36px");
+  expect(tile).toContain("--space-icon-fill: color-mix(in srgb, color-mix(in srgb, var(--space-tint) var(--space-head-tint), transparent) var(--prompter-alpha), transparent)");
+  expect(tile).toContain("background: var(--space-icon-fill)");
+  expect(tile).not.toMatch(/box-shadow|border:/);
+  expect(bodiesFor(":root[data-squircle] .space-page-icon").join(" ")).toContain("--sq-fill: var(--space-icon-fill)");
+  expect(bodiesFor(".rail-space-tile").join(" ")).toContain("background: color-mix(in srgb, currentColor var(--space-tile-tint), transparent)");
+  expect(tokensCss).toContain("--space-tile-tint: 16%;");
+  expect(tokensCss).toContain("--space-head-tint: 28%;");
+  // One checkout a row, through the fold's own wrapper: a two-column grid folds after six, not three.
+  expect(bodiesFor(".env-field .env-list").join(" ")).toContain("grid-template-columns: minmax(0, 1fr)");
 });

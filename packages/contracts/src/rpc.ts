@@ -2,7 +2,7 @@ import { z } from "zod";
 import { PairRequestSchema, PairingWindowSchema, RemoteStatusSchema } from "./remote";
 import type { CliJobStart, CliStatus } from "./cli";
 import { DICTATION_MAX } from "./voice";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema, QueueTurnSchema } from "./entities";
 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
@@ -2214,7 +2214,7 @@ export const Methods = {
    *  event when this was read: a client that opens a session mid-turn applies the events it holds up
    *  to `seq`, then this text, then the deltas that follow (each carries its `at`). */
   "sessions.streaming": { params: z.object({ id: IdSchema }), result: z.object({ seq: z.number().int(), message: StreamedMessageSchema.nullable() }) },
-  "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional() }) },
+  "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional(), turn: QueueTurnSchema.nullable().optional() }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** The reader's verdict on one assistant message, appended to that session's own event log and
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
@@ -2443,7 +2443,7 @@ export const Events = {
    *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
    *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read.
    *  Also sent when a move is queued behind the turn, reaches its next step, or ends (`move`). */
-  "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional() }),
+  "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional(), turn: QueueTurnSchema.nullable().optional() }),
   /** A session's saved turns changed — one saved or unsaved, here or in another window. Carries the
    *  whole set, as `session.queue` carries the whole queue: it is a few numbers. */
   "session.saved":    z.object({ sessionId: IdSchema, seqs: z.array(z.number().int()) }),

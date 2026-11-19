@@ -48,8 +48,10 @@ const TABS: { id: Tab; label: string }[] = [
  * name of a space being made — the preview of how it will look and the control that changes it, as
  * one thing (`space-fields.tsx`).
  */
-export function IconPicker({ icon, profileId, onPick, variant = "button", tint }: {
+export function IconPicker({ icon, profileId, onPick, variant = "button", tint, buttonClass }: {
   icon: string; profileId: string; onPick: (icon: string) => void; variant?: "button" | "tile"; tint?: string;
+  /** Another class for the button variant's trigger, for a page that draws it as one of its buttons. */
+  buttonClass?: string;
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -77,7 +79,7 @@ export function IconPicker({ icon, profileId, onPick, variant = "button", tint }
           <SpaceIcon icon={icon} size={20} />
         </button>
       ) : (
-        <button {...trigger} className="icon-picker-trigger">
+        <button {...trigger} className={buttonClass ? `icon-picker-trigger ${buttonClass}` : "icon-picker-trigger"}>
           <SpaceIcon icon={icon} size={20} />
           <span>{drop.dropping ? "Drop to use as icon" : "Change icon…"}</span>
         </button>
