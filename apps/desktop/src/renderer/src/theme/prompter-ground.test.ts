@@ -211,10 +211,10 @@ describe("the prompter over a picture", () => {
     for (const name of ["--picture-tone", "--picture-veil", "--picture-frost", "--picture-ground"]) expect(tones, name).toContain(`${name}:`);
   });
 
-  it("dims glass by a number of its own in dark, the picture's own until the pane measures one, and the picture's own in light", () => {
+  it("dims glass by a number of its own, the picture's own until the pane measures one, toward white in light", () => {
     // THE mutants: dark glass back on `--picture-tone` (navy over a dark picture), the fallback lost
     // (no dim before the first measure), the tones left on the root alone (a pane's measured dim
-    // never reaching them), or light glass taking the dark number.
+    // never reaching them), or light glass dimmed toward black.
     const glassBlock = tokensCss.slice(tokensCss.indexOf("/* Glass (Settings"));
     expect(token("--glass-dim", glassBlock)).toBe("var(--picture-dim)");
     const tones = /:root, \.session-pane, \[data-over-picture\] \{([^}]*)\}/.exec(glassBlock)![1]!;
