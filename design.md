@@ -678,11 +678,31 @@ The paint worklet draws a FILL, which is why the signature can only go on a surf
 made of its own background. A box holding live content that paints itself — a canvas, a video, a
 native view — cannot take it: painting goes behind opaque content and changes nothing, and
 `mask-image: paint(rl-squircle)` parses in this Chromium without masking (measured against the real
-renderer, where the masked box came out square). The answer is not a circular `border-radius`
-standing in for the curve next to a composer wearing the real one. It is to round the GROUND the
+renderer, where the masked box came out square, and again on Chromium 156 on the prompter's blur).
+The answer is not a circular `border-radius` standing in for the curve next to a composer wearing the real one. It is to round the GROUND the
 content is laid into — Realm's surface, which is paintable — and leave the content its own square
 edge, with enough padding between the two that the picture never reaches the corner. The machine
 pane's screen is the worked example.
+
+A surface whose corner is a BLUR rather than a fill (the prompter and the strip under it over a
+picture, where neither has a face of its own) cannot borrow the painter's curve by a mask or a clip.
+Measured on Chromium 156 (11-18): neither `mask-image: paint()` nor a `clip-path: shape()` cuts a
+backdrop blur on the box that owns it, and either one on an ancestor makes that ancestor the
+backdrop root, so the blur inside it sees nothing. Only the blurring box's own border box shapes it:
+`border-radius` with `corner-shape: squircle`, which at the same radius lands on the worklet's
+n = 4 curve to the device pixel. Two blurs that meet must not overlap, since the overlap is blurred
+and dimmed twice; where one tucks under the other's curve, split the corner by rect insets at the
+height the curve crosses the lower box's side, so each blur keeps its own corner and neither stubs
+past the other.
+
+The prompter, the band above it and the strip below it are one object, so they wear one corner: the
+prompter's rung on the painter's curve, in Plain and in Glass, over a picture and without one. Its
+edge was lost twice without anyone removing it (the owner, 11-18: "bring back the squircle borders
+on the prompter"). Over a picture its blurs went onto a circle of half the radius, and the blur's
+edge, not the faint ring, is the contour the eye reads. Under Glass the face, ring and all, sits
+under the lens, so the edge is the glass's own rim, and a rim that takes `border-radius: inherit`
+without `corner-shape` traces a circle. Every box that draws part of the prompter's edge (a blur,
+the lens, the rim) states the curve as well as the radius.
 
 A list whose rows carry more than one line each is a list of cards, not of rows. Rows separated by
 nothing but a line break read as one block of prose, which is what makes a page of them feel like
@@ -764,6 +784,16 @@ acronym that is uppercase anyway (a file extension on a tile).
   its own mark from one family (a shield that asks, one that has said yes, one that warns), the
   menu's rows wear the same marks, and only the rung that removes a gate keeps a tone: on its ink,
   never as a resting fill, because a wash under a warning is a second warning about one setting.
+- A session in a mode other than the ordinary one says so in words beside the permission control:
+  "Plan", "Ask mode", "Goal", plain text at body weight in the row's own ink, no pill and no glyph,
+  and nothing at all in Build: a quiet label, never a loud badge. Ask carries its
+  noun because "Ask each time" is the word beside it. A word that has a way out already (Plan and Ask
+  back to Build) takes the click; a goal's word does not, because its strip holds Pause and Drop one
+  row up. On a narrow row these words yield before the model's name loses a letter, the goal's first,
+  since the card's tint and the strip still say the rest. That tint is the whole of the card's part:
+  the state's tone washed over its ground, held over a picture, and nothing drawn round it. A ring in
+  the mode's colour round the prompter and its tabs was the loudest edge in the window, and the owner found it ugly
+  (11-18); a word plus a wash already say the mode twice.
 - A toggle names its state or carries `aria-pressed`, never both — "Unfocus Two, pressed" is a
   sentence at war with itself. Which one it takes is a fact about the accessible NAME, so it may not
   become a difference in the fill: "this control is on" gets ONE appearance across a bar, or the
