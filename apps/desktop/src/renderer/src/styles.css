@@ -5527,35 +5527,27 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift); }
 /* ── The prompter wears its mode ─────────────────────────────────────────
    Ask and Plan both mean "the agent will not change anything on disk", which is the single most
-   consequential fact about the next send. It was said by one chip in a row of chips; it is said by
-   the whole card now.
+   consequential fact about the next send. The row says it in words beside the permission chip; the
+   card says it under them, as a wash of the state's tone, so the mode is still there when a narrow
+   row has given the word up.
 
-   Green for Ask and orange for Plan, from the state ramp — these ARE states, which is the one job
+   Green for Ask and orange for Plan, from the state ramp: these ARE states, which is the one job
    colour has here. Build is the default and stays exactly as it was: a colour that is always on is
    a colour that says nothing.
 
-   The tint is a hairline ring plus a wash at the ~6% the app uses everywhere it tints a surface by
-   state, and the mode chip's own fill follows it, so the two agree instead of competing. Never
-   colour alone: the chip beside it still reads "Ask" / "Plan" in words. */
-.composer[data-mode="ask"] { background: color-mix(in srgb, color-mix(in srgb, var(--rl-success) 6%, var(--surface)) var(--prompter-alpha), transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 34%, transparent), var(--shadow-card); }
-.composer[data-mode="ask"]:focus-within {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 60%, transparent), var(--shadow-card); }
-.composer[data-mode="plan"] { background: color-mix(in srgb, color-mix(in srgb, var(--rl-warning) 6%, var(--surface)) var(--prompter-alpha), transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-warning) 34%, transparent), var(--shadow-card); }
-.composer[data-mode="plan"]:focus-within {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-warning) 60%, transparent), var(--shadow-card); }
-/* The chip that names the mode takes the same tone, so the card and its label are one statement. */
+   The wash is the ~6% the app uses everywhere it tints a surface by state, and nothing runs round
+   the card: a ring in the mode's colour was the loudest edge in the window, and the owner found it
+   ugly (11-18). The tone is mixed in AFTER the card's own alpha, so
+   it stays the same 6% of the state's colour over a pane thinned to nothing and over a picture, where
+   the card has no fill of its own to carry it. */
+.composer[data-mode="ask"] { background: color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(--rl-success) 6%); }
+.composer[data-mode="plan"] { background: color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(--rl-warning) 6%); }
 /* The painted card reads its fill from a custom property, not from `background`, so the worklet path
-   needs the same three tones or the tint would vanish the moment the squircle gate turns on. */
+   needs the same tones or the tint would vanish the moment the squircle gate turns on. */
 :root[data-squircle] .composer[data-mode="ask"] {
-  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--rl-success) 6%, var(--surface)) var(--prompter-alpha), transparent);
-  --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent); }
-:root[data-squircle] .composer[data-mode="ask"]:focus-within { --sq-ring: color-mix(in srgb, var(--rl-success) 60%, transparent); }
+  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(--rl-success) 6%); }
 :root[data-squircle] .composer[data-mode="plan"] {
-  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--rl-warning) 6%, var(--surface)) var(--prompter-alpha), transparent);
-  --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); }
-:root[data-squircle] .composer[data-mode="plan"]:focus-within { --sq-ring: color-mix(in srgb, var(--rl-warning) 60%, transparent); }
+  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(--rl-warning) 6%); }
 /* The provider's limit warning, above the queue: it is about whether the next message will be
    served at all, which outranks what is already waiting to go. Wears the attachment note's shape
    rather than a card — it is one sentence, and a bordered box for it would shout. */
@@ -6139,6 +6131,15 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    pane; without the level it fits to 380 with the mode's long word, and to 328 with its short one. */
 @container (max-width: 440px) { .composer-actions .model-chip :is(.chip-effort, .chip-fast) { display: none; } }
 @container (max-width: 380px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
+/* The session's mode in words beside the permission chip: plain text at body weight, a step quieter
+   than the chip's medium, in the same readable ink. It yields before anything else on the row, the
+   goal's word first (its strip above says it), then the mode's, each at the width where it would start
+   to cut the model's name (measured on the built app, Opus 5.5 at High). The card's tint and the "+"
+   menu still say the mode in a pane that narrow. */
+.composer-mode-label { padding: 0 6px; font-weight: var(--fw-body); }
+@container (max-width: 520px) { .composer-mode-label[data-mode="goal"] { display: none; } }
+@container (max-width: 480px) { .composer-mode-label[data-mode="ask"] { display: none; } }
+@container (max-width: 464px) { .composer-mode-label[data-mode="plan"] { display: none; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
 /* Listening: the mic in the accent, over a tinted disc that swells with the voice (`--mic-level`,
@@ -7000,49 +7001,6 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --sq-radius-bottom: 0px;
 }
 
-/* The mode reaches the whole band, not just the card.
-   `.composer[data-mode]` re-colours the card's ring — warning for plan, success for ask — and the
-   strips above it are the same object seen higher up: same fill, same inset, one continuous edge. Left
-   neutral they drew a `--card-ring` line up each side of a band whose bottom was warning-coloured, and
-   the join showed as a notch at either edge, exactly where the card's own top corners sit 10px inside
-   the strip. `:has(~ …)` because the strips are EARLIER siblings and the mode lives on the card: there
-   is no parent to hang it off, and copying the mode onto every strip in the renderer would be four more
-   props to keep in step. Spelled out rather than wrapped in `:is()` so each part is a selector on its
-   own, which is how the rest of this band is written and what styles.test.ts reads. */
-:root[data-squircle] .composer-goal:has(~ .composer[data-mode="plan"]),
-:root[data-squircle] .composer-todos:has(~ .composer[data-mode="plan"]),
-:root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="plan"]) {
-  --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent);
-  box-shadow: none;
-}
-:root[data-squircle] .composer-goal:has(~ .composer[data-mode="ask"]),
-:root[data-squircle] .composer-todos:has(~ .composer[data-mode="ask"]),
-:root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="ask"]) {
-  --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent);
-  box-shadow: none;
-}
-/* The under-strip is the same object seen below the card, so the mode reaches it too: left on the
-   neutral ring, its sides ran grey into a card ringed in the mode's colour, the notch the band above
-   was given the mode to remove. It is a LATER sibling of the card, so it needs no `:has`. */
-:root[data-squircle] .composer[data-mode="plan"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); box-shadow: none; }
-:root[data-squircle] .composer[data-mode="ask"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent); box-shadow: none; }
-/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing.
-   ONLY without it — the `box-shadow: none` above is what keeps it so. A box-shadow under the gate is
-   drawn on the border box, which the painter has squared to radius 0, and it drew a second ring round
-   every strip: square, out past the painted corners, and straight across the band where two strips
-   meet — the seam the stacked strips' open-topped ring exists to avoid. */
-.composer-goal:has(~ .composer[data-mode="plan"]),
-.composer-todos:has(~ .composer[data-mode="plan"]),
-.composer-overstrip:has(~ .composer[data-mode="plan"]) {
-  box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent);
-}
-.composer-goal:has(~ .composer[data-mode="ask"]),
-.composer-todos:has(~ .composer[data-mode="ask"]),
-.composer-overstrip:has(~ .composer[data-mode="ask"]) {
-  box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent);
-}
-.composer[data-mode="plan"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent); }
-.composer[data-mode="ask"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent); }
 /* …but only the tab that IS the band's top keeps the corners and the top edge. Every strip arriving
    under another gives up its top corners, and its ring leaves the top OPEN (`--sq-ring-open`): a ring
    across a middle tab would trace a hairline straight across the band where the two meet — a second

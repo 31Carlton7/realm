@@ -5236,30 +5236,25 @@ describe("the machine pane's screen", () => {
   });
 });
 
-/* The band above the prompter is one object. `.composer[data-mode]` re-colours the card's ring, and a
-   strip left on the neutral `--card-ring` draws a different-coloured line up each side of the same
-   band — which shows as a notch at either edge, where the card's own top corners sit inside the strip.
-   THE MUTANT: colour the card alone, which is what it did. */
-it("carries the prompter's mode ring up through every strip stacked above it, and down through the one below", () => {
-  for (const [mode, token] of [["plan", "--rl-warning"], ["ask", "--rl-success"]] as const) {
-    const strips: [string, string][] = [
-      ...[".composer-goal", ".composer-todos", ".composer-overstrip"].map((strip): [string, string] => [strip, `${strip}:has(~ .composer[data-mode="${mode}"])`]),
-      // The under-strip is the card's LATER sibling, so it reads the mode with no `:has`.
-      [".composer-understrip", `.composer[data-mode="${mode}"] ~ .composer-understrip`],
-    ];
-    for (const [strip, sel] of strips) {
-      const painted = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
-      expect(painted, `${strip} under ${mode}`).toContain(token);
-      /* …and under the gate the edge is the painter's ALONE. The fallback's box-shadow is drawn on the
-         border box, which the painter squares to radius 0, so left on it drew a second ring: square
-         past the painted corners, and across the band where two strips meet. THE mutant: drop this. */
-      expect(painted, `${strip} under ${mode} keeps the fallback's box-shadow`).toContain("box-shadow: none");
-      // The painter is gated, so the fallback edge has to say the same thing.
-      const fallback = bodiesFor(sel).join(" ");
-      expect(fallback, `${strip} fallback under ${mode}`).toContain(token);
-      expect(fallback, `${strip} fallback hairline`).toContain("var(--hairline-w)");
+/* The prompter's mode is a word on its row and a wash on its card, and nothing round it. THE MUTANTS:
+   a ring in the mode's colour back on the card, its focus, or the strips stacked on it. */
+describe("the prompter's mode state draws no ring", () => {
+  /** Every rule on the prompter's band that is keyed on a mode: the card's `data-mode`, however it is
+   *  spelled (`[data-mode=…]`, `:is([data-mode…])`, a strip's `:has(~ …)`), or the label's presence. */
+  const modeRules = RULES.filter((r) => partsOf(r).some((sel) => /composer/.test(sel) && /\[data-mode|composer-mode-label/.test(sel)));
+
+  it("no rule keyed on the card's mode draws an edge round the card or a strip of its band", () => {
+    expect(modeRules.length).toBeGreaterThan(0);
+    for (const r of modeRules) expect(r.body, partsOf(r).join(", ")).not.toMatch(/--sq-ring|box-shadow|outline|border/);
+  });
+
+  it("washes the card in the state's tone after its alpha, so the tone holds over a thinned pane and a picture", () => {
+    for (const [mode, token] of [["ask", "--rl-success"], ["plan", "--rl-warning"]] as const) {
+      const wash = `color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(${token}) 6%)`;
+      expect(bodiesFor(`.composer[data-mode="${mode}"]`).join(" "), `${mode} fallback`).toContain(`background: ${wash}`);
+      expect(bodiesFor(`:root[data-squircle] .composer[data-mode="${mode}"]`).join(" "), `${mode} painted`).toContain(`--sq-fill: ${wash}`);
     }
-  }
+  });
 });
 
 /**
@@ -6044,6 +6039,29 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
   it("a pinned head takes the pane's canvas only while rows are scrolled up under it", () => {
     expect(bodiesFor(".md-scroll").join(" ")).toContain("container-type: scroll-state");
     expect(css).toMatch(/@container scroll-state\(scrollable: top\) \{\s*\.md thead th \{ background: linear-gradient\(var\(--stripe\), var\(--stripe\)\) var\(--rl-panel\); \}/);
+  });
+});
+
+describe("the prompter's mode label", () => {
+  /** The pane width at or under which a label of this kind is hidden. */
+  const yieldsAt = (mode: string) => {
+    const m = css.match(new RegExp(`@container \\(max-width: (\\d+)px\\) \\{ \\.composer-mode-label\\[data-mode="${mode}"\\] \\{ display: none; \\} \\}`));
+    expect(m, `no narrow rule for the ${mode} label`).not.toBeNull();
+    return Number(m![1]);
+  };
+
+  it("gives way before the model's name does: the goal's word first, then Ask mode, then Plan", () => {
+    // Measured on the built app (s4-mode-indicator/after/numbers.json): below these widths each word
+    // would cut "Opus 5.5" where the row without it showed the whole name.
+    expect(yieldsAt("goal")).toBeGreaterThan(yieldsAt("ask"));
+    expect(yieldsAt("ask")).toBeGreaterThan(yieldsAt("plan"));
+    expect(yieldsAt("plan")).toBeGreaterThanOrEqual(464);
+  });
+
+  it("is quieter than the chip beside it by weight, not by an ink under AA", () => {
+    const body = bodiesFor(".composer-mode-label").join(" ");
+    expect(body).toContain("font-weight: var(--fw-body)");
+    expect(body).not.toMatch(/color:|background/);
   });
 });
 
