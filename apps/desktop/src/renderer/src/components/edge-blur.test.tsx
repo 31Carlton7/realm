@@ -165,7 +165,10 @@ describe("a scroller wearing it", () => {
     el.scrollTop = 30;
     fireEvent.scroll(el);
     expect(head()).toBeCloseTo(-40 * (1 - 30 / 40));
+    // THE mutant: the listener kept past stop, which named a removed filter again on the next scroll.
     blur.stop();
+    fireEvent.scroll(el);
+    expect(el.style.getPropertyValue("--edge-blur")).toBe("");
   });
 
   it("wears none where no ramp can be drawn", async () => {
