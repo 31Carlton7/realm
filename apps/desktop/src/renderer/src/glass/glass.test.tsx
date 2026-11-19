@@ -498,6 +498,15 @@ describe("the account switcher in Plain", () => {
     expect(inside.find((r) => /\.mp-track/.test(r.sel) && /\.mp-seg\b/.test(r.sel))!.body).toMatch(/background:\s*var\(--well-tint\)/);
     expect(inside.find((r) => /\.mp-row\[data-active\]/.test(r.sel) && /\.mp-bolt:hover/.test(r.sel))!.body).toMatch(/background:\s*var\(--row-tint\)/);
     for (const r of inside) expect(r.body, r.sel).not.toMatch(/background:[^;]*var\(--(hover|hover-2|surface|inset)\)/);
+    // THE mutants: any one of these left on its solid step in Plain, a grey slab on the picture.
+    const plainLit = cssRules.find((r) => r.sel.includes(".account-signin-code") && r.sel.includes("[data-over-picture]"))!;
+    expect(plainLit.body).toMatch(/background:\s*var\(--row-tint\)/);
+    const lit = plainLit.sel.split(",").map((s) => s.trim());
+    for (const sel of [
+      ":root:not([data-glass]) .mention-picker[data-over-picture] .mention-row[data-active]",
+      ":root:not([data-glass]) .skill-picker[data-over-picture] .skill-picker-row[data-active]",
+      ":root:not([data-glass]) .model-picker[data-over-picture] .account-signin .account-signin-code",
+    ]) expect(lit, sel).toContain(sel);
   });
 
   it("keeps its solid surface and its steps under Reduce Transparency", () => {

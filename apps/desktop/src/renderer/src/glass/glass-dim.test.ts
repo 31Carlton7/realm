@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { contrast, GUARD_SPARE } from "../panes/session/hero-backdrop-color";
 import type { Rgb } from "../panes/session/hero-backdrop";
-import { GLASS_DIM_MAX, GLASS_DIM_TAIL, glassDim, toned } from "./glass-dim";
+import { GLASS_DIM_MAX, GLASS_DIM_TAIL, glassDim, PLAIN_DIM, setGlassDim, toned } from "./glass-dim";
 
 /** A colour from its 8-bit channels, as `resolveColor` gives it. */
 const rgb = (r: number, g: number, b: number): Rgb => [r / 255, g / 255, b / 255];
@@ -107,5 +107,42 @@ describe("light's dim", () => {
     // THE mutant: the samples sorted as in dark, which reads the pale sky and lets the dark ridge pass.
     const ridge = [...fill(rgb(245, 245, 245), 900), ...fill(rgb(20, 20, 30), 100)];
     expect(glassDim(ridge, LIGHT_INKS, 1, null, true)).toBeGreaterThan(0.4);
+  });
+});
+
+describe("the pane's dims", () => {
+  /** A pane with its dock, over a picture every pixel of which is `channel`, and the picture's own dim. */
+  const paneOver = (channel: number, own: string) => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({
+      fillRect() {}, drawImage() {},
+      getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4).fill(channel) }),
+    }) as unknown as CanvasRenderingContext2D);
+    const pane = document.createElement("div");
+    const dock = pane.appendChild(document.createElement("div"));
+    dock.className = "composer-dock";
+    pane.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600);
+    dock.getBoundingClientRect = () => new DOMRect(100, 480, 600, 100);
+    pane.style.setProperty("--picture-dim", own);
+    const source = document.createElement("canvas");
+    source.width = 800;
+    return { pane, source };
+  };
+  afterEach(() => { vi.restoreAllMocks(); document.documentElement.removeAttribute("data-mode"); });
+
+  it("never takes Plain under the picture's own dim, even where the picture needs none", () => {
+    // THE mutant: Plain's number left unfloored, which undims a picture its fixed dim had held.
+    const { pane, source } = paneOver(0, "0.3");
+    setGlassDim(pane, source, [0, 0, 0], () => INK);
+    expect(pane.style.getPropertyValue(PLAIN_DIM)).toBe("0.300");
+    expect(pane.style.getPropertyValue("--glass-dim")).toBe("0.000");
+  });
+
+  it("never takes light glass under the picture's own dim", () => {
+    // THE mutant: light glass's number left unfloored, as dark glass's is.
+    document.documentElement.setAttribute("data-mode", "light");
+    const { pane, source } = paneOver(255, "0.3");
+    setGlassDim(pane, source, [1, 1, 1], () => rgb(28, 29, 33));
+    expect(pane.style.getPropertyValue("--glass-dim")).toBe("0.300");
+    expect(pane.style.getPropertyValue(PLAIN_DIM)).toBe("0.300");
   });
 });
