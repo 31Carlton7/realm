@@ -19,7 +19,9 @@ describe("a card's PDF reads", () => {
     await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
     const [begin, chunk] = deliver.mock.calls[0]! as [number, Uint8Array];
     expect(begin).toBe(100);
-    expect(chunk).toEqual(bytes.slice(100, RANGE_PIECE * 2 + 400));
+    // Compared byte by byte: `toEqual` on two megabytes takes seconds, and timed the test out on CI.
+    expect(chunk.byteLength).toBe(RANGE_PIECE * 2 + 300);
+    expect(chunk.every((b, i) => b === bytes[100 + i])).toBe(true);
     expect(read.mock.calls.map(([, length]) => length)).toEqual([RANGE_PIECE, RANGE_PIECE, 300]);
     expect(fail).not.toHaveBeenCalled();
   });
