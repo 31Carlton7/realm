@@ -525,12 +525,12 @@ describe("a picker over a picture", () => {
     expect(rule.body).toMatch(/var\(--glass-picture-tone\) var\(--glass-panel-tone\)/);
     for (const r of cssRules.filter((x) => x.sel.startsWith(":root[data-glass]"))) expect(r.body, r.sel).not.toMatch(/var\(--picture-tone\)/);
   });
-  function Picker({ inPicture, dim }: { inPicture: boolean; dim?: string }) {
+  function Picker({ inPicture, dim, plain }: { inPicture: boolean; dim?: string; plain?: string }) {
     const anchorRef = useRef<HTMLButtonElement>(null);
     const ref = useRef<HTMLDivElement>(null);
     useAnchoredPopover({ ref, anchorRef, onClose: () => {}, placement: "up" });
     return (
-      <div className="session-pane" style={dim ? ({ "--glass-dim": dim } as CSSProperties) : undefined}>
+      <div className="session-pane" style={{ ...(dim && { "--glass-dim": dim }), ...(plain && { "--plain-dim": plain }) } as CSSProperties}>
         {inPicture && <canvas className="hero-backdrop" />}
         <div className="composer"><button ref={anchorRef} type="button">Model</button></div>
         <div ref={ref} className="model-picker" />
@@ -551,5 +551,13 @@ describe("a picker over a picture", () => {
     cleanup();
     render(<Picker inPicture />);
     expect((document.querySelector(".model-picker") as HTMLElement).style.getPropertyValue("--glass-dim")).toBe("");
+  });
+  it("takes Plain's measured dim too, which its ground reads in Plain", () => {
+    // THE mutant: only `--glass-dim` copied, which leaves a Plain picker over a white sky on the fixed 0.4.
+    render(<Picker inPicture plain="0.62" />);
+    expect((document.querySelector(".model-picker") as HTMLElement).style.getPropertyValue("--plain-dim")).toBe("0.62");
+    cleanup();
+    render(<Picker inPicture />);
+    expect((document.querySelector(".model-picker") as HTMLElement).style.getPropertyValue("--plain-dim")).toBe("");
   });
 });

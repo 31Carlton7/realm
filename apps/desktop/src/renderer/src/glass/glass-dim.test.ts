@@ -80,3 +80,32 @@ describe("dark glass's dim", () => {
     expect(toned([1, 0.4, 0.2], 1.5, 0.5)[0]).toBe(0.5);
   });
 });
+
+/** Realm light's `--ink` and `--ink-2`, near enough. */
+const LIGHT_INKS = [{ color: rgb(28, 29, 33), need: 4.5, onTint: true }, { color: rgb(88, 90, 96), need: 3, onTint: true }];
+/** Toward white by `d`, as light's `--picture-tone` draws it. */
+const whitened = (c: Rgb, d: number) => c.map((v) => v * (1 - d) + d) as Rgb;
+
+describe("light's dim", () => {
+  it("is nothing over a pale picture, whose dark words already stand", () => {
+    expect(glassDim(fill(rgb(240, 244, 252)), LIGHT_INKS, 1, null, true)).toBe(0);
+  });
+
+  it("goes toward white, as the least that keeps the dark words at their ratios over a dark picture", () => {
+    // Arcade's night, where the picker's quiet words stood at 1.42:1 on the fixed share.
+    const night = rgb(40, 20, 70);
+    const d = glassDim(fill(night), LIGHT_INKS, 1, null, true);
+    expect(d).toBeGreaterThan(0.4);
+    expect(d).toBeLessThan(GLASS_DIM_MAX);
+    expect(contrast(rgb(88, 90, 96), whitened(night, d))).toBeGreaterThanOrEqual(3 + GUARD_SPARE - 0.01);
+    expect(contrast(rgb(28, 29, 33), whitened(night, d))).toBeGreaterThanOrEqual(4.5 + GUARD_SPARE - 0.01);
+    // THE mutant: the dark face's solve, toward black, which never meets a dark word's ratio.
+    expect(contrast(rgb(88, 90, 96), whitened(night, d - 0.02))).toBeLessThan(3 + GUARD_SPARE);
+  });
+
+  it("is held by the darkest part of the picture, not its brightest", () => {
+    // THE mutant: the samples sorted as in dark, which reads the pale sky and lets the dark ridge pass.
+    const ridge = [...fill(rgb(245, 245, 245), 900), ...fill(rgb(20, 20, 30), 100)];
+    expect(glassDim(ridge, LIGHT_INKS, 1, null, true)).toBeGreaterThan(0.4);
+  });
+});
