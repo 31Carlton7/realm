@@ -718,7 +718,7 @@ acronym that is uppercase anyway (a file extension on a tile).
   never as a resting fill, because a wash under a warning is a second warning about one setting.
 - A session in a mode other than the ordinary one says so in words beside the permission control:
   "Plan", "Ask mode", "Goal", plain text at body weight in the row's own ink, no pill and no glyph,
-  and nothing at all in Build (the owner, 11-18: "a quiet label… not a loud badge"). Ask carries its
+  and nothing at all in Build: a quiet label, never a loud badge. Ask carries its
   noun because "Ask each time" is the word beside it. A word that has a way out already (Plan and Ask
   back to Build) takes the click; a goal's word does not, because its strip holds Pause and Drop one
   row up. On a narrow row these words yield before the model's name loses a letter, the goal's first,
