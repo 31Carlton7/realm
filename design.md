@@ -120,6 +120,17 @@ Treat a Realm screen as a field of work, not a stack of cards.
   and the column already say Settings or Library, and a third copy of that word was the one heading
   on the page that said nothing about what was under it. Each section in the column wears a glyph
   beside its name, as Codex's do, so eleven pages are found by shape before they are read.
+- A page about ONE object is headed by that object, not by its section. A space's page is the space:
+  its icon in its colour and its name at the title rung, and the section it shows on the line under
+  it. Every section there is a part of that one space, and "General" over the fields that rename and
+  recolour it named nothing the reader did not already see lit in the column. An area's page (Settings,
+  the Library) keeps naming its section, because the area is already the bar's name. The space's
+  General tab is the settings card at a size meant for editing: a label column of one width, then
+  fields and buttons at 36px on the search field's and the button's own painted shapes, which are a
+  proportion of their height, so a bigger control keeps the curve of the Documents search field and
+  its New button. The card, the fields and the buttons thin with the pane by the prompter's number,
+  and nothing on them casts a shadow (the owner, 11-18, on the old page: "very minimal and small",
+  "maybe bigger inputs").
 - A page's head scrolls away with its page: it is the first thing in the column, never a band pinned
   above it (the owner, 10-05: "the header shouldn't be sticky at all"). Pinned, a head is chrome the
   page keeps paying for at every scroll position to repeat a name the bar already holds. What stays

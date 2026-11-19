@@ -846,7 +846,7 @@ input.sb-space-name { flex: 1; }
 .rail-divider { flex: none; width: 20px; height: 1px; margin-bottom: 2px; background: var(--line-strong); }
 .rail-space, .rail-new-space { flex: none; }
 .rail-space-tile { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-chip); corner-shape: squircle;
-  color: var(--rl-text-dim); background: color-mix(in srgb, currentColor 16%, transparent); }
+  color: var(--rl-text-dim); background: color-mix(in srgb, currentColor var(--space-tile-tint), transparent); }
 .rail-space[aria-pressed="true"]::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px;
   border-radius: 0 2px 2px 0; background: var(--rl-text-bright); }
 .rail-space[data-drag-over] { box-shadow: inset 0 2px 0 var(--rl-accent); }
@@ -8013,7 +8013,7 @@ select { appearance: none; padding-right: 22px;
 .env-field-head > .btn { display: inline-flex; align-items: center; gap: 4px; }
 /* One card a row here: a checkout's name is a branch of unbounded length and its path longer still,
    and half the column left both an ellipsis and a path broken over seven lines. */
-.env-field > .env-list { grid-template-columns: minmax(0, 1fr); }
+.env-field .env-list { grid-template-columns: minmax(0, 1fr); }
 /* What git says now: the branch in mono, then only the counts that are not zero. */
 .env-git { grid-column: 1; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
 .env-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
@@ -8706,6 +8706,67 @@ select { appearance: none; padding-right: 22px;
   .settings-tabs { overflow-x: auto; scrollbar-width: none; }
   .settings-tabs .settings-tab { flex: none; white-space: nowrap; }
 }
+/* ── A space's page: its head and its General tab ──────────────────────────────────────────────
+   The page is about one thing, so its head is that thing: the space's icon in its colour beside its
+   name at the title rung, and the section it shows on the line under, in the secondary ink.
+
+   General is the grouped card the Settings pages use, and its fields and buttons are the app's own
+   controls at a comfortable 36px: the search field's painted squircle (`.search-field`) and the
+   button's (`.btn`), both a proportion of their height, so they keep the Documents search field's and
+   its New button's shape at the larger size. Everything on the page thins with the pane, as those two
+   controls do (`--prompter-alpha`): the card's fill, the fields and the buttons are tints over the
+   pane rather than surfaces of their own, and nothing casts a shadow. */
+.space-page-head { align-items: center; gap: 14px; }
+/* The space's icon stands in its tile, as it does on the rail: the space's colour at the tile's tint,
+   on the control rung's curve at its own height, thinned with the pane like everything on the page.
+   The colour comes in as `--space-tint`, not `currentColor`: the painter's fill is a registered colour,
+   which keeps `currentcolor` as a keyword the worklet cannot read. */
+.space-page-icon { --tile-h: 36px; flex: none; display: grid; place-items: center; width: var(--tile-h); height: var(--tile-h);
+  border-radius: calc(var(--tile-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  --space-icon-fill: color-mix(in srgb, color-mix(in srgb, var(--space-tint) var(--space-head-tint), transparent) var(--prompter-alpha), transparent); background: var(--space-icon-fill); }
+:root[data-squircle] .space-page-icon { border-radius: 0; background: paint(rl-squircle); --sq-fill: var(--space-icon-fill);
+  --sq-radius-top: calc(var(--tile-h) * var(--sq-ratio-ctl)); --sq-radius-bottom: calc(var(--tile-h) * var(--sq-ratio-ctl)); --sq-n: var(--sq-n-ctl); }
+.space-page-section { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.space-general { display: flex; flex-direction: column; gap: 24px; }
+.space-general { --space-card: color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent);
+  --space-field: color-mix(in srgb, var(--field) var(--prompter-alpha), transparent); }
+.space-general .settings-row { min-height: 64px; padding: 14px 18px; background: var(--space-card); }
+:root[data-squircle] .space-general .settings-row { --sq-fill: var(--space-card); }
+/* A label column of one width, so the four controls start on one edge down the card. */
+.space-row > .settings-row-main { flex: 0 0 112px; }
+.space-general .search-field { --search-h: 36px; flex: 1; font-size: 14px; background: var(--space-field); }
+:root[data-squircle] .space-general .search-field { --sq-fill: var(--space-field); }
+.space-row-control { flex: 1; min-width: 0; display: flex; }
+.space-general .btn { --btn-h: 36px; padding: 0 14px; font-size: 14px;
+  --fill: color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent); }
+.space-general .btn:hover:not(:disabled) { --fill: color-mix(in srgb, var(--hover) var(--prompter-alpha), transparent); }
+.space-general .btn.danger { --fill: transparent; }
+.space-general .btn.danger:hover:not(:disabled) { --fill: color-mix(in srgb, var(--hover) var(--prompter-alpha), transparent); }
+/* IconPicker's trigger is one of the page's buttons here (`buttonClass`); a file over it rings it. */
+.space-general .icon-picker-trigger:not([data-dropping]) { color: var(--rl-text-bright); }
+:root[data-squircle] .space-general .icon-picker-trigger[data-dropping] { --sq-ring: var(--rl-accent); --sq-ring-w: 1.5px; }
+.space-general .swatches { flex: 1; gap: 10px; }
+.space-general .swatch { width: 28px; height: 28px; }
+/* The selected colour is ringed a step off the swatch, so the ring reads on any hue and the gap is the
+   card itself rather than a fill of ours. */
+.space-general .swatch[data-selected] { border-color: transparent; outline: 2px solid var(--rl-text-bright); outline-offset: 2px; }
+.space-general .hex { flex: none; width: 116px; font: 13px var(--font-mono); }
+.space-general .hex { letter-spacing: normal; }
+/* The profile's select lies clear over the field's painted shape, its chevron drawn by the field. */
+.space-general .space-select { position: relative; display: flex; align-items: center; padding: 0; }
+/* Its own corner, the field's, so the app's focus ring follows the field rather than a square. */
+.space-select > select { flex: 1; min-width: 0; height: 100%; padding: 0 36px 0 12px; border: none; border-radius: calc(var(--search-h) * var(--sq-ratio-ctl));
+  background: none; color: inherit; font: inherit; appearance: none; outline: none; }
+.space-select > svg { position: absolute; right: 12px; color: var(--rl-text-faint); pointer-events: none; }
+.space-general .danger-zone { margin: 0; justify-content: flex-start; }
+.space-general .danger-zone > .settings-row-main { flex: 1; }
+/* Under Glass the page's controls take the shared bead, as a selected segment does — the fill only:
+   a painted control's border box is square, so the rim's inset shadow would draw a square edge. */
+:root[data-glass] .space-general :is(.search-field, .btn:not(.danger)) { --space-field: var(--glass-bead); --fill: var(--glass-bead); }
+/* Narrow, a row's label goes over its control, which keeps the whole width. */
+@container (max-width: 440px) { .space-row > .settings-row-main { flex-basis: 100%; } }
+/* The checkouts on the same page: the same tint for each card. */
+.space-page-pane .env-row { background: color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent); }
 .page-lede { margin: 0; font-size: 14px; line-height: 1.55; color: var(--rl-text-dim); }
 .page-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .page-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left;

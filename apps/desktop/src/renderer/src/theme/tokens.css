@@ -477,6 +477,12 @@ a {
    * is left to win is the curve's, not the radius's, which is what --sq-n-ctl below is for.
    */
   --sq-ratio-ctl: 0.48;
+  /* How much of a space's colour its tile is filled with, over whatever is under it. The rail's tiles
+   * stand on the rail's own ground. A space page's head tile stands on the pane and thins with it by
+   * the prompter's number, so it starts higher: at the pane's default, its 28% thinned to 40% is
+   * 11%, where 16% came to 6% and the tile all but left the light face. */
+  --space-tile-tint: 16%;
+  --space-head-tint: 28%;
   /* The radius a squircular MEDIA WELL takes, against the 0.48 a control takes.
    *
    * A tile is not a control, and the ceiling argument above is why it needs its own number rather
