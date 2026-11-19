@@ -5639,6 +5639,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-queue-item .queue-text-empty { font-style: italic; color: var(--rl-text-faint); }
 .composer-queue-item[data-held]:not([data-editing]) .queue-text { color: var(--rl-text-faint); }
 
+/* The model, level or fast mode the message runs on where the session has moved off them since it
+   was queued: the held line's rung in the message's own ink, one line, and the first thing in the row
+   to give way — it ends in an ellipsis rather than taking width from the words or the actions. */
+.composer-queue-item .queue-runs { display: flex; min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.composer-queue-item .queue-runs > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Says why Send now is off — the message is being written, not waiting — and, for the field open
    here, the two keys that close it. */
 .composer-queue-item .queue-held { display: flex; align-items: center; gap: 5px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
