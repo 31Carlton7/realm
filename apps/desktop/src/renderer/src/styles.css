@@ -11044,13 +11044,15 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    segment as Settings' `.settings-tabs`, so a control is drawn one way wherever it stands. Usage once
    ringed its own in a hairline on the frame's fill, a third skin on the page that has two. A track's
    height is a floor, not a size: its labels scale with the UI text size, and at 18px a fixed 26px track
-   left them hanging out of their segments. Its corner is still worked out from the floor. */
+   left them hanging out of their segments. Its corner is still worked out from the floor. The segment
+   holds the floor too: a fieldset's min-height does not reach the box its segments are laid out in, so
+   an icon-only segment (Library, Documents home) would shrink to its glyph. */
 .seg { --seg-h: 26px; display: inline-flex; gap: 2px; margin: 0; min-height: var(--seg-h); padding: var(--seg-pad); border: none;
   border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--rl-hover); }
 /* No transition: a segment is a choice, and a choice changes instantly both ways (design.md). This
    rule comes after the instant list, so a `transition` here handed the fade back to every segment. */
 .seg-opt {
-  padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
+  min-height: calc(var(--seg-h) - 2 * var(--seg-pad)); padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
   border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl); white-space: nowrap;
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
