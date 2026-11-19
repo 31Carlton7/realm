@@ -7136,6 +7136,21 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --rl-text-faint: color-mix(in oklab, var(--ink-2) 50%, var(--ink-3));
   backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--picture-tone) var(--glass-panel-tone);
   box-shadow: none; }
+/* Inside a glass picker nothing is a solid step: the effort track, the account's well, the overflow's
+   segments and the sign-in panel are a tint of the ink over the frost, and the row the pointer or the
+   arrows are on is one rung more with the rim's light round it, so it reads as lit glass rather than a
+   grey slab laid on the panel (11-18). */
+:root[data-glass] .model-picker :is(.mp-track, .mp-account-well, .mp-seg, .account-signin) { background: var(--glass-well); }
+:root[data-glass] .model-picker :is(.mp-row[data-active], .mp-account-row:hover, .mp-bolt:hover, .mp-run-reset:hover) { background: var(--glass-row); }
+:root[data-glass] .model-picker .mp-row[data-active] { position: relative; }
+:root[data-glass] .model-picker .mp-row[data-active]::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; opacity: .6;
+  padding: var(--glass-rim-w); background: var(--glass-specular);
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+/* Opened, the account's well grows up out of the row that opened it, on the popovers' own entrance
+   (Motion, below), in either look: its foot is where the row was. */
+.model-picker .mp-account-well[data-open] {
+  animation: rl-menu-in var(--dur-pop) var(--spring-smooth); transform-origin: 50% 100%; }
 /* The selected segment is a bead of glass on its track: it bends the track's edge under it and
    carries the highlight. The track stays the plain well it was. The settings rail's tabs are
    navigation, not a choice between values, and keep their fill. */

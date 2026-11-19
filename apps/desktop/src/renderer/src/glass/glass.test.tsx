@@ -380,7 +380,7 @@ describe("what goes on glass, and what stays plain", () => {
 });
 
 describe("a picker's glass", () => {
-  const pickerRules = () => cssRules.filter((r) => r.sel.startsWith(":root[data-glass]") && /\.model-picker/.test(r.sel) && !r.sel.endsWith("::before"));
+  const pickerRules = () => cssRules.filter((r) => r.sel.startsWith(":root[data-glass] :is(.model-picker") && !r.sel.endsWith("::before"));
   it("wears its fitted lens, with a CSS frost only until the lens exists", () => {
     const rules = pickerRules();
     expect(rules.length).toBeGreaterThan(0);
@@ -390,6 +390,52 @@ describe("a picker's glass", () => {
   it("lays no surface of its own on the frost, over a picture or off one", () => {
     for (const r of pickerRules()) expect(r.body, r.sel).not.toMatch(/background:\s*(?!none)[^;]*var\(--surface/);
     expect(pickerRules()[0]!.body).toMatch(/background:\s*none/);
+  });
+});
+
+describe("inside a glass picker", () => {
+  const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+  const inside = () => cssRules.filter((r) => r.sel.startsWith(":root[data-glass] .model-picker "));
+  const overlay = (name: string) => tokensCss.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{8})`))![1]!;
+  /** A token's value in each face, read off the Glass blocks. */
+  const faces = (name: string) => [...tokensCss.matchAll(new RegExp(`--${name}:\\s*var\\(--([\\w-]+)\\)`, "g"))].map((m) => m[1]!);
+
+  it("lays its wells and its lit row on tints of the ink, never the opaque hover steps", () => {
+    const wells = inside().find((r) => /\.mp-track/.test(r.sel) && /\.mp-account-well/.test(r.sel))!;
+    expect(wells.sel).toMatch(/\.mp-seg\b/);
+    expect(wells.sel).toMatch(/\.account-signin/);
+    expect(wells.body).toMatch(/background:\s*var\(--glass-well\)/);
+    const lit = inside().find((r) => /\.mp-row\[data-active\]/.test(r.sel) && /\.mp-account-row:hover/.test(r.sel))!;
+    expect(lit.body).toMatch(/background:\s*var\(--glass-row\)/);
+    for (const r of inside()) expect(r.body, r.sel).not.toMatch(/background:[^;]*var\(--(hover|hover-2|surface|inset)\)/);
+    // Both faces, and every one a see-through share of white or black: the frost shows through.
+    for (const name of ["glass-well", "glass-row"]) {
+      const shares = faces(name);
+      expect(shares, name).toHaveLength(2);
+      for (const t of shares) expect(parseInt(overlay(t).slice(7), 16), `${name}: ${t}`).toBeLessThan(0x40);
+    }
+  });
+
+  it("lights the row the pointer or the arrows are on with the rim's specular light", () => {
+    const rim = inside().find((r) => r.sel.endsWith(".mp-row[data-active]::before"))!;
+    expect(rim.body).toMatch(/background:\s*var\(--glass-specular\)/);
+    expect(rim.body).toMatch(/mask:[^;]*content-box exclude/);
+  });
+
+  it("grows the opened account well out of its row on the popovers' own entrance, in Plain too", () => {
+    const popover = cssRules.find((r) => r.sel === ".model-picker, .icon-picker" && /animation:/.test(r.body))!;
+    const well = cssRules.find((r) => r.sel === ".model-picker .mp-account-well[data-open]")!;
+    const anim = (body: string) => body.match(/animation:\s*([^;]+)/)![1]!.trim();
+    expect(anim(well.body)).toBe(anim(popover.body));
+    // Its foot is where the row was: the well grows upward from the bottom of the picker.
+    expect(well.body).toMatch(/transform-origin:\s*50% 100%/);
+  });
+
+  it("leaves Plain as it was: the same rows on the opaque steps", () => {
+    expect(cssRules.find((r) => r.sel === ".mp-row[data-active]")!.body).toMatch(/background:\s*var\(--hover\)/);
+    expect(cssRules.find((r) => r.sel === ".mp-account-row:hover")!.body).toMatch(/background:\s*var\(--hover-2\)/);
+    expect(cssRules.find((r) => r.sel === ".mp-track")!.body).toMatch(/background:\s*var\(--hover\)/);
+    for (const r of cssRules) if (/mp-row\[data-active\]::before/.test(r.sel)) expect(r.sel, r.sel).toMatch(/^:root\[data-glass\]/);
   });
 });
 

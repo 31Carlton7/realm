@@ -451,6 +451,17 @@ describe("the account the agent runs on", () => {
     expect(screen.queryByRole("listbox", { name: "Accounts" })).toBeNull();
   });
 
+  it("marks its well open while the list is up, which is what grows it out of its row", () => {
+    const { c } = control();
+    mount({ account: c });
+    const well = () => accountRow().querySelector(".mp-account-well")!;
+    expect(well().hasAttribute("data-open")).toBe(false);
+    openAccounts();
+    expect(well().hasAttribute("data-open")).toBe(true);
+    fireEvent.click(within(screen.getByRole("listbox", { name: "Accounts" })).getAllByRole("option")[0]!);
+    expect(well().hasAttribute("data-open")).toBe(false);
+  });
+
   it("opens in its own place to the agent's accounts, each once, the current one ticked and Add account last", () => {
     const { c } = control({ current: "work" });
     mount({ account: c });
