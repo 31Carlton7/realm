@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { PANE_DIVIDER, PANE_MIN, allItems, sessionEvent, type Item, type Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
 import { PanelBar } from "./PanelBar";
@@ -18,7 +18,9 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
   setBrowserBridgesForTests(fakeBrowserBridges());
 });
-afterEach(() => { setBrowserBridgesForTests(null); vi.unstubAllGlobals(); });
+// Unmount before the fakes go: after-hooks run in reverse, so the setup file's own `cleanup` comes
+// after this one, and a browser pane's effect still waiting to run would run then, against no bridges.
+afterEach(() => { cleanup(); setBrowserBridgesForTests(null); vi.unstubAllGlobals(); });
 
 const items: Item[] = [
   item("A", "s1", { kind: "browser", title: "Tab A", refId: "A" }),

@@ -401,10 +401,15 @@ function observerByHand() {
     takeRecords() { return []; }
   });
   return {
-    show: (el: Element) => act(() => {
-      const o = watched.get(el);
-      o?.cb([{ isIntersecting: true, target: el } as IntersectionObserverEntry], o);
-    }),
+    // The card starts watching in an effect, which can run after the card is already in the DOM, so
+    // `show` waits for the card to be watched rather than answering an observer nobody has made yet.
+    show: async (el: Element) => {
+      await waitFor(() => expect(watched.has(el)).toBe(true));
+      act(() => {
+        const o = watched.get(el)!;
+        o.cb([{ isIntersecting: true, target: el } as IntersectionObserverEntry], o);
+      });
+    },
   };
 }
 
@@ -455,7 +460,7 @@ describe("the documents home as a grid", () => {
     expect(await cardsIn("This session")).toEqual(["plan.md", "todo.md"]);
     expect(readRange).not.toHaveBeenCalled();
 
-    show(cardFor("plan.md").closest("li")!);
+    await show(cardFor("plan.md").closest("li")!);
     await waitFor(() => expect(cardFor("plan.md").querySelector(".docs-card-page h1")?.textContent).toBe("Plan"));
     expect(readRange.mock.calls).toEqual([[`${ROOT}/notes/plan.md`, 0, TEXT_HEAD]]);
     expect(cardFor("todo.md").querySelector(".docs-card-page")).toBeNull();
