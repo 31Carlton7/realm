@@ -911,17 +911,18 @@ a {
   --glass-rim: inset 1px 1px 0 rgb(255 255 255 / .2), inset -1px -1px 0 rgb(255 255 255 / .1);
   --glass-bead: rgb(255 255 255 / .12);
   --glass-knob: rgb(255 255 255 / .6);
-  /* A well and a lit row inside a glass panel (styles.css, "Glass"): tints of the ink, the row a rung more. */
-  --glass-well: var(--overlay-lighten-300);
-  --glass-row: var(--overlay-lighten-400);
+  /* A well and a lit row inside a see-through picker (Glass, or Plain over a picture) and in the
+     account switcher in either look (styles.css): tints of the ink, the row a rung more. */
+  --well-tint: var(--overlay-lighten-300);
+  --row-tint: var(--overlay-lighten-400);
 }
 :root[data-mode="light"] {
   --glass-panel-tone: brightness(1.08);
   --glass-specular: conic-gradient(from -45deg, rgb(255 255 255 / .95), rgb(0 0 0 / .06) 25%, rgb(255 255 255 / .7) 50%, rgb(0 0 0 / .06) 75%, rgb(255 255 255 / .95));
   --glass-rim: inset 1px 1px 0 rgb(255 255 255 / .9), inset -1px -1px 0 rgb(255 255 255 / .6), inset 0 0 0 var(--hairline-w) rgb(0 0 0 / .07);
   --glass-bead: rgb(255 255 255 / .6);
-  --glass-well: var(--overlay-darken-200);
-  --glass-row: var(--overlay-darken-300);
+  --well-tint: var(--overlay-darken-200);
+  --row-tint: var(--overlay-darken-300);
 }
 :root[data-clear-over-picture] { --glass-tone: saturate(var(--glass-saturate)); --glass-frost: var(--glass-tone); }
 
