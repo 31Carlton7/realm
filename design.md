@@ -314,8 +314,11 @@ Rules:
   selection bar, the selected segment of a segmented control and a switch's knob. What is read stays
   plain (a page of settings, a sheet, the transcript, the sidebar, the palette, toasts), because glass
   there costs contrast and shows nothing. Glass is a lens, a slight blur and a highlight, never a fill
-  of ours: over a picture it lays no surface and no shadow, only the picture's own dim, so it carries
-  the picture's colour. A lens can only bend what is behind it, so the first Glass did nothing: the card
+  of ours: over a picture it lays no surface and no shadow, only a dim, so it carries the picture's
+  colour. In dark the dim is measured off the picture each time it is drawn, the least its words need,
+  because the picture's own fixed dim took the glass to navy over Synth Coast's sun where macOS's
+  glows orange (the owner, 11-18: "the liquid glass throughout the app looks very off, looks nothing
+  like the macos version"); light keeps the picture's own. A lens can only bend what is behind it, so the first Glass did nothing: the card
   bent its own grey face, and the hero had cleared the picture from under the card, leaving the
   window's material, which an in-page filter cannot see. Glass that does nothing is a setting that
   lies; prove it with a card of stripes under it before tuning a number. A lens is drawn for the box it

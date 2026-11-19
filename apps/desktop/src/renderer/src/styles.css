@@ -6734,6 +6734,11 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 /* Over a picture the glass is the picture's ground: the lens with its slight frost, then the dim. */
 :root[data-glass] .session-pane:has(> .hero-backdrop) .composer-glass { backdrop-filter: var(--glass-lens, blur(var(--glass-blur))) var(--glass-tone); }
 :root[data-glass][data-clear-over-picture] .composer-glass { --glass-frost-px: 0px; }
+/* In dark the lens floods the pane's ground under the picture before it dims it, as a picker's does.
+   The guard may draw a bright picture see-through, and Chromium lays the filter's result over the
+   backdrop, so a see-through result let the picture back through the dim: over a white sky the
+   placeholder stood on a ground half again lighter than the dim allowed (11-18). */
+:root[data-glass]:not([data-mode="light"]):not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass { --glass-ground-share: 1; }
 /* ⌘K's lift, the same way. This is the square at the palette's corners: its `box-shadow` (four
    layers, one of them a ring) drew from the border box, which under the painted regime is a
    RECTANGLE with no radius at all — so a hard-cornered halo sat over the curve the worklet had
@@ -7137,11 +7142,14 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate));
   box-shadow: var(--shadow-raised); }
 /* Over a picture its quiet words take a step toward the secondary ink, as the prompter's do when it
-   thins: the frost is the picture's own colour, and in light the specs line stood at 2.95:1 on it. */
+   thins: the frost is the picture's own colour, and in light the specs line stood at 2.95:1 on it. In
+   dark they take the whole step, as the prompter's do over a picture, because the dim is worked out
+   for the secondary ink (glass/glass-dim.ts) and a dark picture keeps its light. */
 :root[data-glass] :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] {
   --rl-text-faint: color-mix(in oklab, var(--ink-2) 50%, var(--ink-3));
-  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--picture-tone) var(--glass-panel-tone);
+  backdrop-filter: var(--glass-lens, var(--glass-panel-frost)) saturate(var(--glass-saturate)) var(--glass-picture-tone) var(--glass-panel-tone);
   box-shadow: none; }
+:root[data-glass]:not([data-mode="light"]) :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] { --rl-text-faint: var(--ink-2); }
 /* Inside a glass picker nothing is a solid step: the effort track, the account's well, the overflow's
    segments and the sign-in panel are a tint of the ink over the frost, and the row the pointer or the
    arrows are on is one rung more with the rim's light round it, so it reads as lit glass rather than a

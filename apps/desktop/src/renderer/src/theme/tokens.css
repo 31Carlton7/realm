@@ -879,8 +879,13 @@ a {
  * frost and a lit rim, near clear as macOS 26's is. Each kind of surface has its own bezel (how far in
  * its edge curves) and bend (how far the rim pulls what is under it): a panel's is deep, a control's
  * (a segment, a knob) is most of its radius. The frost is slight on what is glanced at, so the lens has something sharp to
- * bend, and deep on a panel of rows, which is read over a transcript; over a picture it takes the
- * picture's own dim (`--picture-tone`), never a fill. The rim is specular light, brightest top left and
+ * bend, and deep on a panel of rows, which is read over a transcript; over a picture it takes a
+ * dim, never a fill. In dark the dim is `--glass-dim`, which the pane works out from the picture
+ * under its prompter and pickers each time it draws it (glass/glass-dim.ts), as the least its words
+ * need, so a dark picture keeps its light and colour as macOS's glass does; it is `--picture-dim`
+ * until then. A picker is portalled out of the pane and is handed its pane's number,
+ * so the tones that read it are declared again wherever it can be set. Light keeps the picture's own
+ * dim (`--picture-tone`). The rim is specular light, brightest top left and
  * again bottom right, white in both faces: light falling on glass, not a colour laid on it. A bead (a
  * selected segment, a switch's knob) is the one place glass carries a fill, a share of white, so a
  * control's position reads at a glance. */
@@ -889,8 +894,7 @@ a {
   --glass-panel-blur: 10px;
   --glass-control-blur: 1px;
   --glass-saturate: 1.5;
-  --glass-tone: saturate(var(--glass-saturate)) var(--picture-tone);
-  --glass-frost: blur(var(--glass-blur)) var(--glass-tone);
+  --glass-dim: var(--picture-dim);
   --glass-panel-frost: blur(var(--glass-panel-blur));
   /* What a panel's lens floods under the backdrop before it frosts it (glass/fitted-lens.ts): the
      pane's own ground, opaque, since Chromium lays the result over the backdrop and any share left
@@ -924,7 +928,14 @@ a {
   --well-tint: var(--overlay-darken-200);
   --row-tint: var(--overlay-darken-300);
 }
-:root[data-clear-over-picture] { --glass-tone: saturate(var(--glass-saturate)); --glass-frost: var(--glass-tone); }
+:root, .session-pane, [data-over-picture] {
+  --glass-picture-tone: brightness(calc(1 - var(--glass-dim)));
+  --glass-tone: saturate(var(--glass-saturate)) var(--glass-picture-tone);
+  --glass-frost: blur(var(--glass-blur)) var(--glass-tone);
+}
+:root[data-mode="light"], :root[data-mode="light"] :is(.session-pane, [data-over-picture]) { --glass-picture-tone: var(--picture-tone); }
+:root[data-clear-over-picture], :root[data-clear-over-picture] :is(.session-pane, [data-over-picture]) {
+  --glass-tone: saturate(var(--glass-saturate)); --glass-frost: var(--glass-tone); }
 
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being
