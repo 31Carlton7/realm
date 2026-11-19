@@ -587,6 +587,8 @@ else keeps its own name, whatever it looks like.
 | `session.file` | `{id, path}` | `{path, name, size, mime, preview: {kind: "image", mime, data} \| {kind: "text", text, truncated} \| {kind: "none", reason}}` |
 | `session.fileData` | `{id, path, from?: int = 0}` | `{path, name, size, mime, from, data, next: int\|null, modifiedAt?: int}`: `data` is up to 512 KB of the file from `from`, base64; `modifiedAt` is when the file last changed, and a phone from before it does not ask. A `from` past the end answers with no bytes, which is how a phone asks whether a copy it kept is still the file. |
 | `space.icon` | `{id}` | `{mime, data}`: base64 |
+| `backgrounds.look` | `{sessionId}` | `{look: {id, effect: "dither"\|"dither-color"\|"halftone", asIs: bool, faces: {light, dark}}\|null}`: null when pictures are off; each face is a still key |
+| `backgrounds.still` | `{key}` | `{mime: "image/jpeg", data}`: the still at most 1290 px on its long side, base64 |
 | `session.screens` | `{id}` | `{screens: [Screen]}`: the live first, then by name |
 | `session.screen` | `{id, screenId, kind: "simulator"\|"machine", maxSide?: number = 1000}` | `{mime: "image/jpeg", data, width: int, height: int, capturedAt: ms}`: `data` is base64 |
 | `session.panes` | `{id}` | `{browsers: [BrowserPane], terminals: [TerminalPane]}`: each kind live first, then by name |
@@ -1309,6 +1311,12 @@ phone read, and what bounds it:
   the match. A `Snippet` is `[{text, match: bool}]`, runs that join into the words. The palette's other
   groups — terminals, browsers and documents by title, skills, memory — are not sent.
 - **`space.icon`**: the picture a person uploaded or had made for a space, at most 256 KB.
+- **`backgrounds.look`** and **`backgrounds.still`**: the look the Mac's background setting gives that
+  session, resolved as the desktop resolves it (Shuffle picks per session, a look that is gone is the
+  default), and a still of one of its faces. A still key names a gallery picture or one of the person's
+  own pictures, looked up among those that exist; a look that moves is sent as its poster, never its
+  loop. One of the person's own goes only to their paired phone, through this call, and the Mac logs
+  nothing of it. A Mac before them answers `METHOD_NOT_FOUND`, and the phone shows its plain ground.
 - **`session.hint`** and `hint`: the suggested next message the desktop's prompter shows.
 - **`goal`, `todos` and their events**: the session's objective, where it stands, its turns, tokens and
   note, and the agent's to-do list's items; a goal's own turns carry the prompt Realm sent.

@@ -59,8 +59,13 @@ enum LaunchOptions {
     static var stagedPhoto: String? { UserDefaults.standard.string(forKey: "stagePhoto") }
     /// Reads every network as cellular, for a video's question about sending over one.
     static var costlyNetwork: Bool { UserDefaults.standard.bool(forKey: "costlyNetwork") }
+    /// Reads every network as in Low Data Mode, which the simulator cannot be put in.
+    static var lowData: Bool { UserDefaults.standard.bool(forKey: "lowData") }
+    /// Writes each frame's length to Caches/frames.log (FrameMeter), to measure a scroll.
+    static var frameMeter: Bool { UserDefaults.standard.bool(forKey: "frameMeter") }
     #else
     static let costlyNetwork = false
+    static let lowData = false
     #endif
 
     static var diagnosticsEchoes: Int? {

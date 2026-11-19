@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
-  AGENT_META, AGENT_SKILL_SUPPORT, parsePrRef, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, documentKindFor, hasAccounts, isSecretPath, keepLiveRefs, LIBRARY_QUERY_MAX, MAC_SKILL_ID, mentionIds, mimeForPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
+  AGENT_META, AGENT_SKILL_SUPPORT, BACKGROUND_SETTING, backgroundPref, parsePrRef, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, documentKindFor, hasAccounts, isSecretPath, keepLiveRefs, LIBRARY_QUERY_MAX, MAC_SKILL_ID, mentionIds, mimeForPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
   nextFireOf, resolveMidTurnMode, runnableCommands, SEARCH_GROUP_LIMIT_MAX, SELECTABLE_AGENT_KINDS, TEAMMATE_CLOCK_PROMPT, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodParams, type MethodResult, type ModelInfo,
   type Goal, type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
 } from "@realm/contracts";
@@ -15,6 +15,7 @@ import {
   agentsAtWork, cadenceSentence, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, LAST_MODELS_SETTING, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
+import { galleryDir, readGallery, readMine, resolveLook, STILL_QUALITY, STILL_SIDE, stillPath } from "./backgrounds";
 import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
 import { ChunkedUploads, UploadNotFound } from "./chunked-uploads";
@@ -274,6 +275,8 @@ export class MobileApi {
    *  `freeBytes` is how much room the disk holding a folder has; the disk's own by default. */
   constructor(private readonly o: {
     macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string; userHome?: string; freeBytes?: (dir: string) => Promise<number>;
+    /** Where the gallery's pictures are; `galleryDir()` by default. */
+    galleryDir?: string | null;
   }) {
     this.chunked = new ChunkedUploads(o.realmHome, o.freeBytes);
   }
@@ -400,6 +403,8 @@ export class MobileApi {
         case "session.file": return await this.file(rpc, p.id as string, p.path as string);
         case "session.fileData": return await this.fileData(rpc, p.id as string, p.path as string, p.from as number);
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
+        case "backgrounds.look": return await this.backgroundLook(rpc, p.sessionId as string);
+        case "backgrounds.still": return await this.backgroundStill(p.key as string);
         case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).shown.sort(screenOrder) };
         case "session.screen": return await this.screen(rpc, p as MobileParams<"session.screen">);
         case "session.panes": return await this.panes(rpc, p.id as string);
@@ -1331,6 +1336,30 @@ export class MobileApi {
       if ((e as NodeJS.ErrnoException).code === "ENOTDIR") throw new MobileError("NOT_FOUND", "That file is no longer on this Mac.");
       if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MobileError("NOT_FOUND", "That file is no longer on this Mac.");
       throw e;
+    }
+  }
+
+  private get gallery(): string | null {
+    return this.o.galleryDir === undefined ? galleryDir() : this.o.galleryDir;
+  }
+
+  private async backgroundLook(rpc: RpcPort, sessionId: string): Promise<MobileResult<"backgrounds.look">> {
+    const [{ value }, gallery, mine] = await Promise.all([
+      rpc.call("settings.get", { key: BACKGROUND_SETTING }), readGallery(this.gallery), readMine(this.o.realmHome),
+    ]);
+    return { look: resolveLook(backgroundPref(value), sessionId, gallery, mine) };
+  }
+
+  private async backgroundStill(key: string): Promise<MobileResult<"backgrounds.still">> {
+    const at = this.gallery;
+    const [gallery, mine] = await Promise.all([readGallery(at), readMine(this.o.realmHome)]);
+    const path = stillPath(key, at, gallery, this.o.realmHome, mine);
+    if (!path) throw new MobileError("NOT_FOUND", "That picture is no longer on this Mac.");
+    try {
+      return { mime: "image/jpeg", data: (await (this.o.downscale ?? sipsDownscale)(path, STILL_SIDE, STILL_QUALITY)).toString("base64") };
+    } catch {
+      // Said without the path: a picture of the person's own is named nowhere but on their phone.
+      throw new MobileError("INTERNAL", "This Mac could not read the picture.");
     }
   }
 

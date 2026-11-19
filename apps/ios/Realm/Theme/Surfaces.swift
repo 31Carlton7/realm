@@ -235,13 +235,49 @@ struct EdgeFade: View {
         return [(0.95, 0), (0.85, bar * 0.6), (0.55, bar), (0, 1)]
     }
 
+    @Environment(\.edgeFadeFill) private var fill
+
     var body: some View {
         GeometryReader { proxy in
-            LinearGradient(stops: Self.stops(height: proxy.size.height).map {
+            let fade = LinearGradient(stops: Self.stops(height: proxy.size.height).map {
                 .init(color: ground.opacity($0.opacity), location: $0.location)
             }, startPoint: edge == .top ? .top : .bottom, endPoint: edge == .top ? .bottom : .top)
+            switch fill {
+            case .ground:
+                fade
+            case .none:
+                Color.clear
+            case .picture(let picture):
+                // The picture behind the screen, laid where it lies under this fade, so the words go
+                // into the picture at the edge rather than into a band of plain ground.
+                let frame = proxy.frame(in: .global)
+                Image(uiImage: picture.image)
+                    .resizable()
+                    .frame(width: picture.size.width, height: picture.size.height)
+                    .offset(x: -frame.minX, y: -frame.minY)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                    .clipped()
+                    .mask(fade)
+            }
         }
     }
+}
+
+/// The blurred, hushed still behind a transcript, at the size it was made for, in points.
+struct BackdropPicture: Equatable {
+    let key: String
+    let image: UIImage
+    let size: CGSize
+}
+
+/// What a screen's edge fades into: its ground, nothing, or the picture behind it.
+enum EdgeFadeFill {
+    case ground, none
+    case picture(BackdropPicture)
+}
+
+extension EnvironmentValues {
+    @Entry var edgeFadeFill: EdgeFadeFill = .ground
 }
 
 private struct BackOnGround: ViewModifier {

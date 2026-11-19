@@ -169,6 +169,20 @@ struct APIFixtureTests {
         #expect(picture.data == Data("a picture".utf8))
     }
 
+    /// The look behind a session and one face's still, as the Mac sends them.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aSessionsLookAndItsStillDecode() throws {
+        struct Answer: Decodable { let look: BackgroundLook? }
+        let look = try #require(try Self.decode(Answer.self, "calls", "backgrounds.look").look)
+        #expect(look.id == "sky-and-cliffs")
+        #expect(look.effect == .ditherColor)
+        #expect(!look.asIs)
+        #expect(look.faces == .init(light: "gallery:sky-day.jpg", dark: "gallery:space-webb.jpg"))
+        let still = try Self.decode(SpacePicture.self, "calls", "backgrounds.still")
+        #expect(still.mime == "image/jpeg")
+        #expect(still.data == Data("jpeg".utf8))
+    }
+
     /// A session's screens, live first, each with its words, and a picture of one as the Mac made it.
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
     func aSessionsScreensAndAPictureOfOneDecode() throws {
