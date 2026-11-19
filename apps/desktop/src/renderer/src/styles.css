@@ -1703,7 +1703,7 @@ input.sb-space-name { flex: 1; }
 .mp-seg-label { flex: none; width: 72px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 /* One row, always, in equal columns: the widest label sets the width and nothing wraps. */
 .mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
-  --seg-h: 30px; height: var(--seg-h); padding: var(--seg-pad); border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--hover); }
+  --seg-h: 30px; min-height: var(--seg-h); padding: var(--seg-pad); border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--hover); }
 .mp-seg-opt { padding: 3px 2px; border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl); border: 0; background: none; font: inherit;
   font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
@@ -8111,7 +8111,7 @@ select { appearance: none; padding-right: 22px;
 /* ── Space settings, W5: the skills / connections / memory tabs ───────────── */
 /* Tabs are native radios in segmented-control clothing (the onboarding idiom: arrows move, one tab
    stop, checked state for free). Selected ≠ outlined — §2.7's translucent fill + bright text. */
-.settings-tabs { --seg-h: 36px; display: flex; gap: 2px; margin: 0 0 12px; height: var(--seg-h); padding: var(--seg-pad); border: none;
+.settings-tabs { --seg-h: 36px; display: flex; gap: 2px; margin: 0 0 12px; min-height: var(--seg-h); padding: var(--seg-pad); border: none;
   border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--rl-hover); }
 /* One line per option, always: a fieldset sizes to its min-content in a flex row, so a segment free to
    wrap broke "For 5 minutes" over two lines beside a label that had the room to give. */
@@ -9931,7 +9931,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .documents-state[data-state="conflict"], .documents-state[data-state="missing"] { color: var(--rl-warning); }
 /* The view toggle sits at the far right of the head — a segmented control on the field fill, the
    same shape the rest of the app uses for a two-way choice. */
-.documents-modes { --seg-h: 30px; display: inline-flex; gap: 2px; flex: none; margin-left: auto; height: var(--seg-h); padding: var(--seg-pad);
+.documents-modes { --seg-h: 30px; display: inline-flex; gap: 2px; flex: none; margin-left: auto; min-height: var(--seg-h); padding: var(--seg-pad);
   border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--field); box-shadow: var(--shadow-hairline); }
 .documents-modes button {
   padding: 3px 9px; border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl); font-size: 12px; color: var(--rl-text-dim);
@@ -11042,8 +11042,10 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 
 /* A segmented control: one row of radios wearing a shared track — the same track and the same lit
    segment as Settings' `.settings-tabs`, so a control is drawn one way wherever it stands. Usage once
-   ringed its own in a hairline on the frame's fill, a third skin on the page that has two. */
-.seg { --seg-h: 26px; display: inline-flex; gap: 2px; margin: 0; height: var(--seg-h); padding: var(--seg-pad); border: none;
+   ringed its own in a hairline on the frame's fill, a third skin on the page that has two. A track's
+   height is a floor, not a size: its labels scale with the UI text size, and at 18px a fixed 26px track
+   left them hanging out of their segments. Its corner is still worked out from the floor. */
+.seg { --seg-h: 26px; display: inline-flex; gap: 2px; margin: 0; min-height: var(--seg-h); padding: var(--seg-pad); border: none;
   border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--rl-hover); }
 /* No transition: a segment is a choice, and a choice changes instantly both ways (design.md). This
    rule comes after the instant list, so a `transition` here handed the fade back to every segment. */

@@ -5689,9 +5689,16 @@ describe("segmented controls", () => {
       expect(body, sel).toContain(TRACK_R);
       expect(body, sel).toMatch(/padding: var\(--seg-pad\)/);
     }
-    // The account well grows when it opens; every other track is one row, and holds the height its
-    // corner is worked out from.
-    for (const sel of TRACKS.filter((t) => t !== ".mp-account-well")) expect(bodiesFor(sel).join(" "), sel).toContain("height: var(--seg-h);");
+    // The account well grows when it opens; every other track is one row, at least as tall as the
+    // height its corner is worked out from.
+    for (const sel of TRACKS.filter((t) => t !== ".mp-account-well")) expect(bodiesFor(sel).join(" "), sel).toContain("min-height: var(--seg-h);");
+  });
+
+  it("lets a track grow with its labels' text size", () => {
+    // Segment labels scale with the UI text size (theme/text-scale.ts); a track fixed at its default
+    // height kept its 26px at an 18px UI size while its labels grew to 26.6px, and they hung out of it.
+    for (const sel of [...TRACKS, ".page .seg", ".library-toolbar .library-view.seg", ".docs-home-view.seg"])
+      expect(bodiesFor(sel).join(" "), sel).not.toMatch(/(^|[ ;])(max-)?height:/);
   });
 
   it("cuts every segment concentric with its track, and nothing redraws that corner", () => {
