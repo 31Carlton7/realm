@@ -402,7 +402,7 @@ describe("a picker's glass", () => {
 
 describe("inside a glass picker", () => {
   const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
-  const inside = () => cssRules.filter((r) => r.sel.startsWith(":root[data-glass] .model-picker "));
+  const inside = () => cssRules.filter((r) => /^(:root\[data-glass\] \.model-picker |:is\(:root\[data-glass\] \.model-picker, )/.test(r.sel));
   const overlay = (name: string) => tokensCss.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{8})`))![1]!;
   /** A token's value in each face, read off the Glass blocks. */
   const faces = (name: string) => [...tokensCss.matchAll(new RegExp(`--${name}:\\s*var\\(--([\\w-]+)\\)`, "g"))].map((m) => m[1]!);
@@ -411,12 +411,12 @@ describe("inside a glass picker", () => {
     const wells = inside().find((r) => /\.mp-track/.test(r.sel) && /\.mp-account-well/.test(r.sel))!;
     expect(wells.sel).toMatch(/\.mp-seg\b/);
     expect(wells.sel).toMatch(/\.account-signin/);
-    expect(wells.body).toMatch(/background:\s*var\(--glass-well\)/);
+    expect(wells.body).toMatch(/background:\s*var\(--well-tint\)/);
     const lit = inside().find((r) => /\.mp-row\[data-active\]/.test(r.sel) && /\.mp-account-row:hover/.test(r.sel))!;
-    expect(lit.body).toMatch(/background:\s*var\(--glass-row\)/);
+    expect(lit.body).toMatch(/background:\s*var\(--row-tint\)/);
     for (const r of inside()) expect(r.body, r.sel).not.toMatch(/background:[^;]*var\(--(hover|hover-2|surface|inset)\)/);
     // Both faces, and every one a see-through share of white or black: the frost shows through.
-    for (const name of ["glass-well", "glass-row"]) {
+    for (const name of ["well-tint", "row-tint"]) {
       const shares = faces(name);
       expect(shares, name).toHaveLength(2);
       for (const t of shares) expect(parseInt(overlay(t).slice(7), 16), `${name}: ${t}`).toBeLessThan(0x40);
@@ -438,11 +438,64 @@ describe("inside a glass picker", () => {
     expect(well.body).toMatch(/transform-origin:\s*50% 100%/);
   });
 
-  it("leaves Plain as it was: the same rows on the opaque steps", () => {
+  it("leaves Plain's list on the opaque steps of its solid surface when there is no picture", () => {
     expect(cssRules.find((r) => r.sel === ".mp-row[data-active]")!.body).toMatch(/background:\s*var\(--hover\)/);
-    expect(cssRules.find((r) => r.sel === ".mp-account-row:hover")!.body).toMatch(/background:\s*var\(--hover-2\)/);
     expect(cssRules.find((r) => r.sel === ".mp-track")!.body).toMatch(/background:\s*var\(--hover\)/);
     for (const r of cssRules) if (/mp-row\[data-active\]::before/.test(r.sel)) expect(r.sel, r.sel).toMatch(/^:root\[data-glass\]/);
+  });
+});
+
+describe("the account switcher in Plain", () => {
+  const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+  const rule = (sel: string) => cssRules.find((r) => r.sel === sel)!;
+  const bg = (sel: string) => rule(sel).body.match(/background:\s*([^;]+)/)![1]!.trim();
+  /** What a token is in the dark face and the light one. */
+  const faces = (name: string) => [...tokensCss.matchAll(new RegExp(`--${name}:\\s*var\\(--([\\w-]+)\\)`, "g"))].map((m) => m[1]!);
+  const alpha = (overlay: string) => parseInt(tokensCss.match(new RegExp(`--${overlay}:\\s*#[0-9a-f]{6}([0-9a-f]{2})`))![1]!, 16);
+
+  it("lays its well and the row under the pointer on tints of the ink, never a step of the theme's grey", () => {
+    expect(bg(".mp-account-well")).toBe("var(--well-tint)");
+    expect(bg(".mp-account-row:hover")).toBe("var(--row-tint)");
+    for (const sel of [".mp-account-well", ".mp-account-row", ".mp-account-row:hover", ".mp-account-add", ".mp-account-add:hover"]) {
+      const r = cssRules.find((c) => c.sel === sel);
+      if (r) expect(r.body, sel).not.toMatch(/background:[^;]*var\(--(hover|hover-2|surface|inset|canvas|page)\)/);
+    }
+  });
+
+  it("lights the row under the pointer a rung past the well, in both faces, and leaves it clear at rest", () => {
+    expect(bg(".mp-account-row")).toBe("none");
+    const well = faces("well-tint"), row = faces("row-tint");
+    expect(well).toHaveLength(2);
+    expect(row).toHaveLength(2);
+    for (const i of [0, 1]) {
+      expect(row[i]!.split("-")[1], `face ${i}`).toBe(well[i]!.split("-")[1]);
+      expect(alpha(row[i]!), `face ${i}`).toBeGreaterThan(alpha(well[i]!));
+    }
+  });
+
+  it("divides Add account from the accounts with the ordinary hairline, itself a tint", () => {
+    expect(rule(".mp-account-add::before").body).toMatch(/border-top:[^;]*var\(--rl-hairline\)/);
+    expect(stylesCss).toMatch(/--rl-hairline:\s*var\(--line\)/);
+    for (const t of faces("line")) expect(t).toMatch(/^overlay-(lighten|darken)-\d+$/);
+  });
+
+  it("over a picture stands the whole picker on the picture, blurred and dimmed, and its wells and lit row on tints", () => {
+    const panel = rule(".model-picker[data-over-picture]").body;
+    expect(panel).toMatch(/background:\s*none/);
+    expect(panel).toMatch(/box-shadow:\s*none/);
+    expect(panel).toMatch(/backdrop-filter:\s*var\(--picture-ground\)/);
+    const inside = cssRules.filter((r) => r.sel.startsWith(".model-picker[data-over-picture] "));
+    expect(inside.find((r) => /\.mp-track/.test(r.sel) && /\.mp-seg\b/.test(r.sel))!.body).toMatch(/background:\s*var\(--well-tint\)/);
+    expect(inside.find((r) => /\.mp-row\[data-active\]/.test(r.sel) && /\.mp-bolt:hover/.test(r.sel))!.body).toMatch(/background:\s*var\(--row-tint\)/);
+    for (const r of inside) expect(r.body, r.sel).not.toMatch(/background:[^;]*var\(--(hover|hover-2|surface|inset)\)/);
+  });
+
+  it("keeps its solid surface and its steps under Reduce Transparency", () => {
+    // Every rule that stands the picker on the picture sits in the one block the preference turns off.
+    const block = stylesCss.replace(/\/\*[\s\S]*?\*\//g, "").match(/@media \(prefers-reduced-transparency: no-preference\) \{((?:\s*[^{}]+\{[^{}]*\})*)\s*\}/)?.[1] ?? "";
+    const overPicture = cssRules.filter((r) => r.sel.startsWith(".model-picker[data-over-picture]"));
+    expect(overPicture.length).toBe(3);
+    for (const r of overPicture) expect(block, r.sel).toContain(r.sel);
   });
 });
 
