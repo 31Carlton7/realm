@@ -1151,8 +1151,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     const filtering = RULES.filter((r) => /(^|;|\s)(-webkit-)?backdrop-filter:\s*(?!none)/.test(r.body)).flatMap(partsOf);
     /* One named exception (the owner, 11-17): over a picture the prompter and its tabs blur the
        picture itself, so they keep its colour rather than wearing a theme grey on it. Those rules
-       are scoped to a pane with a picture, read the one token, and paint no fill of their own. */
-    const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ");
+       are scoped to a pane with a picture, read the one token, and paint no fill of their own. The
+       model picker opened over a picture stands on it the same way (11-18). */
+    const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ") || sel === ".model-picker[data-over-picture]";
     /* And the glass the owner asked for app-wide (11-17), only behind the root's `data-glass`, which
        Appearance sets and Reduce Transparency and the Mac's Low Power Mode clear. Every one reads the glass tokens
        or a shared lens, so the whole material is one set of numbers. */
@@ -1171,7 +1172,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(picture.length).toBeGreaterThanOrEqual(2);
     for (const r of picture) {
       expect(r.body).toMatch(/backdrop-filter: var\(--picture-ground\)/);
-      expect(r.body).not.toMatch(/background/);
+      expect(r.body).not.toMatch(/background(?!:\s*none)/);
     }
     // Both layers read the strength tokens, so "subtler" is one edit and no two bands can disagree.
     expect(bodiesFor(".edge-blur::before").join(" ")).toContain("backdrop-filter: blur(var(--fade-blur-near))");

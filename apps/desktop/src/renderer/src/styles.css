@@ -1575,6 +1575,16 @@ input.sb-space-name { flex: 1; }
    second harness's mark beside it and the five effort levels each fit on one line. */
 .model-picker { z-index: 100; width: var(--picker-w); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
+/* Over a picture the picker stands on the picture as the prompter does: no fill or lift of ours, the
+   picture blurred and dimmed (`--picture-ground`), its wells and lit row on the tints. With no picture
+   it keeps its surface: a plain pane cannot blur, so the transcript would read through it. Reduce
+   Transparency keeps the surface and its steps, as it does the prompter's. */
+@media (prefers-reduced-transparency: no-preference) {
+  .model-picker[data-over-picture] { background: none; box-shadow: none; backdrop-filter: var(--picture-ground);
+    --rl-text-faint: color-mix(in oklab, var(--ink-2) 50%, var(--ink-3)); }
+  .model-picker[data-over-picture] :is(.mp-track, .mp-seg, .account-signin) { background: var(--well-tint); }
+  .model-picker[data-over-picture] :is(.mp-row[data-active], .mp-bolt:hover, .mp-run-reset:hover, .mp-seg-opt[aria-pressed="true"]) { background: var(--row-tint); }
+}
 /* No rule under the search: the list below is a flex sibling that clips at its own edge and dissolves
    there, so nothing ever passes under this bar. */
 .mp-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--rl-text-faint); }
@@ -1648,18 +1658,19 @@ input.sb-space-name { flex: 1; }
 .mp-switch-note[data-tone="warning"] { color: var(--rl-warning); }
 .mp-switch-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
-/* Which login the agent runs on: one well of the segments' own fill and curve, holding the label
-   and the account in force. Opened, the same well holds the accounts as rows, so nothing is drawn
-   twice; the sign-in panel takes the well's place on the same fill. */
+/* Which login the agent runs on: one well on the segments' curve, holding the label and the account
+   in force. Opened, the same well holds the accounts as rows, so nothing is drawn twice; the sign-in
+   panel takes the well's place. The well and the row under the pointer are tints of the ink, never a
+   step of the theme's grey, so they show whatever the panel stands on (11-18). */
 .mp-account { display: flex; flex-direction: column; gap: 4px; }
 .mp-account-well { display: grid; grid-template-columns: 62px minmax(0, 1fr); column-gap: 8px; align-items: start; min-width: 0;
-  padding: 2px 2px 2px 10px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--hover); }
+  padding: 2px 2px 2px 10px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--well-tint); }
 .mp-account-well > .mp-seg-label { width: auto; line-height: 28px; }
 /* Opened, the list is the well's whole width, its rows' words on the label's edge. */
 .mp-account-list { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 2px; margin-left: -8px; }
 .mp-account-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 28px; padding: 0 8px; border: 0; background: none;
   font: inherit; color: var(--rl-text-bright); text-align: left; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; }
-.mp-account-row:hover { background: var(--hover-2); }
+.mp-account-row:hover { background: var(--row-tint); }
 .mp-account-row:focus-visible { outline-offset: -2px; }
 .mp-account-name { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .mp-account-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
@@ -7155,8 +7166,8 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    segments and the sign-in panel are a tint of the ink over the frost, and the row the pointer or the
    arrows are on is one rung more with the rim's light round it, so it reads as lit glass rather than a
    grey slab laid on the panel (11-18). */
-:root[data-glass] .model-picker :is(.mp-track, .mp-account-well, .mp-seg, .account-signin) { background: var(--glass-well); }
-:root[data-glass] .model-picker :is(.mp-row[data-active], .mp-account-row:hover, .mp-bolt:hover, .mp-run-reset:hover) { background: var(--glass-row); }
+:root[data-glass] .model-picker :is(.mp-track, .mp-account-well, .mp-seg, .account-signin) { background: var(--well-tint); }
+:root[data-glass] .model-picker :is(.mp-row[data-active], .mp-account-row:hover, .mp-bolt:hover, .mp-run-reset:hover) { background: var(--row-tint); }
 :root[data-glass] .model-picker .mp-row[data-active] { position: relative; }
 :root[data-glass] .model-picker .mp-row[data-active]::before {
   content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; opacity: .6;

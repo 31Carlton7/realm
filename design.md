@@ -342,6 +342,11 @@ Rules:
   the row the pointer or the arrows are on were the opaque hover fills, and on the frost they read as
   grey slabs laid on glass (the owner, 11-18). They are tints of the ink, the lit row one rung more with
   the rim's light round it, so the picture's colour runs under them and the row still reads as chosen.
+  Plain follows the same rule wherever there is something to see through. The account switcher's well
+  and the row under the pointer are those tints in either look, and over a picture the Plain picker is
+  a surface over a picture like any other: no fill and no lift, the picture blurred and dimmed by the
+  prompter's own ground, its wells and lit row on the tints and no rim, because rims are glass. With no
+  picture it keeps its surface, since a plain pane cannot blur and the transcript would read through it.
 - Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
   softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
   The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha
