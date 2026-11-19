@@ -136,7 +136,13 @@ describe("the prompter's squircle edge", () => {
 
   it("draws its hairline on the painted curve, plain or glass, with a picture or without", () => {
     // Plain: the face paints the card's ring, and nothing under the painter takes it away.
-    expect(bodiesFor(":root[data-squircle] .composer").join(" ")).toContain("--sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);");
+    expect(bodiesFor(":root[data-squircle] .composer").join(" ")).toContain("--sq-ring-w: var(--hairline-w);");
+    // At the button's rung, so it reads as clearly as New's; the card's rung all but vanished.
+    const PROMPTER_RING = ":root[data-squircle] :is(.composer, .composer-goal, .composer-todos, .composer-overstrip, .composer-understrip)";
+    expect(bodiesFor(PROMPTER_RING).join(" ")).toContain("--sq-ring: var(--btn-ring);");
+    const lastAt = (sel: string) => RULES.findLastIndex((r) => r.selectors.includes(sel));
+    for (const sel of [".composer", ".composer-goal", ".composer-todos", ".composer-overstrip", ".composer-understrip"])
+      expect(lastAt(PROMPTER_RING), sel).toBeGreaterThan(lastAt(`:root[data-squircle] ${sel}`));
     const face = bodiesFor(":root[data-squircle] .composer::after").join(" ");
     expect(face).toContain("background: paint(rl-squircle);");
     expect(face).toContain("--sq-ring: inherit; --sq-ring-w: inherit;");
@@ -2395,7 +2401,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        and the git footer under the plan strip read as an open-sided box down both edges, right where
        the card tucks over it: its fill is the pane's own ground, so the ring is the only edge it has.
        THE mutant: `--sq-ring-w: 0` back on a stacked tab. */
-    const ring = "--sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w)";
+    const ring = "--sq-ring-w: var(--hairline-w)";
     for (const sel of [".composer-goal", ".composer-todos", ".composer-overstrip", ".composer-understrip"])
       expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain(ring);
     // Every pair the band can actually stack, in DOM order: goal, plan, over-strip.
