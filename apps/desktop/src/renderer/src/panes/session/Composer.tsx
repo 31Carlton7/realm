@@ -1,5 +1,5 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type DiffSummary, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type MoveTarget, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type DiffSummary, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type QueueTurn, type MoveTarget, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -23,6 +23,7 @@ import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlig
 import { AttachmentTile } from "./AttachmentTile";
 import { DraftTabRow } from "./TabCards";
 import { ComposerQueue, type QueueActions } from "./ComposerQueue";
+import { sessionModelLabel } from "@realm/view";
 import { whenLabel } from "../schedules/SchedulesPage";
 import { TodoStrip } from "./TodoStrip";
 import { WhatChanged, hasChanges } from "./WhatChanged";
@@ -414,7 +415,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything", dictation = null }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueTurn = null, queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything", dictation = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -461,7 +462,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   sessionRefs?: readonly SessionRef[]; onRemoveSessionRef?: (sessionId: string) => void;
   /** One of Realm's own sidebar items was dropped on the prompter. The pane decides what it means. */
   onDropItem?: (itemId: string) => void;
-  queued?: QueuedPrompt[]; queueActions?: QueueActions; midTurnMode?: MidTurnMode; planLimits?: PlanLimits | null;
+  queued?: QueuedPrompt[]; queueTurn?: QueueTurn | null; queueActions?: QueueActions; midTurnMode?: MidTurnMode; planLimits?: PlanLimits | null;
   /** Set the permission Build will return to, while a read-only mode is in force. Absent leaves the
    *  chip a label, which is what the read-only mounts want. */
   onParkPermission?: (permissionMode: string) => void;
@@ -1317,7 +1318,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
       <div className="composer" data-mode={mode} data-look={glass ? "glass" : undefined} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
         {glass && <PrompterGlass />}
         <LimitRow limits={planLimits} />
-        <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} pendingMove={pendingMove} />
+        <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} pendingMove={pendingMove}
+          run={{ model: session.model, effort: session.effort, fastMode: session.fastMode, turn: queueTurn, modelName: (m) => sessionModelLabel(kind, m, agentProbe) }} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         <DraftTabRow tabs={tabs} onRemove={onRemoveTab ?? (() => {})} />
         <SessionRefRow refs={sessionRefs} onRemove={onRemoveSessionRef ?? (() => {})} />

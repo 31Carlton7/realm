@@ -1320,6 +1320,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // A space page's head tile (SpacePage.tsx): the space's colour, set inline beside `color`
+      // because the painter cannot read `currentcolor`.
+      "--space-tint",
       // The video player's volume track, painted from the value the slider holds (VideoPlayer.tsx).
       "--video-volume",
       // A PDF page's scale (PdfView.tsx), set inline per page: pdf.js's text layer sizes every run of
@@ -2055,7 +2058,10 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
       /* A CHILD taking its parent's corner is not a surface of its own. The palette's head and foot
          round themselves so nothing square meets the painted curve behind them — painting each of
          them would give the card three stacked fills instead of one. */
-      .filter((sel) => !/^\.palette > /.test(sel));
+      .filter((sel) => !/^\.palette > /.test(sel))
+      /* Nor is a card's preview, which takes the card's corner less its inset and clips a picture —
+         a fill painted behind an image would be under it, so Chromium's own curve draws the clip. */
+      .filter((sel) => sel !== ".docs-card-preview" && sel !== ".docs-card-preview[data-shows=\"picture\"]::after");
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });
@@ -5931,4 +5937,40 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
     expect(bodiesFor(".md-scroll").join(" ")).toContain("container-type: scroll-state");
     expect(css).toMatch(/@container scroll-state\(scrollable: top\) \{\s*\.md thead th \{ background: linear-gradient\(var\(--stripe\), var\(--stripe\)\) var\(--rl-panel\); \}/);
   });
+});
+
+it("draws a space's page in tints that thin with the pane, on the app's own painted controls", () => {
+  /* THE MUTANTS: the card back on the settings card's fill (solid on the light face); a field or a
+     button on a solid fill, or one that no longer thins with the pane; a card casting a shadow; the
+     page's controls on a fixed corner instead of the search field's and the button's; Glass drawing
+     a look of its own rather than the shared bead. */
+  const general = bodiesFor(".space-general").join(" ");
+  expect(general).toContain("--space-card: color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent)");
+  expect(general).toContain("--space-field: color-mix(in srgb, var(--field) var(--prompter-alpha), transparent)");
+  expect(bodiesFor(".space-general .settings-row").join(" ")).toContain("background: var(--space-card)");
+  expect(bodiesFor(":root[data-squircle] .space-general .settings-row").join(" ")).toContain("--sq-fill: var(--space-card)");
+  expect(bodiesFor(".space-general .search-field").join(" ")).toContain("background: var(--space-field)");
+  expect(bodiesFor(".space-general .search-field").join(" ")).toContain("--search-h: 36px");
+  expect(bodiesFor(":root[data-squircle] .space-general .search-field").join(" ")).toContain("--sq-fill: var(--space-field)");
+  const buttons = bodiesFor(".space-general .btn").join(" ");
+  expect(buttons).toContain("--btn-h: 36px");
+  expect(buttons).toContain("--fill: color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent)");
+  for (const sel of [".space-general .settings-row", ".space-general .search-field", ".space-general .btn"]) {
+    expect(bodiesFor(sel).join(" "), sel).not.toMatch(/box-shadow:(?!\s*none)|border-radius:\s*\d/);
+  }
+  expect(bodiesFor(":root[data-glass] .space-general :is(.search-field, .btn:not(.danger))").join(" "))
+    .toMatch(/--space-field: var\(--glass-bead\);\s*--fill: var\(--glass-bead\)/);
+  expect(bodiesFor(".space-page-pane .env-row").join(" ")).toContain("color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent)");
+  // The head's icon stands in a tile of the rail's tint, the space's own colour, thinned with the pane.
+  const tile = bodiesFor(".space-page-icon").join(" ");
+  expect(tile).toContain("--tile-h: 36px");
+  expect(tile).toContain("--space-icon-fill: color-mix(in srgb, color-mix(in srgb, var(--space-tint) var(--space-head-tint), transparent) var(--prompter-alpha), transparent)");
+  expect(tile).toContain("background: var(--space-icon-fill)");
+  expect(tile).not.toMatch(/box-shadow|border:/);
+  expect(bodiesFor(":root[data-squircle] .space-page-icon").join(" ")).toContain("--sq-fill: var(--space-icon-fill)");
+  expect(bodiesFor(".rail-space-tile").join(" ")).toContain("background: color-mix(in srgb, currentColor var(--space-tile-tint), transparent)");
+  expect(tokensCss).toContain("--space-tile-tint: 16%;");
+  expect(tokensCss).toContain("--space-head-tint: 28%;");
+  // One checkout a row, through the fold's own wrapper: a two-column grid folds after six, not three.
+  expect(bodiesFor(".env-field .env-list").join(" ")).toContain("grid-template-columns: minmax(0, 1fr)");
 });

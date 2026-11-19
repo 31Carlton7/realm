@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import type { AgentKind, MidTurnMode, PlanLimits, QueuedPrompt } from "@realm/contracts";
+import type { AgentKind, MidTurnMode, PlanLimits, QueuedPrompt, Session } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { SessionPane } from "./SessionPane";
@@ -15,10 +15,10 @@ import { reduceAll } from "./transcript-model";
 const prompt = (id: string, text: string, extra: Partial<QueuedPrompt> = {}): QueuedPrompt =>
   ({ id, text, attachments: [], ts: 1, held: false, ...extra });
 
-async function mount(queued: QueuedPrompt[], agentKind: AgentKind = "fake", midTurnMode: MidTurnMode = "queue") {
+async function mount(queued: QueuedPrompt[], agentKind: AgentKind = "fake", midTurnMode: MidTurnMode = "queue", over: Partial<Session> = {}) {
   const it0 = item("i9", "s1", { kind: "session", refId: "se1", title: "s" });
   const api = fakeApi({
-    sessions: [session("se1", "s1", { status: "running", agentKind })],
+    sessions: [session("se1", "s1", { status: "running", agentKind, ...over })],
     items: { s1: [it0] },
   });
   // Seeded on the FAKE, not in the store: the pane reads the queue once when it mounts, so store
@@ -490,5 +490,86 @@ describe("a message leaving the queue", () => {
       act(() => { store.getState().applySessionQueue("se1", [prompt("q2", "second")]); });
       expect(document.querySelector(".composer-queue-item[data-leaving]")).toBeNull();
     } finally { window.matchMedia = was; }
+  });
+});
+
+/**
+ * What a queued message runs on, where the session has moved off it since. The server keeps the
+ * options per message and puts them back as its turn goes out (`apps/server` queue suite); the row's
+ * job is to say so, and to say nothing on a row that runs on what the picker already shows.
+ */
+describe("what a queued message runs on", () => {
+  const now = { model: "claude-sonnet-5-5", effort: "medium", fastMode: false };
+  const queuedOn = (id: string, o: Partial<QueuedPrompt>) => prompt(id, id, { ...now, ...o });
+  const runs = () => rows().map((r) => r.querySelector(".queue-runs")?.textContent ?? null);
+
+  it("names only the part that differs from the session, and nothing on a row that matches", async () => {
+    // THE MUTANTS: a label on every row, or one naming the whole set where only the level moved.
+    await mount([
+      queuedOn("model", { model: "claude-opus-5-5" }),
+      queuedOn("effort", { effort: "high" }),
+      queuedOn("both", { model: "claude-opus-5-5", effort: "xhigh" }),
+      queuedOn("same", {}),
+    ], "claude", "queue", { ...now });
+    fireEvent.click(screen.getByRole("button", { name: /Show all/ }));
+    expect(runs()).toEqual(["Opus 5.5", "High effort", "Opus 5.5 · XHigh", null]);
+  });
+
+  /* The case the owner asked about: a turn running on Opus, the picker moved to Sonnet, a message
+   * queued. It was queued on what the picker says, and it still runs on something other than what is
+   * running now, so it is named. */
+  it("names a message queued after the picker moved, against the turn that is running", async () => {
+    // THE MUTANT: rows read against the picker alone, which leaves exactly this row blank.
+    const queued = [queuedOn("after", {}), queuedOn("before", { model: "claude-opus-5-5", effort: "high" })];
+    const { store } = await mount(queued, "claude", "queue", { ...now });
+    act(() => { store.getState().applySessionQueue("se1", queued, null, { model: "claude-opus-5-5", effort: "high", fastMode: false }); });
+    expect(runs()).toEqual(["Sonnet 5.5 · Medium", "Opus 5.5 · High"]);
+  });
+
+  it("leaves a row blank that matches both the picker and the running turn", async () => {
+    // THE MUTANT: a part named when it differs from the turn alone, ignoring that it matches both.
+    const queued = [queuedOn("same", {})];
+    const { store } = await mount(queued, "claude", "queue", { ...now });
+    act(() => { store.getState().applySessionQueue("se1", queued, null, { ...now }); });
+    expect(runs()).toEqual([null]);
+  });
+
+  it("keeps the running turn through a reorder shown before the server answers", async () => {
+    // THE MUTANT: a local reorder that forgets the turn, and blanks the row until the next broadcast.
+    const queued = [queuedOn("a", {}), queuedOn("b", {})];
+    const { store } = await mount(queued, "claude", "queue", { ...now });
+    act(() => { store.getState().applySessionQueue("se1", queued, null, { model: "claude-opus-5-5", effort: "medium", fastMode: false }); });
+    act(() => { store.getState().applySessionQueue("se1", [queued[1]!, queued[0]!]); });
+    expect(runs()).toEqual(["Sonnet 5.5", "Sonnet 5.5"]);
+    act(() => { store.getState().applySessionQueue("se1", []); });
+    expect("se1" in store.getState().queueTurns).toBe(false);
+  });
+
+  it("says the default rather than a blank where the message asked for none", async () => {
+    await mount([queuedOn("q1", { model: null, effort: null })], "claude", "queue", { ...now });
+    expect(runs()[0]).toMatch(/ · Default effort$/);
+  });
+
+  it("names fast mode when that is what moved", async () => {
+    await mount([queuedOn("on", { fastMode: true })], "claude", "queue", { ...now });
+    expect(runs()).toEqual(["Fast"]);
+  });
+
+  it("says nothing for a message from a server that kept no options", async () => {
+    // THE MUTANT: an absent field read as "the default", which would label every row.
+    await mount([prompt("q1", "first")], "claude", "queue", { ...now });
+    expect(document.querySelector(".queue-runs")).toBeNull();
+  });
+
+  it("keeps the label while the message is being edited, and the edit sends only the text", async () => {
+    // THE MUTANT: a field that replaces the row's lines, so the model it will run on goes missing
+    // exactly while the message is being changed.
+    const { api } = await mount([queuedOn("q1", { model: "claude-opus-5-5" })], "claude", "queue", { ...now });
+    fireEvent.click(rows()[0]!.querySelector(".queue-edit-btn")!);
+    await waitFor(() => expect(document.querySelector(".queue-edit")).not.toBeNull());
+    expect(runs()).toEqual(["Opus 5.5"]);
+    fireEvent.change(document.querySelector(".queue-edit")!, { target: { value: "q1, edited" } });
+    fireEvent.keyDown(document.querySelector(".queue-edit")!, { key: "Enter" });
+    await waitFor(() => expect(api.calls).toContain("editQueued:se1:q1=q1, edited"));
   });
 });

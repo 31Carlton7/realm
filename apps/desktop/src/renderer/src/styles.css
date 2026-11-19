@@ -846,7 +846,7 @@ input.sb-space-name { flex: 1; }
 .rail-divider { flex: none; width: 20px; height: 1px; margin-bottom: 2px; background: var(--line-strong); }
 .rail-space, .rail-new-space { flex: none; }
 .rail-space-tile { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-chip); corner-shape: squircle;
-  color: var(--rl-text-dim); background: color-mix(in srgb, currentColor 16%, transparent); }
+  color: var(--rl-text-dim); background: color-mix(in srgb, currentColor var(--space-tile-tint), transparent); }
 .rail-space[aria-pressed="true"]::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px;
   border-radius: 0 2px 2px 0; background: var(--rl-text-bright); }
 .rail-space[data-drag-over] { box-shadow: inset 0 2px 0 var(--rl-accent); }
@@ -5639,6 +5639,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-queue-item .queue-text-empty { font-style: italic; color: var(--rl-text-faint); }
 .composer-queue-item[data-held]:not([data-editing]) .queue-text { color: var(--rl-text-faint); }
 
+/* The model, level or fast mode the message runs on where the session has moved off them since it
+   was queued: the held line's rung in the message's own ink, one line, and the first thing in the row
+   to give way — it ends in an ellipsis rather than taking width from the words or the actions. */
+.composer-queue-item .queue-runs { display: flex; min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.composer-queue-item .queue-runs > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Says why Send now is off — the message is being written, not waiting — and, for the field open
    here, the two keys that close it. */
 .composer-queue-item .queue-held { display: flex; align-items: center; gap: 5px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
@@ -6877,6 +6883,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .plan-account,
 :root[data-squircle] .machine-route,
 :root[data-squircle] .sim-device,
+:root[data-squircle] .docs-card,
 :root[data-squircle] .market-card {
   border-radius: calc(var(--r-squircle-card) / 2);
   background: paint(rl-squircle);
@@ -6912,6 +6919,14 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .settings-link-row:hover { --sq-fill: var(--rl-card-hover); }
 :root[data-squircle] .library-tile:hover { --sq-fill: var(--rl-tile-hover); }
 :root[data-squircle] .library-tile:is([data-pressed], :active:focus-visible) { --sq-fill: var(--rl-tile-press); }
+/* The documents grid's card: its face painted, the sheen laid over it, and its edge and lift kept
+   (design.md, "A file's card on the documents grid"). The box-shadows follow the half-curve circle the
+   painted card keeps, as every card's lift does. */
+:root[data-squircle] .docs-card { --sq-fill: var(--doc-card-fill); background: var(--doc-card-sheen), paint(rl-squircle);
+  box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
+:root[data-squircle] .docs-card:hover { --sq-fill: var(--doc-card-fill-hover); box-shadow: var(--doc-card-edge), var(--doc-card-lift-hover); }
+:root[data-squircle] .docs-card:is([data-pressed], :active:focus-visible) { --sq-fill: var(--doc-card-fill-press); box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
+:root[data-squircle] .docs-card:focus-visible { outline: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px; }
 /* The marketplace's card is a well the page is cut into, not a card standing on it: the curve, with
    no lift. */
 :root[data-squircle] .market-card { --sq-fill: var(--rl-frame); box-shadow: none; }
@@ -8015,7 +8030,7 @@ select { appearance: none; padding-right: 22px;
 .env-field-head > .btn { display: inline-flex; align-items: center; gap: 4px; }
 /* One card a row here: a checkout's name is a branch of unbounded length and its path longer still,
    and half the column left both an ellipsis and a path broken over seven lines. */
-.env-field > .env-list { grid-template-columns: minmax(0, 1fr); }
+.env-field .env-list { grid-template-columns: minmax(0, 1fr); }
 /* What git says now: the branch in mono, then only the counts that are not zero. */
 .env-git { grid-column: 1; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
 .env-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
@@ -8708,6 +8723,67 @@ select { appearance: none; padding-right: 22px;
   .settings-tabs { overflow-x: auto; scrollbar-width: none; }
   .settings-tabs .settings-tab { flex: none; white-space: nowrap; }
 }
+/* ── A space's page: its head and its General tab ──────────────────────────────────────────────
+   The page is about one thing, so its head is that thing: the space's icon in its colour beside its
+   name at the title rung, and the section it shows on the line under, in the secondary ink.
+
+   General is the grouped card the Settings pages use, and its fields and buttons are the app's own
+   controls at a comfortable 36px: the search field's painted squircle (`.search-field`) and the
+   button's (`.btn`), both a proportion of their height, so they keep the Documents search field's and
+   its New button's shape at the larger size. Everything on the page thins with the pane, as those two
+   controls do (`--prompter-alpha`): the card's fill, the fields and the buttons are tints over the
+   pane rather than surfaces of their own, and nothing casts a shadow. */
+.space-page-head { align-items: center; gap: 14px; }
+/* The space's icon stands in its tile, as it does on the rail: the space's colour at the tile's tint,
+   on the control rung's curve at its own height, thinned with the pane like everything on the page.
+   The colour comes in as `--space-tint`, not `currentColor`: the painter's fill is a registered colour,
+   which keeps `currentcolor` as a keyword the worklet cannot read. */
+.space-page-icon { --tile-h: 36px; flex: none; display: grid; place-items: center; width: var(--tile-h); height: var(--tile-h);
+  border-radius: calc(var(--tile-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  --space-icon-fill: color-mix(in srgb, color-mix(in srgb, var(--space-tint) var(--space-head-tint), transparent) var(--prompter-alpha), transparent); background: var(--space-icon-fill); }
+:root[data-squircle] .space-page-icon { border-radius: 0; background: paint(rl-squircle); --sq-fill: var(--space-icon-fill);
+  --sq-radius-top: calc(var(--tile-h) * var(--sq-ratio-ctl)); --sq-radius-bottom: calc(var(--tile-h) * var(--sq-ratio-ctl)); --sq-n: var(--sq-n-ctl); }
+.space-page-section { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.space-general { display: flex; flex-direction: column; gap: 24px; }
+.space-general { --space-card: color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent);
+  --space-field: color-mix(in srgb, var(--field) var(--prompter-alpha), transparent); }
+.space-general .settings-row { min-height: 64px; padding: 14px 18px; background: var(--space-card); }
+:root[data-squircle] .space-general .settings-row { --sq-fill: var(--space-card); }
+/* A label column of one width, so the four controls start on one edge down the card. */
+.space-row > .settings-row-main { flex: 0 0 112px; }
+.space-general .search-field { --search-h: 36px; flex: 1; font-size: 14px; background: var(--space-field); }
+:root[data-squircle] .space-general .search-field { --sq-fill: var(--space-field); }
+.space-row-control { flex: 1; min-width: 0; display: flex; }
+.space-general .btn { --btn-h: 36px; padding: 0 14px; font-size: 14px;
+  --fill: color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent); }
+.space-general .btn:hover:not(:disabled) { --fill: color-mix(in srgb, var(--hover) var(--prompter-alpha), transparent); }
+.space-general .btn.danger { --fill: transparent; }
+.space-general .btn.danger:hover:not(:disabled) { --fill: color-mix(in srgb, var(--hover) var(--prompter-alpha), transparent); }
+/* IconPicker's trigger is one of the page's buttons here (`buttonClass`); a file over it rings it. */
+.space-general .icon-picker-trigger:not([data-dropping]) { color: var(--rl-text-bright); }
+:root[data-squircle] .space-general .icon-picker-trigger[data-dropping] { --sq-ring: var(--rl-accent); --sq-ring-w: 1.5px; }
+.space-general .swatches { flex: 1; gap: 10px; }
+.space-general .swatch { width: 28px; height: 28px; }
+/* The selected colour is ringed a step off the swatch, so the ring reads on any hue and the gap is the
+   card itself rather than a fill of ours. */
+.space-general .swatch[data-selected] { border-color: transparent; outline: 2px solid var(--rl-text-bright); outline-offset: 2px; }
+.space-general .hex { flex: none; width: 116px; font: 13px var(--font-mono); }
+.space-general .hex { letter-spacing: normal; }
+/* The profile's select lies clear over the field's painted shape, its chevron drawn by the field. */
+.space-general .space-select { position: relative; display: flex; align-items: center; padding: 0; }
+/* Its own corner, the field's, so the app's focus ring follows the field rather than a square. */
+.space-select > select { flex: 1; min-width: 0; height: 100%; padding: 0 36px 0 12px; border: none; border-radius: calc(var(--search-h) * var(--sq-ratio-ctl));
+  background: none; color: inherit; font: inherit; appearance: none; outline: none; }
+.space-select > svg { position: absolute; right: 12px; color: var(--rl-text-faint); pointer-events: none; }
+.space-general .danger-zone { margin: 0; justify-content: flex-start; }
+.space-general .danger-zone > .settings-row-main { flex: 1; }
+/* Under Glass the page's controls take the shared bead, as a selected segment does — the fill only:
+   a painted control's border box is square, so the rim's inset shadow would draw a square edge. */
+:root[data-glass] .space-general :is(.search-field, .btn:not(.danger)) { --space-field: var(--glass-bead); --fill: var(--glass-bead); }
+/* Narrow, a row's label goes over its control, which keeps the whole width. */
+@container (max-width: 440px) { .space-row > .settings-row-main { flex-basis: 100%; } }
+/* The checkouts on the same page: the same tint for each card. */
+.space-page-pane .env-row { background: color-mix(in srgb, var(--rl-card) var(--prompter-alpha), transparent); }
 .page-lede { margin: 0; font-size: 14px; line-height: 1.55; color: var(--rl-text-dim); }
 .page-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .page-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left;
@@ -10023,6 +10099,80 @@ span.documents-name:hover { background: none; }
 .docs-home-attach[aria-pressed="true"] { color: var(--rl-accent); }
 .docs-home-note { margin: 0; padding: 2px 8px 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 .docs-home-more { margin: 2px 0 0 4px; }
+/* The home's view: rows or cards, beside the search. Icon-only segments, as the Library's are. */
+.docs-home-view { flex: none; }
+/* A side pane is about 320px, where the search, the view, New and the folder on one line left the
+   search a letter wide. There the search takes the head's first line and the controls the next,
+   the view at its start and New and the folder at its end. */
+.docs-home { container: docs-home / inline-size; }
+@container docs-home (max-width: 400px) {
+  .docs-home-head { flex-wrap: wrap; row-gap: 8px; }
+  .docs-home-search { flex-basis: 100%; }
+  .docs-home-view { margin-right: auto; }
+}
+.docs-home-view .seg-opt { display: grid; place-items: center; width: 30px; height: 26px; padding: 0; }
+/* The grid: equal columns that reflow 12px apart, from two in a side pane to as many as a wide one
+   holds. Every card is one height — the preview's ratio and a name held to two lines — so a row of
+   them lines up whatever the names are. `CARD_MIN` and `CARD_GAP` in DocumentsHome.tsx are these
+   two numbers, for the fold. */
+.docs-cards { flex: none; list-style: none; margin: 0; padding: 2px 0 4px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
+/* A card off screen is not laid out, and one whose preview arrives lays out only itself: the scroller's
+   edge reads its height on every scroll event, and while previews were landing each read laid out the
+   whole grid again (measured: 800ms over one scroll of 135 cards at 634px, p95 42ms a frame). */
+.docs-card-cell { position: relative; display: flex; min-width: 0; content-visibility: auto; contain-intrinsic-size: auto 182px; }
+/* The card: Stow's light glass card, translated (tokens.css, --doc-card-*). The pointer lifts it a
+   point and deepens its shadow; a press sets it back down a rung deeper, a fill rather than a size,
+   as every press in Realm is. The face changes at once; the lift and the shadow move. */
+.docs-card {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: var(--doc-card-inset) var(--doc-card-inset) 10px;
+  border: none; text-align: left; font: inherit; color: var(--rl-text-bright);
+  border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--doc-card-sheen), var(--doc-card-fill); box-shadow: var(--doc-card-edge), var(--doc-card-lift);
+  transition: translate var(--dur-move) var(--spring-smooth), box-shadow var(--dur-hover) ease;
+}
+.docs-card:hover { background: var(--doc-card-sheen), var(--doc-card-fill-hover); translate: 0 -1px; box-shadow: var(--doc-card-edge), var(--doc-card-lift-hover); }
+.docs-card:is([data-pressed], :active:focus-visible) { background: var(--doc-card-sheen), var(--doc-card-fill-press); translate: none; box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
+.docs-card:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
+/* The preview: the card's corner less the inset, so the two curves are concentric. A picture fills
+   it cut to cover and anchored to its top, where a page names itself; it wears the picture outline. */
+.docs-card-preview {
+  position: relative; flex: none; display: grid; place-items: center; aspect-ratio: 4 / 3; overflow: hidden; contain: strict;
+  border-radius: calc(var(--r-squircle-card) - var(--doc-card-inset)); corner-shape: squircle;
+  background: var(--stripe); color: var(--rl-text-dim);
+}
+.docs-card-preview > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.docs-card-preview[data-shows="picture"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; corner-shape: squircle;
+  box-shadow: inset 0 0 0 var(--hairline-w) var(--picture-outline); pointer-events: none; }
+.docs-card-preview[data-type="document"], .docs-card-preview[data-type="video"], .docs-card-preview[data-type="audio"] { color: var(--rl-accent); }
+.docs-card-preview[data-type="image"] { color: var(--rl-success); }
+.docs-card-preview[data-type="data"] { color: var(--orange); }
+.docs-card-preview[data-type="code"] { color: var(--rl-text-bright); }
+/* The top of the file as it reads, drawn small: a page seen from across the desk, not text to read
+   here, so it is zoomed out as a whole rather than set in a size off the ladder. */
+.docs-card-page {
+  position: absolute; inset: 0; overflow: hidden; padding: 12px 14px; zoom: 0.5; color: var(--rl-text-bright);
+  font-size: 13px; line-height: 18px; pointer-events: none; user-select: none;
+}
+.docs-card-page.md > :first-child { margin-top: 0; }
+.docs-card-source { white-space: pre; font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-dim); }
+.docs-card-source { letter-spacing: normal; }
+.docs-card-name {
+  flex: none; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+  min-height: calc(2 * 18px); padding: 0 4px; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium);
+}
+.docs-card-name mark { background: transparent; color: inherit; font-weight: var(--fw-strong); }
+.docs-card-line { flex: none; display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.docs-card-detail { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docs-card-time { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
+/* The card's "add to the next message" sits over the preview's corner, shown on the pointer or the
+   keyboard as the row's is, on the preview's own ground so it reads over a picture. */
+.docs-card-cell > .docs-home-attach { top: calc(var(--doc-card-inset) + 4px); right: calc(var(--doc-card-inset) + 4px); translate: none;
+  background: color-mix(in srgb, var(--surface) 86%, transparent); }
+.docs-card-cell:is(:hover, :focus-within) > .docs-home-attach { opacity: 1; transition-duration: 0s; }
+@media (prefers-reduced-motion: reduce) {
+  .docs-card:hover { translate: none; }
+}
 .new-doc-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
 /* "Code file…": a name, the languages that set its extension, and what the name will open as. */
 .code-file-prompt { width: 300px; max-width: calc(100vw - 24px); padding: 6px; }

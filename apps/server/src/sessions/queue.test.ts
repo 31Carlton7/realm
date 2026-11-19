@@ -492,3 +492,232 @@ describe("reordering the queue", () => {
     expect(c.queues(session.id).at(-1)!.map((q: Any) => [q.text, q.held])).toEqual([["first", true]]);
   });
 });
+
+/**
+ * A queued message runs on what the session was set to when it was queued, not on whatever the
+ * picker says by the time its turn comes. The engine is watched rather than the row, because the
+ * row is what the picker writes too: what matters is that the options reach the engine before the
+ * message does.
+ */
+describe("what a queued message runs on", () => {
+  /** The fake, with every option change and every message its engines are handed, in order. */
+  const watched = () => {
+    const fake = holdsEveryTurn();
+    const seen: string[] = [];
+    const start = fake.start.bind(fake);
+    fake.start = (opts) => {
+      const h = start(opts);
+      return { ...h,
+        setOptions: async (o) => { seen.push(`options ${JSON.stringify(o)}`); await h.setOptions(o); },
+        send: async (m) => { seen.push(`send ${m.text}`); await h.send(m); } };
+    };
+    return { fake, seen };
+  };
+  const queued = async (c: Awaited<ReturnType<typeof client>>, id: string) =>
+    (await c.call("sessions.queued", { id })).result.queued as { id: string; text: string; model?: string | null; effort?: string | null; fastMode?: boolean }[];
+
+  it("keeps the model, level and fast mode each message was queued with", async () => {
+    // THE MUTANT: an enqueue that keeps only the text and the files.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large", effort: "high", fastMode: true });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+
+    expect((await queued(c, session.id)).map(({ text, model, effort, fastMode }) => ({ text, model, effort, fastMode }))).toEqual([
+      { text: "first", model: null, effort: null, fastMode: false },
+      { text: "second", model: "fake-large", effort: "high", fastMode: true },
+    ]);
+  });
+
+  it("puts them back on the session before the turn goes out, after the picker moved", async () => {
+    // THE MUTANT: a drain that sends on whatever the session is set to now.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large", effort: "high" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small", effort: "low" });
+    seen.length = 0;
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => seen.includes("send first"));
+
+    expect(seen).toEqual([`options ${JSON.stringify({ model: "fake-large", effort: "high" })}`, "send first"]);
+    const row = (await c.call("sessions.get", { id: session.id })).result;
+    expect([row.model, row.effort]).toEqual(["fake-large", "high"]);
+  });
+
+  it("tells the windows, whose picker would otherwise name the model it moved off", async () => {
+    // THE MUTANT: the options put back without a broadcast, so the chip says Sonnet over an Opus turn.
+    const { c, sp, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small" });
+    const changes = () => c.events.filter((e) => e.event === "items.changed" && e.payload.spaceId === sp.id).length;
+    const before = changes();
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.userMessages(session.id).includes("first"));
+    expect(changes()).toBeGreaterThan(before);
+  });
+
+  it("changes nothing for a message queued on what the session is still set to", async () => {
+    // THE MUTANT: a drain that writes the options whether or not they moved.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    seen.length = 0;
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => seen.includes("send first"));
+    expect(seen).toEqual(["send first"]);
+  });
+
+  it("sends a message released early on what it was queued with too", async () => {
+    // THE MUTANT: a Send now that skips the queued options, since it goes out through the steer.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, effort: "high" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, effort: "low" });
+    const [a] = await queued(c, session.id);
+    seen.length = 0;
+
+    await c.call("sessions.releaseQueued", { id: session.id, queuedId: a!.id });
+    await waitFor(() => seen.includes("send first"));
+    expect(seen).toContain(`options ${JSON.stringify({ effort: "high" })}`);
+    expect(seen.indexOf(`options ${JSON.stringify({ effort: "high" })}`)).toBeLessThan(seen.indexOf("send first"));
+  });
+
+  it("keeps them through an edit", async () => {
+    // THE MUTANT: an edit that rebuilds the queued message from its text.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small" });
+    const [a] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+    await c.call("sessions.editQueued", { id: session.id, queuedId: a!.id, text: "first, edited" });
+
+    expect((await queued(c, session.id))[0]!.model).toBe("fake-large");
+    seen.length = 0;
+    await releaseTurn(c, session.id);
+    await waitFor(() => seen.includes("send first, edited"));
+    expect(seen[0]).toBe(`options ${JSON.stringify({ model: "fake-large" })}`);
+  });
+
+  /** Wait for the `n`th permission card, which is the drained message's turn parked on its own. */
+  const cards = (c: Awaited<ReturnType<typeof client>>, id: string) => c.eventTypes(id).filter((t) => t === "permission_request").length;
+  const row = async (c: Awaited<ReturnType<typeof client>>, id: string) => {
+    const s = (await c.call("sessions.get", { id })).result;
+    return { model: s.model, effort: s.effort, fastMode: s.fastMode };
+  };
+
+  it("says what the running turn went out on, beside the queue", async () => {
+    // THE MUTANT: a queue read with no turn, which leaves a row queued after the picker moved blank.
+    const { c, session } = await boot();
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+
+    expect((await c.call("sessions.queued", { id: session.id })).result.turn).toEqual({ model: "fake-large", effort: null, fastMode: false });
+    const pushed = c.events.filter((e) => e.event === "session.queue" && e.payload.sessionId === session.id).at(-1);
+    expect(pushed.payload.turn.model).toBe("fake-large");
+  });
+
+  it("puts the picker back once the queued message's turn ends", async () => {
+    // THE MUTANT: a session left on the queued message's model, so the next typed message goes there.
+    const { c, sp, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small", effort: "low" });
+    await releaseTurn(c, session.id);
+    await waitFor(() => cards(c, session.id) === 2);
+    expect(await row(c, session.id)).toEqual({ model: "fake-large", effort: null, fastMode: false });
+    const changes = () => c.events.filter((e) => e.event === "items.changed" && e.payload.spaceId === sp.id).length;
+    const before = changes();
+
+    await releaseTurn(c, session.id);
+    await waitFor(async () => (await row(c, session.id)).model === "fake-small");
+    expect(await row(c, session.id)).toEqual({ model: "fake-small", effort: "low", fastMode: false });
+    expect(changes()).toBeGreaterThan(before);
+  });
+
+  it("leaves a picker moved during that turn where it was moved", async () => {
+    // THE MUTANT: a put-back that does not look first, undoing a choice made while the turn ran.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small" });
+    await releaseTurn(c, session.id);
+    await waitFor(() => cards(c, session.id) === 2);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-medium" });
+
+    await releaseTurn(c, session.id);
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    await new Promise((r) => setTimeout(r, 100));
+    expect((await row(c, session.id)).model).toBe("fake-medium");
+  });
+
+  it("puts the picker back before the next queued message, which still runs on its own", async () => {
+    // THE MUTANT: a put-back after the drain, so the second message's options are undone under it.
+    const { fake, seen } = watched();
+    const { c, session } = await boot(fake);
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small", effort: "high" });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+    await c.call("sessions.setOptions", { id: session.id, effort: "low" });
+    await releaseTurn(c, session.id);
+    await waitFor(() => cards(c, session.id) === 2);
+    seen.length = 0;
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => seen.includes("send second"));
+    expect(seen).toEqual([
+      `options ${JSON.stringify({ model: "fake-small", effort: "low" })}`,
+      `options ${JSON.stringify({ effort: "high" })}`,
+      "send second",
+    ]);
+  });
+
+  it("puts the picker back when the person stops the queued message's turn", async () => {
+    // THE MUTANT: a put-back only on a turn that ended on its own.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small" });
+    await releaseTurn(c, session.id);
+    await waitFor(() => cards(c, session.id) === 2);
+
+    await c.call("sessions.interrupt", { id: session.id });
+    await waitFor(async () => (await row(c, session.id)).model === "fake-small");
+  });
+
+  it("puts the picker back after a message sent early", async () => {
+    // THE MUTANT: a Send now whose options outlive its turn, since it went out through the steer.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-large" });
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.setOptions", { id: session.id, model: "fake-small" });
+    const [a] = await queued(c, session.id);
+    await c.call("sessions.releaseQueued", { id: session.id, queuedId: a!.id });
+    await waitFor(() => cards(c, session.id) === 2);
+    expect((await row(c, session.id)).model).toBe("fake-large");
+
+    await releaseTurn(c, session.id);
+    await waitFor(async () => (await row(c, session.id)).model === "fake-small");
+  });
+});

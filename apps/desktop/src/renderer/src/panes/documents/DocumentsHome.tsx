@@ -1,8 +1,11 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { chordsForCommand, displayKeyChord, type DocumentKind, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { FileMark } from "../../components/file-icon";
+import { breakableName, useSeen } from "../../components/FileCard";
+import { useThumbnail } from "../../components/use-thumbnail";
+import { tileToward } from "../../components/walk-grid";
 import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
 import { fileMenuItems, isMenuKey, removeOnDelete } from "../../components/file-menu";
 import { Menu } from "../../components/Menu";
@@ -12,6 +15,7 @@ import { SEARCH_DEBOUNCE_MS, relTime } from "../../components/CommandPalette";
 import { CodeFilePrompt, NEW_KINDS, NewMenu } from "./NewMenu";
 import { canReveal, revealPath, showInLabel } from "./shown-file";
 import { capabilities } from "../../platform";
+import { previewSourceOf, useCardPreview } from "./card-preview";
 import {
   checkoutFileOf, folderName, homeFilesOf, identityOf, libraryDetail, matchRun, paneTabOf, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
 } from "./home-model";
@@ -19,6 +23,10 @@ import {
 /** Rows a section shows before folding the rest: enough to read the shape of a session's work in a
  *  side pane at a glance, few enough that the Library under it is still on the first screen. */
 const SECTION_ROWS = 8;
+/** The card's narrowest column and the gap between columns, as the stylesheet lays the grid out
+ *  (`.docs-cards`): what a folded section reads its column count from. */
+const CARD_MIN = 132;
+const CARD_GAP = 12;
 /** One page of the index for each list. The session's own is every file it has touched, near enough;
  *  the Library's is the newest of the profile's, and its page is where the rest are browsed. */
 const SESSION_LIMIT = 100;
@@ -75,6 +83,11 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   const openViewer = useApp((s) => s.openViewer);
   const keybindings = useApp((s) => s.keybindings);
   const run = useApp((s) => s.run);
+  const view = useApp((s) => s.documentsView);
+  const setDocumentsView = useApp((s) => s.setDocumentsView);
+  const grid = view === "grid";
+  // Its own group in each pane: two documents panes side by side must not share one set of radios.
+  const viewGroup = useId();
 
   const [query, setQuery] = useState("");
   const [lists, setLists] = useState<Lists | null>(null);
@@ -84,6 +97,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   const scroller = useRef<HTMLDivElement>(null);
   const codeButton = useRef<HTMLButtonElement>(null);
   useDissolve(scroller);
+  const columns = useColumns(scroller, grid);
   /* Every fetch carries the generation it was started under, so an answer for a query already retyped
      can never land on top of the answer for the one on screen. */
   const generation = useRef(0);
@@ -163,11 +177,22 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   const nothing = sections !== null && !searching && (sections.session ?? []).length === 0 && sections.library.length === 0;
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
-    const rows = [...(scroller.current?.querySelectorAll<HTMLButtonElement>(".docs-home-open") ?? [])];
+    const rows = [...(scroller.current?.querySelectorAll<HTMLButtonElement>(".docs-home-open, .docs-card") ?? [])];
     const at = rows.indexOf(document.activeElement as HTMLButtonElement);
     const inSearch = e.target === search.current;
     if (inSearch && e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); rows[0]?.click(); return; }
     if (inSearch && e.key === "Escape" && query) { e.preventDefault(); setQuery(""); return; }
+    if (grid && at >= 0 && !e.metaKey && !e.altKey && !e.ctrlKey && e.key.startsWith("Arrow")) {
+      // Cards walk the grid as the Library's do; up off the first row is the search, as it is from the
+      // first row of the list.
+      const to = tileToward(e.key, rows[at]!, rows);
+      if (!to && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      if (!to) { search.current?.focus(); return; }
+      to.focus();
+      to.scrollIntoView({ block: "nearest" });
+      return;
+    }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     if (inSearch) { if (e.key === "ArrowDown" && rows[0]) { e.preventDefault(); rows[0].focus(); } return; }
     if (at < 0) return;
@@ -183,13 +208,13 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   useEffect(() => {
     const key = focusNext.current;
     if (key === null || !scroller.current) return;
-    const row = scroller.current.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"] > .docs-home-open`);
+    const row = scroller.current.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"] > :is(.docs-home-open, .docs-card)`);
     if (!row) return;
     focusNext.current = null;
     row.focus();
   }, [sections]);
   const remove = (f: HomeFile) => (f.from?.kind === "added" && f.abs && profileId ? () => run(async () => {
-    const rows = [...(scroller.current?.querySelectorAll<HTMLElement>(".docs-home-row[data-key]") ?? [])];
+    const rows = [...(scroller.current?.querySelectorAll<HTMLElement>(":is(.docs-home-row, .docs-card-cell)[data-key]") ?? [])];
     const at = rows.findIndex((r) => r.dataset["key"] === f.key);
     const held = at >= 0 && rows[at]!.contains(document.activeElement);
     const next = rows[at + 1] ?? rows[at - 1];
@@ -198,18 +223,35 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   }) : null);
 
   const toggle = (id: string) => setExpanded((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const rowsOf = (id: string, files: HomeFile[]) => (
-    <ul className="docs-home-rows">
-      {(expanded.has(id) ? files : files.slice(0, SECTION_ROWS)).map((f) => (
-        <HomeRow key={f.key} file={f} query={lists?.forQuery ?? ""} onOpen={() => open(f)} attach={attach(f)} onRemove={remove(f)} />
-      ))}
-      {files.length > SECTION_ROWS && (
-        <li><button type="button" className="btn-quiet docs-home-more" onClick={() => toggle(id)}>
-          {expanded.has(id) ? "Show fewer" : `Show all ${files.length}`}
-        </button></li>
-      )}
-    </ul>
+  /* Folded, a grid keeps whole rows: as many cards as fill the rows the list's eight would, so a
+     section never ends on one card alone (design.md, "A picture ends where its subject does"). */
+  const folded = grid ? columns * Math.ceil(SECTION_ROWS / columns) : SECTION_ROWS;
+  const more = (id: string, files: HomeFile[]) => files.length > folded && (
+    <button type="button" className="btn-quiet docs-home-more" onClick={() => toggle(id)}>
+      {expanded.has(id) ? "Show fewer" : `Show all ${files.length}`}
+    </button>
   );
+  const rowsOf = (id: string, files: HomeFile[]) => {
+    const shown = expanded.has(id) ? files : files.slice(0, folded);
+    const query = lists?.forQuery ?? "";
+    return grid ? (
+      <>
+        <ul className="docs-cards">
+          {shown.map((f) => (
+            <HomeCard key={f.key} file={f} query={query} onOpen={() => open(f)} attach={attach(f)} onRemove={remove(f)} />
+          ))}
+        </ul>
+        {more(id, files)}
+      </>
+    ) : (
+      <ul className="docs-home-rows">
+        {shown.map((f) => (
+          <HomeRow key={f.key} file={f} query={query} onOpen={() => open(f)} attach={attach(f)} onRemove={remove(f)} />
+        ))}
+        {files.length > folded && <li>{more(id, files)}</li>}
+      </ul>
+    );
+  };
 
   return (
     <div className="docs-home" onKeyDown={onKeyDown}>
@@ -220,6 +262,16 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
             value={query} onChange={(e) => setQuery(e.target.value)} spellCheck={false} />
           {chord && !query && <kbd className="menu-kbd docs-home-kbd">{displayKeyChord(chord)}</kbd>}
         </label>
+        <fieldset className="seg docs-home-view">
+          <legend className="visually-hidden">Show files as</legend>
+          {(["list", "grid"] as const).map((v) => (
+            <label key={v} className="seg-opt" data-selected={view === v || undefined} title={v === "grid" ? "Grid" : "List"}>
+              <input type="radio" name={viewGroup} value={v} checked={view === v}
+                onChange={() => run(() => setDocumentsView(v))} aria-label={v === "grid" ? "Grid" : "List"} />
+              <Icon name={v} size={14} />
+            </label>
+          ))}
+        </fieldset>
         <NewMenu variant="home" folder={root ? folderName(root) : null}
           onNewKind={onNewKind} onNewFile={onNewFile} onOpenExisting={onBrowse} taken={taken} />
         {/* With no file open, the thing to show is the folder the pane writes into. */}
@@ -307,6 +359,59 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
   );
 }
 
+type FileProps = {
+  file: HomeFile;
+  query: string;
+  onOpen: () => void;
+  attach: { on: boolean; toggle: () => void } | null;
+  /** Takes it out of the Library: a file the person added, and only that. */
+  onRemove: (() => void) | null;
+};
+
+/**
+ * What a row and a card share, so the two views of one file can never disagree: the tooltip, the
+ * right-click and its keys, Space for Quick Look, Delete for a file the person added, the drag out,
+ * and the control that puts it in the next message.
+ */
+function useFileControls({ file, onOpen, attach, onRemove }: FileProps) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const abs = file.abs;
+  const where = file.rel ?? (file.abs ? tildePath(file.abs) : file.path);
+  const from = !file.from ? null : file.from.kind === "added" ? "Added by you"
+    : `${file.from.kind === "upload" ? "Attached to" : "Made in"} ${file.from.sessionTitle ?? "a session"}`;
+  return {
+    item: {
+      "data-key": file.key,
+      onContextMenu: abs ? (e: ReactMouseEvent) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); } : undefined,
+    },
+    button: {
+      title: [where, from].filter(Boolean).join("\n"), onClick: onOpen,
+      ...(abs ? {
+        onKeyDown: (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+          if (isMenuKey(e)) { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4 }); return; }
+          if (!removeOnDelete(onRemove)(e)) quickLookOnSpace(abs)(e);
+        },
+        ...fileDragProps(abs),
+      } : {}),
+    },
+    extras: (
+      <>
+        {attach && (
+          // The name holds still and the state is `aria-pressed`: added, it reads "…, pressed".
+          <button type="button" className="icon-btn docs-home-attach" aria-pressed={attach.on} aria-label={`Add ${file.name} to the next message`}
+            title={attach.on ? "In the next message — click to take it out" : "Add to the next message"} onClick={attach.toggle}>
+            <Icon name={attach.on ? "check" : "attach"} size={14} />
+          </button>
+        )}
+        {menu && abs && (
+          <Menu at={menu} label={file.name} onClose={() => setMenu(null)}
+            items={fileMenuItems({ path: abs, onOpen, shareFrom: () => menu, ...(onRemove ? { onRemove } : {}) })} />
+        )}
+      </>
+    ),
+  };
+}
+
 /**
  * One file: its kind's glyph, its name, the one thing its list knows (the folder it is in, that it
  * was attached, the session it came from), and when it was last touched. A row is a file the way a
@@ -314,48 +419,80 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
  * same one its Library tile has — and beside it, the one thing only this pane can do with it: put it in
  * the next message to the session.
  */
-function HomeRow({ file, query, onOpen, attach, onRemove }: {
-  file: HomeFile;
-  query: string;
-  onOpen: () => void;
-  attach: { on: boolean; toggle: () => void } | null;
-  /** Takes it out of the Library: a file the person added, and only that. */
-  onRemove: (() => void) | null;
-}) {
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const abs = file.abs;
+function HomeRow(props: FileProps) {
+  const { file, query } = props;
+  const controls = useFileControls(props);
   const hit = matchRun(file.name, query);
-  const where = file.rel ?? (file.abs ? tildePath(file.abs) : file.path);
-  const from = !file.from ? null : file.from.kind === "added" ? "Added by you"
-    : `${file.from.kind === "upload" ? "Attached to" : "Made in"} ${file.from.sessionTitle ?? "a session"}`;
   return (
-    <li className="docs-home-row" data-key={file.key}
-      onContextMenu={abs ? (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); } : undefined}>
-      <button type="button" className="docs-home-open" title={[where, from].filter(Boolean).join("\n")} onClick={onOpen}
-        {...(abs ? {
-          onKeyDown: (e: ReactKeyboardEvent<HTMLButtonElement>) => {
-            if (isMenuKey(e)) { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4 }); return; }
-            if (!removeOnDelete(onRemove)(e)) quickLookOnSpace(abs)(e);
-          },
-          ...fileDragProps(abs),
-        } : {})}>
+    <li className="docs-home-row" {...controls.item}>
+      <button type="button" className="docs-home-open" {...controls.button}>
         <span className="docs-home-glyph" data-type={file.type}><FileMark path={file.name} type={file.type} size={16} /></span>
         <span className="docs-home-name">{hit ? <>{hit.before}<mark>{hit.match}</mark>{hit.after}</> : file.name}</span>
         {file.detail && <span className="docs-home-detail">{file.detail}</span>}
         {/* Drawn with or without a time, so every row keeps the column the control comes up in. */}
         <span className="docs-home-time">{file.ts !== null ? relTime(file.ts) : ""}</span>
       </button>
-      {attach && (
-        // The name holds still and the state is `aria-pressed`: added, it reads "…, pressed".
-        <button type="button" className="icon-btn docs-home-attach" aria-pressed={attach.on} aria-label={`Add ${file.name} to the next message`}
-          title={attach.on ? "In the next message — click to take it out" : "Add to the next message"} onClick={attach.toggle}>
-          <Icon name={attach.on ? "check" : "attach"} size={14} />
-        </button>
-      )}
-      {menu && abs && (
-        <Menu at={menu} label={file.name} onClose={() => setMenu(null)}
-          items={fileMenuItems({ path: abs, onOpen, shareFrom: () => menu, ...(onRemove ? { onRemove } : {}) })} />
-      )}
+      {controls.extras}
     </li>
   );
+}
+
+/**
+ * The same file as a card, for the grid: a preview of it on top — the picture, a PDF's first page,
+ * the top of its text — then its name on up to two lines and the row's quiet line under it. It opens,
+ * drags, takes Space and Delete and offers its menu exactly as its row does (`useFileControls`).
+ *
+ * A preview is asked for only once the card has come near the screen (`useSeen`), and a file the home
+ * cannot draw cheaply keeps its mark, drawn large.
+ */
+function HomeCard(props: FileProps) {
+  const { file, query } = props;
+  const controls = useFileControls(props);
+  // The cell is what is watched: a card off screen is not laid out (`content-visibility`), so the
+  // button inside it never reports coming into view, where the cell's own box does.
+  const cell = useRef<HTMLLIElement>(null);
+  const source = file.abs ? previewSourceOf(file.name, file.type) : null;
+  const seen = useSeen(cell, source !== null);
+  const thumb = useThumbnail(source === "thumbnail" ? file.abs : null, "card", seen);
+  const read = useCardPreview(file.abs, source, seen, file.ts);
+  const picture = thumb ?? (read?.kind === "picture" ? read.url : null);
+  const hit = matchRun(file.name, query);
+  return (
+    <li ref={cell} className="docs-card-cell" {...controls.item}>
+      <button type="button" className="docs-card" {...controls.button}>
+        <span className="docs-card-preview" data-type={file.type}
+          data-shows={picture ? "picture" : read?.kind === "markdown" || read?.kind === "text" ? read.kind : "mark"}>
+          {picture ? <img src={picture} alt="" decoding="async" draggable={false} />
+            : read?.kind === "markdown" ? <span className="docs-card-page md" dangerouslySetInnerHTML={{ __html: read.html }} />
+            : read?.kind === "text" ? <span className="docs-card-page docs-card-source">{read.text}</span>
+            : <FileMark path={file.name} type={file.type} size={32} />}
+        </span>
+        <span className="docs-card-name">{hit ? <>{hit.before}<mark>{hit.match}</mark>{hit.after}</> : breakableName(file.name)}</span>
+        <span className="docs-card-line">
+          {file.detail && <span className="docs-card-detail">{file.detail}</span>}
+          {file.ts !== null && <span className="docs-card-time">{relTime(file.ts)}</span>}
+        </span>
+      </button>
+      {controls.extras}
+    </li>
+  );
+}
+
+/** How many columns the grid lays out at the scroller's width, kept as the pane is resized. */
+function useColumns(scroller: RefObject<HTMLElement | null>, on: boolean): number {
+  const [columns, setColumns] = useState(1);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!on || !el) return;
+    const measure = () => {
+      const style = getComputedStyle(el);
+      const width = el.clientWidth - parseFloat(style.paddingLeft || "0") - parseFloat(style.paddingRight || "0");
+      setColumns(Math.max(1, Math.floor((width + CARD_GAP) / (CARD_MIN + CARD_GAP))));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scroller, on]);
+  return columns;
 }

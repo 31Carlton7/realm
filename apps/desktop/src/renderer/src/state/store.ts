@@ -15,6 +15,7 @@ import type { PickedElement } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
+import { parseSpaceScreens, sameScreen, screensSettingKey, type SpaceScreen, type SpaceScreens } from "./space-screens";
 import {
   allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findPanel, itemIdOfLeaf, openItem as layoutOpen, sideTabsOf, tabOwner, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
@@ -27,7 +28,7 @@ import {
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
-  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
+  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type QueueTurn, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -439,7 +440,7 @@ export type Api = TeammatesApi & {
   /** `sessions.moveQueued` — put a queued message in front of `before`, or last when it is null. */
   moveQueuedPrompt(id: string, queuedId: string, before: string | null): Promise<void>;
   /** `sessions.queued` — the messages waiting behind the turn, and any move waiting or under way. */
-  sessionQueue(id: string): Promise<{ queued: QueuedPrompt[]; move: PendingMove | null }>;
+  sessionQueue(id: string): Promise<{ queued: QueuedPrompt[]; move: PendingMove | null; turn?: QueueTurn | null }>;
   /** `limits.get` — every provider's plan quota as last reported. */
   planLimits(): Promise<PlanLimits[]>;
   recordFeedback(id: string, messageId: string, rating: Rating | null): Promise<void>;
@@ -961,6 +962,9 @@ const SIGN_IN_ORDER: Record<AgentSignIn["state"], number> = { starting: 0, brows
 /** How the Library lays its files out. Its own key, not the session browser's: the Library opens on
  *  tiles, as Codex's does, and a person who reads a folder as rows has not said anything about it. */
 export const SETTING_LIBRARY_VIEW = "ui.libraryView";
+/** How the documents pane's home lays its files out. Its own key again: a pane that is often a narrow
+ *  column beside a session is read as rows until the person asks for the previews. */
+export const SETTING_DOCUMENTS_VIEW = "ui.documentsView";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
  *  ever read together — a position with no conversation to put in it is nothing. Named in
  *  `@realm/view`, because the server reads the session id from it to leave the quick chat out of
@@ -1179,6 +1183,8 @@ export type AppState = TeammatesSlice & {
   filesView: FilesView;
   /** The Library's grid or rows (`SETTING_LIBRARY_VIEW`); tiles unless the person chose rows. */
   libraryView: FilesView;
+  /** The documents home's rows or cards (`SETTING_DOCUMENTS_VIEW`); rows unless the person chose cards. */
+  documentsView: FilesView;
   /** Bumped each time this window adds files to the Library, takes them out, or puts them back. A list
    *  of the Library's files already on screen — the page's own, the documents pane's home under it —
    *  asks again when it moves. */
@@ -1369,6 +1375,9 @@ export type AppState = TeammatesSlice & {
   /** Messages waiting for a session's current turn to end, oldest first, from `session.queue`. The
    *  key is dropped when a queue empties, so a session with nothing waiting holds nothing here. */
   sessionQueues: Record<string, QueuedPrompt[]>;
+  /** What each session's running turn went out on, beside its queue (`session.queue`'s `turn`): held
+   *  only while something is waiting, since only a queued row reads it. */
+  queueTurns: Record<string, QueueTurn>;
   /** Where a move asked for with "Move after this turn" goes, while it waits for the turn to end:
    *  the server's queue `move` with no step yet, from `session.queue` and `sessions.queued`. The
    *  prompter's queue says so and can call it off. Dropped once the move starts, ends or is cancelled. */
@@ -1983,6 +1992,8 @@ export type AppState = TeammatesSlice & {
   setFilesView(view: FilesView): Promise<void>;
   /** Lay the Library's files out as `view`, and remember it (`SETTING_LIBRARY_VIEW`). */
   setLibraryView(view: FilesView): Promise<void>;
+  /** Lay the documents home out as `view`, and remember it (`SETTING_DOCUMENTS_VIEW`). */
+  setDocumentsView(view: FilesView): Promise<void>;
   /** Set the sidebar's width, clamped to SIDEBAR_WIDTH and persisted on a debounce. */
   setSidebarWidth(px: number): Promise<void>;
   setSubmitKey(v: SubmitKey): Promise<void>;
@@ -2247,7 +2258,9 @@ export type AppState = TeammatesSlice & {
    *  called directly only where a caller must see the stream's current text without waiting. */
   flushSessionDeltas(): void;
   applySessionStatus(sessionId: string, status: SessionStatus): void;
-  applySessionQueue(sessionId: string, queued: QueuedPrompt[], move?: PendingMove | null): void;
+  /** `turn` left out keeps what the session's last read said: a reorder shown before the server
+   *  answers knows nothing about the turn. */
+  applySessionQueue(sessionId: string, queued: QueuedPrompt[], move?: PendingMove | null, turn?: QueueTurn | null): void;
   applyPlanLimits(limits: PlanLimits[]): void;
   refreshPlanLimits(): Promise<void>;
   refreshSessionQueue(sessionId: string): Promise<void>;
@@ -3594,9 +3607,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     let layoutHydrated = false;
     /** Where this window keeps its view of `pid`: a window opened for one of the profile's spaces keeps
      *  its own, so it and the profile's other window never write over each other's panes. */
-    const windowViewKey = (pid: string): string => {
+    const windowSpaceOf = (pid: string): string | null => {
       const bound = api.boundSpaceId();
-      return viewSettingKey(pid, get().spaces.some((sp) => sp.id === bound && sp.profileId === pid) ? bound : null);
+      return get().spaces.some((sp) => sp.id === bound && sp.profileId === pid) ? bound : null;
+    };
+    const windowViewKey = (pid: string): string => viewSettingKey(pid, windowSpaceOf(pid));
+    /** The screen this window last showed of each space (`SpaceScreen`), stored beside its view and
+     *  keyed the same way, so a relaunch and a second window each bring back their own. */
+    let spaceScreens: SpaceScreens = {};
+    let screensTimer: ReturnType<typeof setTimeout> | null = null;
+    const persistScreens = async () => {
+      if (screensTimer) { clearTimeout(screensTimer); screensTimer = null; }
+      const pid = get().activeProfileId;
+      if (!pid) return;
+      const mine = Object.fromEntries(Object.entries(spaceScreens)
+        .filter(([sid]) => get().spaces.some((sp) => sp.id === sid && sp.profileId === pid)));
+      await api.setSetting(screensSettingKey(pid, windowSpaceOf(pid)), mine);
+    };
+    const scheduleScreensPersist = () => {
+      if (screensTimer) clearTimeout(screensTimer);
+      screensTimer = setTimeout(() => { screensTimer = null; get().run(persistScreens); }, PERSIST_DEBOUNCE_MS);
     };
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
@@ -3713,6 +3743,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  profile's view), and on `pagehide`. */
     const flushPersist = async () => {
       if (quickTimer) await persistQuickChat();
+      if (screensTimer) await persistScreens();
       if (persistTimer) await persist();
     };
     /** The active profile's spaces' ids. */
@@ -4549,13 +4580,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       });
       const epoch = profileEpoch;
       const ids = profileSpaceIds();
-      await Promise.all([
+      const [screens] = await Promise.all([
+        api.getSetting(screensSettingKey(pid, windowSpaceOf(pid))).catch(() => null),
         // `refreshItems`, not a bare load: it also clears the page items an older build left behind.
         ...ids.map((sid) => get().refreshItems(sid)),
         get().refreshSessions(), get().refreshEnvironments(), get().refreshProjects(),
       ]);
       if (epoch !== profileEpoch) return;
+      const stored = parseSpaceScreens(screens);
+      spaceScreens = { ...spaceScreens, ...stored };
       await restoreView(last);
+      if (epoch !== profileEpoch) return;
+      // The view brings back the panes; a page left up over the space the window comes back in is
+      // the rest of what was on screen. Read from what was stored: landing in the restored view has
+      // already been recorded, without the page.
+      const cur = currentSpaceOf(get());
+      const page = cur ? stored[cur]?.page : null;
+      if (cur && page && !get().pageOverlay) set({ pageOverlay: { ...page, spaceId: cur } });
       // The session with the keyboard gets its checkout's git context, as an open does.
       const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
       if (focused?.kind === "session") refreshGitFor(focused.refId);
@@ -4588,6 +4629,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return true;
     };
 
+    /** The item whose pane has the keyboard, or undefined when the focused pane holds nothing. */
+    const focusedItemOf = (s: AppState): Item | undefined => {
+      const leaf = s.layout && s.focusedLeafId ? findLeaf(s.layout, s.focusedLeafId) : null;
+      // In the side panel, the session whose tab is showing is the one in focus.
+      const id = leaf?.tabs ? (leaf.itemId ? tabOwner(leaf, leaf.itemId) : undefined) ?? leaf.itemId : leaf?.itemId ?? null;
+      return id ? s.items.find((i) => i.id === id) ?? (s.peek?.item.id === id ? s.peek.item : undefined) : undefined;
+    };
+
     /* ── The current space ────────────────────────────────────────────────────────────────────────
        DERIVED, never chosen: the space of the session in focus, else the one last current in this
        profile, else its first. Kept in `activeSpaceId` because thirty readers already ask that field
@@ -4601,10 +4650,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // A space's own Overview, while it is up, is about that space — and its New session button
       // means that space.
       if (s.pageOverlay?.kind === "space-page" && mine(s.pageOverlay.refId)) return s.pageOverlay.refId;
-      const leaf = s.layout && s.focusedLeafId ? findLeaf(s.layout, s.focusedLeafId) : null;
-      // In the side panel, the session whose tab is showing is the one in focus.
-      const id = leaf?.tabs ? (leaf.itemId ? tabOwner(leaf, leaf.itemId) : undefined) ?? leaf.itemId : leaf?.itemId ?? null;
-      const item = id ? s.items.find((i) => i.id === id) ?? (s.peek?.item.id === id ? s.peek.item : undefined) : undefined;
+      // Any other page is opened over a space, and put back over the one a switch went to.
+      if (s.pageOverlay && mine(s.pageOverlay.spaceId)) return s.pageOverlay.spaceId;
+      const item = focusedItemOf(s);
       if (item && mine(item.spaceId)) return item.spaceId;
       const last = s.lastSpaceByProfile[pid];
       if (mine(last)) return last;
@@ -4650,10 +4698,35 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const next = pushStop(t, stop);
       if (next !== t) set({ windowTrail: next });
     };
-    storeApi.subscribe(() => { if (trailHeld === 0) noteStop(); });
+    /** Record what the window shows of its current space. Run a microtask after the write that asked,
+     *  so a move made of several writes in one go — `openItem` puts the page away and THEN moves the
+     *  focus — is recorded once, where it landed, and not as the page closing over the space being left. */
+    const noteScreen = () => {
+      const s = get();
+      const spaceId = currentSpaceOf(s);
+      if (!spaceId || !layoutHydrated) return;
+      // A peek is a look, not a place: what is left is the session it was opened beside, as `persist` keeps.
+      const focused = focusedItemOf(s);
+      const shown = focused && s.peek?.item.id === focused.id ? s.items.find((i) => i.id === s.peek!.owner) : focused;
+      const page = s.pageOverlay?.spaceId === spaceId ? { kind: s.pageOverlay.kind, refId: s.pageOverlay.refId } : null;
+      // A page over a space keeps the item that had the keyboard there before it, for when it closes.
+      const itemId = shown?.spaceId === spaceId ? shown.id : page ? spaceScreens[spaceId]?.itemId ?? null : null;
+      if (!itemId && !page) return;
+      const screen: SpaceScreen = { itemId, page };
+      if (sameScreen(spaceScreens[spaceId], screen)) return;
+      spaceScreens = { ...spaceScreens, [spaceId]: screen };
+      scheduleScreensPersist();
+    };
+    let screenNoted = false;
+    const queueScreenNote = () => {
+      if (screenNoted) return;
+      screenNoted = true;
+      queueMicrotask(() => { screenNoted = false; noteScreen(); });
+    };
+    storeApi.subscribe(() => { if (trailHeld === 0) { noteStop(); queueScreenNote(); } });
     const holdTrail = async <T,>(fn: () => Promise<T>): Promise<T> => {
       trailHeld++;
-      try { return await fn(); } finally { if (--trailHeld === 0) noteStop(); }
+      try { return await fn(); } finally { if (--trailHeld === 0) { noteStop(); queueScreenNote(); } }
     };
 
     /** Toast ids, per window: the id is what a toast's timer and its exit are keyed to. */
@@ -4665,7 +4738,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, queueTurns: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", documentsView: "list", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -4692,13 +4765,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion, clearOverPicture, themeBubble, look] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, documentsView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion, clearOverPicture, themeBubble, look] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_QUICK_CHAT),
           api.getSetting(SETTING_FILES_VIEW),
           api.getSetting(SETTING_LIBRARY_VIEW),
+          api.getSetting(SETTING_DOCUMENTS_VIEW),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
@@ -4750,6 +4824,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           filesView: filesView === "grid" ? "grid" : "list",
           // Tiles unless the row says rows — the same posture the other way round.
           libraryView: libraryView === "list" ? "list" : "grid",
+          documentsView: documentsView === "grid" ? "grid" : "list",
           // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
           // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
@@ -4859,6 +4934,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (get().activeProfileId !== space.profileId) return;
         // Remembered first: with nothing focused, this is the space a new session goes to.
         set({ lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: id } });
+        /* Where this window left the space, put back as it was: the same pane, with its side pane, and
+           the page that was up over it. A session that was deleted or archived since is not guessed
+           at — the space's Overview, which lists what it has — unless a page was up over it. */
+        const left = spaceScreens[id];
+        if (left) {
+          const item = get().items.find((i) => i.id === left.itemId && i.spaceId === id && !i.archived);
+          if (item) await get().openItem(item.id);
+          if (left.page) { set({ pageOverlay: { ...left.page, spaceId: id } }); return; }
+          if (!item) get().openSpacePage(id);
+          return;
+        }
         // A page about a space follows: its Overview re-pointed is the same question asked of this one.
         const page = get().pageOverlay;
         if (page?.kind === "space-page") { set({ pageOverlay: { kind: "space-page", refId: id, spaceId: id } }); return; }
@@ -5342,6 +5428,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setLibraryView(view) {
         set({ libraryView: view });
         await api.setSetting(SETTING_LIBRARY_VIEW, view);
+      },
+      async setDocumentsView(view) {
+        set({ documentsView: view });
+        await api.setSetting(SETTING_DOCUMENTS_VIEW, view);
       },
       async setSidebarWidth(px) {
         // Clamped before it is stored rather than only before it is painted, for the reason
@@ -6384,7 +6474,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       applyPlanLimits(limits) { set({ planLimits: limits }); },
       async refreshPlanLimits() { set({ planLimits: await api.planLimits() }); },
-      applySessionQueue(sessionId, queued, move = null) {
+      applySessionQueue(sessionId, queued, move = null, turn) {
         // An empty queue drops its key rather than storing `[]`: the prompter asks "is anything
         // waiting", and one shape for "no" is fewer than two.
         const rest = { ...get().sessionQueues };
@@ -6392,11 +6482,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A move with a step is under way, and the transcript's progress row says so instead.
         const pendingMoves = { ...get().pendingMoves };
         if (move && move.step === null) pendingMoves[sessionId] = move.to; else delete pendingMoves[sessionId];
-        set({ sessionQueues: rest, pendingMoves });
+        const queueTurns = { ...get().queueTurns };
+        if (turn !== undefined) delete queueTurns[sessionId];
+        if (turn && queued.length > 0) queueTurns[sessionId] = turn;
+        if (queued.length === 0) delete queueTurns[sessionId];
+        set({ sessionQueues: rest, pendingMoves, queueTurns });
       },
       async refreshSessionQueue(sessionId) {
-        const { queued, move } = await api.sessionQueue(sessionId);
-        get().applySessionQueue(sessionId, queued, move);
+        const { queued, move, turn = null } = await api.sessionQueue(sessionId);
+        get().applySessionQueue(sessionId, queued, move, turn);
       },
       async refreshSavedTurns(sessionId) {
         get().applySavedTurns(sessionId, await api.savedTurns(sessionId));

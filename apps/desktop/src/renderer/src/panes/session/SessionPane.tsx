@@ -247,6 +247,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const appStore = useAppStore();
   const dictation = useMemo(() => (capabilities().dictation ? desktopDictation({ clean: cleanDictation, microphone: () => appStore.getState().voicePrefs.microphone }) : null), [cleanDictation, appStore]);
   const queued = useApp((s) => s.sessionQueues[id]);
+  const queueTurn = useApp((s) => s.queueTurns[id] ?? null);
   const midTurnMode = useApp((s) => s.midTurnMode);
   // This session's own agent's row. A warning about the Claude account means nothing in a Cursor
   // pane, so the row is selected by kind rather than showing whichever provider warned last.
@@ -832,7 +833,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             sessionInit={transcript.init} defaultModel={defaultModel} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             mentions={mentionSources} refs={draftRefs} tabs={draftTabs} onRemoveTab={(itemId) => removeDraftTab(id, itemId)} selectInRealm={selectInRealm}
-            queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
+            queued={queued ?? []} queueTurn={queueTurn} midTurnMode={midTurnMode} planLimits={planLimits}
             queueActions={queueActions} />}
       {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the
           transcript does — an affordance that blurred across the prompter would be the fade band's
