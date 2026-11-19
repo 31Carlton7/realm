@@ -2163,8 +2163,10 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
          paint (the prompter's over a picture) takes the painted curve. */
       .filter((sel) => !sel.startsWith(":root[data-squircle]"))
       /* Nor is a card's preview, which takes the card's corner less its inset and clips a picture —
-         a fill painted behind an image would be under it, so Chromium's own curve draws the clip. */
-      .filter((sel) => sel !== ".docs-card-preview" && sel !== ".docs-card-preview[data-shows=\"picture\"]::after");
+         a fill painted behind an image would be under it, so Chromium's own curve draws the clip. Nor
+         are the controls in a file card's corners, cut from their ground's corner the same way. */
+      .filter((sel) => ![".docs-card-preview", ".docs-card-preview[data-shows=\"picture\"]::after", ".docs-card-cell > .docs-home-attach",
+        ".library-grid .library-file-more"].includes(sel));
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });
@@ -5718,6 +5720,75 @@ describe("segmented controls", () => {
     // The pickers' rows are controls on the control curve too.
     for (const sel of [".mp-row", ".mention-row", ".mp-bolt"])
       expect(bodiesFor(sel).join(" "), sel).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);");
+  });
+});
+
+/* The documents grid's card held its well 6px in on a 14px corner, but its own box was the half-curve
+   circle, so its lit edge and lift traced a tighter corner than its painted fill, and the link in the
+   well's corner was a 13.4px control corner 4px from a 14px one (the owner, 11-19: "Fix the corners here
+   too"). A file card's box is the card rung on the card curve, a well inside it is that corner less the
+   card's padding, and what sits in the well's corner is the well's corner less its gap, all on one curve. */
+describe("file cards", () => {
+  const CARD_R = "var(--r-squircle-card)";
+  /** Each file card, the well inside it and its padding, and the control in the corner with its gap. */
+  const CARDS = [
+    { card: ".docs-card", well: ".docs-card-preview", pad: "var(--doc-card-inset)", corner: ".docs-card-cell > .docs-home-attach", gap: "var(--attach-gap)" },
+    { card: ".library-tile", corner: ".library-grid .library-file-more", gap: "var(--more-gap)" },
+  ];
+  const esc = (s: string) => s.replace(/[.()]/g, "\\$&");
+  /** Every rule with a selector part naming `cls`, under the painter or not. */
+  const rulesNaming = (cls: string) => RULES.filter((r) => partsOf(r).some((s) => new RegExp(`${esc(cls)}(?![\\w-])`).test(s)));
+  const decl = (body: string, prop: string) => new RegExp(`(?:^|; )${prop}: ([^;]+)`).exec(body)?.[1]?.trim();
+
+  it("draws each card's box on the card curve, under the painter as well", () => {
+    for (const { card } of CARDS) {
+      expect(bodiesFor(card).join(" "), card).toContain(`border-radius: ${CARD_R}; corner-shape: squircle;`);
+      // Under the painter the LAST rule to set the corner wins, and it has to be the card's own curve,
+      // not the half-curve circle the shared painted-card rule gives every other card.
+      const painted = rulesNaming(card).filter((r) => partsOf(r).some((s) => s.startsWith(":root[data-squircle]")) && decl(r.body, "border-radius"));
+      const last = painted.at(-1)!;
+      expect(decl(last.body, "border-radius"), card).toBe(CARD_R);
+      expect(decl(last.body, "corner-shape"), card).toBe("squircle");
+    }
+  });
+
+  it("cuts each well concentric with its card, and what sits in its corner concentric with the well", () => {
+    for (const { card, well, pad, corner, gap } of CARDS) {
+      if (!well) continue;
+      expect(bodiesFor(card).join(" "), card).toMatch(new RegExp(`padding: ${esc(pad!)} ${esc(pad!)} `));
+      expect(bodiesFor(well).join(" "), well).toContain(`border-radius: calc(${CARD_R} - ${pad}); corner-shape: squircle;`);
+      const c = bodiesFor(corner!).join(" ");
+      expect(c, corner).toContain(`top: calc(${pad} + ${gap}); right: calc(${pad} + ${gap});`);
+      expect(c, corner).toMatch(new RegExp(`border-radius: max\\(\\d+px, calc\\(${esc(CARD_R)} - ${esc(pad!)} - ${esc(gap)}\\)\\); corner-shape: squircle;`));
+      // It rises with the card, so the gap holds while the card is lifted.
+      expect(bodiesFor(".docs-card-cell:has(> .docs-card:hover:not([data-pressed], :active:focus-visible)) > .docs-home-attach").join(" ")).toContain("translate: 0 -1px");
+    }
+    // A control in a card's own corner, with no well between, is the card's corner less its gap.
+    const more = bodiesFor(".library-grid .library-file-more").join(" ");
+    expect(more).toContain("top: var(--more-gap); right: var(--more-gap);");
+    expect(more).toContain(`border-radius: calc(${CARD_R} - var(--more-gap)); corner-shape: squircle;`);
+    // A corner cut from the card rung is a well registered above: a new one cannot drift off the card.
+    const cut = RULES.filter((r) => /border-radius: (max\(\d+px, )?calc\(var\(--r-squircle-card\) - /.test(r.body)).flatMap(partsOf);
+    const known = CARDS.flatMap((c) => [c.well, c.corner]).filter(Boolean);
+    expect(cut.filter((s) => !known.includes(s))).toEqual([]);
+  });
+
+  it("lets no state of a card redraw its corner or drop the painted fill", () => {
+    for (const { card, well, corner } of CARDS) {
+      const parts = [card, well, corner].filter(Boolean) as string[];
+      const states = RULES.filter((r) => partsOf(r).map((s) => s.replace(/^:root\[data-squircle\] /, "")).some((s) => parts.some((p) => s !== p
+        && s.includes(p.split(" ").at(-1)!) && /:(hover|focus|active|has)|\[data-|\[aria-/.test(s))));
+      // Only a layer laid over the box may name the corner, and then as the box's own.
+      for (const r of states) {
+        expect(decl(r.body, "border-radius") ?? "inherit", partsOf(r).join(", ")).toBe("inherit");
+        expect(decl(r.body, "corner-shape") ?? "squircle", partsOf(r).join(", ")).toBe("squircle");
+      }
+    }
+    // A state that sets the card's background replaces the painted fill unless its painted twin sets it
+    // back: the pressed card was a plain rounded rect, its base rule later than the painter's at equal weight.
+    for (const r of RULES.filter((x) => partsOf(x).some((s) => /^\.docs-card:/.test(s)) && decl(x.body, "background"))) {
+      for (const s of partsOf(r).filter((x) => /^\.docs-card:/.test(x))) expect(bodiesFor(`:root[data-squircle] ${s}`).join(" "), s).toContain("paint(rl-squircle)");
+    }
   });
 });
 

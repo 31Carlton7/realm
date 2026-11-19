@@ -6897,6 +6897,11 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 /* The two objects in the family keep an object's lift, which a card no longer has. */
 :root[data-squircle] .saved-turn-open,
 :root[data-squircle] .library-tile { box-shadow: var(--rl-object-shadow); }
+/* The file cards draw on their own edge (the documents card's lit edge and lift, the tile's shadow and
+   the picture it clips), and the half-curve circle every other card keeps traced a tighter corner than
+   the painted fill: a hovered card showed two contours, with its well following neither. So their box
+   states the card's curve itself, and every layer of them is on it. */
+:root[data-squircle] :is(.docs-card, .library-tile) { border-radius: var(--r-squircle-card); corner-shape: squircle; }
 :root[data-squircle] .stat-tile,
 :root[data-squircle] .usage-card,
 :root[data-squircle] .usage-figures,
@@ -6916,8 +6921,10 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    painted card keeps, as every card's lift does. */
 :root[data-squircle] .docs-card { --sq-fill: var(--doc-card-fill); background: var(--doc-card-sheen), paint(rl-squircle);
   box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
-:root[data-squircle] .docs-card:hover { --sq-fill: var(--doc-card-fill-hover); box-shadow: var(--doc-card-edge), var(--doc-card-lift-hover); }
-:root[data-squircle] .docs-card:is([data-pressed], :active:focus-visible) { --sq-fill: var(--doc-card-fill-press); box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
+:root[data-squircle] .docs-card:hover { --sq-fill: var(--doc-card-fill-hover); background: var(--doc-card-sheen), paint(rl-squircle);
+  box-shadow: var(--doc-card-edge), var(--doc-card-lift-hover); }
+:root[data-squircle] .docs-card:is([data-pressed], :active:focus-visible) { --sq-fill: var(--doc-card-fill-press); background: var(--doc-card-sheen), paint(rl-squircle);
+  box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
 :root[data-squircle] .docs-card:focus-visible { outline: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px; }
 /* The marketplace's card is a well the page is cut into, not a card standing on it: the curve, with
    no lift. */
@@ -9538,7 +9545,9 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-file { position: relative; }
 .library-file-more { position: absolute; z-index: 1; opacity: 0; transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .library-file:is(:hover, :focus-within) > .library-file-more, .library-file-more[aria-expanded="true"] { opacity: 1; transition-duration: 0s; }
-.library-grid .library-file-more { top: 8px; right: 8px; background: var(--surface); box-shadow: var(--rl-object-shadow); }
+/* In the tile's corner, cut from the tile's corner less the gap between them, on the same curve. */
+.library-grid .library-file-more { --more-gap: 8px; top: var(--more-gap); right: var(--more-gap);
+  border-radius: calc(var(--r-squircle-card) - var(--more-gap)); corner-shape: squircle; background: var(--surface); box-shadow: var(--rl-object-shadow); }
 .library-grid .library-file-more:hover { background: var(--hover); }
 .library-rows .library-file-more { top: 50%; right: 8px; translate: 0 -50%; }
 .library-rows .library-file:is(:hover, :focus-within) .library-row-time,
@@ -10141,12 +10150,16 @@ span.documents-name:hover { background: none; }
 .docs-card-detail { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docs-card-time { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
 /* The card's "add to the next message" sits over the preview's corner, shown on the pointer or the
-   keyboard as the row's is, on the preview's own ground so it reads over a picture. */
-.docs-card-cell > .docs-home-attach { top: calc(var(--doc-card-inset) + 4px); right: calc(var(--doc-card-inset) + 4px); translate: none;
-  background: color-mix(in srgb, var(--surface) 86%, transparent); }
+   keyboard as the row's is, on the preview's own ground so it reads over a picture. Its corner is the
+   preview's less the gap between them, on the same curve, and it rises with the card so the gap holds. */
+.docs-card-cell > .docs-home-attach { --attach-gap: 4px; top: calc(var(--doc-card-inset) + var(--attach-gap)); right: calc(var(--doc-card-inset) + var(--attach-gap));
+  border-radius: max(6px, calc(var(--r-squircle-card) - var(--doc-card-inset) - var(--attach-gap))); corner-shape: squircle; translate: none;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease, translate var(--dur-move) var(--spring-smooth); }
+.docs-card-cell:has(> .docs-card:hover:not([data-pressed], :active:focus-visible)) > .docs-home-attach { translate: 0 -1px; }
 .docs-card-cell:is(:hover, :focus-within) > .docs-home-attach { opacity: 1; transition-duration: 0s; }
 @media (prefers-reduced-motion: reduce) {
-  .docs-card:hover { translate: none; }
+  .docs-card:hover, .docs-card-cell:has(> .docs-card:hover:not([data-pressed], :active:focus-visible)) > .docs-home-attach { translate: none; }
 }
 .new-doc-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
 /* "Code file…": a name, the languages that set its extension, and what the name will open as. */
