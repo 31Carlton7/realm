@@ -202,6 +202,23 @@ describe("the prompter over a picture", () => {
     expect(prompterBlock).toContain(":root[data-clear-over-picture] { --picture-ground: none; --picture-veil: transparent; }");
   });
 
+  it("dims glass by a number of its own in dark, the picture's own until the pane measures one, and the picture's own in light", () => {
+    // THE mutants: dark glass back on `--picture-tone` (navy over a dark picture), the fallback lost
+    // (no dim before the first measure), the tones left on the root alone (a pane's measured dim
+    // never reaching them), or light glass taking the dark number.
+    const glassBlock = tokensCss.slice(tokensCss.indexOf("/* Glass (Settings"));
+    expect(token("--glass-dim", glassBlock)).toBe("var(--picture-dim)");
+    const tones = /:root, \.session-pane, \[data-over-picture\] \{([^}]*)\}/.exec(glassBlock)![1]!;
+    expect(token("--glass-picture-tone", tones)).toBe("brightness(calc(1 - var(--glass-dim)))");
+    expect(token("--glass-tone", tones)).toBe("saturate(var(--glass-saturate)) var(--glass-picture-tone)");
+    expect(token("--glass-frost", tones)).toBe("blur(var(--glass-blur)) var(--glass-tone)");
+    expect(glassBlock).toContain(':root[data-mode="light"], :root[data-mode="light"] :is(.session-pane, [data-over-picture]) { --glass-picture-tone: var(--picture-tone); }');
+    // Clear still drops the dim from the glass, on the pane and the picker as well as the root.
+    expect(glassBlock).toMatch(/:root\[data-clear-over-picture\], :root\[data-clear-over-picture\] :is\(\.session-pane, \[data-over-picture\]\) \{\s*--glass-tone: saturate\(var\(--glass-saturate\)\); --glass-frost: var\(--glass-tone\); \}/);
+    // Plain over a picture keeps the picture's own ground.
+    expect(rules.find((r) => r.sel === `${scope} :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip)`)!.body).toBe("backdrop-filter: var(--picture-ground);");
+  });
+
   it("casts no halo there, and blurs the picture from the layer that cast it", () => {
     // THE mutants: the lift back over a picture (the grey-brown halo), or the blur on the face, whose
     // circle would shave the painted ring.

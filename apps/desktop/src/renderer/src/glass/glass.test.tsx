@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PAGE_REF_IDS } from "@realm/contracts";
-import { useRef } from "react";
+import { useRef, type CSSProperties } from "react";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 import { SessionPane } from "../panes/session/SessionPane";
@@ -278,6 +278,13 @@ describe("the prompter's lens", () => {
     const src = readFileSync(join(__dirname, "PrompterGlass.tsx"), "utf8");
     expect(src).toMatch(/useFittedLens\(ref, true\)/);
   });
+  it("floods the pane's ground under a picture in dark, so a see-through picture cannot show back through the dim", () => {
+    // THE mutant: no flood, where the guard draws a bright picture see-through and the white sky came
+    // back through the prompter's dim (placeholder 2.14:1). Never in light or Clear, which stay as they were.
+    const flood = cssRules.filter((r) => /\.composer-glass$/.test(r.sel) && /--glass-ground-share/.test(r.body));
+    expect(flood.map((r) => r.sel)).toEqual([':root[data-glass]:not([data-mode="light"]):not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass']);
+    expect(flood[0]!.body).toMatch(/--glass-ground-share:\s*1/);
+  });
   it("frosts nothing when the picture is to be seen clear", () => {
     expect(cssRules.some((r) => r.sel === ":root[data-glass][data-clear-over-picture] .composer-glass" && /--glass-frost-px:\s*0px/.test(r.body))).toBe(true);
   });
@@ -444,12 +451,23 @@ describe("a picker over a picture", () => {
     const rule = cssRules.find((r) => r.sel.startsWith(":root[data-glass] :is(.model-picker") && r.sel.endsWith("[data-over-picture]"))!;
     expect(rule.body).toMatch(/--rl-text-faint:\s*color-mix\(in oklab, var\(--ink-2\) 50%, var\(--ink-3\)\)/);
   });
-  function Picker({ inPicture }: { inPicture: boolean }) {
+  it("takes the whole step in dark, where the dim is worked out for the secondary ink", () => {
+    // THE mutant: the dark face left on the half step, which glass-dim.ts does not solve for.
+    const dark = cssRules.find((r) => r.sel === ':root[data-glass]:not([data-mode="light"]) :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture]')!;
+    expect(dark.body).toMatch(/--rl-text-faint:\s*var\(--ink-2\)/);
+  });
+  it("dims the picture by the glass's dim, never the picture's own", () => {
+    // THE mutant: the picker back on `--picture-tone`, which holds dark glass at the fixed 0.4.
+    const rule = cssRules.find((r) => r.sel.startsWith(":root[data-glass] :is(.model-picker") && r.sel.endsWith("[data-over-picture]"))!;
+    expect(rule.body).toMatch(/var\(--glass-picture-tone\) var\(--glass-panel-tone\)/);
+    for (const r of cssRules.filter((x) => x.sel.startsWith(":root[data-glass]"))) expect(r.body, r.sel).not.toMatch(/var\(--picture-tone\)/);
+  });
+  function Picker({ inPicture, dim }: { inPicture: boolean; dim?: string }) {
     const anchorRef = useRef<HTMLButtonElement>(null);
     const ref = useRef<HTMLDivElement>(null);
     useAnchoredPopover({ ref, anchorRef, onClose: () => {}, placement: "up" });
     return (
-      <div className="session-pane">
+      <div className="session-pane" style={dim ? ({ "--glass-dim": dim } as CSSProperties) : undefined}>
         {inPicture && <canvas className="hero-backdrop" />}
         <div className="composer"><button ref={anchorRef} type="button">Model</button></div>
         <div ref={ref} className="model-picker" />
@@ -462,5 +480,13 @@ describe("a picker over a picture", () => {
     cleanup();
     render(<Picker inPicture={false} />);
     expect(document.querySelector(".model-picker")!.hasAttribute("data-over-picture")).toBe(false);
+  });
+  it("takes the dim its pane measured off the picture, since it is portalled out of the pane", () => {
+    // THE mutant: the copy dropped, which leaves the picker on the fallback over a dark picture.
+    render(<Picker inPicture dim="0.125" />);
+    expect((document.querySelector(".model-picker") as HTMLElement).style.getPropertyValue("--glass-dim")).toBe("0.125");
+    cleanup();
+    render(<Picker inPicture />);
+    expect((document.querySelector(".model-picker") as HTMLElement).style.getPropertyValue("--glass-dim")).toBe("");
   });
 });
