@@ -45,7 +45,7 @@ const THUMBNAIL_TYPES = new Set<ArtifactType>(["image", "video"]);
  * Sticky, so scrolling a card back out never takes its picture away, and the observer is dropped
  * the moment it has answered — there is nothing left for it to say.
  */
-function useSeen(ref: RefObject<Element | null>, watch: boolean): boolean {
+export function useSeen(ref: RefObject<Element | null>, watch: boolean): boolean {
   const [seen, setSeen] = useState(false);
   useEffect(() => {
     const el = ref.current;

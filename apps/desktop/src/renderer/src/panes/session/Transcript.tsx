@@ -25,7 +25,7 @@ import { dateFormat, stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
 import { turnEdits, undoOffer, type TurnEdits } from "./turn-edits";
-import { EdgeBlur, useDissolve } from "../../components/ScrollFades";
+import { useDissolve, useEdgeBlur } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
 import { useEnterTracker } from "./transcript-enter";
@@ -656,7 +656,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   /* The transcript dissolves at BOTH edges instead of being clipped at either: the column's alpha
      runs out over the last band and the edge blur softens it on the way, under the pane bar and
      under the prompter. Without the top end a message scrolling up to the bar arrives at a hard cut. */
-  const edges = useDissolve(ref);
+  useEdgeBlur(ref, useDissolve(ref));
   const wrap = useRef<HTMLDivElement>(null);
   // The reader's day, for choosing how each timestamp is said — never for what time it says.
   const now = useNow();
@@ -690,7 +690,6 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
           it against the bottom end — the deeper of the two bands — which is measured rather than
           asserted (see `selection-bar-live.mjs`). */}
       <SelectionBar scrollRef={ref} wrapRef={wrap} onQuote={onQuote} />
-      <EdgeBlur {...edges} />
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
         <LeadSessionContext.Provider value={sessionId}>
         <div className="transcript-col">

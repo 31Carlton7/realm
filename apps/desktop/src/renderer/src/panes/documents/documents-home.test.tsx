@@ -11,6 +11,7 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { exited } from "../../components/popover-exit.test-fakes";
 import { MediaViewer } from "../../components/viewer/MediaViewer";
+import { TEXT_HEAD, resetCardPreviews } from "./card-preview";
 
 /**
  * The documents pane's home (DocumentsHome.tsx): what a pane beside a session shows before a file
@@ -30,7 +31,7 @@ const art = (id: string, sessionId: string, path: string, ts: number, extra: Par
 
 /** The pane as a tab of the lead session's side pane — the way its bar's Documents button opens it —
  *  or, with `owned: false`, as a pane of its own. */
-async function mount(o: { artifacts?: LibraryEntry[]; addedProfiles?: Record<string, string>; files?: Record<string, string>; checkout?: string[]; owned?: boolean } = {}) {
+async function mount(o: { artifacts?: LibraryEntry[]; addedProfiles?: Record<string, string>; files?: Record<string, string>; checkout?: string[]; owned?: boolean; settings?: Record<string, unknown> } = {}) {
   const api = fakeApi({
     items: { s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Pricing page" }), docsItem] },
     sessions: [session("lead", "s1", { environmentId: ENV.id, cwd: ROOT, title: "Pricing page" })],
@@ -40,6 +41,7 @@ async function mount(o: { artifacts?: LibraryEntry[]; addedProfiles?: Record<str
     artifacts: o.artifacts ?? [],
     addedProfiles: o.addedProfiles ?? {},
     projectFiles: { hits: (o.checkout ?? []).map((path) => ({ path, score: 1, segments: [{ text: path, match: false }] })), source: "git", truncated: false },
+    ...(o.settings ? { settings: o.settings } : {}),
   });
   const store = createAppStore(api);
   await store.getState().boot();
@@ -376,5 +378,106 @@ describe("asked from outside the pane", () => {
       return v;
     });
     await waitFor(() => expect(view.state.doc.lineAt(view.state.selection.main.anchor).number).toBe(2));
+  });
+});
+
+/** The cards a section lays out, by name, in order. */
+const cardsIn = async (section: string) => {
+  const region = await screen.findByRole("region", { name: section });
+  return [...region.querySelectorAll(".docs-card-name")].map((n) => n.textContent);
+};
+const cardFor = (name: string) => [...document.querySelectorAll<HTMLButtonElement>(".docs-card")]
+  .find((b) => b.querySelector(".docs-card-name")?.textContent === name)!;
+
+/** An observer the test answers by hand: nothing is on screen until `show` says which card is. */
+function observerByHand() {
+  const watched = new Map<Element, IntersectionObserver & { cb: IntersectionObserverCallback }>();
+  vi.stubGlobal("IntersectionObserver", class {
+    readonly cb: IntersectionObserverCallback;
+    constructor(cb: IntersectionObserverCallback) { this.cb = cb; }
+    observe(el: Element) { watched.set(el, this as never); }
+    unobserve() {}
+    disconnect() { for (const [el, o] of watched) if (o === (this as never)) watched.delete(el); }
+    takeRecords() { return []; }
+  });
+  return {
+    show: (el: Element) => act(() => {
+      const o = watched.get(el);
+      o?.cb([{ isIntersecting: true, target: el } as IntersectionObserverEntry], o);
+    }),
+  };
+}
+
+describe("the documents home as a grid", () => {
+  afterEach(() => { vi.unstubAllGlobals(); resetCardPreviews(); });
+
+  it("switches to cards from the head and remembers it, so the next launch opens on them", async () => {
+    // THE MUTANTS: the control sets the view without writing it, or boot reads the key back as rows.
+    const { api } = await mount({ artifacts: [art("a1", "lead", "notes/plan.md", 100)] });
+    expect(await namesIn("This session")).toEqual(["plan.md"]);
+    fireEvent.click(screen.getByRole("radio", { name: "Grid" }));
+    expect(await cardsIn("This session")).toEqual(["plan.md"]);
+    await waitFor(() => expect(api.calls).toContain("setSetting:ui.documentsView=grid"));
+    cleanup();
+
+    await mount({ artifacts: [art("a1", "lead", "notes/plan.md", 100)], settings: { "ui.documentsView": "grid" } });
+    expect(await cardsIn("This session")).toEqual(["plan.md"]);
+    expect(screen.getByRole("radio", { name: "Grid" })).toBeChecked();
+    expect(document.querySelector(".docs-home-open")).toBeNull();
+  });
+
+  it("opens from a card what its row opens: a document as the pane's tab, a picture in the viewer", async () => {
+    /* One file, one way in, whichever view shows it. THE MUTANT: the card's click wired to something
+       other than the row's `open` — the viewer for everything, or the tab for a picture. */
+    const { api, store } = await mount({
+      artifacts: [art("a1", "lead", "notes/plan.md", 100), art("a4", "lead", "shots/hero.png", 300)],
+      files: { "notes/plan.md": "# Plan\n" }, settings: { "ui.documentsView": "grid" },
+    });
+    expect(await cardsIn("This session")).toEqual(["hero.png", "plan.md"]);
+    fireEvent.click(cardFor("hero.png"));
+    expect(await screen.findByRole("dialog", { name: "hero.png" })).toBeTruthy();
+    expect(store.getState().viewer).toMatchObject({ sessionId: "lead", files: [{ path: `${ROOT}/shots/hero.png`, inPane: true }] });
+    act(() => store.getState().closeViewer());
+    fireEvent.click(cardFor("plan.md"));
+    await waitFor(() => expect(api.calls).toContain("readDocument:docs1:notes/plan.md"));
+    expect(await screen.findByRole("tab", { name: /^plan/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("asks for a card's preview only once the card is on screen, and once per file", async () => {
+    /* A section shown whole is a hundred cards; each one that read its file on mount would be a
+       hundred reads the moment the grid opened. THE MUTANTS: `useSeen` dropped (every card reads at
+       once), or the cache dropped (a card drawn again reads its file again). */
+    const { show } = observerByHand();
+    const readRange = vi.fn(async () => new TextEncoder().encode("# Plan\n\nShip the grid.\n"));
+    const stat = vi.fn(async (path: string) => ({ path, size: 24, mtimeMs: 0 }));
+    vi.stubGlobal("realm", { files: { readRange, stat } });
+    await mount({ artifacts: [art("a1", "lead", "notes/plan.md", 100), art("a2", "lead", "notes/todo.md", 90)], settings: { "ui.documentsView": "grid" } });
+    expect(await cardsIn("This session")).toEqual(["plan.md", "todo.md"]);
+    expect(readRange).not.toHaveBeenCalled();
+
+    show(cardFor("plan.md").closest("li")!);
+    await waitFor(() => expect(cardFor("plan.md").querySelector(".docs-card-page h1")?.textContent).toBe("Plan"));
+    expect(readRange.mock.calls).toEqual([[`${ROOT}/notes/plan.md`, 0, TEXT_HEAD]]);
+    expect(cardFor("todo.md").querySelector(".docs-card-page")).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "List" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Grid" }));
+    await waitFor(() => expect(cardFor("plan.md").querySelector(".docs-card-page h1")).not.toBeNull());
+    expect(readRange).toHaveBeenCalledTimes(1);
+  });
+
+  it("walks the cards with the arrow keys, and goes up from the first row to the search", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    await mount({ artifacts: [art("a1", "lead", "a.md", 300), art("a2", "lead", "b.md", 200)], settings: { "ui.documentsView": "grid" } });
+    expect(await cardsIn("This session")).toEqual(["a.md", "b.md"]);
+    // jsdom lays nothing out, so the two cards are placed by hand: one row, a beside b.
+    const place = (el: Element, left: number) => { el.getBoundingClientRect = () => ({ left, top: 0, width: 100, height: 120, right: left + 100, bottom: 120, x: left, y: 0, toJSON: () => ({}) }); };
+    place(cardFor("a.md"), 0);
+    place(cardFor("b.md"), 112);
+    cardFor("a.md").focus();
+    fireEvent.keyDown(cardFor("a.md"), { key: "ArrowRight" });
+    expect(document.activeElement).toBe(cardFor("b.md"));
+    fireEvent.keyDown(cardFor("b.md"), { key: "ArrowUp" });
+    expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Search files" }));
   });
 });

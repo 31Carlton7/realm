@@ -6,6 +6,7 @@ import { loopMayRun, resolveBackdrop, type Backdrop } from "./backdrop-gallery";
 import { useYourBackgrounds, yourBackgroundUrl } from "../../state/your-backgrounds";
 import { SCALE, hush, hushToward, hushTrack, printed, readableRange, soften, trackOf } from "./chat-backdrop";
 import { LoopRenderer, gpuHush, type LoopUniforms } from "./loop-gl";
+import { setGlassDim } from "../../glass/glass-dim";
 import { loopStats, refreshLoops, setWrapDissolve, sourceKey, watchLoop, type LoopSource, type Wrap } from "./loop-player";
 
 /** The picture for a face, as a URL: a shipped look's own file, or a kept picture asked of main. */
@@ -184,6 +185,7 @@ function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; 
       await r.load(pic.url);
       painted = "";
       refresh();
+      setGlassDim(pane, canvas, pal.ground, resolveColor);
     };
 
     const unwatch = watchLayout(pane, refresh);
@@ -281,6 +283,7 @@ function ColorBackdrop({ backdrop, look: lookId, held, underLoop }: { backdrop: 
       const done = await paintColorBackdrop(canvas, w, h, look, pic, dpr, pal.ground, () => textRuns(pane), stale);
       if (!done) return;
       drawn = key;
+      setGlassDim(pane, canvas, pal.ground, resolveColor, done.opacity);
       if (profile) renders.push(done);
     };
     // A picture that will not decode (a broken file of the person's own, or no decoder at all) leaves
@@ -386,6 +389,7 @@ function ChatBackdrop({ backdrop, settle, onSettled, underLoop }: { backdrop: Ba
       if (canvas.width !== art.width || canvas.height !== art.height) { canvas.width = art.width; canvas.height = art.height; }
       canvas.getContext("2d")!.putImageData(pixels, 0, 0);
       drawn = key;
+      setGlassDim(pane, canvas, pal.ground, resolveColor);
       canvas.dataset.drawn = "";
       settled();
     };

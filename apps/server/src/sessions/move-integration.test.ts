@@ -348,7 +348,7 @@ describe("sessions.move", () => {
     // Anyone opening the session sees the move waiting behind the turn, as they see the queue.
     const waiting = { moveId: expect.any(String), to: { kind: "worktree" }, step: null };
     expect((await c.call("sessions.queued", { id: session.id })).result.move).toEqual(waiting);
-    expect(c.queues.at(-1)).toEqual({ sessionId: session.id, queued: [], move: waiting });
+    expect(c.queues.at(-1)).toEqual({ sessionId: session.id, queued: [], move: waiting, turn: { model: null, effort: null, fastMode: false } });
     expect((await c.call("sessions.cancelMove", { id: session.id })).result.cancelled).toBe(true);
     expect((await c.call("sessions.queued", { id: session.id })).result.move).toBeNull();
     expect(c.queues.at(-1).move).toBeNull();

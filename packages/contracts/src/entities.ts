@@ -458,5 +458,14 @@ export const QueuedPromptSchema = z.object({
    *  rather than offering a Send now the server would only have to refuse. Defaulted, so a payload
    *  from before the field still parses. */
   held: z.boolean().default(false),
+  /** The model, level and fast mode it was queued with, which its turn runs on whatever the picker
+   *  says by then. Absent from a server that did not keep them. */
+  model: z.string().nullable().optional(),
+  effort: z.string().nullable().optional(),
+  fastMode: z.boolean().optional(),
 });
 export type QueuedPrompt = z.infer<typeof QueuedPromptSchema>;
+/** The model, level and fast mode the session's running turn went out on, beside its queue: a queued
+ *  row names what it runs on against this as well as against the picker, which may have moved since. */
+export const QueueTurnSchema = z.object({ model: z.string().nullable(), effort: z.string().nullable(), fastMode: z.boolean() });
+export type QueueTurn = z.infer<typeof QueueTurnSchema>;

@@ -150,7 +150,7 @@ describe("the space's checkouts", () => {
     expect(document.querySelector(".env-list")).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "Worktrees" }));
     expect(store.getState().spacePageTab.s1).toBe("worktrees");
-    expect(screen.getByRole("heading", { level: 1, name: "Worktrees" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Worktrees" })).toBeInTheDocument();
     expect(document.querySelector(".env-list")).not.toBeNull();
   });
 
@@ -209,6 +209,23 @@ describe("the space's checkouts", () => {
     expect(store.getState().worktreeBranches.s1).toEqual({ branches: ["develop", "main"], current: "develop" });
   });
 
+  it("shows three checkouts and folds the rest behind Show all, which opens them in place", async () => {
+    // THE MUTANTS: every checkout drawn at once; the rest opened somewhere else; the count naming
+    // only the folded ones.
+    const more: Environment[] = ["a", "b", "c"].map((n, i) => ({ id: `env-${n}`, spaceId: "s1", path: `/tmp/worktrees/s1/${n}`, branch: `realm/${n}`,
+      kind: "worktree", portBlockStart: 41100 + i * 10, createdAt: Date.now() - (60 + i) * HOUR, updatedAt: 0 }));
+    await openWorktrees({ environments: { s1: [...envs, ...more] } });
+    const shown = () => [...document.querySelectorAll(".fold-group > .env-list > .env-row .env-name")].map((n) => n.textContent);
+    expect(shown()).toEqual(["Versed", "realm/fix-login", "realm/quiet"]);
+    const toggle = screen.getByRole("button", { name: "Show all 6" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelector(".fold-rest")).toHaveAttribute("inert");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Show fewer" })).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector(".fold-rest")).not.toHaveAttribute("inert");
+    expect(within(card("realm/c")).getByRole("button", { name: "Remove…" })).toBeInTheDocument();
+  });
+
   it("offers no new worktree where the space is a plain folder", async () => {
     await openWorktrees({ gitInfo: {} });
     await waitFor(() => expect(screen.queryByRole("button", { name: "New worktree…" })).toBeNull());
@@ -224,16 +241,28 @@ describe("the space's checkouts", () => {
 /* ——— New in Plan 12 W3: the page's header and its Sessions / History / Memory tabs. ——— */
 
 describe("the page header", () => {
-  it("names the section it shows, with the space beside it, and carries no session action", async () => {
-    // Mutant: the h1 stays the space's name on every tab.
+  it("is headed by the space, its icon and its name, with the section it shows under it, and carries no session action", async () => {
+    // THE MUTANTS: the h1 back to the section's name; the section line left on General on every tab;
+    // the icon dropped from the head, or drawn in the theme's ink rather than the space's colour.
     const { store } = await mount({ sessions: [session("se1", "s1"), session("se2", "s1")] });
-    expect(screen.getByRole("heading", { level: 1, name: "General" })).toBeInTheDocument();
-    expect(document.querySelector(".page-vantage")).toHaveTextContent("Versed");
+    expect(screen.getByRole("heading", { level: 1, name: "Versed" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "General" })).toBeInTheDocument();
+    const icon = document.querySelector(".page-head .space-page-icon") as HTMLElement;
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(icon.querySelector("svg")).not.toBeNull();
+    // The tile's tint is the space's colour, named on the tile for the painter (tokens.css).
+    expect(icon.style.color).not.toBe("");
+    expect(icon.style.getPropertyValue("--space-tint")).toMatch(/^#[0-9a-f]{6}$/i);
     // A settings page no longer carries a session call to action in its head.
     expect(document.querySelector(".page-head .btn")).toBeNull();
     act(() => store.getState().setSpacePageTab("s1", "sessions"));
-    expect(screen.getByRole("heading", { level: 1, name: "Sessions" })).toBeInTheDocument();
-    expect(document.querySelector(".page-vantage")).toHaveTextContent("Versed");
+    expect(screen.getByRole("heading", { level: 1, name: "Versed" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Sessions" })).toBeInTheDocument();
+    // A rename moves the head with it.
+    act(() => store.getState().setSpacePageTab("s1", "general"));
+    const name = screen.getByRole("textbox", { name: "Space name" });
+    fireEvent.change(name, { target: { value: "Versed app" } }); fireEvent.blur(name);
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Versed app" })).toBeInTheDocument());
   });
 
   it("starts a session in THIS space from the Sessions toolbar", async () => {
