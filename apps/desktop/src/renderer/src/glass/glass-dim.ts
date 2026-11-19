@@ -110,8 +110,9 @@ export function pictureUnderGlass(source: HTMLCanvasElement, pane: Element, grou
 }
 
 /** The words on glass over a picture, and on Plain's ground there: typed text and labels in `--ink`
- *  at 4.5:1, the quiet words and the placeholder in `--ink-2` at 3:1, both of which a picker sets on its lit row and its
- *  account's well, and the picker's level in `--accent` at 3:1 on the glass (styles.css, "Glass").
+ *  at 4.5:1, the quiet words and the placeholder in `--ink-2` at 3:1, both of which a picker sets on
+ *  its lit row and its account's well, and the picker's level in `--accent` at 3:1 on the glass
+ *  (styles.css, "Glass").
  *  Read in the pane, so a theme's inks arrive as colours. */
 function glassInks(pane: Element, resolve: (css: string) => Rgb): GlassInk[] {
   const s = getComputedStyle(pane);
@@ -123,8 +124,8 @@ function glassInks(pane: Element, resolve: (css: string) => Rgb): GlassInk[] {
 }
 
 /** The picker's lit row (`ROW_TINT`), the tint a word on the glass stands on that is furthest
- *  toward its ink (the lightest in dark, the darkest in light), read as
- *  its colour and alpha off one pixel laid over black and over white. */
+ *  toward its ink (the lightest in dark, the darkest in light), read as its colour and alpha off
+ *  one pixel laid over black and over white. */
 function glassTint(pane: Element): GlassTint | null {
   const g = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
   if (!g) return null;

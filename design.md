@@ -302,8 +302,8 @@ Rules:
   result over its backdrop, so the picture came back through the dim (11-18: over a white sky the
   placeholder measured 1.03:1). The number is measured off the picture each time it is drawn, the
   least its words need and never less than the picture's own dim, so a bright picture is dimmed
-  further and every other looks as it did. Clear, a choice in Appearance, is the picture as it is with only the ink moved. The picture
-  runs under the card rather than clearing round it, because the blur can only borrow what is there:
+  further and every other looks as it did. Clear, a choice in Appearance, is the picture as it is
+  with only the ink moved. The picture runs under the card rather than clearing round it, because the blur can only borrow what is there:
   a hole round the card showed the window's material through it, which is where the halo came from.
   The blur stays inside the pane, which isolates over its picture, so it samples the picture's
   canvas and never the material. Your own message follows the same ground: see-through by default,
