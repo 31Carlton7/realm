@@ -111,11 +111,16 @@ describe("light's dim", () => {
 });
 
 describe("the pane's dims", () => {
-  /** A pane with its dock, over a picture every pixel of which is `channel`, and the picture's own dim. */
-  const paneOver = (channel: number, own: string) => {
+  const light = () => document.documentElement.getAttribute("data-mode") === "light";
+  /** A pane with its dock, over a picture every pixel of which is `pixel`, and the picture's own dim. */
+  const paneOver = (pixel: number | readonly number[], own: string) => {
+    const [r, g, b] = typeof pixel === "number" ? [pixel, pixel, pixel] : pixel;
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({
       fillRect() {}, drawImage() {},
-      getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4).fill(channel) }),
+      // The one-pixel read is the lit row's tint (glassTint), here the face's own extreme (black in
+      // dark, white in light), which every ink in these tests clears; the rest is the picture.
+      getImageData: (_x: number, _y: number, w: number, h: number) =>
+        ({ data: w * h === 1 ? new Uint8ClampedArray(light() ? [255, 255, 255, 255] : [0, 0, 0, 255]) : Uint8ClampedArray.from({ length: w * h * 4 }, (_, i) => [r, g, b, 255][i % 4]!) }),
     }) as unknown as CanvasRenderingContext2D);
     const pane = document.createElement("div");
     const dock = pane.appendChild(document.createElement("div"));
@@ -135,6 +140,16 @@ describe("the pane's dims", () => {
     setGlassDim(pane, source, [0, 0, 0], () => INK);
     expect(pane.style.getPropertyValue(PLAIN_DIM)).toBe("0.300");
     expect(pane.style.getPropertyValue("--glass-dim")).toBe("0.000");
+  });
+
+  it("measures Plain without the glass's saturation, which only the glass lays on the picture", () => {
+    // THE mutant: Plain solved with the glass's saturation, dimming a coloured picture more than it needs.
+    const { pane, source } = paneOver([230, 150, 40], "0");
+    pane.style.setProperty("--glass-saturate", "1.8");
+    setGlassDim(pane, source, [0, 0, 0], () => INK);
+    const plain = parseFloat(pane.style.getPropertyValue(PLAIN_DIM)), glass = parseFloat(pane.style.getPropertyValue("--glass-dim"));
+    expect(plain).toBeGreaterThan(0);
+    expect(glass).toBeGreaterThan(plain);
   });
 
   it("never takes light glass under the picture's own dim", () => {
