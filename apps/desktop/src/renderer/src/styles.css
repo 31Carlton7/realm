@@ -7061,10 +7061,6 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --sq-fill: var(--prompter-strip); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   --sq-radius-top: 0px; --sq-radius-bottom: var(--r-squircle);
 }
-/* The prompter's hairline is drawn at the button's rung, not the card's: at the card's it all but
-   vanished over a picture and on the light face, and the owner asked for the border back (11-18). */
-:root[data-squircle] :is(.composer, .composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) {
-  --sq-ring: var(--btn-ring); }
 
 /* ── The prompter on a thinned pane ──
    The tabs above and below the card wear the frame's tone at the card's own alpha (tokens.css).
