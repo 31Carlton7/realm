@@ -1558,6 +1558,18 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   between its words and keeps its extension whole — breaking anywhere is how Codex's own tile ends
   in "…pd" over "f". A tile that wide needs a picture minted for it — the 96px mark the composer's
   chips use is a smear there — so the size is named, not assumed.
+- A file's card on the documents grid is the one card that keeps an edge and a lift, because the
+  owner asked for it by name (11-18): a grid in the documents pane "where we can see previews of the
+  items", with "these shadows and borders around the cards" the way Stow draws them. That ask is newer
+  and narrower than the rule that a card is its fill alone, so it covers these cards and no others.
+  It is Stow's light glass card a step fainter: a face that catches a little light at its top, a lit
+  top edge inside a hairline, and a soft lift that deepens under the pointer, with no blur, because
+  nothing passes behind a card and a blur per card is hundreds of layers. A press is still a fill, not
+  a size. The card is a preview, then the name on two lines, then the row's quiet line, so every card
+  is one height and a row of them lines up. The preview is drawn from the file's head and never from
+  the whole file: a picture's thumbnail, a PDF's first page from the pieces of it that page needs,
+  the top of a text file, and the mark for anything else. Rows or cards is one choice, remembered, and
+  rows are the default, since the pane is most often a narrow column beside a session.
 - A file's mark is its own logo, the one a developer already reads a file tree by (Material Icon
   Theme's, vendored in `assets/file-icons`): a `.ts` is the blue TS square, a `package.json` Node's
   hexagon, by the name first and then the extension, and Realm's coarse glyph only where the set has

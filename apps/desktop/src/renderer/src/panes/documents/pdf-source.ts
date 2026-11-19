@@ -1,5 +1,5 @@
 import {
-  GlobalWorkerOptions, TextLayer, getDocument,
+  GlobalWorkerOptions, PDFDataRangeTransport, PDFWorker, TextLayer, getDocument,
   type PDFDocumentLoadingTask, type PDFDocumentProxy, type PDFPageProxy,
 } from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
@@ -87,6 +87,54 @@ export function openPdf(url: string): { promise: Promise<PdfDocument>; cancel: (
   task.onPassword = () => { reject(new PdfOpenError("password", "password-protected")); void task.destroy(); };
   task.promise.then((doc) => resolve(wrap(doc)), (e: unknown) => reject(openError(e)));
   return { promise, cancel: () => { void task.destroy(); } };
+}
+
+/** How many bytes pdf.js asks for at once while it finds the first page: its own default chunk. */
+const RANGE_CHUNK = 64 * 1024;
+
+/** pdf.js's range transport, answered by `read` instead of an HTTP server. */
+class ReadTransport extends PDFDataRangeTransport {
+  constructor(length: number, private readonly read: (start: number, length: number) => Promise<Uint8Array | null>) { super(length, new Uint8Array(0)); }
+  override requestDataRange(begin: number, end: number): void {
+    void this.read(begin, end - begin).then((chunk) => { if (chunk) this.onDataRange(begin, chunk); });
+  }
+}
+
+/** One worker for every card's first page, made when the first one is drawn: a PDF viewer opened
+ *  beside them keeps its own. */
+let cardWorker: PDFWorker | null = null;
+
+/**
+ * A PDF's first page as a picture `width` CSS pixels wide, for a card, as a data: URL. The file is
+ * read in the pieces pdf.js asks for — its cross-reference at the end, then the first page's objects
+ * — and never fetched whole (`disableAutoFetch`), so a large scan costs only the reads its first page
+ * needs. Null for a file that does not open, or asks for a password.
+ */
+export async function firstPagePicture(length: number, read: (start: number, length: number) => Promise<Uint8Array | null>,
+  width: number): Promise<string | null> {
+  cardWorker ??= new PDFWorker();
+  const task = getDocument({
+    range: new ReadTransport(length, read), rangeChunkSize: RANGE_CHUNK, disableAutoFetch: true, disableStream: true,
+    worker: cardWorker, cMapUrl: assets("cmaps"), cMapPacked: true, standardFontDataUrl: assets("standard_fonts"),
+    wasmUrl: assets("wasm"), iccUrl: assets("iccs"), useWorkerFetch: true, enableXfa: false,
+  });
+  task.onPassword = () => { void task.destroy(); };
+  try {
+    const doc = await task.promise;
+    const page = await doc.getPage(1);
+    const vp = page.getViewport({ scale: 1 });
+    const canvas = document.createElement("canvas");
+    const scaled = page.getViewport({ scale: (width * (window.devicePixelRatio || 1)) / vp.width });
+    canvas.width = Math.floor(scaled.width);
+    canvas.height = Math.floor(scaled.height);
+    await page.render({ canvas, viewport: scaled }).promise;
+    // A data: URL, as every thumbnail is: the page's `img-src` admits no blob:.
+    return canvas.toDataURL("image/png");
+  } catch {
+    return null;
+  } finally {
+    void task.destroy();
+  }
 }
 
 function openError(e: unknown): PdfOpenError {

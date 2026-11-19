@@ -6878,6 +6878,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .plan-account,
 :root[data-squircle] .machine-route,
 :root[data-squircle] .sim-device,
+:root[data-squircle] .docs-card,
 :root[data-squircle] .market-card {
   border-radius: calc(var(--r-squircle-card) / 2);
   background: paint(rl-squircle);
@@ -6913,6 +6914,14 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .settings-link-row:hover { --sq-fill: var(--rl-card-hover); }
 :root[data-squircle] .library-tile:hover { --sq-fill: var(--rl-tile-hover); }
 :root[data-squircle] .library-tile:is([data-pressed], :active:focus-visible) { --sq-fill: var(--rl-tile-press); }
+/* The documents grid's card: its face painted, the sheen laid over it, and its edge and lift kept
+   (design.md, "A file's card on the documents grid"). The box-shadows follow the half-curve circle the
+   painted card keeps, as every card's lift does. */
+:root[data-squircle] .docs-card { --sq-fill: var(--doc-card-fill); background: var(--doc-card-sheen), paint(rl-squircle);
+  box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
+:root[data-squircle] .docs-card:hover { --sq-fill: var(--doc-card-fill-hover); box-shadow: var(--doc-card-edge), var(--doc-card-lift-hover); }
+:root[data-squircle] .docs-card:is([data-pressed], :active:focus-visible) { --sq-fill: var(--doc-card-fill-press); box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
+:root[data-squircle] .docs-card:focus-visible { outline: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px; }
 /* The marketplace's card is a well the page is cut into, not a card standing on it: the curve, with
    no lift. */
 :root[data-squircle] .market-card { --sq-fill: var(--rl-frame); box-shadow: none; }
@@ -10082,6 +10091,80 @@ span.documents-name:hover { background: none; }
 .docs-home-attach[aria-pressed="true"] { color: var(--rl-accent); }
 .docs-home-note { margin: 0; padding: 2px 8px 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 .docs-home-more { margin: 2px 0 0 4px; }
+/* The home's view: rows or cards, beside the search. Icon-only segments, as the Library's are. */
+.docs-home-view { flex: none; }
+/* A side pane is about 320px, where the search, the view, New and the folder on one line left the
+   search a letter wide. There the search takes the head's first line and the controls the next,
+   the view at its start and New and the folder at its end. */
+.docs-home { container: docs-home / inline-size; }
+@container docs-home (max-width: 400px) {
+  .docs-home-head { flex-wrap: wrap; row-gap: 8px; }
+  .docs-home-search { flex-basis: 100%; }
+  .docs-home-view { margin-right: auto; }
+}
+.docs-home-view .seg-opt { display: grid; place-items: center; width: 30px; height: 26px; padding: 0; }
+/* The grid: equal columns that reflow 12px apart, from two in a side pane to as many as a wide one
+   holds. Every card is one height — the preview's ratio and a name held to two lines — so a row of
+   them lines up whatever the names are. `CARD_MIN` and `CARD_GAP` in DocumentsHome.tsx are these
+   two numbers, for the fold. */
+.docs-cards { flex: none; list-style: none; margin: 0; padding: 2px 0 4px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
+/* A card off screen is not laid out, and one whose preview arrives lays out only itself: the scroller's
+   edge reads its height on every scroll event, and while previews were landing each read laid out the
+   whole grid again (measured: 800ms over one scroll of 135 cards at 634px, p95 42ms a frame). */
+.docs-card-cell { position: relative; display: flex; min-width: 0; content-visibility: auto; contain-intrinsic-size: auto 182px; }
+/* The card: Stow's light glass card, translated (tokens.css, --doc-card-*). The pointer lifts it a
+   point and deepens its shadow; a press sets it back down a rung deeper, a fill rather than a size,
+   as every press in Realm is. The face changes at once; the lift and the shadow move. */
+.docs-card {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: var(--doc-card-inset) var(--doc-card-inset) 10px;
+  border: none; text-align: left; font: inherit; color: var(--rl-text-bright);
+  border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--doc-card-sheen), var(--doc-card-fill); box-shadow: var(--doc-card-edge), var(--doc-card-lift);
+  transition: translate var(--dur-move) var(--spring-smooth), box-shadow var(--dur-hover) ease;
+}
+.docs-card:hover { background: var(--doc-card-sheen), var(--doc-card-fill-hover); translate: 0 -1px; box-shadow: var(--doc-card-edge), var(--doc-card-lift-hover); }
+.docs-card:is([data-pressed], :active:focus-visible) { background: var(--doc-card-sheen), var(--doc-card-fill-press); translate: none; box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
+.docs-card:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
+/* The preview: the card's corner less the inset, so the two curves are concentric. A picture fills
+   it cut to cover and anchored to its top, where a page names itself; it wears the picture outline. */
+.docs-card-preview {
+  position: relative; flex: none; display: grid; place-items: center; aspect-ratio: 4 / 3; overflow: hidden; contain: strict;
+  border-radius: calc(var(--r-squircle-card) - var(--doc-card-inset)); corner-shape: squircle;
+  background: var(--stripe); color: var(--rl-text-dim);
+}
+.docs-card-preview > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.docs-card-preview[data-shows="picture"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; corner-shape: squircle;
+  box-shadow: inset 0 0 0 var(--hairline-w) var(--picture-outline); pointer-events: none; }
+.docs-card-preview[data-type="document"], .docs-card-preview[data-type="video"], .docs-card-preview[data-type="audio"] { color: var(--rl-accent); }
+.docs-card-preview[data-type="image"] { color: var(--rl-success); }
+.docs-card-preview[data-type="data"] { color: var(--orange); }
+.docs-card-preview[data-type="code"] { color: var(--rl-text-bright); }
+/* The top of the file as it reads, drawn small: a page seen from across the desk, not text to read
+   here, so it is zoomed out as a whole rather than set in a size off the ladder. */
+.docs-card-page {
+  position: absolute; inset: 0; overflow: hidden; padding: 12px 14px; zoom: 0.5; color: var(--rl-text-bright);
+  font-size: 13px; line-height: 18px; pointer-events: none; user-select: none;
+}
+.docs-card-page.md > :first-child { margin-top: 0; }
+.docs-card-source { white-space: pre; font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-dim); }
+.docs-card-source { letter-spacing: normal; }
+.docs-card-name {
+  flex: none; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+  min-height: calc(2 * 18px); padding: 0 4px; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium);
+}
+.docs-card-name mark { background: transparent; color: inherit; font-weight: var(--fw-strong); }
+.docs-card-line { flex: none; display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.docs-card-detail { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docs-card-time { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
+/* The card's "add to the next message" sits over the preview's corner, shown on the pointer or the
+   keyboard as the row's is, on the preview's own ground so it reads over a picture. */
+.docs-card-cell > .docs-home-attach { top: calc(var(--doc-card-inset) + 4px); right: calc(var(--doc-card-inset) + 4px); translate: none;
+  background: color-mix(in srgb, var(--surface) 86%, transparent); }
+.docs-card-cell:is(:hover, :focus-within) > .docs-home-attach { opacity: 1; transition-duration: 0s; }
+@media (prefers-reduced-motion: reduce) {
+  .docs-card:hover { translate: none; }
+}
 .new-doc-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
 /* "Code file…": a name, the languages that set its extension, and what the name will open as. */
 .code-file-prompt { width: 300px; max-width: calc(100vw - 24px); padding: 6px; }
