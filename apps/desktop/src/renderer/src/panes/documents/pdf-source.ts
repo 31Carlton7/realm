@@ -138,8 +138,16 @@ export async function firstPagePicture(length: number, read: (start: number, len
     canvas.width = Math.floor(scaled.width);
     canvas.height = Math.floor(scaled.height);
     await until(page.render({ canvas, viewport: scaled }).promise);
-    // A data: URL, as every thumbnail is: the page's `img-src` admits no blob:.
-    return canvas.toDataURL("image/png");
+    // Encoded off the main thread (`toBlob`; `toDataURL` encodes in the frame, about 20ms for a scanned
+    // page), then read as a data: URL, as every thumbnail is: the page's `img-src` admits no blob:.
+    const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, "image/png"));
+    if (!blob) return null;
+    return await new Promise<string | null>((done) => {
+      const reader = new FileReader();
+      reader.onload = () => done(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => done(null);
+      reader.readAsDataURL(blob);
+    });
   } catch {
     return null;
   } finally {
