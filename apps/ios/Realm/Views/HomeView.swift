@@ -44,6 +44,9 @@ struct HomeView: View {
             if let matches, let home {
                 SearchHitsSection(found: matches, home: home)
             } else if let listing {
+                if !listing.isFiltered, let home {
+                    TeamRow(teammates: TeamListing.row(team, in: home, choice: choice))
+                }
                 ForEach(listing.elsewhere) { waiting in
                     ElsewhereRow(waiting: waiting)
                 }
@@ -89,7 +92,7 @@ struct HomeView: View {
                 if filter == .all, !listing.isFiltered, let home {
                     let archived = TeamListing.teammates(model.work.archivedTeammates, in: home, choice: choice)
                     if !team.isEmpty || !archived.isEmpty {
-                        TeamSection(teammates: team, spaces: TeamListing.spaces(of: team, in: home), archived: archived)
+                        TeamSection(count: team.count, spaceId: (team.first ?? archived.first)?.spaceId, archived: archived)
                     }
                 }
                 ForEach(filter == .all ? listing.sections : []) { section in
