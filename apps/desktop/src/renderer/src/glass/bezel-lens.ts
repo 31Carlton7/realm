@@ -14,8 +14,11 @@ export type BezelShape = {
   /** The box, in CSS px. */
   width: number;
   height: number;
-  /** Its corner, in CSS px (a circular `border-radius`). */
+  /** Its corner, in CSS px. */
   radius: number;
+  /** The corner's superellipse exponent: 2 is a circle, a control's chosen segment is `--sq-n-ctl`. A
+   *  bend traced on a circle under a squircle's edge lifts off the rim at every corner. */
+  n?: number;
   /** How far in from the rim the glass curves, in CSS px. */
   bezel: number;
 };
@@ -34,20 +37,23 @@ export function bezelField(shape: BezelShape, cols: number, rows: number): Uint8
   const halfH = shape.height / 2;
   const radius = Math.max(0, Math.min(shape.radius, halfW, halfH));
   const bezel = Math.max(1, Math.min(shape.bezel, halfW, halfH));
+  const n = shape.n ?? 2;
   const stepX = shape.width / cols;
   const stepY = shape.height / rows;
   for (let row = 0; row < rows; row++) {
     const y = (row + 0.5) * stepY - halfH;
     for (let col = 0; col < cols; col++) {
       const x = (col + 0.5) * stepX - halfW;
-      // Distance in from the rounded rect's edge, and the edge's outward normal there.
+      // Distance in from the rounded rect's edge, and the edge's outward normal there. In a corner the
+      // superellipse's own norm stands in for the distance, which is exact on both axes and a circle's
+      // at n = 2, and the normal is its gradient.
       const qx = Math.abs(x) - (halfW - radius);
       const qy = Math.abs(y) - (halfH - radius);
       let inside: number, nx: number, ny: number;
       if (qx > 0 && qy > 0) {
-        const len = Math.hypot(qx, qy);
-        inside = radius - len;
-        nx = qx / len; ny = qy / len;
+        inside = radius - (qx ** n + qy ** n) ** (1 / n);
+        const gx = qx ** (n - 1), gy = qy ** (n - 1), len = Math.hypot(gx, gy);
+        nx = gx / len; ny = gy / len;
       } else if (qx > qy) {
         inside = radius - qx; nx = 1; ny = 0;
       } else {

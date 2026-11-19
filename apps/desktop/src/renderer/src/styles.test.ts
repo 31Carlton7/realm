@@ -146,9 +146,8 @@ describe("the prompter's squircle edge", () => {
     // Glass: the lens covers the face, so the edge is the glass's own rim, cut on the same curve.
     expect(bodiesFor(":root[data-squircle] .composer-glass").join(" ")).toContain("border-radius: var(--r-squircle); corner-shape: squircle;");
     const rim = RULES.find((r) => r.selectors.some((s) => s.startsWith(":root[data-glass] :is(.composer-glass,") && s.endsWith("::before")))!;
-    expect(rim.body).toContain("border-radius: inherit;");
+    expect(rim.body).toContain("border-radius: inherit; corner-shape: inherit;");
     expect(rim.body).toContain("background: var(--glass-specular);");
-    expect(bodiesFor(":root[data-glass] .composer-glass::before").join(" ")).toContain("corner-shape: inherit;");
   });
 
   it("never puts the prompter back on a round corner", () => {
@@ -5658,7 +5657,67 @@ describe("one squircle ladder (the owner, 11-17)", () => {
     const fixed = RULES.filter((r) => /corner-shape: squircle/.test(r.body) && /border-radius: var\(--r-(ctl|chip)\)/.test(r.body))
       .flatMap(partsOf);
     expect(fixed).not.toContain(".documents-tab");
-    expect(fixed.length).toBeLessThanOrEqual(70);
+    expect(fixed.length).toBeLessThanOrEqual(63);
+  });
+});
+
+/* A segmented control's chosen segment read as a small plain rounded rect in Glass: a 10px corner on the
+   surfaces' curve inside a 13px track two pixels away, its rim traced on a circle round it (the owner,
+   11-19: "fix the corners on a lot of these glass elements and selectors"). A track is a control, so it
+   takes its height times the control ratio on the control's curve, and the segment takes the track's
+   corner less the gap between them. */
+describe("segmented controls", () => {
+  const TRACKS = [".seg", ".settings-tabs", ".mp-seg", ".documents-modes", ".mp-account-well"];
+  const SEGMENTS = [".seg-opt", ".settings-tab", ".mp-seg-opt", ".documents-modes button", ".mp-account-row"];
+  const TRACK_R = "border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);";
+  const SEGMENT_R = "border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl);";
+  /** The segment a selector lights: its state stripped, then the whole selector or its last compound. */
+  const segmentOf = (sel: string) => {
+    const bare = sel.replace(/\[[^\]]*\]|:[\w-]+(\([^)]*\))?/g, "").trim();
+    return SEGMENTS.find((s) => s === bare || s === bare.split(/[ >]+/).at(-1));
+  };
+
+  it("draws the control curve from tokens: log2 of the painter's exponent, and one gap", () => {
+    expect(tokensCss).toContain("--corner-ctl: superellipse(log(var(--sq-n-ctl), 2));");
+    expect(tokensCss).toContain("--seg-pad: 2px;");
+  });
+
+  it("puts every track on the control rung, at a height it states", () => {
+    for (const sel of TRACKS) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toMatch(/--seg-h: \d+px;/);
+      expect(body, sel).toContain(TRACK_R);
+      expect(body, sel).toMatch(/padding: var\(--seg-pad\)/);
+    }
+    // The account well grows when it opens; every other track is one row, and holds the height its
+    // corner is worked out from.
+    for (const sel of TRACKS.filter((t) => t !== ".mp-account-well")) expect(bodiesFor(sel).join(" "), sel).toContain("height: var(--seg-h);");
+  });
+
+  it("cuts every segment concentric with its track, and nothing redraws that corner", () => {
+    for (const sel of SEGMENTS) expect(bodiesFor(sel).join(" "), sel).toContain(SEGMENT_R);
+    // A state or a variant may change the fill, never the corner, and an option's height comes from
+    // its track. The settings rail's tabs reuse the class as navigation, off any track.
+    const redraw = RULES.flatMap((r) => partsOf(r).filter((s) => !SEGMENTS.includes(s) && !s.includes(".page-rail") && segmentOf(s))
+      .map((s) => ({ s, body: r.body })))
+      .filter(({ body }) => /border-radius|corner-shape|(^|[ ;])height:/.test(body));
+    expect(redraw.map(({ s }) => s)).toEqual([]);
+  });
+
+  it("lets no glass segment, glass ring or chosen row leave the curve", () => {
+    // Every chosen segment Glass draws is one of the segments above, so a new one cannot take a corner
+    // of its own; and the bead is cut by its own border box, the only thing that shapes a backdrop blur.
+    const bead = RULES.find((r) => r.body.includes("--glass-bezel: var(--glass-control-bezel); --glass-bend: var(--glass-control-bend); --glass-frost-px: var(--glass-control-blur)"))!;
+    const lit = /^:root\[data-glass\] :is\((.*)\)$/.exec(partsOf(bead)[0]!)![1]!;
+    for (const sel of splitSelectors(lit).map((s) => s.trim())) expect(segmentOf(sel), sel).toBeDefined();
+    expect(bead.body).not.toMatch(/mask|clip-path/);
+    // A ring of the specular light traces its box's curve, not a circle of its radius.
+    const rings = RULES.filter((r) => r.body.includes("var(--glass-specular)") && r.body.includes("border-radius: inherit"));
+    expect(rings.length).toBeGreaterThanOrEqual(2);
+    for (const r of rings) expect(r.body, partsOf(r).join(", ")).toContain("border-radius: inherit; corner-shape: inherit;");
+    // The pickers' rows are controls on the control curve too.
+    for (const sel of [".mp-row", ".mention-row", ".mp-bolt"])
+      expect(bodiesFor(sel).join(" "), sel).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);");
   });
 });
 

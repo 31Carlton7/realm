@@ -508,6 +508,14 @@ a {
    * 3, not 2. Two is a circle, and a circle at this ratio is a pill — the shape --r-pill means
    * something by. Three halves the distance to it and keeps a visible flat top and bottom. */
   --sq-n-ctl: 3;
+  /* The same control curve where Chromium draws the corner rather than the painter. `corner-shape:
+   * superellipse(K)` traces the exponent 2^K, so K is log2 of --sq-n-ctl, and at one radius the two land
+   * on the same device pixel at 2x (measured 11-19). A control whose corner is a backdrop blur, glass's
+   * chosen segment, takes this: only the blurring box's own border box can shape its blur. */
+  --corner-ctl: superellipse(log(var(--sq-n-ctl), 2));
+  /* The inset between a segmented control's track and its chosen segment. The segment's corner is the
+   * track's less this, so the two curves stay concentric. */
+  --seg-pad: 2px;
   --dur-drag: 80ms;   /* the drop target appearing mid-drag: fast enough not to read as motion */
   --dur-hover: 180ms; /* a fill or an ink step answering the pointer */
   --dur-press: 120ms; /* a control resolving inside the gesture that caused it — the .97 press, the switch throw */

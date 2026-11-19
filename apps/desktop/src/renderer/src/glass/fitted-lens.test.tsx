@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bendAt, bezelField } from "./bezel-lens";
-import { fitControls, fitLens, lensCache } from "./fitted-lens";
+import { cornerExponent, fitControls, fitLens, lensCache } from "./fitted-lens";
 
 /** A box jsdom can measure: its size, its corner and its lens tokens. */
 function box(width: number, height: number, { radius = 12, bezel = 16, bend = 12, frost = 10, ground = 0.95 } = {}) {
@@ -66,6 +66,24 @@ describe("the bezel's map", () => {
     expect(dx).toBeGreaterThan(0);
     expect(dy).toBeGreaterThan(0);
     expect(Math.abs(dx - dy)).toBeLessThanOrEqual(1);
+  });
+
+  it("follows a superellipse corner out to its rim, where a circle's has already curved away", () => {
+    // A chosen segment is cut on the control curve, so its bend has to reach the same corner: traced
+    // on a circle, the glass stops bending a few pixels short of the edge at every corner.
+    const sq = bezelField({ ...shape, n: 3 }, W, H);
+    expect(at(2, 2)).toEqual([0, 0]);
+    expect(sq[(2 * W + 2) * 4]! - 128).toBeGreaterThan(80); // 127 × cos 45° at the rim
+    expect(bezelField({ ...shape, n: 2 }, W, H)).toEqual(field);
+  });
+
+  it("reads the corner's exponent off the box's own corner-shape", () => {
+    const of = (shape: string) => cornerExponent({ getPropertyValue: () => shape } as unknown as CSSStyleDeclaration);
+    expect(of("superellipse(1.58496)")).toBeCloseTo(3, 4);
+    expect(of("squircle")).toBe(4);
+    expect(of("superellipse(1)")).toBe(2);
+    expect(of("round")).toBe(2);
+    expect(of("")).toBe(2);
   });
 
   it("is steep at the rim and flat where it meets the face", () => {
