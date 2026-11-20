@@ -447,6 +447,7 @@ if (part !== "settings") {
   const front = execFileSync("lsappinfo", ["front"], { encoding: "utf8" }).trim();
   if (execFileSync("lsappinfo", ["info", "-only", "bundleid", front], { encoding: "utf8" }).includes("com.apple.loginwindow")) {
     console.error("the screen is locked: unlock the Mac and run this again");
+    fs.rmSync(tools, { recursive: true, force: true });
     process.exit(75);
   }
 }
