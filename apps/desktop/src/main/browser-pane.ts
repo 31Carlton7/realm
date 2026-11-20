@@ -243,6 +243,8 @@ export function electronViewFactory(
     wc.on("did-navigate", (_e, url) => pageLoad.committed(url));
     wc.on("dom-ready", () => pageLoad.settled(wc.getURL()));
     wc.on("did-stop-loading", () => pageLoad.settled(wc.getURL()));
+    // A new tab's page can be done loading before its view is made, and the events above with it.
+    if (adopted && !wc.isLoading()) { pageLoad.committed(wc.getURL()); pageLoad.settled(wc.getURL()); }
 
     /* The page's icon. A new document drops the last one's — registered ahead of the state events, so
        the state they send already has none — and the icons it offers (Electron fires this after load,
