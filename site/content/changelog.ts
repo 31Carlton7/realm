@@ -21,6 +21,24 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-20-1",
+    title: "Realm v2.20.1",
+    date: "2026-11-20",
+    version: "v2.20.1",
+    area: "Release",
+    summary:
+      "A tab whose page closes itself now closes, and the question that offers a downloaded update no longer stops Realm or its agents' browser tools until you answer it.",
+    short: "Self-closing tabs and update prompt fixed",
+    body: [
+      { kind: "p", text: "A tab whose page closes itself now closes, and the \"update ready\" question no longer holds Realm up." },
+      { kind: "h", text: "Fixed" },
+      { kind: "ul", items: [
+        "In the browser pane, a tab whose page closes itself, as a page opened from a link may when it is done, now closes as if you had pressed its ×. Before, the tab was left on a dead page. (#559, fixes #558)",
+        "The \"Realm update ready\" question no longer stops Realm until it is answered. It is now a sheet on the Realm window you are in. When no Realm window is in front as the download finishes, it is not asked, and the restart button in the rail and in Settings > General still offers the update. Before, agents' browser tools answered \"host not answering\" for as long as the question was up, and the actions they had given up on all ran at once when it was answered. An action an agent has stopped waiting for is now never run late. (#563, fixes #562)",
+      ] },
+    ],
+  },
+  {
     slug: "v2-20-0",
     title: "Realm v2.20.0",
     date: "2026-11-20",
