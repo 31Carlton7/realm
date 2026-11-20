@@ -1,6 +1,6 @@
 import { Node as TiptapNode, getSchema } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import Image from "@tiptap/extension-image";
+import Image, { type ImageOptions } from "@tiptap/extension-image";
 import MarkdownIt, { type Token } from "markdown-it";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import { MarkdownParser, MarkdownSerializer, type MarkdownSerializerState } from "prosemirror-markdown";
@@ -42,6 +42,29 @@ export const RawBlock = TiptapNode.create({
 // paragraph — so `![alt](src)` parsed into an empty paragraph and the image was silently deleted on the
 // first edit. Caught only because a mutation run exposed the fallback path that source preservation
 // normally hides.
+/**
+ * The image node the editor draws with: `resolveSrc` maps a src to what the `<img>` loads
+ * (`documentImageSrc`), while the node keeps the src as written, so the serializer writes that back.
+ *
+ * `data-markdown-src` carries the written src through the editor's own HTML, which is what copy and
+ * paste parse; read from `src` alone, a pasted picture would save the resolved URL.
+ */
+export const DocumentImage = Image.extend<ImageOptions & { resolveSrc: (src: string) => string }>({
+  addOptions() {
+    return { ...this.parent!(), resolveSrc: (src: string) => src };
+  },
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      src: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-markdown-src") ?? el.getAttribute("src"),
+        renderHTML: (attrs) => attrs.src ? { src: this.options.resolveSrc(attrs.src as string), "data-markdown-src": attrs.src } : {},
+      },
+    };
+  },
+});
+
 /**
  * Tables are real nodes, not preserved source.
  *
