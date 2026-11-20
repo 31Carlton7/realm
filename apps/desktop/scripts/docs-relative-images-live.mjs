@@ -176,7 +176,7 @@ async function main() {
   fs.writeFileSync(note, NOTE);
   await api.call("documents.openPath", { spaceId: space.id, path: note });
 
-  const IMAGES = `[...document.querySelectorAll('.documents-rich-surface img')].map((i) => ({
+  const IMAGES = `[...document.querySelectorAll('.documents-rich-surface img:not(.ProseMirror-separator)')].map((i) => ({
     alt: i.alt, written: i.dataset.markdownSrc, src: i.getAttribute('src'), complete: i.complete, naturalWidth: i.naturalWidth }))`;
   const images = await until(async () => {
     const list = await evalIn(c, IMAGES);
