@@ -18,6 +18,9 @@
 // {"scenario":"…","reached":["keyDown:80",…],"slowestMs":2}. slowestMs is -1 when an event was removed
 // on the way, since arrivals can then no longer be matched to posts.
 //
+// "taps <pid>" answers with the event taps that process has installed, as the window server lists
+// them: {"taps":[{"options":"listenOnly","keys":true,"pointer":true}]}. It reads a list and no event.
+//
 // Build: swiftc -O -o <out> realm-keys-proof.swift     Run: <out> <tag>
 
 import ApplicationServices
@@ -176,8 +179,23 @@ let scenarios: [String: () -> Void] = [
   "Right Option and the registered key": { modifier(rightOption, optionRight); press(f19, optionRight); modifier(rightOption, none) },
 ]
 
+/// The taps `pid` has installed: whether each can swallow, and which kinds of event it takes.
+func taps(of pid: pid_t) -> String {
+  var count: UInt32 = 0
+  CGGetEventTapList(0, nil, &count)
+  var list = [CGEventTapInformation](repeating: CGEventTapInformation(), count: Int(count))
+  CGGetEventTapList(count, &list, &count)
+  let keyTypes: [CGEventType] = [.keyDown, .keyUp, .flagsChanged]
+  let pointerTypes: [CGEventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+  func takes(_ info: CGEventTapInformation, _ types: [CGEventType]) -> Bool { types.contains { info.eventsOfInterest & CGEventMask(1 << $0.rawValue) != 0 } }
+  return list.prefix(Int(count)).filter { $0.tappingProcess == pid }.map {
+    "{\"options\":\"\($0.options == .listenOnly ? "listenOnly" : "default")\",\"keys\":\(takes($0, keyTypes)),\"pointer\":\(takes($0, pointerTypes))}"
+  }.joined(separator: ",")
+}
+
 Thread.detachNewThread {
   while let scenario = readLine() {
+    if scenario.hasPrefix("taps "), let pid = pid_t(scenario.dropFirst(5)) { say("{\"taps\":[\(taps(of: pid))]}"); continue }
     guard let run = scenarios[scenario] else { say("{\"error\":\"unknown scenario\"}"); continue }
     run()
     // Until nothing more arrives: one run's events after a mouse-down came more than 150 ms late.

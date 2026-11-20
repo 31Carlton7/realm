@@ -33,18 +33,20 @@ function fakeHelper() {
 
 function setup() {
   const helpers: ReturnType<typeof fakeHelper>[] = [];
+  /** Each start, by whether main asked for a helper that can swallow. */
+  const starts: boolean[] = [];
   const doubleTaps = vi.fn();
   const watched: GlobalKeysEvent[] = [];
   const states: GlobalKeysState[] = [];
   const keys = new RealmKeys({
-    start: () => { helpers.push(fakeHelper()); return helpers.at(-1)!; },
+    start: (swallow) => { starts.push(swallow); helpers.push(fakeHelper()); return helpers.at(-1)!; },
     onDoubleTap: doubleTaps,
     onWatched: (event) => watched.push(event),
     onState: (state) => states.push(state),
   });
   const lastConfig = () => JSON.parse(helpers.at(-1)!.written.at(-1)!);
   const says = (line: string) => helpers.at(-1)!.stdout.write(`${line}\n`);
-  return { keys, helpers, doubleTaps, watched, states, lastConfig, says };
+  return { keys, helpers, starts, doubleTaps, watched, states, lastConfig, says };
 }
 
 describe("RealmKeys", () => {
@@ -68,12 +70,34 @@ describe("RealmKeys", () => {
     const { keys, helpers } = setup();
     const giveBack = keys.registerChord("L", () => {});
     expect(helpers).toHaveLength(1);
-    keys.setWatchers(1);
     giveBack();
-    expect(helpers[0]!.kill).not.toHaveBeenCalled();
-    keys.setWatchers(0);
     expect(helpers[0]!.kill).toHaveBeenCalled();
     expect(keys.state).toBe("off");
+
+    keys.setWatchers(1);
+    expect(helpers).toHaveLength(2);
+    keys.setWatchers(0);
+    expect(helpers[1]!.kill).toHaveBeenCalled();
+    expect(keys.state).toBe("off");
+  });
+
+  it("starts the helper able to swallow only while a chord is registered", () => {
+    const { keys, helpers, starts } = setup();
+    keys.setDoubleTap(true);
+    keys.setWatchers(1);
+    expect(starts).toEqual([false]);
+
+    const giveBackL = keys.registerChord("L", () => {});
+    expect(starts).toEqual([false, true]);
+    expect(helpers[0]!.kill).toHaveBeenCalled();
+    const giveBackSpace = keys.registerChord("Space", () => {});
+    giveBackL();
+    expect(starts).toEqual([false, true]);
+
+    giveBackSpace();
+    expect(starts).toEqual([false, true, false]);
+    expect(helpers[1]!.kill).toHaveBeenCalled();
+    expect(helpers[2]!.kill).not.toHaveBeenCalled();
   });
 
   it("sends the timings, the held key and only the chords somebody registered", () => {
@@ -340,6 +364,24 @@ describe.runIf(swiftc)("what the helper decides", () => {
     it("swallows the up of a key whose down it swallowed, after the held key lifts", () => {
       const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, fnUp(0.2), `up 0.3 ${KEY.l} ${NONE}`, `down 0.4 ${KEY.l} ${NONE}`]);
       expect(all.map((d) => d.swallow)).toEqual([false, true, false, true, false]);
+    });
+
+    it("swallows the repeats of a key it swallowed, after the held key lifts", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, fnUp(0.2),
+        `down 0.6 ${KEY.l} ${NONE} repeat`, `down 0.7 ${KEY.l} ${NONE} repeat`, `up 0.8 ${KEY.l} ${NONE}`, `down 0.9 ${KEY.l} ${NONE} repeat`]);
+      expect(all.map((d) => d.swallow)).toEqual([false, true, false, true, true, true, false]);
+      expect(all.flatMap((d) => d.out)).toEqual([{ t: "chord", code: KEY.l }]);
+    });
+
+    it("after the tap missed events, swallows no up it thought it was owed", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, "missed 0.2", `up 0.5 ${KEY.l} ${NONE}`, `down 0.6 ${KEY.l} ${FN}`]);
+      expect(all.map((d) => d.swallow)).toEqual([false, true, false, false]);
+    });
+
+    it("a press that passes ends what an earlier swallowed press of that key was owed", () => {
+      // The swallowed press's up never arrived. The key typed again alone is an ordinary key, up included.
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, fnUp(0.2), `down 1 ${KEY.l} ${NONE}`, `up 1.1 ${KEY.l} ${NONE}`]);
+      expect(all.map((d) => d.swallow)).toEqual([false, true, false, false, false]);
     });
 
     it("passes a registered key typed alone after a release it never saw", () => {

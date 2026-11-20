@@ -19,8 +19,14 @@
 // it, and with Input Monitoring, the tap is listen-only: the double-tap still fires and chords are
 // reported but reach the app in front. With neither, no tap is made and the helper exits 2.
 //
-// Clicks and scrolls end a double-tap (Command-click, Command-scroll). They are watched by a second,
-// listen-only tap so the active one never sits in the path of the pointer.
+// An active tap holds every key until its callback returns, so a helper that is slow to be scheduled
+// stalls typing in every app. The key tap is therefore listen-only unless main started the helper
+// with --swallow, which it does only while a chord is registered. The one exception: with
+// Accessibility and no Input Monitoring, a listen-only tap could raise the Input Monitoring prompt,
+// so the tap is active there whatever main asked.
+//
+// Clicks and scrolls end a double-tap (Command-click, Command-scroll). Beside an active key tap they
+// are watched by a second, listen-only one, so the active one never sits in the path of the pointer.
 //
 // THE TAP CALLBACK MUST NOT DO I/O (ScrollPhase.swift says what happens when it does): it decides
 // under a lock and appends to a buffer; a writer thread prints.
@@ -30,10 +36,12 @@
 // `hold` is fn, rightOption or rightCommand. Until the first line arrives nothing is reported.
 //
 //   realmkeys            the tap. Exits when stdin closes (parent gone).
+//   realmkeys --swallow  the tap, able to swallow a registered chord.
 //   realmkeys decide     no tap: reads the same config lines plus events, and prints what the tap
 //                        would do with each as {"swallow":…,"out":[…]}. Events, times in seconds:
 //                          flags <t> <keycode> <flags>     down <t> <keycode> <flags> [repeat]
 //                          up <t> <keycode> <flags>        pointer <t>
+//                          missed <t>                      the tap was paused and lost events
 //
 // For a proof run on a Mac someone is typing on (scripts/realm-keys-live.mjs):
 //   --only-tagged <n>    act only on events whose source user data is n; every other event is
@@ -143,15 +151,24 @@ struct Chords {
   /// A key event. `fired` is true once per press of a registered chord, not for its repeats.
   mutating func key(down: Bool, keycode: Int64, flags: CGEventFlags, isRepeat: Bool) -> (swallow: Bool, fired: Bool) {
     if !down { return (swallowedDown.remove(keycode) != nil, false) }
+    // Still held after the modifier lifted: its repeats belong to the chord, not to the app in front.
+    if isRepeat, swallowedDown.contains(keycode) { return (true, false) }
     // The event's own flags must agree that the modifier is held: a missed release (the tap was
     // paused) would otherwise leave every registered key swallowed while it is typed alone.
-    guard holdDown, hold.isAlone(flags), registered.contains(keycode) else { return (false, false) }
+    guard holdDown, hold.isAlone(flags), registered.contains(keycode) else {
+      // A new press that passes: an up this key was owed is no longer coming, and the next up is its own.
+      swallowedDown.remove(keycode)
+      return (false, false)
+    }
     swallowedDown.insert(keycode)
     return (true, !isRepeat)
   }
 
-  /// The tap missed events: the modifier may have lifted unseen.
-  mutating func forget() { holdDown = false }
+  /// The tap missed events: the modifier may have lifted unseen, and so may a swallowed key.
+  mutating func forget() {
+    holdDown = false
+    swallowedDown.removeAll()
+  }
 }
 
 enum Input {
@@ -215,6 +232,7 @@ if arguments.first == "decide" {
     }
     let parts = line.split(separator: " ").map(String.init)
     guard parts.count >= 2, let t = Double(parts[1]) else { print("{\"error\":\"event\"}"); continue }
+    if parts[0] == "missed" { decider.forget(); continue }
     let keycode = parts.count > 2 ? Int64(parts[2]) ?? 0 : 0
     let flags = CGEventFlags(rawValue: parts.count > 3 ? UInt64(parts[3]) ?? 0 : 0)
     let input: Input
@@ -336,7 +354,7 @@ if let seconds = argument(after: "--exit-after").flatMap({ Double($0) }) {
   DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { exit(0) }
 }
 
-if !canSwallow {
+if canListen && !(canSwallow && arguments.contains("--swallow")) {
   install(keyMask | pointerMask, options: .listenOnly)
 } else if canListen {
   install(keyMask, options: .defaultTap)
@@ -344,6 +362,7 @@ if !canSwallow {
 } else {
   install(keyMask | pointerMask, options: .defaultTap)
 }
+// What macOS allows, not which tap is installed: Settings reads it to say whether a chord could be kept back.
 print("{\"ready\":true,\"active\":\(canSwallow)}")
 fflush(stdout)
 

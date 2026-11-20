@@ -88,7 +88,13 @@ async function startProof() {
     return line;
   };
   await run("canary");
-  return { child, run, end: () => new Promise((resolve) => { child.once("exit", resolve); child.stdin.end(); }) };
+  /** The event taps `pid` has installed, as the window server lists them. */
+  const tapsOf = async (pid) => {
+    const answer = said.next((l) => l.taps || l.error);
+    child.stdin.write(`taps ${pid}\n`);
+    return (await answer).taps;
+  };
+  return { child, run, tapsOf, end: () => new Promise((resolve) => { child.once("exit", resolve); child.stdin.end(); }) };
 }
 
 /** Every process running this run's helper, by pid and parent. Names only: never a command line. */
@@ -100,15 +106,20 @@ function helpersRunning() {
 /* ── taps: the helper alone ───────────────────────────────────────────────────────────────── */
 
 /** One helper, one proof tool, a config, and scenarios with what each must do. */
-async function tapsRun(title, steps) {
-  const child = spawn(helper, ["--only-tagged", String(tag), "--exit-after", "18"], { stdio: ["pipe", "pipe", "inherit"] });
+async function tapsRun(title, steps, { swallow = false } = {}) {
+  const child = spawn(helper, [...(swallow ? ["--swallow"] : []), "--only-tagged", String(tag), "--exit-after", "18"], { stdio: ["pipe", "pipe", "inherit"] });
   const said = lines(child);
   const ready = await said.next((l) => l.ready);
   const proofTool = await startProof();
   const standDown = watchdog(child, proofTool.child);
-  console.log(`\n${title} (helper ${ready.active ? "active: it can swallow" : "LISTEN-ONLY: it cannot swallow"})`);
+  console.log(`\n${title} (macOS ${ready.active ? "lets this helper swallow" : "DOES NOT let this helper swallow"})`);
   try {
     for (const step of steps) {
+      if (step.installed) {
+        const installed = await proofTool.tapsOf(child.pid);
+        check(`${title}: ${step.as}`, JSON.stringify(installed) === JSON.stringify(step.installed), installed);
+        continue;
+      }
       if (step.config) { child.stdin.write(`${JSON.stringify({ doubleTap: true, maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false, ...step.config })}\n`); await sleep(100); continue; }
       const from = said.seen.length;
       const { reached, slowestMs } = await proofTool.run(step.scenario);
@@ -132,7 +143,9 @@ async function taps() {
   buildTools();
   // `reached` is how many of the posted events got past the helper: all of them, since it only
   // ever swallows a registered chord.
+  const listenOnly = [{ options: "listenOnly", keys: true, pointer: true }];
   await tapsRun("double-tap", [
+    { installed: listenOnly, as: "started for the double-tap alone, its one tap cannot hold a key" },
     { config: {} },
     { scenario: "two taps 120 ms apart", doubleTaps: 1, reached: 4 },
     { scenario: "left then right Command", doubleTaps: 1, reached: 4 },
@@ -172,6 +185,7 @@ async function taps() {
 
   const fnOnly = [`flagsChanged:${FN}`, `flagsChanged:${FN}`];
   const active = await tapsRun("chords", [
+    { installed: [{ options: "listenOnly", keys: false, pointer: true }, { options: "default", keys: true, pointer: false }], as: "started to swallow, its key tap is active and its pointer tap is not" },
     { config: {} },
     { scenario: "Fn and the registered key", as: "no chord registered: Fn and a key", reached: [fnOnly[0], `keyDown:${F19}`, `keyUp:${F19}`, fnOnly[1]] },
     { config: { chords: [F19] } },
@@ -185,8 +199,14 @@ async function taps() {
     { config: { chords: [F19], hold: "rightOption" } },
     { scenario: "Right Option and the registered key", as: "Right Option and the registered key, as the held key", chords: [F19], reached: [`flagsChanged:${RIGHT_OPTION}`, `flagsChanged:${RIGHT_OPTION}`] },
     { scenario: "Fn and the registered key", as: "Fn and the registered key, while Right Option is the held key", reached: [fnOnly[0], `keyDown:${F19}`, `keyUp:${F19}`, fnOnly[1]] },
+  ], { swallow: true });
+  check("macOS lets this helper swallow, so the swallow rows mean something", active);
+  // Without --swallow the same registered chord is reported and reaches the app: a listen-only tap.
+  await tapsRun("chords, started without --swallow", [
+    { installed: listenOnly, as: "back to no chords, its one tap cannot hold a key" },
+    { config: { chords: [F19] } },
+    { scenario: "Fn and the registered key", chords: [F19], reached: [fnOnly[0], `keyDown:${F19}`, `keyUp:${F19}`, fnOnly[1]] },
   ]);
-  check("the helper had an active tap, so the swallow rows mean something", active);
 }
 
 /* ── the built app ────────────────────────────────────────────────────────────────────────── */
@@ -212,6 +232,26 @@ async function openKeysSettings(app) {
 }
 const leaveKeysSettings = (app) => app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="general"]').click(); true`);
 
+/**
+ * A capture of `selector` (or the `closest` ancestor of it), with a margin, laid over the theme's
+ * page colour: the panes are see-through, and a capture that keeps their alpha reads as whatever a
+ * viewer puts behind it.
+ */
+async function shoot(app, file, selector, closest = null) {
+  const { clip, page: [r, g, b] } = await app.page.eval(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    const box = (${JSON.stringify(closest)} ? el.closest(${JSON.stringify(closest)}) : el).getBoundingClientRect();
+    const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--page');
+    ctx.fillRect(0, 0, 1, 1);
+    return { clip: { x: Math.round(box.left) - 24, y: Math.round(box.top) - 24, width: Math.round(box.width) + 48, height: Math.round(box.height) + 48 }, page: [...ctx.getImageData(0, 0, 1, 1).data] };
+  })()`);
+  await app.page.send("Emulation.setDefaultBackgroundColorOverride", { color: { r, g, b, a: 1 } });
+  await app.screenshot(file, clip);
+  await app.page.send("Emulation.setDefaultBackgroundColorOverride", {});
+  return file;
+}
+
 const keysState = (page) => page.eval(`window.realm.keys.state()`);
 const quickChatOpen = (page) => page.eval(`!!document.querySelector('.quick-chat')`);
 const tryRow = (page) => page.eval(`[...document.querySelectorAll('.keys-try-key')].map((el) => el.textContent)`);
@@ -230,11 +270,14 @@ async function appPart() {
       await app.page.eval(`window.realm.keys.setDoubleTap(false).then(() => window.realm.keys.setDoubleTap(true))`);
       return until(async () => ["active", "listening"].includes(await keysState(app.page)) && keysState(app.page), 5000, "the helper to say which tap it got");
     };
-    const state = await restartHelper();
-    check("on a fresh home the double-tap is on and main runs one helper", helpersRunning().length === 1, { state, helpers: helpersRunning().length });
+    // Nothing has touched the setting yet: this is main reading an unset key as on.
+    check("on a fresh home main started one helper by itself", helpersRunning().length === 1, { state: await keysState(app.page), helpers: helpersRunning().length });
+    await restartHelper();
 
     let proofTool = await startProof();
     let standDown = watchdog(proofTool.child);
+    const installed = await proofTool.tapsOf(helpersRunning()[0].pid);
+    check("the app's helper holds no active tap: nothing has registered a chord", JSON.stringify(installed) === JSON.stringify([{ options: "listenOnly", keys: true, pointer: true }]), installed);
     check("before any tap, no quick chat is open", !(await quickChatOpen(app.page)));
     await proofTool.run("two taps 500 ms apart");
     await sleep(600);
@@ -242,8 +285,9 @@ async function appPart() {
     await proofTool.run("two taps 120 ms apart");
     const opened = await until(() => quickChatOpen(app.page), 5000, "the quick chat").then(() => true, () => false);
     check("a double-tap of Command opens the quick chat", opened);
-    check("the window was brought forward for it", await app.main.eval(`require("electron").BrowserWindow.getAllWindows()[0].isFocused()`));
-    await app.screenshot(path.join(out, "app-quick-chat-after-double-tap.png"));
+    check("main brought its window forward for it (quiet mode's record of focus; nothing is raised on screen)", await app.main.eval(`require("electron").BrowserWindow.getAllWindows()[0].isFocused()`));
+    // The quick chat alone: the prompter behind it names this Mac, which carries its owner's name.
+    await shoot(app, path.join(out, "app-quick-chat-after-double-tap.png"), ".quick-chat");
     await proofTool.end();
     standDown();
 
@@ -263,7 +307,7 @@ async function appPart() {
     check("with the setting off, Settings' Try it still shows the double-tap", shown[0] === "⌘⌘Seen", shown);
     await sleep(600);
     check("with the setting off, the double-tap opens nothing", !(await quickChatOpen(app.page)));
-    await app.screenshot(path.join(out, "app-settings-try-it-after-double-tap.png"));
+    await shoot(app, path.join(out, "app-settings-try-it-after-double-tap.png"), '[data-setting="double-tap-command"]', ".field");
     await proofTool.end();
     standDown();
 
@@ -357,10 +401,7 @@ async function settingsPart() {
         for (const mode of ["dark", "light"]) {
           await app.page.eval(`document.documentElement.dataset.mode = ${JSON.stringify(mode)}; true`);
           await sleep(350);
-          const clip = await app.page.eval(`(() => {
-            const field = document.querySelector('[data-setting="double-tap-command"]').closest('.field').getBoundingClientRect();
-            return { x: Math.round(field.left) - 24, y: Math.round(field.top) - 24, width: Math.round(field.width) + 48, height: Math.round(field.height) + 48 }; })()`);
-          const file = await app.screenshot(path.join(out, `settings-${s.name}-${look}-${mode}.png`), clip);
+          const file = await shoot(app, path.join(out, `settings-${s.name}-${look}-${mode}.png`), '[data-setting="double-tap-command"]', ".field");
           console.log(`SHOT ${file}`);
         }
         results.push({ name: `settings rows, ${look}, ${s.name}`, ok: true, detail: rows });

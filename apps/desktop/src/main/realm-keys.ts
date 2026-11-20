@@ -33,8 +33,9 @@ export function parseKeysLine(line: string): HelperLine | null {
 }
 
 export type RealmKeysDeps = {
-  /** Starts the helper, or null where there is none to start. */
-  start(): ChildProcessWithoutNullStreams | null;
+  /** Starts the helper, or null where there is none to start. `swallow` starts it able to keep a
+   *  chord from the app in front (`--swallow`), which puts an active tap in the path of every key. */
+  start(swallow: boolean): ChildProcessWithoutNullStreams | null;
   /** A double-tap of Command, while the setting is on. */
   onDoubleTap(): void;
   /** What a watching Settings page is shown: every double-tap, and the held key going down and up. */
@@ -49,13 +50,17 @@ export type RealmKeysDeps = {
  * Settings page showing what the keyboard sends. With none of those it is not running, and it goes
  * when main does (it quits when its stdin closes).
  *
- * A chord is swallowed only if somebody registered it here, and nothing in the app does yet.
+ * A chord is swallowed only if somebody registered it here, and nothing in the app does yet. The
+ * helper is started able to swallow only while a chord is registered, and started again when the
+ * first is registered or the last given back: an active tap holds every key in every app until the
+ * helper answers, which is not worth paying for a double-tap alone.
  *
  * A helper that stopped is not restarted by its own exit: one that macOS refused would only be
  * refused again. The next change of what is needed, or `recheck`, starts it.
  */
 export class RealmKeys {
   private child: ChildProcessWithoutNullStreams | null = null;
+  private childSwallows = false;
   private current: GlobalKeysState = "off";
   private doubleTap = false;
   private hold: HoldKey = HOLD_KEY_DEFAULT;
@@ -95,6 +100,7 @@ export class RealmKeys {
 
   private sync(): void {
     if (!this.doubleTap && this.watchers === 0 && this.chords.size === 0) { this.stop(); return; }
+    if (this.child && this.childSwallows !== this.chords.size > 0) this.end();
     if (!this.child) this.begin();
     this.child?.stdin.write(`${JSON.stringify({
       // A watching page is shown a double-tap whether or not the setting acts on it.
@@ -109,7 +115,8 @@ export class RealmKeys {
 
   private begin(): void {
     let child: ChildProcessWithoutNullStreams | null = null;
-    try { child = this.deps.start(); } catch (e) { console.warn("[realmkeys] failed to spawn:", (e as Error).message); }
+    this.childSwallows = this.chords.size > 0;
+    try { child = this.deps.start(this.childSwallows); } catch (e) { console.warn("[realmkeys] failed to spawn:", (e as Error).message); }
     if (!child) { this.set("missing"); return; }
     this.child = child;
     this.set("starting");

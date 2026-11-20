@@ -24,8 +24,8 @@ export const HOLD_KEY_LABEL: Record<HoldKey, string> = { fn: "Fn", rightOption: 
  * What the helper is doing.
  *  - `off`: nothing needs it, so it is not running.
  *  - `starting`: started, and it has not said which tap it got.
- *  - `active`: it sees the keys and can keep a chord from the app in front (Accessibility).
- *  - `listening`: it sees the keys and cannot keep any back (Input Monitoring only).
+ *  - `active`: it sees the keys, and macOS would let it keep a chord from the app in front (Accessibility).
+ *  - `listening`: it sees the keys, and macOS would not let it keep any back (Input Monitoring only).
  *  - `denied`: macOS lets Realm see no keys outside its own windows. No tap was made, and nothing asked.
  *  - `missing`: there is no helper to run (not a Mac, or not built), or it stopped unasked.
  */

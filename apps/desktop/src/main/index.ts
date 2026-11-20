@@ -2008,9 +2008,9 @@ async function openQuickChat(): Promise<void> {
 const keysWatchers = new Set<WebContents>();
 const tellKeysWatchers = (channel: string, value: unknown) => { for (const contents of keysWatchers) if (!contents.isDestroyed()) contents.send(channel, value); };
 const realmKeys = new RealmKeys({
-  start: () => {
+  start: (swallow) => {
     const bin = realmKeysPath();
-    return bin ? spawn(bin, [], { stdio: ["pipe", "pipe", "pipe"] }) : null;
+    return bin ? spawn(bin, swallow ? ["--swallow"] : [], { stdio: ["pipe", "pipe", "pipe"] }) : null;
   },
   onDoubleTap: () => void openQuickChat(),
   onWatched: (event) => tellKeysWatchers("keys:event", event),
