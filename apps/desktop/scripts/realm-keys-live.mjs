@@ -246,6 +246,10 @@ async function shoot(app, file, selector, closest = null) {
     ctx.fillRect(0, 0, 1, 1);
     return { clip: { x: Math.round(box.left) - 24, y: Math.round(box.top) - 24, width: Math.round(box.width) + 48, height: Math.round(box.height) + 48 }, page: [...ctx.getImageData(0, 0, 1, 1).data] };
   })()`);
+  // No tooltip in the picture: one for whatever holds focus or the pointer lies over the row beside it.
+  await app.page.eval(`document.activeElement?.blur(); true`);
+  await app.page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+  await sleep(400);
   await app.page.send("Emulation.setDefaultBackgroundColorOverride", { color: { r, g, b, a: 1 } });
   await app.screenshot(file, clip);
   await app.page.send("Emulation.setDefaultBackgroundColorOverride", {});
