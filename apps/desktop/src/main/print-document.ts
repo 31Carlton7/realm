@@ -76,6 +76,41 @@ function highlight(code: string, grammar: string | null): string {
   }
 }
 
+/** The columns a line of code starts at, with a tab to the next stop of 8, as the page sets tabs. */
+function indentOf(line: string): number {
+  let column = 0;
+  for (const ch of line) {
+    if (ch === " ") column += 1;
+    else if (ch === "\t") column += 8 - (column % 8);
+    else break;
+  }
+  return column;
+}
+
+/** Highlighted code cut into one block per source line, each carrying its own indent, so a line too
+ *  long for the page wraps under itself instead of back at the margin, where it would read as a new
+ *  line. A token that runs across lines (a block comment, a long string) is closed at the end of each
+ *  line and opened again at the start of the next. */
+function codeLines(source: string, html: string): string {
+  const sourceLines = source.split("\n");
+  const htmlLines = html.split("\n");
+  if (source.endsWith("\n")) {
+    sourceLines.pop();
+    htmlLines.pop();
+  }
+  const open: string[] = [];
+  return htmlLines
+    .map((line, i) => {
+      const reopened = open.join("");
+      for (const [tag] of line.matchAll(/<span[^>]*>|<\/span>/g)) {
+        if (tag === "</span>") open.pop();
+        else open.push(tag);
+      }
+      return `<span class="line" style="--indent: ${indentOf(sourceLines[i] ?? "")}ch">${reopened}${line}${"</span>".repeat(open.length)}\n</span>`;
+    })
+    .join("");
+}
+
 /** The words of a heading, without its Markdown. */
 function plainText(tokens: Token[]): string {
   return tokens.map((t) => ("tokens" in t && t.tokens ? plainText(t.tokens) : "text" in t ? t.text : "")).join("");
@@ -101,7 +136,7 @@ function markdownPage(images: Map<string, string>): Marked {
       },
       code({ text: source, lang }) {
         const name = (lang ?? "").trim().split(/\s+/)[0] ?? "";
-        return `<pre><code class="hljs">${highlight(source, grammarFor(name))}</code></pre>\n`;
+        return `<pre><code class="hljs">${codeLines(source, highlight(source, grammarFor(name)))}</code></pre>\n`;
       },
     },
   });
@@ -140,8 +175,14 @@ function sheetBody(text: string, path: string): string {
   const parsed = Papa.parse<string[]>(text, { delimiter: path.toLowerCase().endsWith(".tsv") ? "\t" : ",", skipEmptyLines: "greedy" });
   const [header = [], ...rows] = parsed.data;
   const width = Math.max(header.length, ...rows.map((r) => r.length));
-  const cell = (tag: "th" | "td", value = "") => `<${tag}${tag === "td" && NUMERIC.test(value.trim()) ? ' class="num"' : ""}>${esc(value)}</${tag}>`;
-  const row = (tag: "th" | "td", cells: string[]) => `<tr>${Array.from({ length: width }, (_, i) => cell(tag, cells[i])).join("")}</tr>`;
+  // A column of numbers right-aligns its header too, so the name sits over the figures' edge.
+  const numberColumn = Array.from({ length: width }, (_, i) => {
+    const filled = rows.map((r) => (r[i] ?? "").trim()).filter(Boolean);
+    return filled.length > 0 && filled.every((value) => NUMERIC.test(value));
+  });
+  const isNumber = (tag: "th" | "td", value: string, i: number) => (tag === "th" ? numberColumn[i] : NUMERIC.test(value.trim()));
+  const cell = (tag: "th" | "td", i: number, value = "") => `<${tag}${isNumber(tag, value, i) ? ' class="num"' : ""}>${esc(value)}</${tag}>`;
+  const row = (tag: "th" | "td", cells: string[]) => `<tr>${Array.from({ length: width }, (_, i) => cell(tag, i, cells[i])).join("")}</tr>`;
   return `<table class="sheet"><thead>${row("th", header)}</thead><tbody>${rows.map((r) => row("td", r)).join("\n")}</tbody></table>`;
 }
 
@@ -176,7 +217,7 @@ export async function buildPrintDocument({ path, text, readImage }: { path: stri
   } else if (kind === "sheet") {
     body = `<h1 class="file-name">${esc(name)}</h1>\n${sheetBody(text, path)}`;
   } else {
-    body = `<h1 class="file-name">${esc(name)}</h1>\n<pre class="file"><code class="hljs">${highlight(text, grammarForPath(path))}</code></pre>`;
+    body = `<h1 class="file-name">${esc(name)}</h1>\n<pre class="file"><code class="hljs">${codeLines(text, highlight(text, grammarForPath(path)))}</code></pre>`;
   }
   const html = [
     "<!doctype html>",

@@ -78,6 +78,9 @@ pre {
   break-inside: avoid;
 }
 pre code { font: inherit; background: none; padding: 0; border-radius: 0; }
+/* A wrapped line hangs two indent steps in from its own start, never back at the margin, so a wrap
+   does not read as a new line of code. */
+pre .line { display: block; padding-left: calc(var(--indent) + 8ch); text-indent: calc(-1 * (var(--indent) + 8ch)); }
 pre.raw-html { color: var(--ink-2); }
 /* A file printed whole runs as long as it is, so it breaks between lines wherever the page ends. */
 pre.file { background: none; padding: 0; border-radius: 0; break-inside: auto; }
@@ -89,7 +92,7 @@ tr { break-inside: avoid; }
 th, td { padding: 4pt 8pt 4pt 0; border-bottom: 0.5pt solid var(--rule); text-align: left; vertical-align: top; }
 th { font-weight: 600; border-bottom-color: var(--ink-3); }
 th[align="center"], td[align="center"] { text-align: center; }
-th[align="right"], td[align="right"], td.num { text-align: right; }
+th[align="right"], td[align="right"], .num { text-align: right; }
 td.num { font-variant-numeric: tabular-nums; }
 table.sheet { font-size: 8.5pt; }
 

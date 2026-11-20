@@ -75,6 +75,7 @@ describe("the page a document prints as", () => {
   it("highlights fenced code in the page itself", async () => {
     const body = bodyOf((await build("/w/a.md", "```ts\nconst a = 1;\n```")).html);
     expect(body.querySelector("pre code.hljs .hljs-keyword")?.textContent).toBe("const");
+    expect(body.querySelectorAll("pre .line").length).toBe(1);
   });
 });
 
@@ -92,7 +93,23 @@ describe("the page a code file prints as", () => {
   it("leaves a file whose language is not registered uncoloured, and escaped", async () => {
     const body = bodyOf((await build("/w/notes.txt", "<script>x</script>")).html);
     expect(body.querySelector("script")).toBeNull();
-    expect(body.querySelector("pre.file")?.innerHTML).toBe('<code class="hljs">&lt;script&gt;x&lt;/script&gt;</code>');
+    expect(body.querySelector("pre.file")?.innerHTML).toBe('<code class="hljs"><span class="line" style="--indent: 0ch">&lt;script&gt;x&lt;/script&gt;\n</span></code>');
+  });
+
+  /* The mutant: a long line wrapping back to the margin, where it reads as a new line of code. */
+  it("sets each line as its own block that knows its indent, so a wrap hangs under it", async () => {
+    const long = `${"        "}return ${"x + ".repeat(30)}1`;
+    const body = bodyOf((await build("/w/deep.py", `def f():\n    if x:\n\tpass\n${long}\n\n`)).html);
+    const lines = Array.from(body.querySelectorAll("pre.file .line")) as HTMLElement[];
+    expect(lines.map((l) => l.style.getPropertyValue("--indent"))).toEqual(["0ch", "4ch", "8ch", "8ch", "0ch"]);
+    expect(lines[3]?.textContent).toBe(`${long}\n`);
+    expect(body.querySelector("pre.file")?.textContent).toBe(`def f():\n    if x:\n\tpass\n${long}\n\n`);
+  });
+
+  it("closes a token that runs across lines at each line's end and opens it again on the next", async () => {
+    const body = bodyOf((await build("/w/a.ts", "/* one\n   two */\nconst a = 1;\n")).html);
+    const lines = Array.from(body.querySelectorAll("pre.file .line"));
+    expect(lines.map((l) => l.querySelector(".hljs-comment")?.textContent)).toEqual(["/* one", "   two */", undefined]);
   });
 });
 
@@ -103,6 +120,7 @@ describe("the page a sheet prints as", () => {
     const rows = Array.from(body.querySelectorAll("tbody tr")).map((tr) => Array.from(tr.children).map((td) => td.textContent));
     expect(rows).toEqual([["West", "1,200", "<b>x</b>"], ["East", "950", ""]]);
     expect(Array.from(body.querySelectorAll("td.num")).map((td) => td.textContent)).toEqual(["1,200", "950"]);
+    expect(Array.from(body.querySelectorAll("thead th.num")).map((th) => th.textContent)).toEqual(["Revenue"]);
     expect(body.querySelector("tbody b")).toBeNull();
   });
 
