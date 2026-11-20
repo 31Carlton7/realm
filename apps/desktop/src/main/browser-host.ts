@@ -650,6 +650,10 @@ export type ViewHandle = {
   reclaim(): void;
   /** Whether the page has the keyboard; once it has gone, whether it had it last. */
   hasKeyboard(): boolean;
+  isAudioMuted(): boolean;
+  setAudioMuted(muted: boolean): void;
+  /** The page's renderer process, or null once the page has gone. */
+  getOSProcessId(): number | null;
   /** Closes the view's popups with it. */
   destroy(): void;
 };
@@ -701,6 +705,9 @@ export type ViewFactory = (id: string, hooks: ViewHooks, partition: string, open
  * address again, as Back did on main.
  */
 export const PARKED_OPENERS = 3;
+
+/** A live page's renderer, for the resource report (`BrowserPaneHost.processes`). */
+export type PageProcess = { browserId: string; pid: number; title: string; hiddenSince: number | null };
 
 /** How long a page made for a new tab waits for the renderer to name the tab's browser (`claimTab`). */
 export const UNCLAIMED_TAB_MS = 30_000;
@@ -787,8 +794,9 @@ export class BrowserPaneHost {
      *  screen. A ⌘- or middle-click's tab waits behind and never asks for it. */
     focusWhenShown: boolean;
     /** The pages that opened the one in front with no press behind it, oldest first, each kept running
-     *  and hidden (`adoptInPlace`): Back from the front page's first entry shows the last again. */
-    behind: ViewHandle[];
+     *  and hidden (`adoptInPlace`): Back from the front page's first entry shows the last again. Each is
+     *  muted while it waits, `muted` being what it was before; `since` is when it was covered. */
+    behind: { handle: ViewHandle; muted: boolean; since: number }[];
     /** The addresses of openers closed to keep `behind` within `PARKED_OPENERS`, oldest first. */
     closedBehind: string[];
   }>();
@@ -850,6 +858,21 @@ export class BrowserPaneHost {
   visibilityOf(id: string): { visible: boolean; hiddenSince: number | null } | null {
     const v = this.views.get(id);
     return v ? { visible: v.shown, hiddenSince: v.hiddenSince } : null;
+  }
+
+  /** Each live page's renderer, under the browser it belongs to, for the resource report: the pages
+   *  waiting behind a browser's page (`adoptInPlace`) as well as the one in front. */
+  processes(): PageProcess[] {
+    const pages: PageProcess[] = [];
+    for (const [browserId, v] of this.views) {
+      for (const parked of v.behind) {
+        const pid = parked.handle.getOSProcessId();
+        if (pid !== null) pages.push({ browserId, pid, title: parked.handle.getTitle(), hiddenSince: parked.since });
+      }
+      const pid = v.handle.getOSProcessId();
+      if (pid !== null) pages.push({ browserId, pid, title: v.handle.getTitle(), hiddenSince: v.hiddenSince });
+    }
+    return pages;
   }
 
   /** The URL a discarded view will come back on, for whoever asks about its page before it does. */
@@ -994,9 +1017,11 @@ export class BrowserPaneHost {
     const url = normalizeAddress(target);
     if (!inFront || !v || !url || !originAllowed(url, v.allowlist)) { page.close(); return; }
     v.handle.setVisible(false);
-    v.behind.push(v.handle);
+    // Out of sight, a page playing sound has nothing on screen to stop it from.
+    v.behind.push({ handle: v.handle, muted: v.handle.isAudioMuted(), since: this.now() });
+    v.handle.setAudioMuted(true);
     if (v.behind.length > PARKED_OPENERS) {
-      const oldest = v.behind.shift()!;
+      const oldest = v.behind.shift()!.handle;
       v.closedBehind.push(oldest.getURL());
       oldest.destroy();
     }
@@ -1011,7 +1036,9 @@ export class BrowserPaneHost {
     const v = this.views.get(id)!;
     const front = v.handle;
     v.focusWhenShown = front.hasKeyboard();
-    v.handle = v.behind.pop()!;
+    const parked = v.behind.pop()!;
+    v.handle = parked.handle;
+    v.handle.setAudioMuted(parked.muted);
     try { front.destroy(); } catch { /* already gone with its window */ }
     v.handle.reclaim();
     this.show(id);
@@ -1040,7 +1067,7 @@ export class BrowserPaneHost {
     this.discarded.set(id, { url: v.handle.getURL(), scroll, allowlist: v.allowlist, partition: v.partition, device: v.device, host: v.host });
     this.views.delete(id);
     this.retained.delete(id);
-    for (const parked of v.behind) parked.destroy();
+    for (const parked of v.behind) parked.handle.destroy();
     // No state is sent: the pane keeps showing what it showed, and asking to show it again is what
     // brings it back (`setBounds`). A state saying "not ready" would stop it from ever asking.
     try { v.handle.destroy(); } catch { /* already gone with its window */ }
@@ -1292,7 +1319,7 @@ export class BrowserPaneHost {
     // Tolerate a view the window already tore down: on BrowserWindow "closed", Electron has destroyed
     // the children before this runs, and a second destroy throws "Object has been destroyed". The row
     // must be forgotten either way (user-hit crash, 2026-08-31).
-    for (const handle of [...v.behind, v.handle]) {
+    for (const handle of [...v.behind.map((parked) => parked.handle), v.handle]) {
       try { handle.destroy(); } catch { /* already gone with its window */ }
     }
   }

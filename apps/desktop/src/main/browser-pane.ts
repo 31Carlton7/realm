@@ -2,7 +2,7 @@ import { WebContentsView, app, nativeImage, screen, session, type BrowserWindow,
 import { FAVICON_MAX_BYTES, type BrowserLoadError, type PaneHealth } from "@realm/contracts";
 import {
   BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, UserActivation, browserUserAgent, createFaviconResolver, hostedTab, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
-  sendAsAgent, shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type ViewFactory,
+  sendAsAgent, shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type PageProcess, type ViewFactory,
 } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
 import { PAGE_BUSY, TypedSince } from "./page-busy";
@@ -378,6 +378,9 @@ export function electronViewFactory(
       },
       reclaim: () => onView?.(id, wc, view),
       hasKeyboard: () => (wc.isDestroyed() ? keyboard : wc.isFocused()),
+      isAudioMuted: () => wc.isAudioMuted(),
+      setAudioMuted: (muted) => wc.setAudioMuted(muted),
+      getOSProcessId: () => (wc.isDestroyed() ? null : wc.getOSProcessId()),
       destroy: () => {
         for (const popup of popups) if (!popup.isDestroyed()) popup.destroy();
         onView?.(id, null, view);
@@ -439,7 +442,7 @@ export type BrowserPane = {
   viewFrame(id: string): { x: number; y: number; zoom: number } | null;
   /** Each live view's renderer process, its page's title and how long it has been off screen, for the
    *  resource report (app-metrics.ts). */
-  viewProcesses(): { browserId: string; pid: number; title: string; hiddenSince: number | null }[];
+  viewProcesses(): PageProcess[];
   /** An agent typed into this view's page: kept from a discard until its next navigation. */
   markTyped(id: string): void;
 };
@@ -548,8 +551,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       return { x: b.x, y: b.y, zoom: wc.getZoomFactor() };
     },
     markTyped: (id) => { if (views.has(id)) typedSince.mark(id); },
-    viewProcesses: () => [...views].filter(([, wc]) => !wc.isDestroyed())
-      .map(([browserId, wc]) => ({ browserId, pid: wc.getOSProcessId(), title: wc.getTitle(), hiddenSince: host.visibilityOf(browserId)?.hiddenSince ?? null })),
+    viewProcesses: () => host.processes(),
     capture: async (id) => {
       host.live(id);
       const wc = views.get(id);

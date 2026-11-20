@@ -436,7 +436,7 @@ function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
     entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null,
     error: null as BrowserLoadError | null, ready: false, popups: [] as string[], scroll: { x: 0, y: 0 } as { x: number; y: number } | null,
-    keyboard: false };
+    keyboard: false, muted: false, pid: 0 as number | null };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -461,6 +461,9 @@ function fakeView() {
     scrollAfterLoad: (x, y) => calls.push(`scrollAfterLoad:${x},${y}`),
     reclaim: () => calls.push("reclaim"),
     hasKeyboard: () => nav.keyboard,
+    isAudioMuted: () => nav.muted,
+    setAudioMuted: (muted) => { nav.muted = muted; },
+    getOSProcessId: () => nav.pid,
     destroy: () => calls.push("destroy"),
   };
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
@@ -773,6 +776,50 @@ describe("BrowserPaneHost", () => {
       third.getHooks().closed();
       expect(alive(front)).toBe(true);
       expect(opener.calls).not.toContain("reclaim");
+    });
+
+    it("mutes the page waiting behind, and gives it its sound back when Back shows it again", () => {
+      // Hidden, it plays on with nothing on screen to stop it from. THE MUTANT: leave it unmuted.
+      const { host, opener, front } = openedInPlace();
+      expect(opener.nav.muted).toBe(true);
+      expect(front.nav.muted).toBe(false);
+      host.navAction("b1", "back");
+      expect(opener.nav.muted).toBe(false);
+    });
+
+    it("leaves a page that was muted before it waited muted when it comes back", () => {
+      // THE MUTANT: unmute whatever comes back, and a page Realm had muted starts making sound.
+      const made = makeHost();
+      made.host.create("b1", "https://example.com/opener", null, P);
+      const opener = made.views.get("b1")!;
+      opener.nav.muted = true;
+      opener.getHooks().adoptInPlace("https://example.com/x", { close: vi.fn() }, false);
+      made.views.get("b1")!.getHooks().closed();
+      expect(opener.calls).toContain("reclaim");
+      expect(opener.nav.muted).toBe(true);
+    });
+
+    it("counts the pages waiting behind a browser as that browser's, off screen since they were covered", () => {
+      // The resource report names renderers by these. THE MUTANT: list only the page in front, and a
+      // parked opener's renderer shows up as nobody's.
+      let now = 1_000;
+      const made = makeHost(2, { now: () => now });
+      made.host.create("b1", "https://example.com/opener", null, P);
+      made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      const opener = made.views.get("b1")!;
+      opener.nav.pid = 11; opener.nav.title = "Opener";
+      now = 2_000;
+      opener.getHooks().adoptInPlace("https://example.com/x", { close: vi.fn() }, false);
+      const front = made.views.get("b1")!;
+      front.nav.pid = 12; front.nav.title = "Child";
+      made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      expect(made.host.processes()).toEqual([
+        { browserId: "b1", pid: 11, title: "Opener", hiddenSince: 2_000 },
+        { browserId: "b1", pid: 12, title: "Child", hiddenSince: null },
+      ]);
+      // A page that has gone has no process to name.
+      front.nav.pid = null;
+      expect(made.host.processes()).toEqual([{ browserId: "b1", pid: 11, title: "Opener", hiddenSince: 2_000 }]);
     });
 
     it("keeps at most PARKED_OPENERS pages behind one pane, closing the oldest first", () => {
