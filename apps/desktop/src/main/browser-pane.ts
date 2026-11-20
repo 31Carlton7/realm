@@ -74,6 +74,9 @@ const fetchFaviconIn = (partition: string): FaviconFetch => async (url) => {
   return readCapped(res.body, FAVICON_MAX_BYTES);
 };
 
+/** Each page's `UserActivation`, for the agent's CDP binding to send its input through (`asAgent`). */
+const activations = new WeakMap<WebContents, UserActivation>();
+
 /** The icons resolved so far, one memory per partition: a list of icons is a list of the sites they
  *  came from, so one profile's is not another's to reuse, and a clear forgets it (`clearBrowserPartition`).
  *  Shared by every window, as the partitions are. */
@@ -170,6 +173,7 @@ export function electronViewFactory(
       gesture = typeof userGesture === "boolean" ? userGesture : null;
     });
     const activation = new UserActivation();
+    activations.set(wc, activation);
     wc.on("input-event", (_e, input) => activation.note(input.type, Date.now()));
     wc.on("did-navigate", () => activation.forget());
     const answer = () => {
@@ -183,7 +187,7 @@ export function electronViewFactory(
       if (tab && opener === wc) {
         if (!hooks.allowNavigate(details.url)) return { action: "deny" };
         // Read now: by the time Chromium has made the page, the keyboard may have moved on.
-        const focused = wc.isFocused();
+        const focused = wc.isFocused() && activation.personPressed(Date.now());
         return hostedTab<WebContents>(webPreferences, answer,
           (page) => hooks.openTab(details.url, action === "background-tab", page, focused),
           () => hooks.openInPlace(details.url));
@@ -587,8 +591,12 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
       try { if (!wc.debugger.isAttached()) wc.debugger.attach("1.3"); } catch { return null; }
+      const activation = activations.get(wc);
       return {
-        send: (method, params) => wc.debugger.sendCommand(method, params) as Promise<unknown>,
+        send: (method, params) => {
+          const command = () => wc.debugger.sendCommand(method, params) as Promise<unknown>;
+          return activation && method.startsWith("Input.") ? activation.asAgent(command) : command();
+        },
         onEvent: (cb) => { wc.debugger.on("message", (_e, method, params) => cb(method, params)); },
       };
     },

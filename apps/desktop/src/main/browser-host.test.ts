@@ -187,6 +187,51 @@ describe("UserActivation", () => {
     expect(spent.decide(2, true)).toBe("tab");
   });
 
+  it("tells the agent's press from the person's, so the agent's tab never takes the keyboard (#561)", async () => {
+    // THE MUTANTS: never mark the agent's press, and its click in a page holding the keyboard moves the
+    // keyboard into its tab; mark only the press and not the command in flight, and a window opened by
+    // a click in a cross-site frame, which no main-frame press shows, is the person's.
+    const a = new UserActivation();
+    await a.asAgent(async () => {
+      a.note("mouseDown", 1_000);
+      expect(a.personPressed(1_000)).toBe(false);
+    });
+    expect(a.decide(1_001, true)).toBe("tab");
+    expect(a.personPressed(1_001)).toBe(false);
+    const frame = new UserActivation();
+    await frame.asAgent(async () => {
+      // Main asks before it decides: the keyboard is read off the opener ahead of the page being made.
+      expect(frame.personPressed(1_000)).toBe(false);
+      expect(frame.decide(1_000, true)).toBe("tab");
+    });
+    expect(frame.personPressed(1_001)).toBe(false);
+  });
+
+  it("gives the keyboard back to the person's press once theirs is the last", async () => {
+    // THE MUTANTS: keep the agent's mark past the next press, and the person's click after the agent's
+    // opens a tab that leaves the keyboard behind (#547); keep it past ACTIVATION_MS, and the same for a
+    // timer's window after it.
+    const a = new UserActivation();
+    await a.asAgent(async () => { a.note("mouseDown", 0); });
+    a.note("mouseDown", 10);
+    expect(a.personPressed(11)).toBe(true);
+    const lapsed = new UserActivation();
+    await lapsed.asAgent(async () => { lapsed.note("mouseDown", 0); });
+    expect(lapsed.personPressed(ACTIVATION_MS - 1)).toBe(false);
+    expect(lapsed.personPressed(ACTIVATION_MS)).toBe(true);
+    const person = new UserActivation();
+    person.note("mouseDown", 0);
+    expect(person.personPressed(1)).toBe(true);
+  });
+
+  it("ends the agent's command when it fails, so the person's next press is theirs", async () => {
+    // THE MUTANT: count down only on success, and one failed CDP click marks every press after it as the agent's.
+    const a = new UserActivation();
+    await expect(a.asAgent(async () => { throw new Error("detached"); })).rejects.toThrow("detached");
+    a.note("mouseDown", 0);
+    expect(a.personPressed(1)).toBe(true);
+  });
+
   it("comes from a press, not from a mouse passing over or a key let go", () => {
     const a = new UserActivation();
     for (const type of ["mouseMove", "mouseEnter", "mouseWheel", "keyUp", "char"]) a.note(type, 0);
