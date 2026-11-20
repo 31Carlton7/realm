@@ -1,9 +1,9 @@
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { tempDir } from "@realm/test-utils";
 
 /**
  * The real `realmvoice` (native/RealmVoice.swift) on this Mac's recogniser, fed speech made by `say`:
@@ -13,8 +13,7 @@ import { afterAll, describe, expect, it } from "vitest";
  */
 const bin = process.env.REALM_VOICE_BIN ?? join(__dirname, "../../native/bin/realmvoice");
 const runs = process.platform === "darwin" && existsSync(bin) && existsSync("/usr/bin/say");
-const scratch = runs ? mkdtempSync(join(tmpdir(), "realmvoice-test-")) : "";
-afterAll(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
+const scratch = runs ? tempDir("realmvoice-test-") : "";
 
 /** 16 kHz mono Int16 samples of `text`, spoken by `say` into a file. */
 function speech(name: string, text: string): Buffer {
