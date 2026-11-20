@@ -60,12 +60,13 @@ export function QuickChatPanelApp() {
       store.subscribe((s, prev) => { if (prev.quickChat && !s.quickChat && stepping === 0) settle(); }),
     ];
     /* Escape puts the panel away and deletes nothing. Registered before the chat mounts, so it is
-       ahead of the chat's own Escape, which deletes an empty one. A menu or a field that used the key
-       has stopped it or marked it handled before it bubbles this far. */
+       ahead of the chat's own Escape, which deletes an empty one and is stopped here either way. A
+       menu or a field that used the key has stopped it or marked it handled before it bubbles this
+       far, and then the panel stays. */
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (e.key !== "Escape") return;
       e.stopImmediatePropagation();
-      panel?.hide();
+      if (!e.defaultPrevented) panel?.hide();
     };
     window.addEventListener("keydown", onKey);
     return () => {
