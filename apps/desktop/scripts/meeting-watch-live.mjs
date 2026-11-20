@@ -130,7 +130,7 @@ try {
     say(`  stand-in: known 1.5 s, input open 3 s, closed 1 s, open 2 s. The helper saw it holding: ${held.map((h) => `${h.holding ? "yes" : "no"} at ${h.t.toFixed(2)} s`).join(", ")}`);
     check("the helper reports the stand-in when it opens the input, and again each time it lets go or takes it back",
       held.map((h) => h.holding).join() === "true,false,true,false", held);
-    check("a start is seen within half a second", held[0]?.t - 1.5 < 0.5, held[0]?.t - 1.5);
+    check("a start is seen within a second, the stand-in's own launch included", held[0]?.t - 1.5 < 1, held[0]?.t - 1.5);
     check("a stop is seen within a second and a half (no listener fires for it while another process holds the input, so the list is read each second)",
       held[1]?.t - 4.5 < 1.5, held[1]?.t - 4.5);
   }
@@ -174,7 +174,8 @@ while IFS= read -r command; do echo "$command" >> "$MW_RIG/commands"; done
   const setAccess = (access) => fs.writeFileSync(path.join(rig, "access"), `${access}\n`);
   const setEvents = (events) => fs.writeFileSync(path.join(rig, "events.json"), js(events));
 
-  const booted = Date.now();
+  // On a whole second, as a calendar's events are: EventKit drops the fraction.
+  const booted = Math.ceil(Date.now() / 1000) * 1000;
   const FIRST = { id: "LIVE-1", title: "Fixture: design review", start: booted + 200_000, end: booted + 2_000_000, location: MEET };
   setAccess("full");
   setEvents([

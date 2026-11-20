@@ -45,10 +45,10 @@ export function MeetingsRow() {
           <span className="settings-row-detail">{missing ? missing.says : "With a notification two minutes before"}</span>
         </div>
         {missing?.action === "ask" && (
-          <button type="button" className="btn-quiet" onClick={() => run(() => askForCalendar())}>Ask macOS</button>
+          <button type="button" className="btn" onClick={() => run(() => askForCalendar())}>Ask macOS</button>
         )}
         {missing?.action === "settings" && (
-          <button type="button" className="btn-quiet" onClick={() => run(() => openCalendarSettings())}>Open System Settings</button>
+          <button type="button" className="btn" onClick={() => run(() => openCalendarSettings())}>Open System Settings</button>
         )}
         <input type="checkbox" role="switch" className="switch" aria-label="Open the meeting when it starts"
           checked={opensMeetings}

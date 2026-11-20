@@ -94,7 +94,7 @@ export type MeetingWatchEvents = {
  * Calls come from the microphone: the helper's calls mode runs while `watchCalls` is on.
  */
 export class MeetingWatch {
-  private readonly events = new EventEmitter<MeetingWatchEvents>();
+  private readonly events = new EventEmitter();
   private calls = new CallTracker();
   private calendar: HelperProcess | null = null;
   private microphone: HelperProcess | null = null;
@@ -124,7 +124,7 @@ export class MeetingWatch {
   }
 
   on<E extends keyof MeetingWatchEvents>(event: E, listener: (...args: MeetingWatchEvents[E]) => void): void {
-    this.events.on(event, listener as never);
+    this.events.on(event, listener);
   }
 
   /** Calendar access as the helper last reported it; null while no helper is running to say. */
