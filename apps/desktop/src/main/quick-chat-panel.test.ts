@@ -13,6 +13,7 @@ function fakeWindow() {
     showInactive: () => { visible = true; calls.push("showInactive"); },
     focus: () => { calls.push("focus"); },
     hide: () => { visible = false; calls.push("hide"); },
+    destroy: () => { destroyed = true; visible = false; calls.push("destroy"); },
     setContentProtection: (on) => { calls.push(`protect ${on}`); },
     webContents: { focus: () => { calls.push("page focus"); }, send: (channel) => { calls.push(`send ${channel}`); } },
   };
@@ -108,6 +109,29 @@ describe("QuickChatPanel", () => {
     expect(panel.isOpen()).toBe(false);
   });
 
+  it("lets go of a window whose page failed to load, so the next press makes a new one", async () => {
+    const failed = fakeWindow();
+    const loaded = fakeWindow();
+    const windows = [{ win: failed.win, ready: Promise.reject(new Error("ERR_FILE_NOT_FOUND")) }, { win: loaded.win, ready: Promise.resolve() }];
+    const panel = new QuickChatPanel(() => windows.shift()!);
+    panel.toggle(); await settled();
+    expect(panel.isOpen()).toBe(false);
+    expect(failed.calls).toEqual(["destroy"]);
+    panel.toggle(); await settled();
+    expect(panel.isOpen()).toBe(true);
+    expect(loaded.calls).toContain("showInactive");
+  });
+
+  it.each(["linux", "win32"])("makes no window on %s, where the panel was never measured", async (platform) => {
+    let made = 0;
+    const w = fakeWindow();
+    const panel = new QuickChatPanel(() => { made++; return { win: w.win, ready: Promise.resolve() }; }, platform);
+    panel.toggle(); await settled();
+    expect(made).toBe(0);
+    expect(panel.isOpen()).toBe(false);
+    expect(w.calls).toEqual([]);
+  });
+
   it("is hidden from screen sharing until that is switched off, and follows the switch while open", async () => {
     const w = fakeWindow();
     const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));
@@ -120,12 +144,13 @@ describe("QuickChatPanel", () => {
 });
 
 describe("QuickChatShortcut", () => {
-  function system(taken: string[] = []) {
+  function system(taken: string[] = [], platform?: string) {
     const held = new Map<string, () => void>();
     const shortcut = new QuickChatShortcut({
       register: (accelerator, press) => { if (taken.includes(accelerator)) return false; held.set(accelerator, press); return true; },
       unregister: (accelerator) => { held.delete(accelerator); },
       press: () => { presses++; },
+      platform,
     });
     let presses = 0;
     return { shortcut, held, presses: () => presses };
@@ -156,6 +181,12 @@ describe("QuickChatShortcut", () => {
   it("registers nothing for a chord that cannot be a system-wide key", () => {
     const s = system();
     expect(s.shortcut.set("shift+a")).toEqual({ chord: null, registered: false });
+    expect(s.held.size).toBe(0);
+  });
+
+  it.each(["linux", "win32"])("registers no system-wide key on %s, whatever chord is stored", (platform) => {
+    const s = system([], platform);
+    expect(s.shortcut.set("ctrl+alt+space")).toEqual({ chord: null, registered: false });
     expect(s.held.size).toBe(0);
   });
 

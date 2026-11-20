@@ -1,4 +1,4 @@
-import { acceleratorForChord, type QuickChatShortcutState } from "@realm/contracts";
+import { acceleratorForChord, platformCapabilities, type QuickChatShortcutState } from "@realm/contracts";
 import { restoredBounds, type SavedWindow } from "./window-state";
 
 /**
@@ -55,6 +55,7 @@ export type PanelWindow = {
   showInactive(): void;
   focus(): void;
   hide(): void;
+  destroy(): void;
   setContentProtection(on: boolean): void;
   webContents: { focus(): void; send(channel: string): void };
 };
@@ -65,8 +66,9 @@ export class QuickChatPanel<W extends PanelWindow> {
   private hiddenFromSharing = true;
 
   /** `create` makes the window, hidden, and says when its page has loaded. Null while it cannot be
-   *  made (no server to connect its page to). */
-  constructor(private readonly create: () => { win: W; ready: Promise<unknown> } | null) {}
+   *  made (no server to connect its page to). Off macOS (`platformCapabilities().quickChatPanel`)
+   *  no window is ever made. */
+  constructor(private readonly create: () => { win: W; ready: Promise<unknown> } | null, private readonly platform = "darwin") {}
 
   /** The window, once it has been made and until it is destroyed. */
   window(): W | null {
@@ -85,6 +87,7 @@ export class QuickChatPanel<W extends PanelWindow> {
 
   /** The window is made on the first open and kept, so the next one does not wait on a page load. */
   open(): void {
+    if (!platformCapabilities(this.platform).quickChatPanel) return;
     if (!this.window()) this.made = this.create();
     const made = this.made;
     if (!made) return;
@@ -97,7 +100,13 @@ export class QuickChatPanel<W extends PanelWindow> {
       win.focus();
       win.webContents.focus();
       win.webContents.send("quick-chat-panel:shown");
-    }, () => { this.wanted = false; });
+    }, () => {
+      // A page that failed to load is not kept: the next open makes a new window, and loads again.
+      if (this.made !== made) return;
+      this.wanted = false;
+      this.made = null;
+      if (!made.win.isDestroyed()) made.win.destroy();
+    });
   }
 
   close(): void {
@@ -136,10 +145,12 @@ export class QuickChatShortcut {
     return this.state;
   }
 
-  /** Replace the chord. `null`, or a chord that cannot be a system-wide key, leaves none registered. */
+  /** Replace the chord. `null`, or a chord that cannot be a system-wide key, leaves none registered,
+   *  and so does any chord off macOS, where there is no panel for it to open. */
   set(chord: string | null): QuickChatShortcutState {
     this.release();
-    const accelerator = chord === null ? null : acceleratorForChord(chord, this.deps.platform);
+    const offered = platformCapabilities(this.deps.platform ?? "darwin").quickChatPanel;
+    const accelerator = chord === null || !offered ? null : acceleratorForChord(chord, this.deps.platform);
     if (accelerator === null) return (this.state = { chord: null, registered: false });
     let registered = false;
     try { registered = this.deps.register(accelerator, this.deps.press); } catch { /* an accelerator Electron cannot parse */ }

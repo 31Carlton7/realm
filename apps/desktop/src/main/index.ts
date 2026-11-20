@@ -738,7 +738,7 @@ function createQuickChatPanelWindow(info: { port: number; home: string; token: s
 /** `quickChatPanel.toggle()` opens the panel over whatever is in front, or puts it away, and
  *  `quickChatPanel.isOpen()` says which. Every key that opens the panel calls those two: the chord
  *  below, and a native key helper when there is one. */
-const quickChatPanel = new QuickChatPanel(() => (serverInfo ? createQuickChatPanelWindow(serverInfo) : null));
+const quickChatPanel = new QuickChatPanel(() => (serverInfo ? createQuickChatPanelWindow(serverInfo) : null), process.platform);
 
 const quickChatShortcut = new QuickChatShortcut({
   register: (accelerator, press) => globalShortcut.register(accelerator, press),
