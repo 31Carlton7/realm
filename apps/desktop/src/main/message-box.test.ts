@@ -43,7 +43,7 @@ describe("askInSheet", () => {
     const win = fakeWindow();
     expect(await askInSheet(win, { message: "Realm v9.9.9 is ready to install.", buttons: ["Restart and update", "Later"] })).toBe(0);
     expect(shown).toHaveLength(1);
-    expect(shown[0][0]).toBe(win);
+    expect(shown[0]![0]).toBe(win);
   });
 
   // Mutant: return `win` from `sheetWindow` whatever its state. A sheet on a window nobody can see
