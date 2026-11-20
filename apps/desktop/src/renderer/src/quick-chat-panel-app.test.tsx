@@ -47,7 +47,9 @@ describe("the quick chat panel's page", () => {
 
   it("made ahead of the first press, starts no chat until it is opened", async () => {
     const main = mount({}, { opening: false });
-    await act(async () => {});
+    // Long enough for a page that does show at load to have made its chat (the first test's, ~10ms).
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    expect(api.calls.some((c) => c.startsWith("listSpaces"))).toBe(false);
     expect(screen.queryByRole("dialog", { name: "Quick chat" })).toBeNull();
     expect(made()).toBe(0);
     await main.shown();
