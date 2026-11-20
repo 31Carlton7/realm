@@ -349,7 +349,7 @@ function fakeView() {
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
 }
 
-function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReason | null>; now?: () => number } = {}) {
+function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReason | null>; now?: () => number; windowGone?: () => boolean } = {}) {
   const views = new Map<string, ReturnType<typeof fakeView>>();
   const states: BrowserViewState[] = [];
   const found: (FindResult & { id: string })[] = [];
@@ -365,12 +365,14 @@ function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReas
     sendFound: (m) => found.push(m), requestFind: (id) => findRequests.push(id),
     emulate: (id, metrics) => emulations.push({ id, metrics }), openTab: (m) => tabs.push(m),
     closeTab: (id) => closedTabs.push(id),
-    ...(o.guard ? { guard: o.guard } : {}), ...(o.now ? { now: o.now } : {}),
+    ...(o.guard ? { guard: o.guard } : {}), ...(o.now ? { now: o.now } : {}), ...(o.windowGone ? { windowGone: o.windowGone } : {}),
   });
   return { host, views, states, factory, found, findRequests, emulations, tabs, closedTabs };
 }
 
 const alive = (v: ReturnType<typeof fakeView>) => !v.calls.includes("destroy");
+/** One turn of the event loop: what a closed page's tab waits before it closes. */
+const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 /** One more browser than the budget can retain, named v0 (oldest) upward. */
 const overBudget = (host: BrowserPaneHost) => {
   const ids = Array.from({ length: RETAINED_VIEW_LIMIT + 1 }, (_, i) => `v${i}`);
@@ -589,7 +591,7 @@ describe("BrowserPaneHost", () => {
     expect(views.get("b2")!.calls).not.toContain("focus");
   });
 
-  it("closes the tab whose page closed itself, and never reads the dead page again", () => {
+  it("closes the tab whose page closed itself, and never reads the dead page again", async () => {
     // A page a script opened may call window.close(), and Chromium lets it: the web contents go, and
     // every getter on the handle throws "Object has been destroyed". THE MUTANT: keep the view, and the
     // next state or bounds sync reads a page that is not there while the tab sits on a blank view.
@@ -602,7 +604,8 @@ describe("BrowserPaneHost", () => {
     for (const getter of ["getURL", "getTitle", "isLoading", "canGoBack", "canGoForward", "isReady", "setBounds", "setVisible", "focus"] as const) {
       closed.handle[getter] = () => { throw new TypeError("Object has been destroyed"); };
     }
-    closed.getHooks().pageClosed();
+    closed.getHooks().pageClosed(7);
+    await turn();
     expect(closedTabs).toEqual(["b2"]);
     expect(host.has("b2")).toBe(false);
     const sent = states.length;
@@ -622,8 +625,22 @@ describe("BrowserPaneHost", () => {
     const { host, views, closedTabs } = makeHost();
     host.create("b1", "https://example.com", null, P);
     host.destroyAll();
-    views.get("b1")!.getHooks().pageClosed();
+    views.get("b1")!.getHooks().pageClosed(7);
     expect(closedTabs).toEqual([]);
+  });
+
+  it("closes no tab for a page that went as its window went", async () => {
+    // The order that would empty the panes: a page's view goes with nothing asking, and its window is
+    // gone by the time the close is due. THE MUTANTS: send the close at once, or without asking whether
+    // the window is gone, and the closing window's layout loses the tab.
+    let gone = false;
+    const { host, views, closedTabs } = makeHost(2, { windowGone: () => gone });
+    host.create("b1", "https://example.com", null, P);
+    views.get("b1")!.getHooks().pageClosed(7);
+    gone = true;
+    await turn();
+    expect(closedTabs).toEqual([]);
+    expect(host.has("b1")).toBe(false);
   });
 
   it("tells whoever asks for the page next which tabs it opened, once, waiting for one still being made", async () => {
