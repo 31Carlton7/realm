@@ -653,6 +653,8 @@ export class ClaudeAdapter implements AgentAdapter {
     const streamPercent = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 100; };
     const streamMillis = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 1000; };
 
+    /** The plan reads the stream's limit events asked for, one after another (see `rate_limit_event`). */
+    let planReads: Promise<void> = Promise.resolve();
     /**
      * Ask the CLI for the whole plan picture — every rate-limit window, plus the subscription tier.
      *
@@ -815,16 +817,24 @@ export class ClaudeAdapter implements AgentAdapter {
             // The full picture first, so a panel opened on this event shows every window rather than
             // only the one that moved. Its `alert` is always "none" — the control request reports
             // quotas, not status — so the stream's verdict is laid over it here.
-            const full = await readPlanLimits();
-            const id = streamWindowId(typeof info.rateLimitType === "string" ? info.rateLimitType : null, full?.windows ?? []);
-            const window: PlanWindow[] = id
-              ? [{ id, label: full?.windows.find((w) => w.id === id)?.label ?? planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
-              : [];
-            const merged = full
-              ? { ...full, windows: mergeWindows(full.windows, window), alert, alertWindow: id }
-              : { subscriptionType: null, organization: null, windows: window, alert, alertWindow: id,
-                  unavailable: null, detail: typeof info.overageDisabledReason === "string" ? info.overageDisabledReason : null };
-            events.push(sessionEvent("rate_limit", merged));
+            //
+            // Off the message loop. The CLI sends this event just before a response's body, and it
+            // answers the control request by asking the usage endpoint, which can take seconds (a 429
+            // it waits out): awaited here, the turn's text and result waited with it, and a one-word
+            // answer that streamed in 1.5 s reached the chat at 15. Chained, so readings land in the
+            // order the stream sent them and a slow early one never overwrites a later one.
+            planReads = planReads.then(async () => {
+              const full = await readPlanLimits();
+              const id = streamWindowId(typeof info.rateLimitType === "string" ? info.rateLimitType : null, full?.windows ?? []);
+              const window: PlanWindow[] = id
+                ? [{ id, label: full?.windows.find((w) => w.id === id)?.label ?? planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
+                : [];
+              const merged = full
+                ? { ...full, windows: mergeWindows(full.windows, window), alert, alertWindow: id }
+                : { subscriptionType: null, organization: null, windows: window, alert, alertWindow: id,
+                    unavailable: null, detail: typeof info.overageDisabledReason === "string" ? info.overageDisabledReason : null };
+              if (!disposed) events.push(sessionEvent("rate_limit", merged));
+            });
             continue;
           }
           for (const e of mapper.map(msg)) events.push(e);
