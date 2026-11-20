@@ -7,6 +7,7 @@ A window a page opens by itself, with no click, now works, and shows in the same
 ### Fixed
 
 - In the browser pane, when a page opens a window by itself, with no click behind it, Realm still shows the new page in the same tab, but it is now the page the site opened rather than a fresh load of its address. A page that writes to the window it opened, or waits for it to answer, now hears back, and a form a page sends to a new window keeps what was filled in. Before, the page was handed a window that was already closed, and the form arrived empty. Back returns to the page that opened it, as it was left rather than reloaded, and when the new page closes itself that page is shown again. Forward does not return to the new page after Back. (#557, fixes #543)
+
 ## v2.20.3 - 2026-11-20
 
 A new tab whose page closes itself straight away no longer stays behind as a blank tab.
@@ -14,6 +15,7 @@ A new tab whose page closes itself straight away no longer stays behind as a bla
 ### Fixed
 
 - A page opened in a new tab that closes itself straight away could leave its tab open over a blank pane when Realm was slow to show it. The tab now closes, the way it does when a page closes itself a moment later. (#570, fixes #569)
+
 ## v2.20.2 - 2026-11-20
 
 An agent's click no longer pulls your keyboard into the tab it opens.
