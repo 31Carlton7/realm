@@ -808,13 +808,15 @@ describe("BrowserPaneHost", () => {
     it("drops an opener that closes itself from behind the page in front, and nothing else", async () => {
       // A page waiting behind is a page too, and may call window.close() from a timer. THE MUTANTS:
       // take its close for the front page's, and the pane uncovers or its tab closes; keep it behind,
-      // and Back shows a page that is gone; send no state, and the pane's Back stays lit for nothing.
+      // and Back shows a page that is gone; send no state, and the pane's Back stays lit for nothing;
+      // drop it without destroying it, and the popups it opened outlive the tab.
       const { host, opener, front, states, closedTabs } = openedInPlace();
       front.nav.title = "Child";
       opener.nav.pid = 11; front.nav.pid = 12;
       expect(states.at(-1)).toMatchObject({ canGoBack: true });
       opener.getHooks().pageClosed();
       await turn();
+      expect(opener.calls).toContain("destroy");
       expect(closedTabs).toEqual([]);
       expect(host.has("b1")).toBe(true);
       expect(front.calls).not.toContain("destroy");
@@ -1044,12 +1046,14 @@ describe("BrowserPaneHost", () => {
 
       for (const teardown of ["destroy", "destroyAll"] as const) {
         it(`is not destroyed again by ${teardown} once it closed itself`, () => {
-          // THE MUTANT: keep a page that closed itself behind, and the browser's teardown destroys it again.
+          // THE MUTANTS: keep a page that closed itself behind, and the browser's teardown destroys it
+          // again; drop it without destroying it, and the popups it opened outlive the tab.
           const { host, opener, middle, front } = twoBehind();
           gone(opener);
           opener.getHooks().pageClosed();
+          expect(destroys(opener)).toBe(1);
           if (teardown === "destroy") host.destroy("b1"); else host.destroyAll();
-          expect(destroys(opener)).toBe(0);
+          expect(destroys(opener)).toBe(1);
           expect([middle, front].every((v) => !alive(v))).toBe(true);
           expect(host.has("b1")).toBe(false);
         });
