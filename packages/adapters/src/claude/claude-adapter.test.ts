@@ -20,6 +20,10 @@ type FakeOpts = {
   permissionResults?: unknown[];
   /** a `rate_limit_info` to stream as a `rate_limit_event` just before the turn's result */
   rateLimit?: Record<string, unknown>;
+  /** a second `rate_limit_event`, streamed straight after the first */
+  rateLimitAgain?: Record<string, unknown>;
+  /** answers the plan read (`usage_EXPERIMENTAL_…`), one call at a time; omitted means the CLI has none */
+  planLimits?: () => Promise<unknown>;
   /** throw from the generator after this many fixture messages */
   throwAfter?: number;
   /** write these lines to options.stderr before the first message */
@@ -71,6 +75,7 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
           if (r.behavior === "deny") { yield { type: "result", subtype: "success", session_id: "sess_1", uuid: "r", duration_ms: 1, duration_api_ms: 1, is_error: false, num_turns: 1, result: "denied", stop_reason: "end_turn", total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 }, modelUsage: {}, permission_denials: [] }; break; }
         }
         if ((m as { type: string }).type === "result" && opts.rateLimit) yield { type: "rate_limit_event", rate_limit_info: opts.rateLimit, uuid: "rl", session_id: "sess_1" };
+        if ((m as { type: string }).type === "result" && opts.rateLimitAgain) yield { type: "rate_limit_event", rate_limit_info: opts.rateLimitAgain, uuid: "rl2", session_id: "sess_1" };
         if ((m as { type: string }).type === "result" && opts.errorResult) { yield { ...(m as object), subtype: "error_during_execution", is_error: true, errors: ["turn failed"] }; break; }
         yield m;
       }
@@ -98,6 +103,7 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
         return opts.models;
       },
       applyFlagSettings: async (settings: Record<string, unknown>) => { opts.flagSettings?.push(settings); },
+      ...(opts.planLimits ? { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: opts.planLimits } : {}),
       getContextUsage: async (o?: unknown) => {
         opts.contextUsageCalls?.push(o);
         if (!opts.contextUsage) throw new Error("control request declined");
@@ -498,6 +504,68 @@ describe("ClaudeAdapter", () => {
     expect(w?.utilization).toBeCloseTo(86, 6);
     expect(w?.resetsAt).toBe(resetsAt * 1000);
     expect(new Date(w!.resetsAt!).getUTCFullYear()).toBe(2026);
+  });
+  it("finishes the turn while the plan read behind a limit event is still out", async () => {
+    // The CLI answers the plan read by asking the usage endpoint, which took 7 s a call live. THE
+    // MUTANT: await it on the message loop, and the turn's result waits for an answer that only
+    // comes after it, so this times out.
+    const reading = { subscription_type: "max", rate_limits: { seven_day: { utilization: 40, resets_at: null }, five_hour: { utilization: 3, resets_at: null } } };
+    const answers: ((v: unknown) => void)[] = [];
+    let answering = false;
+    const planLimits = () => (answering ? Promise.resolve(reading) : new Promise((r) => { answers.push(r); }));
+    const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: { status: "allowed", rateLimitType: "seven_day", utilization: 0.4 }, planLimits, hang: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const turn = collectUntil(h.events, (e) => e.type === "usage");
+    await h.send({ text: "hi", attachments: [] });
+    expect(types(await turn)).not.toContain("rate_limit");
+    const late = collectUntil(h.events, (e) => e.type === "rate_limit" && e.payload.alertWindow === "seven_day");
+    answering = true;
+    for (const answer of answers) answer(reading);
+    const got = (await late).at(-1); await h.dispose();
+    expect(got?.type === "rate_limit" && got.payload.windows.map((w) => w.id).sort()).toEqual(["five_hour", "seven_day"]);
+  });
+  it("lays limit readings down in the order the stream sent them, however long each read takes", async () => {
+    // THE MUTANT: fire each read on its own. The second answers first, and the older reading lands
+    // last and stands as the panel's. The first read is the one made at init.
+    const now = () => Promise.resolve({ rate_limits: { seven_day: { utilization: 41, resets_at: null } } });
+    const slow = () => new Promise((r) => setTimeout(() => r({ rate_limits: { seven_day: { utilization: 40, resets_at: null } } }), 30));
+    const answers = [now, slow, now];
+    let call = 0;
+    const planLimits = () => (answers[call++] ?? now)();
+    const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: { status: "allowed", rateLimitType: "seven_day" }, rateLimitAgain: { status: "allowed_warning", rateLimitType: "seven_day" }, planLimits, hang: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const fromStream = (all: SessionEvent[]) => all.flatMap((e) => (e.type === "rate_limit" && e.payload.alertWindow === "seven_day" ? [e.payload.alert] : []));
+    const c = collectUntil(h.events, (_, all) => fromStream(all).length === 2);
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(fromStream(got)).toEqual(["none", "approaching"]);
+  });
+  it("lays the init read down before a later limit reading, however long it takes", async () => {
+    // THE MUTANT: fire the init read off the chain. The stream's reading lands first, and the init
+    // read's "none" lands last and stands over its alert.
+    const slow = () => new Promise((r) => setTimeout(() => r({ rate_limits: { seven_day: { utilization: 40, resets_at: null } } }), 30));
+    const now = () => Promise.resolve({ rate_limits: { seven_day: { utilization: 41, resets_at: null } } });
+    const answers = [slow, now];
+    let call = 0;
+    const planLimits = () => (answers[call++] ?? now)();
+    const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: { status: "allowed_warning", rateLimitType: "seven_day" }, planLimits, hang: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const alerts = (all: SessionEvent[]) => all.flatMap((e) => (e.type === "rate_limit" ? [e.payload.alert] : []));
+    const c = collectUntil(h.events, (_, all) => alerts(all).length === 2);
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(alerts(got)).toEqual(["none", "approaching"]);
+  });
+  it("still lays down later limit readings after one throws", async () => {
+    // THE MUTANT: drop the catch on each read. The throw leaves the chain rejected and every later
+    // reading is skipped, so the warning never arrives.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const planLimits = () => Promise.resolve({ rate_limits: { seven_day: { utilization: 41, resets_at: null } } });
+    const broken = { status: "allowed", rateLimitType: "seven_day", get resetsAt(): number { throw new Error("bad reset"); } };
+    const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: broken, rateLimitAgain: { status: "allowed_warning", rateLimitType: "seven_day" }, planLimits, hang: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e) => e.type === "rate_limit" && e.payload.alert === "approaching");
+    await h.send({ text: "hi", attachments: [] }); await c; await h.dispose();
+    expect(logged).toHaveBeenCalledWith("[claude] plan read failed: bad reset");
+    logged.mockRestore();
   });
   it("concurrent canUseTool calls: one waiting_permission → running transition for the whole batch", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", concurrentPermissions: 2 }) as never });

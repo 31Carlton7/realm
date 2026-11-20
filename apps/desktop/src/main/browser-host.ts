@@ -1366,8 +1366,12 @@ export class BrowserPaneHost {
   /** Why the page this view is on did not load, or null when it did (or there is no view). */
   loadErrorOf(id: string): BrowserLoadError | null { return this.views.get(id)?.handle.getLoadError() ?? null; }
 
-  /** The addresses of the popup windows this view's page has open — none when there is no view. */
-  popupsOf(id: string): string[] { return this.views.get(id)?.handle.popups() ?? []; }
+  /** The addresses of the popup windows this view's pages have open, the one in front's first, then
+   *  those of the openers waiting behind it — none when there is no view. */
+  popupsOf(id: string): string[] {
+    const v = this.views.get(id);
+    return v ? [v.handle, ...v.behind.map((parked) => parked.handle)].flatMap((page) => page.popups()) : [];
+  }
 
   /** Every view in one jar, retained or on screen: a deleted profile's panes, which must not go on
    *  running signed in to anything. */

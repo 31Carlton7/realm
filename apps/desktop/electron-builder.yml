@@ -68,10 +68,12 @@ mac:
       Realm lets the coding agents you run control apps like Mail, Messages, Notes and Finder on
       your behalf — reading a thread, drafting a reply, filing a note.
     NSCalendarsUsageDescription: >-
-      Realm lets the coding agents you run read and add Calendar events on your behalf.
+      Realm lets the coding agents you run read and add Calendar events on your behalf, and reads
+      your events itself to open a meeting's link when it starts.
     NSCalendarsFullAccessUsageDescription: >-
-      Realm lets the coding agents you run read and add Calendar events on your behalf. Reading
-      needs full access; with add-only access they can create events but never see them.
+      Realm lets the coding agents you run read and add Calendar events on your behalf, and reads
+      your events itself to open a meeting's link when it starts. Reading needs full access; with
+      add-only access events can be created but never seen.
     NSRemindersUsageDescription: >-
       Realm lets the coding agents you run read, add and complete Reminders on your behalf.
     NSRemindersFullAccessUsageDescription: >-

@@ -2594,6 +2594,19 @@ button.panel-title:hover { background: var(--rl-hover); }
 .quick-chat:hover { box-shadow: 0 0 0 var(--hairline-w) var(--window-ring-hover), var(--shadow-overlay); }
 /* From the corner it opens in, and only a little: it is a small window arriving, not a sheet. */
 @keyframes rl-quick-chat-in { from { translate: 0 10px; scale: 0.98; opacity: 0; } to { translate: 0 0; scale: 1; opacity: 1; } }
+/* The quick chat panel (main/quick-chat-panel.ts) is the same card in a window of its own, and there
+   the window is the card: it has the place, the corner, the shadow and the entrance, so the card
+   fills it and gives those up. The place is set inline by the card's own drag (QuickChat.tsx), which
+   is why it is overridden rather than restated. In Plain the card is the surface it always was; in
+   Glass its ground thins and the window's material, which is macOS's own, shows through it. */
+:root[data-surface="quick-chat"] .quick-chat { inset: 0 !important; width: auto !important; height: auto !important;
+  border-radius: 0; box-shadow: none; animation: none; }
+:root[data-surface="quick-chat"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 62%, transparent); }
+/* The bar moves the window there, through the system, so a drag never reaches the card's own. */
+:root[data-surface="quick-chat"] .quick-chat-bar { -webkit-app-region: drag; }
+:root[data-surface="quick-chat"] .quick-chat-bar button { -webkit-app-region: no-drag; }
+.quick-chat-panel-note { position: fixed; inset: 0; display: grid; place-items: center; margin: 0; padding: 0 24px;
+  text-align: center; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); background: var(--surface); -webkit-app-region: drag; }
 /* The bar IS the handle, so it takes the grab cursor and gives up text selection — a drag across a
    title that highlighted the title behind the moving window would look like a broken drag. */
 .quick-chat-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 4px 0 12px;

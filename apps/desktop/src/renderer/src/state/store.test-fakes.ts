@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
+import { type CalendarAccess, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
 import type { MoveOptions, PendingMove, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, EditorTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
@@ -317,6 +317,8 @@ export type FakeData = {
   /** The code editors `editors.list` reports as installed. None by default — a test that wants the
    *  path menu's editor item says which. */
   editors?: InstalledEditor[];
+  /** Calendar access as main reports it while the Meetings switch is on. Full by default. */
+  calendarAccess?: CalendarAccess;
   /** What main's app scan lists for the `@` list, and the icons it answers by bundle path. None by
    *  default: a test that is not about apps should see no Apps group at all. */
   installedApps?: InstalledApp[];
@@ -511,6 +513,8 @@ export type FakeApi = Api & {
   /** Main's updater changing state on its own — a download's progress, its end, its failure — pushed
    *  to whoever is watching, as `updates:changed` is. Also becomes what `updateStatus` answers. */
   emitUpdateStatus: (status: UpdateStatus) => void;
+  /** macOS answered the calendar prompt, or the grant changed in System Settings. */
+  emitCalendarAccess: (access: CalendarAccess) => void;
   /** Live views of the fake's data (mutable). */
   data: Required<FakeData>;
 };
@@ -679,6 +683,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       ],
     },
     updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
+    calendarAccess: overrides.calendarAccess ?? "full",
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
@@ -773,9 +778,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     return r;
   };
   const updateWatchers = new Set<(status: UpdateStatus) => void>();
+  const calendarWatchers = new Set<(access: CalendarAccess | null) => void>();
+  let opensMeetings = true;
   const api: FakeApi = {
     calls, disposed, destroyedBrowserViews, sent, savedScripts, queuedPrompts, planLimitRows, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
     emitUpdateStatus: (status) => { data.updateStatus = status; for (const cb of updateWatchers) cb({ ...status }); },
+    emitCalendarAccess: (access) => { data.calendarAccess = access; for (const cb of calendarWatchers) cb(access); },
     // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
     // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
     // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
@@ -1852,6 +1860,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
     setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
     setPreventSleep: async (on) => { calls.push(`setPreventSleep:${on}`); },
+    setOpensMeetings: async (on) => { calls.push(`setOpensMeetings:${on}`); opensMeetings = on; },
+    // Main's rule: with the switch off no helper runs, so there is nobody to say.
+    calendarAccess: async () => { calls.push("calendarAccess"); return opensMeetings ? data.calendarAccess : null; },
+    onCalendarAccess: (cb) => { calendarWatchers.add(cb); return () => { calendarWatchers.delete(cb); }; },
+    askForCalendar: async () => { calls.push("askForCalendar"); },
+    openCalendarSettings: async () => { calls.push("openCalendarSettings"); },
     setLinksOpenIn: (pref) => { calls.push(`setLinksOpenIn:${pref}`); },
     listEditors: async () => { calls.push("listEditors"); return [...data.editors]; },
     installedApps: async () => { calls.push("installedApps"); return [...data.installedApps]; },
