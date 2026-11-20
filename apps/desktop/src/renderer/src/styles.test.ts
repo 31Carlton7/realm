@@ -1079,6 +1079,9 @@ describe("Ara refresh §3/§4 geometry", () => {
     // A row with vertical padding on top of the token would be taller than it, so none has any.
     expect(bodiesFor(".mention-row").join(" ")).toMatch(/padding: 0 8px/);
     expect(bodiesFor('.plus-menu [role^="menuitem"]').join(" ")).toMatch(/padding-block: 0/);
+    // The skill row is two lines tall, so its corner is worked out from a one-line row's height; at its
+    // own 53px it came out a pill beside the model row (#528).
+    expect(bodiesFor(".skill-picker-row").join(" ")).toMatch(/--btn-h: var\(--picker-row-h\)/);
   });
 
   it("a key is drawn one way: a card's chords and footer keys wear the menus' key chip", () => {
