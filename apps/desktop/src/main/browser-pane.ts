@@ -190,7 +190,7 @@ export function electronViewFactory(
         const keyboard = { openerFocused: wc.isFocused(), personPressed: activation.personPressed(Date.now()) };
         return hostedTab<WebContents>(webPreferences, answer, keyboard,
           (page, focused) => hooks.openTab(details.url, action === "background-tab", page, focused),
-          () => hooks.openInPlace(details.url));
+          (page) => hooks.adoptInPlace(details.url, page));
       }
       if (action === "in-place" || tab) {
         if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }
@@ -370,9 +370,10 @@ export function electronViewFactory(
         wc.on("did-finish-load", loaded);
         wc.on("did-fail-load", failed);
       },
+      reclaim: () => onView?.(id, wc, view),
       destroy: () => {
         for (const popup of popups) if (!popup.isDestroyed()) popup.destroy();
-        onView?.(id, null);
+        onView?.(id, null, view);
         // On window close, Electron tears the child views down WITH the window before our "closed"
         // listener runs — destroying again throws "Object has been destroyed" (user-hit crash,
         // 2026-08-31). The guard makes teardown idempotent from either direction.
@@ -441,6 +442,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
   const typedSince = new TypedSince();
   const viewBoxes = new Map<string, WebContentsView>();
   const destroyedCbs: ((id: string) => void)[] = [];
+  const watched = new WeakSet<WebContents>();
   const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
   /** The discard guard (`BrowserPaneHost.sweep`): what the process says, then what the page says. */
   const guard = async (id: string): Promise<KeepReason | null> => {
@@ -464,13 +466,19 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
   const host = new BrowserPaneHost({
     guard,
     ...(o.retainedLimit ? { retainedLimit: o.retainedLimit } : {}),
+    // A browser's page can change under it (`adoptInPlace`): what was bound to the last one — the
+    // agent's CDP, passkeys, autofill — is let go, and a page that goes from behind the one in front
+    // takes nothing with it.
     createView: electronViewFactory(win, (id, wc, view) => {
+      const gone = () => { views.delete(id); viewBoxes.delete(id); typedSince.forget(id); for (const cb of destroyedCbs) cb(id); };
       if (wc) {
+        if (views.has(id) && views.get(id) !== wc) gone();
         views.set(id, wc); if (view) viewBoxes.set(id, view);
-        typedSince.forget(id);
+        if (watched.has(wc)) return;
+        watched.add(wc);
         wc.on("before-input-event", (_e, input) => typedSince.input(id, input));
         wc.on("did-navigate", () => typedSince.navigated(id));
-      } else { views.delete(id); viewBoxes.delete(id); typedSince.forget(id); for (const cb of destroyedCbs) cb(id); }
+      } else if (viewBoxes.get(id) === view) gone();
     }, installPasskeysFor),
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  ACTIVATION_MS, AGENT_GRACE_MS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, sendAsAgent, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
+  ACTIVATION_MS, AGENT_GRACE_MS, PARKED_OPENERS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, sendAsAgent, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks, type WindowKeyboard,
@@ -327,17 +327,18 @@ describe("hostedTab", () => {
     expect(focused({ openerFocused: false, personPressed: true })).toBe(false);
   });
 
-  it("goes in place when nobody pressed anything: the window is closed, no tab is made, and the pane follows the link", () => {
+  it("goes in place when nobody pressed anything: no tab, and the pane shows the page Chromium made, kept alive", () => {
     // Measured on 2.19.0: a window.open(url) as a page loads, or from its timer, reaches the handler as
     // a foreground tab like a click's. THE MUTANTS: ignore `pressed`, and a page spawns tabs on its own;
-    // drop `inPlace`, and the page's window.open does nothing at all, where main followed it in place.
+    // close the page and load its address afresh, and window.open answers a window that is already
+    // closed, and a POST form's body is lost (#543).
     const adopt = vi.fn();
     const inPlace = vi.fn();
     const page = livePage();
-    hostedTab({ partition: P }, () => "in-place", PERSON, adopt, inPlace).createWindow({ webContents: page });
+    expect(hostedTab({ partition: P }, () => "in-place", PERSON, adopt, inPlace).createWindow({ webContents: page })).toBe(page);
     expect(adopt).not.toHaveBeenCalled();
-    expect(page.close).toHaveBeenCalled();
-    expect(inPlace).toHaveBeenCalledTimes(1);
+    expect(page.close).not.toHaveBeenCalled();
+    expect(inPlace).toHaveBeenCalledWith(page);
   });
 
   it("refuses a window past the press's tabs: closed, no tab, and the pane stays on its page", () => {
@@ -457,6 +458,7 @@ function fakeView() {
     popups: () => nav.popups,
     readScroll: async () => { calls.push("readScroll"); return nav.scroll; },
     scrollAfterLoad: (x, y) => calls.push(`scrollAfterLoad:${x},${y}`),
+    reclaim: () => calls.push("reclaim"),
     destroy: () => calls.push("destroy"),
   };
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
@@ -594,6 +596,104 @@ describe("BrowserPaneHost", () => {
     expect(views.get("b1")!.calls).toContain("load:https://example.com/popup");
     hooks.openInPlace("https://evil.com/popup");
     expect(views.get("b1")!.calls).not.toContain("load:https://evil.com/popup");
+  });
+
+  describe("a window nobody pressed for, shown in place (#543)", () => {
+    /** b1 on `opener`, whose page has just opened `url` with no press behind it. */
+    const openedInPlace = (url = "https://example.com/x", allowlist: string[] | null = ["https://example.com"]) => {
+      const made = makeHost();
+      made.host.create("b1", "https://example.com/opener", allowlist, P);
+      made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      const opener = made.views.get("b1")!;
+      const page = { close: vi.fn() };
+      opener.getHooks().adoptInPlace(url, page);
+      return { ...made, opener, page, front: made.views.get("b1")! };
+    };
+
+    it("hosts the page Chromium made in the opener's place, and never loads its address again", () => {
+      // Loading the bare address is what left window.open a closed window and dropped a POST body.
+      // THE MUTANT: loadURL the address in the view, as openInPlace does.
+      const { factory, opener, front, page, states } = openedInPlace();
+      expect(factory).toHaveBeenLastCalledWith("b1", expect.anything(), P, { page, url: "https://example.com/x" });
+      expect(front).not.toBe(opener);
+      expect([...opener.calls, ...front.calls].filter((c) => c.startsWith("load:https://example.com/x"))).toEqual([]);
+      expect(page.close).not.toHaveBeenCalled();
+      // Shown where the opener was, which goes off screen.
+      expect(front.calls).toContain("bounds:0,0,200,100");
+      expect(front.calls).toContain("visible:true");
+      expect(opener.calls.at(-1)).toBe("visible:false");
+      expect(states.at(-1)).toMatchObject({ id: "b1", canGoBack: true });
+    });
+
+    it("keeps the opener's page alive behind it, so the window it holds is a live one", () => {
+      // THE MUTANT: destroy the opener, and a page waiting for the window to post back hears nothing.
+      const { opener } = openedInPlace();
+      expect(alive(opener)).toBe(true);
+    });
+
+    it("Back from the new page's first entry shows the opener's page again, as it was", () => {
+      // Main navigated in place, so Back reloaded the opener. THE MUTANT: leave Back to the new page's
+      // own history, which has nothing in it, and the opener's page is gone for good.
+      const { host, opener, front, states } = openedInPlace();
+      host.navAction("b1", "back");
+      expect(alive(front)).toBe(false);
+      expect(front.calls).not.toContain("back");
+      expect(opener.calls).toContain("reclaim");
+      expect(opener.calls.at(-1)).toBe("visible:true");
+      expect(opener.calls.filter((c) => c.startsWith("load:"))).toEqual(["load:https://example.com/opener"]);
+      expect(states.at(-1)).toMatchObject({ id: "b1", url: "https://example.com/opener", canGoBack: false });
+    });
+
+    it("Back inside the new page's own history stays on it", () => {
+      // THE MUTANT: uncover the opener whenever there is one, and Back skips the new page's history.
+      const { host, opener, front } = openedInPlace();
+      front.nav.back = true;
+      host.navAction("b1", "back");
+      expect(front.calls).toContain("back");
+      expect(alive(front)).toBe(true);
+      expect(opener.calls).not.toContain("reclaim");
+    });
+
+    it("closes a page outside the pane's allowlist and leaves the opener where it is", () => {
+      const { page, opener, front, factory } = openedInPlace("https://evil.com/x");
+      expect(page.close).toHaveBeenCalled();
+      expect(front).toBe(opener);
+      expect(factory).toHaveBeenCalledTimes(1);
+    });
+
+    it("closes the opener's page with the browser", () => {
+      // THE MUTANT: destroy only the page in front, and the opener runs on unseen with nothing to end it.
+      const { host, opener, front } = openedInPlace();
+      host.destroy("b1");
+      expect(alive(front)).toBe(false);
+      expect(alive(opener)).toBe(false);
+    });
+
+    it("the page behind cannot move the pane: its own windows and links go nowhere", () => {
+      // It is off screen, so only its timers can ask. THE MUTANT: let it, and a page that opens a window
+      // on a timer piles up pages behind the pane without end, or drags the pane off the page in front.
+      const { host, opener, front } = openedInPlace();
+      const again = { close: vi.fn() };
+      opener.getHooks().adoptInPlace("https://example.com/y", again);
+      expect(again.close).toHaveBeenCalled();
+      opener.getHooks().openInPlace("https://example.com/z");
+      expect(front.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
+      expect(host.navigate("b1", "https://example.com/w")).toBe("https://example.com/w");
+      expect(front.calls).toContain("load:https://example.com/w");
+    });
+
+    it("keeps at most PARKED_OPENERS pages behind one pane, closing the oldest first", () => {
+      // THE MUTANT: no limit, and a chain of pages each opening the next keeps every one running.
+      const { host, views } = makeHost();
+      host.create("b1", "https://example.com/0", null, P);
+      const chain = [views.get("b1")!];
+      for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() });
+        chain.push(views.get("b1")!);
+      }
+      expect(alive(chain[0]!)).toBe(false);
+      expect(chain.slice(1).every(alive)).toBe(true);
+    });
   });
 
   it("hosts the page Chromium made for a new tab, and never loads its address again", () => {

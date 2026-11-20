@@ -449,16 +449,17 @@ export type WindowKeyboard = { openerFocused: boolean; personPressed: boolean };
  * pane's own, its profile's partition among them.
  *
  * Electron has no popup blocker, and a page's `window.open(url)` from its load or a timer arrives as
- * a foreground tab like a click's, so what was pressed (`UserActivation.decide`) settles it. A window
- * that is not a tab is closed as soon as it is made: followed `inPlace` when nothing was pressed, and
- * dropped when the press has opened all the tabs it may.
+ * a foreground tab like a click's, so what was pressed (`UserActivation.decide`) settles it. When
+ * nothing was, the page goes to `inPlace`, to be shown in the opener's place: kept, not closed and
+ * loaded again, so `window.open` still answers a live window and a POST keeps its body. A window past
+ * the tabs a press may open is closed as soon as it is made.
  *
  * A tab takes the keyboard only if the opener had it and the person pressed for it: the agent's click
  * may land in the page the person is typing in.
  */
 export function hostedTab<Page extends { close(): void }>(
   webPreferences: Record<string, unknown>, answer: () => TabAnswer, keyboard: WindowKeyboard,
-  adopt: (page: Page, focused: boolean) => void, inPlace: () => void,
+  adopt: (page: Page, focused: boolean) => void, inPlace: (page: Page) => void,
 ) {
   return {
     action: "allow" as const,
@@ -470,9 +471,9 @@ export function hostedTab<Page extends { close(): void }>(
       const page = (options as { webContents?: Page }).webContents;
       if (!page) throw new Error("Chromium made no page for this tab");
       const as = answer();
-      if (as === "tab") { adopt(page, keyboard.openerFocused && keyboard.personPressed); return page; }
-      page.close();
-      if (as === "in-place") inPlace();
+      if (as === "tab") adopt(page, keyboard.openerFocused && keyboard.personPressed);
+      else if (as === "in-place") inPlace(page);
+      else page.close();
       return page;
     },
   };
@@ -645,6 +646,8 @@ export type ViewHandle = {
   readScroll(): Promise<{ x: number; y: number } | null>;
   /** Scroll the page to here once the load that is about to start (or is under way) has finished. */
   scrollAfterLoad(x: number, y: number): void;
+  /** This view's page is its browser's again, after the page shown in its place went (`adoptInPlace`). */
+  reclaim(): void;
   /** Closes the view's popups with it. */
   destroy(): void;
 };
@@ -662,6 +665,9 @@ export type ViewHooks = {
    *  for the tab (`UserActivation.personPressed`): the agent's click may land in the page the person is
    *  typing in, and its tab must not take the keys they type. */
   openTab(url: string, background: boolean, page: OpenedPage, focused: boolean): void;
+  /** …and for one nobody pressed for (`hostedTab`): `page` is shown in this view's place, and this
+   *  view's page waits behind it, still running, for Back. */
+  adoptInPlace(url: string, page: OpenedPage): void;
   /** `found-in-page`: the view's answer to the last find. */
   found(result: FindResult): void;
   /** ⌘F with the page holding the keyboard (`isFindShortcut`) — the pane opens its find strip. */
@@ -683,6 +689,12 @@ export type OpenedTab = { browserId: string; url: string };
 /** `partition` is the Electron session the view's cookies, site data and cache live in — its
  *  profile's own (Plan 27 Phase 2). `opened`, when given, is the view's page, already loading `url`. */
 export type ViewFactory = (id: string, hooks: ViewHooks, partition: string, opened?: { page: OpenedPage; url: string }) => ViewHandle;
+
+/**
+ * How many pages may wait behind one browser's page for Back (`adoptInPlace`). Each is a renderer
+ * left running, so a chain of pages each opening the next without a press closes the oldest first.
+ */
+export const PARKED_OPENERS = 3;
 
 /** How long a page made for a new tab waits for the renderer to name the tab's browser (`claimTab`). */
 export const UNCLAIMED_TAB_MS = 30_000;
@@ -768,6 +780,9 @@ export class BrowserPaneHost {
     /** A tab a person's click opened in front: its page takes the keyboard the first time it is on
      *  screen. A ⌘- or middle-click's tab waits behind and never asks for it. */
     focusWhenShown: boolean;
+    /** The pages that opened the one in front with no press behind it, oldest first, each kept running
+     *  and hidden (`adoptInPlace`): Back from the front page's first entry shows the last again. */
+    behind: ViewHandle[];
   }>();
   /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
    *  delete moves an id to the back. Views with a mounted pane are absent, never evictable. */
@@ -884,8 +899,8 @@ export class BrowserPaneHost {
     if (opened?.page.isDestroyed()) { this.closeTabSoon(id); return; }
     if (opened && opened.partition !== partition) opened.page.close();
     const hosted = opened?.partition === partition ? opened : undefined;
-    const handle = this.opts.createView(id, this.hooks(id), partition, hosted && { page: hosted.page, url: hosted.url });
-    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false, focusWhenShown: !!hosted?.focus });
+    const handle = this.makeView(id, partition, hosted && { page: hosted.page, url: hosted.url });
+    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false, focusWhenShown: !!hosted?.focus, behind: [] });
     const normalized = normalizeAddress(url);
     if (!hosted && normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
     this.emitState(id);
@@ -919,15 +934,23 @@ export class BrowserPaneHost {
     return tabs;
   }
 
-  private hooks(id: string): ViewHooks {
+  /** A view for `id`, whose page moves its browser only while it is the one in front: a page waiting
+   *  behind another (`adoptInPlace`) is off screen, so nothing it asks for was pressed for. */
+  private makeView(id: string, partition: string, opened?: { page: OpenedPage; url: string }): ViewHandle {
+    const handle: ViewHandle = this.opts.createView(id, this.hooks(id, () => this.views.get(id)?.handle === handle), partition, opened);
+    return handle;
+  }
+
+  private hooks(id: string, inFront: () => boolean): ViewHooks {
     return {
-      emitState: () => this.emitState(id),
+      emitState: () => { if (inFront()) this.emitState(id); },
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
-      openInPlace: (target) => this.navigate(id, target),
+      openInPlace: (target) => { if (inFront()) this.navigate(id, target); },
+      adoptInPlace: (target, page) => this.adoptInPlace(id, target, page, inFront()),
       openTab: (target, background, page, focused) => {
         const opener = this.views.get(id);
         const url = normalizeAddress(target);
-        if (!opener || !url || !originAllowed(url, opener.allowlist) || !this.opts.openTab) { page.close(); return; }
+        if (!inFront() || !opener || !url || !originAllowed(url, opener.allowlist) || !this.opts.openTab) { page.close(); return; }
         const name = `${id}:${++this.openedCount}`;
         const expires = setTimeout(() => { if (this.opened.delete(name)) closePage(page); }, UNCLAIMED_TAB_MS);
         this.opened.set(name, { page, partition: opener.partition, opener: id, url, focus: focused && !background, expires });
@@ -949,6 +972,42 @@ export class BrowserPaneHost {
   }
 
   /**
+   * Show the page Chromium made for a window nobody pressed for in this browser, in place of the page
+   * that opened it, as main once navigated the view there. The opener is kept, hidden and running, so
+   * the window `window.open` handed it is live and can be written to or post back; Back from the new
+   * page's first entry shows it again (`navAction`).
+   */
+  private adoptInPlace(id: string, target: string, page: OpenedPage, inFront: boolean): void {
+    const v = this.views.get(id);
+    const url = normalizeAddress(target);
+    if (!inFront || !v || !url || !originAllowed(url, v.allowlist)) { page.close(); return; }
+    v.handle.setVisible(false);
+    v.behind.push(v.handle);
+    if (v.behind.length > PARKED_OPENERS) v.behind.shift()!.destroy();
+    v.handle = this.makeView(id, v.partition, { page, url });
+    this.show(id);
+  }
+
+  /** The page in front goes, and the one that opened it is shown again, as it was left. */
+  private uncover(id: string): void {
+    const v = this.views.get(id)!;
+    const front = v.handle;
+    v.handle = v.behind.pop()!;
+    try { front.destroy(); } catch { /* already gone with its window */ }
+    v.handle.reclaim();
+    this.show(id);
+  }
+
+  /** A view's new page, put where the old one was. */
+  private show(id: string): void {
+    const v = this.views.get(id)!;
+    v.emulated = null;
+    this.place(id);
+    v.handle.setVisible(v.visible && !v.reviving);
+    this.emitState(id);
+  }
+
+  /**
    * Give a hidden view's renderer up to free its memory, remembering what brings it back. Its page's
    * scroll is read first; a view that came back on screen while that was read is left alone.
    */
@@ -960,6 +1019,7 @@ export class BrowserPaneHost {
     this.discarded.set(id, { url: v.handle.getURL(), scroll, allowlist: v.allowlist, partition: v.partition, device: v.device, host: v.host });
     this.views.delete(id);
     this.retained.delete(id);
+    for (const parked of v.behind) parked.destroy();
     // No state is sent: the pane keeps showing what it showed, and asking to show it again is what
     // brings it back (`setBounds`). A state saying "not ready" would stop it from ever asking.
     try { v.handle.destroy(); } catch { /* already gone with its window */ }
@@ -972,11 +1032,11 @@ export class BrowserPaneHost {
     const d = this.discarded.get(id);
     if (!d) return false;
     this.discarded.delete(id);
-    const handle = this.opts.createView(id, this.hooks(id), d.partition);
+    const handle = this.makeView(id, d.partition);
     const url = normalizeAddress(d.url);
     const loads = Boolean(url && originAllowed(url, d.allowlist));
     // Hidden until painted only when there is a page coming to paint.
-    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: loads, focusWhenShown: false });
+    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: loads, focusWhenShown: false, behind: [] });
     if (loads) {
       if (d.scroll && (d.scroll.x !== 0 || d.scroll.y !== 0)) handle.scrollAfterLoad(d.scroll.x, d.scroll.y);
       handle.loadURL(url!);
@@ -1086,7 +1146,8 @@ export class BrowserPaneHost {
   navAction(id: string, action: "back" | "forward" | "reload" | "stop"): void {
     if (!this.live(id)) return;
     const v = this.views.get(id)!;
-    if (action === "back") v.handle.goBack();
+    if (action === "back" && !v.handle.canGoBack() && v.behind.length > 0) this.uncover(id);
+    else if (action === "back") v.handle.goBack();
     else if (action === "forward") v.handle.goForward();
     else if (action === "reload") v.handle.reload();
     else v.handle.stop();
@@ -1208,7 +1269,9 @@ export class BrowserPaneHost {
     // Tolerate a view the window already tore down: on BrowserWindow "closed", Electron has destroyed
     // the children before this runs, and a second destroy throws "Object has been destroyed". The row
     // must be forgotten either way (user-hit crash, 2026-08-31).
-    try { v.handle.destroy(); } catch { /* already gone with its window */ }
+    for (const handle of [...v.behind, v.handle]) {
+      try { handle.destroy(); } catch { /* already gone with its window */ }
+    }
   }
 
   /** Window teardown: the views must never outlive the window they composite into. */
@@ -1241,7 +1304,7 @@ export class BrowserPaneHost {
     const v = this.views.get(id); if (!v) return;
     this.opts.sendState({
       id, url: v.handle.getURL(), title: v.handle.getTitle(), loading: v.handle.isLoading(),
-      canGoBack: v.handle.canGoBack(), canGoForward: v.handle.canGoForward(), device: v.device?.id ?? null,
+      canGoBack: v.handle.canGoBack() || v.behind.length > 0, canGoForward: v.handle.canGoForward(), device: v.device?.id ?? null,
       favicon: v.handle.getFavicon(), error: v.handle.getLoadError(), ready: v.handle.isReady(),
     });
   }
