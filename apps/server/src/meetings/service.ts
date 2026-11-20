@@ -105,11 +105,10 @@ export class MeetingNotesService {
   }
 
   /** Put the summary where the first write's line is. A file whose line is gone was edited while the
-   *  model wrote, and is left as the person has it. */
+   *  model wrote, and keeps what the person made of it. */
   private async putSummary(abs: string, summary: MeetingSummary | string): Promise<void> {
     const waiting = summarySections(SUMMARY_NOT_WRITTEN);
     const text = await readFile(abs, "utf8");
-    if (!text.includes(waiting)) return;
     // A function, so a `$&` in the model's answer is text and not a replacement pattern.
     await writeAtomic(abs, text.replace(waiting, () => summarySections(summary)));
   }

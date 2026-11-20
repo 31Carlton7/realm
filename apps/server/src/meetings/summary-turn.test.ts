@@ -41,7 +41,8 @@ describe("the summary turn", () => {
 
   it("rejects as cancelled when stopped mid-answer, and before it starts", async () => {
     const abort = new AbortController();
-    const { said } = turn([{ on: "summarise", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 40 }] }], { signal: abort.signal });
+    // A turn that would outlast the test: only the abort ends it.
+    const { said } = turn([{ on: "summarise", emit: [{ kind: "tool", name: "Bash", input: {}, result: "", holdMs: 60_000 }] }], { signal: abort.signal });
     setTimeout(() => abort.abort(), 60);
     await expect(said).rejects.toBeInstanceOf(SummaryCancelled);
 
