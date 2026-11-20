@@ -208,7 +208,6 @@ export class MeetingWatch {
       this.events.emit("meetingStarted", meeting);
       this.open(meeting);
     }
-    for (const meeting of due.missed) this.say(startedKey(meeting));
     if (due.next !== null) this.meetingTimer = this.d.at(due.next, () => this.lookAtMeetings());
   }
 

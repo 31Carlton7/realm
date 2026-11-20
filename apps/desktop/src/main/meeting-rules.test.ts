@@ -82,23 +82,23 @@ describe("what a meeting is owed at a moment", () => {
   const due = (now: number, said: string[] = []) => meetingsDue([m], new Set(said), now);
 
   it("is nothing until two minutes before, and it looks again then", () => {
-    expect(due(NOON - 10 * MIN)).toEqual({ soon: [], started: [], missed: [], next: NOON - MEETING_SOON_MS });
+    expect(due(NOON - 10 * MIN)).toEqual({ soon: [], started: [], next: NOON - MEETING_SOON_MS });
   });
 
   it("is the notification from two minutes before, once, and it looks again at the start", () => {
     expect(due(NOON - MEETING_SOON_MS - 1).soon).toEqual([]);
-    expect(due(NOON - MEETING_SOON_MS)).toEqual({ soon: [m], started: [], missed: [], next: NOON });
-    expect(due(NOON - MIN, [soonKey(m)])).toEqual({ soon: [], started: [], missed: [], next: NOON });
+    expect(due(NOON - MEETING_SOON_MS)).toEqual({ soon: [m], started: [], next: NOON });
+    expect(due(NOON - MIN, [soonKey(m)])).toEqual({ soon: [], started: [], next: NOON });
   });
 
   it("is the start at the start, once", () => {
-    expect(due(NOON, [soonKey(m)])).toEqual({ soon: [], started: [m], missed: [], next: null });
-    expect(due(NOON + 1000, [soonKey(m), startedKey(m)])).toEqual({ soon: [], started: [], missed: [], next: null });
+    expect(due(NOON, [soonKey(m)])).toEqual({ soon: [], started: [m], next: null });
+    expect(due(NOON + 1000, [soonKey(m), startedKey(m)])).toEqual({ soon: [], started: [], next: null });
   });
 
   it("is still the start up to five minutes in, and a miss after that: a Mac that woke late opens nothing", () => {
     expect(due(NOON + MEETING_LATE_MS).started).toEqual([m]);
-    expect(due(NOON + MEETING_LATE_MS + 1)).toEqual({ soon: [], started: [], missed: [m], next: null });
+    expect(due(NOON + MEETING_LATE_MS + 1)).toEqual({ soon: [], started: [], next: null });
   });
 
   it("never says 'starts in 2 minutes' about a meeting that has started", () => {

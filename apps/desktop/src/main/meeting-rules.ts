@@ -76,10 +76,8 @@ export function meetingsOf(events: readonly CalendarEvent[]): Meeting[] {
 export type MeetingsDue = {
   /** Within two minutes of starting, and not said yet. */
   soon: Meeting[];
-  /** Started within the last five minutes, and not said yet. */
+  /** Started within the last five minutes, and not said yet. One that started longer ago is left alone. */
   started: Meeting[];
-  /** Started longer ago than that without being said: marked as said, and nothing is done. */
-  missed: Meeting[];
   /** When to look again, or null with nothing ahead. */
   next: number | null;
 };
@@ -89,13 +87,11 @@ export const startedKey = (m: Meeting) => `${m.key}|started`;
 
 /** What is owed at `now`, given the keys already said (`soonKey`, `startedKey`). */
 export function meetingsDue(meetings: readonly Meeting[], said: ReadonlySet<string>, now: number): MeetingsDue {
-  const due: MeetingsDue = { soon: [], started: [], missed: [], next: null };
+  const due: MeetingsDue = { soon: [], started: [], next: null };
   const lookAt = (time: number) => { if (due.next === null || time < due.next) due.next = time; };
   for (const meeting of meetings) {
     if (now >= meeting.start) {
-      if (said.has(startedKey(meeting))) continue;
-      if (now - meeting.start <= MEETING_LATE_MS) due.started.push(meeting);
-      else due.missed.push(meeting);
+      if (!said.has(startedKey(meeting)) && now - meeting.start <= MEETING_LATE_MS) due.started.push(meeting);
       continue;
     }
     lookAt(meeting.start);
