@@ -1,11 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { GlobalKeysEvent, GlobalKeysState } from "@realm/contracts";
+import { tempDir } from "@realm/test-utils";
 import { CHORD_KEY_CODES, parseKeysLine, RealmKeys } from "./realm-keys";
 
 describe("the RealmKeys helper's lines", () => {
@@ -23,7 +22,7 @@ describe("the RealmKeys helper's lines", () => {
 
 /** A helper that never runs: what main wrote to it, and a way to make it speak or exit. */
 function fakeHelper() {
-  const child = new EventEmitter() as ChildProcessWithoutNullStreams & { written: string[]; killed: boolean };
+  const child = new EventEmitter() as ChildProcessWithoutNullStreams & { stdout: PassThrough; written: string[] };
   const written: string[] = [];
   const stdin = new PassThrough();
   stdin.on("data", (d: Buffer) => written.push(...d.toString().split("\n").filter(Boolean)));
@@ -60,8 +59,8 @@ describe("RealmKeys", () => {
     expect(keys.state).toBe("starting");
 
     keys.setDoubleTap(false);
-    expect(helpers[0].kill).toHaveBeenCalled();
-    expect(helpers[0].stdin.writableEnded).toBe(true);
+    expect(helpers[0]!.kill).toHaveBeenCalled();
+    expect(helpers[0]!.stdin.writableEnded).toBe(true);
     expect(states).toEqual(["starting", "off"]);
   });
 
@@ -71,9 +70,9 @@ describe("RealmKeys", () => {
     expect(helpers).toHaveLength(1);
     keys.setWatchers(1);
     giveBack();
-    expect(helpers[0].kill).not.toHaveBeenCalled();
+    expect(helpers[0]!.kill).not.toHaveBeenCalled();
     keys.setWatchers(0);
-    expect(helpers[0].kill).toHaveBeenCalled();
+    expect(helpers[0]!.kill).toHaveBeenCalled();
     expect(keys.state).toBe("off");
   });
 
@@ -132,8 +131,8 @@ describe("RealmKeys", () => {
     const onSpace = vi.fn();
     keys.registerChord("L", onL);
     keys.registerChord("Space", onSpace);
-    helpers[0].stdout.write('{"t":"chord","co');
-    helpers[0].stdout.write('de":37}\n{"t":"chord","code":5}\n');
+    helpers[0]!.stdout.write('{"t":"chord","co');
+    helpers[0]!.stdout.write('de":37}\n{"t":"chord","code":5}\n');
     expect(onL).toHaveBeenCalledTimes(1);
     expect(onSpace).not.toHaveBeenCalled();
   });
@@ -141,7 +140,7 @@ describe("RealmKeys", () => {
   it("reports a helper macOS refused as denied, and does not start it again on its own", () => {
     const { keys, helpers } = setup();
     keys.setDoubleTap(true);
-    helpers[0].emit("exit", 2);
+    helpers[0]!.emit("exit", 2);
     expect(keys.state).toBe("denied");
     expect(helpers).toHaveLength(1);
 
@@ -156,7 +155,7 @@ describe("RealmKeys", () => {
     says('{"ready":true,"active":false}');
     keys.recheck();
     expect(helpers).toHaveLength(2);
-    expect(helpers[0].kill).toHaveBeenCalled();
+    expect(helpers[0]!.kill).toHaveBeenCalled();
 
     says('{"ready":true,"active":true}');
     keys.recheck();
@@ -166,10 +165,10 @@ describe("RealmKeys", () => {
   it("ignores a helper it has already replaced", () => {
     const { keys, helpers, doubleTaps } = setup();
     keys.setDoubleTap(true);
-    helpers[0].stdout.write('{"ready":true,"active":false}\n');
+    helpers[0]!.stdout.write('{"ready":true,"active":false}\n');
     keys.recheck();
-    helpers[0].stdout.write('{"t":"doubleTap"}\n');
-    helpers[0].emit("exit", 0);
+    helpers[0]!.stdout.write('{"t":"doubleTap"}\n');
+    helpers[0]!.emit("exit", 0);
     expect(doubleTaps).not.toHaveBeenCalled();
     expect(keys.state).toBe("starting");
   });
@@ -183,7 +182,7 @@ describe("RealmKeys", () => {
     const { keys, helpers } = setup();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     keys.setDoubleTap(true);
-    helpers[0].emit("error", new Error("spawn ENOENT"));
+    helpers[0]!.emit("error", new Error("spawn ENOENT"));
     expect(keys.state).toBe("missing");
     warn.mockRestore();
   });
@@ -207,14 +206,11 @@ const swiftc = process.platform === "darwin" && spawnSync("xcrun", ["-f", "swift
  * native/bin cannot answer for it.
  */
 describe.runIf(swiftc)("what the helper decides", () => {
-  let dir: string;
   let bin: string;
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "realmkeys-test-"));
-    bin = join(dir, "realmkeys");
+    bin = join(tempDir("realmkeys-test-"), "realmkeys");
     execFileSync("swiftc", ["-o", bin, join(__dirname, "../../native/RealmKeys.swift")], { stdio: "inherit" });
   }, 120_000);
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   type Decision = { swallow: boolean; out: { t: string; code?: number; down?: boolean }[] };
   const config = (over: object = {}) => JSON.stringify({ doubleTap: true, maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false, ...over });
