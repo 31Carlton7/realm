@@ -674,16 +674,14 @@ export type ViewHooks = {
   /** …and for one nobody pressed for (`hostedTab`): `page` is shown in this view's place, and this
    *  view's page waits behind it, still running, for Back. */
   adoptInPlace(url: string, page: OpenedPage, focused: boolean): void;
-  /** The view's page went by itself (`window.close()`), or with the window. */
-  closed(): void;
   /** `found-in-page`: the view's answer to the last find. */
   found(result: FindResult): void;
   /** ⌘F with the page holding the keyboard (`isFindShortcut`) — the pane opens its find strip. */
   findShortcut(): void;
   /** The page closed itself (`window.close()`, which Chromium allows a page a script opened): its web
-   *  contents are gone, and every getter on the handle would throw. `page` is their id, the page that
-   *  went, for a view that has had more than one. */
-  pageClosed(page: number): void;
+   *  contents are gone, and every getter on the handle would throw. Each page has hooks of its own
+   *  (`makeView`), so these say which of a browser's pages went: the one in front or one behind it. */
+  pageClosed(): void;
 };
 
 /** A page Chromium made for a new tab, waiting for the tab's browser to host it. */
@@ -968,19 +966,17 @@ export class BrowserPaneHost {
   /** A view for `id`, whose page moves its browser only while it is the one in front: a page waiting
    *  behind another (`adoptInPlace`) is off screen, so nothing it asks for was pressed for. */
   private makeView(id: string, partition: string, opened?: { page: OpenedPage; url: string }): ViewHandle {
-    const handle: ViewHandle = this.opts.createView(id, this.hooks(id, () => this.views.get(id)?.handle === handle), partition, opened);
+    const handle: ViewHandle = this.opts.createView(id, this.hooks(id, () => handle), partition, opened);
     return handle;
   }
 
-  private hooks(id: string, inFront: () => boolean): ViewHooks {
+  private hooks(id: string, self: () => ViewHandle): ViewHooks {
+    const inFront = () => this.views.get(id)?.handle === self();
     return {
       emitState: () => { if (inFront()) this.emitState(id); },
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
       openInPlace: (target) => { if (inFront()) this.navigate(id, target); },
       adoptInPlace: (target, page, focused) => this.adoptInPlace(id, target, page, focused, inFront()),
-      // A page that posts back to its opener and closes itself is the usual end of a window opened in
-      // place: the opener is shown again, as Back would.
-      closed: () => { if (inFront() && this.views.get(id)!.behind.length > 0) this.uncover(id); },
       openTab: (target, background, page, focused) => {
         const opener = this.views.get(id);
         const url = normalizeAddress(target);
@@ -992,11 +988,7 @@ export class BrowserPaneHost {
       },
       found: (result) => this.opts.sendFound?.({ id, ...result }),
       findShortcut: () => this.opts.requestFind?.(id),
-      pageClosed: () => {
-        if (!this.views.has(id)) return;
-        this.destroy(id);
-        this.closeTabSoon(id);
-      },
+      pageClosed: () => this.pageClosed(id, self()),
     };
   }
 
@@ -1028,6 +1020,27 @@ export class BrowserPaneHost {
     v.handle = this.makeView(id, v.partition, { page, url });
     v.focusWhenShown = focused;
     this.show(id);
+  }
+
+  /**
+   * One of a browser's pages closed itself. The page in front, with an opener behind it, is the usual
+   * end of a window opened in place (post back, then `window.close()`): the opener is shown again, as
+   * Back would. With nothing behind it, the browser's tab closes, as in Chrome. An opener waiting
+   * behind just leaves the stack. A page the browser no longer has was closed by Realm.
+   */
+  private pageClosed(id: string, page: ViewHandle): void {
+    const v = this.views.get(id);
+    if (!v) return;
+    if (v.handle === page) {
+      if (v.behind.length > 0) { this.uncover(id); return; }
+      this.destroy(id);
+      this.closeTabSoon(id);
+      return;
+    }
+    const parked = v.behind.findIndex((p) => p.handle === page);
+    if (parked === -1) return;
+    v.behind.splice(parked, 1);
+    this.emitState(id);
   }
 
   /** The page in front goes, and the one that opened it is shown again, as it was left, with the

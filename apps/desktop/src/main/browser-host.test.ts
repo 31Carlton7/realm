@@ -733,13 +733,17 @@ describe("BrowserPaneHost", () => {
       expect(focuses(opener)).toBe(0);
     });
 
-    it("shows the opener again when the page in front closes itself", () => {
-      // window.open, postMessage back, window.close(): the usual end of this. THE MUTANT: ignore the
-      // close, and the pane is left on a page that is gone, with the opener hidden behind it for good.
-      const { opener, front, states } = openedInPlace();
+    it("shows the opener again when the page in front closes itself, and keeps the tab", async () => {
+      // window.open, postMessage back, window.close(): the usual end of this. THE MUTANTS: ignore the
+      // close, and the pane is left on a page that is gone, with the opener hidden behind it for good;
+      // close the tab as for a page with nothing behind it, and the opener goes with it.
+      const { host, opener, front, states, closedTabs } = openedInPlace();
       opener.nav.title = "Opener";
       const shown = states.length;
-      expect(() => front.getHooks().closed()).not.toThrow();
+      expect(() => front.getHooks().pageClosed()).not.toThrow();
+      await turn();
+      expect(closedTabs).toEqual([]);
+      expect(host.has("b1")).toBe(true);
       expect(opener.calls).toContain("reclaim");
       expect(opener.calls.at(-1)).toBe("visible:true");
       expect(opener.calls.filter((c) => c.startsWith("load:"))).toEqual(["load:https://example.com/opener"]);
@@ -750,32 +754,70 @@ describe("BrowserPaneHost", () => {
     it("hands the keyboard back when the page in front closes itself holding it", () => {
       const { opener, front } = openedInPlace(undefined, undefined, true);
       front.nav.keyboard = true;
-      front.getHooks().closed();
+      front.getHooks().pageClosed();
       expect(focuses(opener)).toBe(1);
     });
 
-    it("leaves a page with no opener behind it as it was when it closes itself", () => {
-      // What main does for a self-closed page. THE MUTANT: uncover on every close, from an empty stack.
-      const { host, views, states } = makeHost();
-      host.create("b1", "https://example.com/a", null, P);
-      const shown = states.length;
-      expect(() => views.get("b1")!.getHooks().closed()).not.toThrow();
-      expect(states.length).toBe(shown);
+    it("closes the tab of a page shown in place that closes itself once Back has emptied what was behind it", async () => {
+      // Back to the opener, then the opener closes itself: nothing waits behind it, so it is a tab's
+      // page closing itself (#559). THE MUTANT: uncover on every close, from an empty stack.
+      const { host, opener, closedTabs } = openedInPlace();
+      host.navAction("b1", "back");
+      expect(() => opener.getHooks().pageClosed()).not.toThrow();
+      await turn();
+      expect(closedTabs).toEqual(["b1"]);
+      expect(host.has("b1")).toBe(false);
     });
 
-    it("does nothing when a page the pane closed reports closing", () => {
-      // Back destroys the page in front, and its close arrives after. THE MUTANT: act on a close from
-      // a page no longer in front, and that late close uncovers the next opener too.
+    it("drops an opener that closes itself from behind the page in front, and nothing else", async () => {
+      // A page waiting behind is a page too, and may call window.close() from a timer. THE MUTANTS:
+      // take its close for the front page's, and the pane uncovers or its tab closes; keep it behind,
+      // and Back shows a page that is gone; send no state, and the pane's Back stays lit for nothing.
+      const { host, opener, front, states, closedTabs } = openedInPlace();
+      front.nav.title = "Child";
+      opener.nav.pid = 11; front.nav.pid = 12;
+      expect(states.at(-1)).toMatchObject({ canGoBack: true });
+      opener.getHooks().pageClosed();
+      await turn();
+      expect(closedTabs).toEqual([]);
+      expect(host.has("b1")).toBe(true);
+      expect(front.calls).not.toContain("destroy");
+      expect(opener.calls).not.toContain("reclaim");
+      expect(states.at(-1)).toMatchObject({ id: "b1", title: "Child", canGoBack: false });
+      expect(host.processes().map((p) => p.pid)).toEqual([12]);
+      host.navAction("b1", "back");
+      expect(front.calls).not.toContain("destroy");
+      expect(opener.calls).not.toContain("reclaim");
+    });
+
+    it("drops only the opener that closed itself when several wait behind", () => {
+      // THE MUTANT: drop the last one behind instead of the one that went, and Back shows a page that
+      // is gone while the live one is lost.
       const { host, views, opener, front } = openedInPlace();
-      opener.getHooks().closed();
-      expect(opener.calls).not.toContain("reclaim"); // behind, it is not the pane's page
+      front.getHooks().adoptInPlace("https://example.com/y", { close: vi.fn() }, false);
+      const third = views.get("b1")!;
+      opener.getHooks().pageClosed();
+      expect(third.calls).not.toContain("destroy");
+      host.navAction("b1", "back");
+      expect(front.calls).toContain("reclaim");
+      expect(third.calls).toContain("destroy");
+      host.navAction("b1", "back");
+      expect(opener.calls).not.toContain("reclaim");
+    });
+
+    it("does nothing when a page the pane closed reports closing", async () => {
+      // Back destroys the page in front, and its close arrives after. THE MUTANT: act on a close from
+      // a page the browser no longer has, and that late close uncovers the next opener or closes the tab.
+      const { host, views, opener, front, closedTabs } = openedInPlace();
       front.getHooks().adoptInPlace("https://example.com/y", { close: vi.fn() }, false);
       const third = views.get("b1")!;
       host.navAction("b1", "back");
       expect(front.calls).toContain("reclaim");
-      third.getHooks().closed();
+      third.getHooks().pageClosed();
+      await turn();
       expect(alive(front)).toBe(true);
       expect(opener.calls).not.toContain("reclaim");
+      expect(closedTabs).toEqual([]);
     });
 
     it("mutes the page waiting behind, and gives it its sound back when Back shows it again", () => {
@@ -794,7 +836,7 @@ describe("BrowserPaneHost", () => {
       const opener = made.views.get("b1")!;
       opener.nav.muted = true;
       opener.getHooks().adoptInPlace("https://example.com/x", { close: vi.fn() }, false);
-      made.views.get("b1")!.getHooks().closed();
+      made.views.get("b1")!.getHooks().pageClosed();
       expect(opener.calls).toContain("reclaim");
       expect(opener.nav.muted).toBe(true);
     });
@@ -980,7 +1022,7 @@ describe("BrowserPaneHost", () => {
     for (const getter of ["getURL", "getTitle", "isLoading", "canGoBack", "canGoForward", "isReady", "setBounds", "setVisible", "focus"] as const) {
       closed.handle[getter] = () => { throw new TypeError("Object has been destroyed"); };
     }
-    closed.getHooks().pageClosed(7);
+    closed.getHooks().pageClosed();
     await turn();
     expect(closedTabs).toEqual(["b2"]);
     expect(host.has("b2")).toBe(false);
@@ -1039,7 +1081,7 @@ describe("BrowserPaneHost", () => {
     const { host, views, closedTabs } = makeHost();
     host.create("b1", "https://example.com", null, P);
     host.destroyAll();
-    views.get("b1")!.getHooks().pageClosed(7);
+    views.get("b1")!.getHooks().pageClosed();
     expect(closedTabs).toEqual([]);
   });
 
@@ -1050,7 +1092,7 @@ describe("BrowserPaneHost", () => {
     let gone = false;
     const { host, views, closedTabs } = makeHost(2, { windowGone: () => gone });
     host.create("b1", "https://example.com", null, P);
-    views.get("b1")!.getHooks().pageClosed(7);
+    views.get("b1")!.getHooks().pageClosed();
     gone = true;
     await turn();
     expect(closedTabs).toEqual([]);

@@ -296,12 +296,11 @@ export function electronViewFactory(
     for (const ev of stateEvents) wc.on(ev as Parameters<typeof wc.on>[0], () => hooks.emitState());
     // Gone without `destroy` asking, from a window still up: the page called window.close().
     let destroying = false;
-    wc.once("destroyed", () => { if (!destroying && !win.isDestroyed()) hooks.pageClosed(wc.id); });
+    wc.once("destroyed", () => { if (!destroying && !win.isDestroyed()) hooks.pageClosed(); });
     // Kept from the events because a page that has gone can no longer be asked (`hasKeyboard`).
     let keyboard = false;
     wc.on("focus", () => { keyboard = true; });
     wc.on("blur", () => { keyboard = false; });
-    wc.once("destroyed", () => hooks.closed());
     wc.on("found-in-page", (_e, r) => hooks.found({ activeMatchOrdinal: r.activeMatchOrdinal, matches: r.matches, finalUpdate: r.finalUpdate }));
     // ⌘F with the page holding the keyboard. That keydown goes to this view's renderer, never to the
     // window's, so this is the only place it can be heard; taken from the page so a site's own ⌘F
@@ -331,7 +330,7 @@ export function electronViewFactory(
       // reload of that reloads nothing. The bar names the page that was asked for, so that is Reload's.
       reload: () => { if (wc.getURL() === "about:blank" && wanted !== null && wanted !== "about:blank") loadURL(wanted); else wc.reload(); },
       stop: () => wc.stop(),
-      // The state getters answer for a page that has gone too (`closed`): a destroyed webContents throws.
+      // The state getters answer for a page that has gone too (`pageClosed`): a destroyed webContents throws.
       canGoBack: () => !wc.isDestroyed() && wc.navigationHistory.canGoBack(),
       canGoForward: () => !wc.isDestroyed() && wc.navigationHistory.canGoForward(),
       history: () => ({
