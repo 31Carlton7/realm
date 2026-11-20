@@ -5743,6 +5743,7 @@ describe("file cards", () => {
   const CARDS = [
     { card: ".docs-card", well: ".docs-card-preview", pad: "var(--doc-card-inset)", corner: ".docs-card-cell > .docs-home-attach", gap: "var(--attach-gap)" },
     { card: ".library-tile", corner: ".library-grid .library-file-more", gap: "var(--more-gap)" },
+    { card: ".saved-turn-open" },
   ];
   const esc = (s: string) => s.replace(/[.()]/g, "\\$&");
   /** Every rule with a selector part naming `cls`, under the painter or not. */
