@@ -393,18 +393,36 @@ export type TabAnswer = "tab" | "in-place" | "refuse";
 export class UserActivation {
   private at = Number.NEGATIVE_INFINITY;
   private opened = 0;
+  private agentPressed = false;
+  private agentInputs = 0;
   note(type: string, now: number): void {
     if (!ACTIVATING_INPUT.has(type)) return;
     this.at = now;
     this.opened = 0;
+    this.agentPressed = this.agentInputs > 0;
   }
   decide(now: number, gestured: boolean): TabAnswer {
     const pressed = now - this.at < ACTIVATION_MS;
     if (!pressed && !gestured) return "in-place";
-    if (!pressed) { this.at = now; this.opened = 0; }
+    if (!pressed) { this.at = now; this.opened = 0; this.agentPressed = this.agentInputs > 0; }
     if (this.opened >= TABS_PER_PRESS) return "refuse";
     this.opened++;
     return "tab";
+  }
+  /**
+   * Send one of the agent's CDP `Input.*` commands to the page. CDP input reaches main as the same
+   * `input-event` a person's does, and nothing on the event tells them apart, so a press is the agent's
+   * when it arrives while one of these is in flight: Chromium sends the event to the page, and main
+   * hears of it, before the command answers.
+   */
+  async asAgent<T>(dispatch: () => Promise<T>): Promise<T> {
+    this.agentInputs++;
+    try { return await dispatch(); } finally { this.agentInputs--; }
+  }
+  /** Whether a tab opening now was the person's press, and may take the keyboard: not while the agent
+   *  is pressing, nor while the press that lets it open is the agent's. */
+  personPressed(now: number): boolean {
+    return this.agentInputs === 0 && !(this.agentPressed && now - this.at < ACTIVATION_MS);
   }
   /** A new document: a press on the last one opens nothing on this one, as in Chromium. Its count goes
    *  with it, since the next tab needs a new press, which starts a new count. */
@@ -624,8 +642,9 @@ export type ViewHooks = {
    *  and offered back as a navigation of the same view. */
   openInPlace(url: string): void;
   /** …and for one it calls a tab (`hostedTab`): `page` is the web contents Chromium made for it, to be
-   *  the new tab's view. `focused` is whether the page that asked had the keyboard: an agent's click
-   *  lands in a page the person is not typing in, and its tab must not take the keys they type. */
+   *  the new tab's view. `focused` is whether the page that asked had the keyboard and the person pressed
+   *  for the tab (`UserActivation.personPressed`): the agent's click may land in the page the person is
+   *  typing in, and its tab must not take the keys they type. */
   openTab(url: string, background: boolean, page: OpenedPage, focused: boolean): void;
   /** `found-in-page`: the view's answer to the last find. */
   found(result: FindResult): void;
