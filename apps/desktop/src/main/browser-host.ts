@@ -631,6 +631,10 @@ export type ViewHooks = {
   found(result: FindResult): void;
   /** ⌘F with the page holding the keyboard (`isFindShortcut`) — the pane opens its find strip. */
   findShortcut(): void;
+  /** The page closed itself (`window.close()`, which Chromium allows a page a script opened): its web
+   *  contents are gone, and every getter on the handle would throw. `page` is their id, the page that
+   *  went, for a view that has had more than one. */
+  pageClosed(page: number): void;
 };
 
 /** A page Chromium made for a new tab, waiting for the tab's browser to host it. */
@@ -756,6 +760,11 @@ export class BrowserPaneHost {
     /** This view's page asked for a new tab on `url` (`windowOpenAction`); `page` names the page made
      *  for it, for `claimTab`. */
     openTab?: (m: { id: string; url: string; background: boolean; focus: boolean; page: string }) => void;
+    /** This view's page closed itself, and the view is gone with it: its tab closes, as in Chrome. */
+    closeTab?: (id: string) => void;
+    /** Whether the window these views composite into is gone. Read when a tab's close is due: a closing
+     *  window's tabs stay in the layout it saves. */
+    windowGone?: () => boolean;
     /** Emulate a device on this view's page, or (null) stop. Over CDP, so best-effort: a view with
      *  DevTools already attached simply shows the page at the narrowed width instead. */
     emulate?: (id: string, metrics: DeviceMetrics | null) => void;
@@ -885,6 +894,12 @@ export class BrowserPaneHost {
       },
       found: (result) => this.opts.sendFound?.({ id, ...result }),
       findShortcut: () => this.opts.requestFind?.(id),
+      pageClosed: () => {
+        if (!this.views.has(id)) return;
+        this.destroy(id);
+        // A turn later, so a window that is closing has time to be gone.
+        setImmediate(() => { if (!this.opts.windowGone?.()) this.opts.closeTab?.(id); });
+      },
     };
   }
 

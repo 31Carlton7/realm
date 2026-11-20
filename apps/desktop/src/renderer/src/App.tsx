@@ -810,6 +810,12 @@ export function App() {
       const st = store.getState();
       st.run(() => st.openPageTab(browserId, url, { background, focus, onCreated: (id) => window.realm?.links?.claimTab?.(page, id) }));
     });
+    // …and one whose page called window.close(): its tab closes, as the tab's × closes it.
+    const offCloseTab = window.realm?.links?.onCloseTab?.(({ browserId }) => {
+      const st = store.getState();
+      const closing = st.items.find((i) => i.kind === "browser" && i.refId === browserId);
+      if (closing) st.run(() => st.closeFromLayout(closing.id));
+    });
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
@@ -870,7 +876,7 @@ export function App() {
       window.removeEventListener("dragover", swallowDrop);
       offEggs();
       window.removeEventListener("drop", swallowDrop);
-      offOS?.(); offLink?.(); offTab?.();
+      offOS?.(); offLink?.(); offTab?.(); offCloseTab?.();
     };
   }, [store]);
   return (
