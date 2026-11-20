@@ -1079,6 +1079,9 @@ describe("Ara refresh §3/§4 geometry", () => {
     // A row with vertical padding on top of the token would be taller than it, so none has any.
     expect(bodiesFor(".mention-row").join(" ")).toMatch(/padding: 0 8px/);
     expect(bodiesFor('.plus-menu [role^="menuitem"]').join(" ")).toMatch(/padding-block: 0/);
+    // The skill row is two lines tall, so its corner is worked out from a one-line row's height; at its
+    // own 53px it came out a pill beside the model row (#528).
+    expect(bodiesFor(".skill-picker-row").join(" ")).toMatch(/--btn-h: var\(--picker-row-h\)/);
   });
 
   it("a key is drawn one way: a card's chords and footer keys wear the menus' key chip", () => {
@@ -5659,7 +5662,7 @@ describe("one squircle ladder (the owner, 11-17)", () => {
     const fixed = RULES.filter((r) => /corner-shape: squircle/.test(r.body) && /border-radius: var\(--r-(ctl|chip)\)/.test(r.body))
       .flatMap(partsOf);
     expect(fixed).not.toContain(".documents-tab");
-    expect(fixed.length).toBeLessThanOrEqual(63);
+    expect(fixed.length).toBeLessThanOrEqual(62);
   });
 });
 
@@ -5727,7 +5730,7 @@ describe("segmented controls", () => {
     expect(rings.length).toBeGreaterThanOrEqual(2);
     for (const r of rings) expect(r.body, partsOf(r).join(", ")).toContain("border-radius: inherit; corner-shape: inherit;");
     // The pickers' rows are controls on the control curve too.
-    for (const sel of [".mp-row", ".mention-row", ".mp-bolt"])
+    for (const sel of [".mp-row", ".mention-row", ".mp-bolt", ".skill-picker-row"])
       expect(bodiesFor(sel).join(" "), sel).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);");
   });
 });
