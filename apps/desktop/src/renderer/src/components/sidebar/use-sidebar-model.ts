@@ -19,7 +19,7 @@ export function useSidebarState(): SidebarState {
   const sessionSpace = useApp((s) => s.sessionSpace);
   const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
   const sessionActivityAt = useApp((s) => s.sessionActivityAt);
-  const quickChatId = useApp((s) => s.quickChat?.sessionId ?? null);
+  const quickChatId = useApp((s) => (s.quickChat && !s.quickChat.keptIn ? s.quickChat.sessionId : null));
   return useMemo(() => ({ spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId }),
     [spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId]);
 }

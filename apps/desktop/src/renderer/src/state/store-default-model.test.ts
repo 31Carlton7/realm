@@ -88,7 +88,7 @@ describe("the last model sent on is the next session's default", () => {
   it("a quick-chat send is not remembered", async () => {
     // THE MUTANT: recording every send — the quick chat's throwaway model would become the default.
     const { store } = await setup();
-    store.setState({ quickChat: { sessionId: "se1" } });
+    store.setState({ quickChat: { sessionId: "se1", keptIn: null } });
     await store.getState().sendMessage("se1", "hi");
     expect(store.getState().lastModels).toEqual({});
   });

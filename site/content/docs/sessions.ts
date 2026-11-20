@@ -18,7 +18,7 @@ export default page({
       ["Start one in another space", "**New session** in the menu of that space's tile on the rail"],
       ["Start one beside this one", "[[⌘\\]] splits right with a new session, [[⌘⇧\\]] splits down"],
       ["Send this draft to a fresh session instead", "[[⌘⇧↩]] (**Dispatch the draft**): same agent, model, effort and mode, opened beside you"],
-      ["Ask something without changing your layout", "[[⌘⌥N]] (**Quick chat**): a session in a small window over whatever is on screen. It isn't listed anywhere, and closing it deletes the chat."],
+      ["Ask something without changing your layout", "[[⌘⌥N]] (**Quick chat**): a session in a small window over whatever is on screen. It isn't listed anywhere until you save it: after the first answer, **Save to** under the prompter files it in a space, and [[⌘↩]] saves it and opens it full size. Closing a chat you haven't saved deletes it."],
     ),
     p(
       "A session is titled from the first line of your first message, then given a short summary title. Its agent and its checkout can be changed until that message is sent, and not after: the conversation lives inside that agent and that folder from then on.",
