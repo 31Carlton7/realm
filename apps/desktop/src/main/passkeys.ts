@@ -108,7 +108,7 @@ export type PasskeyCdp = {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
   onEvent(cb: (method: string, params: unknown) => void): void;
   /** Whether this page is the one its pane shows. A page waiting behind another (`adoptInPlace` in
-   *  browser-host.ts) is off screen, so a passkey it asks for is asked for by nobody. */
+   *  browser-host.ts) is off screen, so a passkey it asks for is refused without a prompt. */
   inFront(): boolean;
 };
 
@@ -288,8 +288,12 @@ export class PasskeyBroker {
     cdp.onEvent((method, params) => {
       if (method !== "Runtime.bindingCalled") return;
       const p = params as { name?: string; payload?: string; executionContextId?: number };
-      if (p?.name !== PASSKEY_BINDING || typeof p.payload !== "string" || !cdp.inFront()) return;
-      this.onMessage(paneId, state, p.payload, p.executionContextId);
+      if (p?.name !== PASSKEY_BINDING || typeof p.payload !== "string") return;
+      const msg = parsePasskeyMessage(p.payload);
+      if (!msg) return;
+      // Refused on the page's own CDP: no prompt, no notice, and nothing sent to the page in front.
+      if (msg.t === "ask" && !cdp.inFront()) { void this.reply(state, msg.id, "deny", p.executionContextId); return; }
+      this.onMessage(paneId, state, msg, p.executionContextId);
     });
   }
 
@@ -303,9 +307,7 @@ export class PasskeyBroker {
     this.panes.delete(paneId);
   }
 
-  private onMessage(paneId: string, state: PaneState, payload: string, contextId: number | undefined): void {
-    const msg = parsePasskeyMessage(payload);
-    if (!msg) return;
+  private onMessage(paneId: string, state: PaneState, msg: PasskeyAsk | PasskeyDone, contextId: number | undefined): void {
     if (msg.t === "done") {
       const resolve = state.awaitingDone.get(msg.id);
       if (resolve) { state.awaitingDone.delete(msg.id); resolve(); }

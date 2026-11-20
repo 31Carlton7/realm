@@ -177,17 +177,21 @@ describe("PasskeyBroker — a pane whose page changes (#543)", () => {
     expect(front.armed()).toEqual([]);
   });
 
-  it("asks nothing for a page waiting behind, and never arms the page in front for it", async () => {
-    // On the code before this, the opener's ask went to the pane's latest install: a fingerprint
-    // prompt, then keys and presence in the FRONT page's authenticator for up to two minutes, waiting
-    // on a "done" that could never come. THE MUTANT: let a covered page's asks through.
+  it("refuses a page waiting behind on its own page, and sends the page in front nothing", async () => {
+    // Once the ask went to the pane's latest install: a fingerprint prompt, then keys and presence in
+    // the FRONT page's authenticator for up to two minutes, waiting on a "done" that could never come.
+    // Then it was dropped, and the opener's navigator.credentials.get() never settled. THE MUTANTS:
+    // drop the ask again, or answer it through the page in front.
     const { h, opener, front } = await covered();
+    const frontBefore = front.sent.length;
     opener.fire(ask());
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => opener.verdicts().length > 0);
+    expect(opener.verdicts()).toEqual([expect.stringContaining('"deny"')]);
+    expect(opener.sent.at(-1)?.params.contextId).toBe(7);
+    expect(front.sent.length - frontBefore).toBe(0);
     expect(h.prompted).toEqual([]);
-    expect(front.armed()).toEqual([]);
+    expect(h.notices).toEqual([]);
     expect(opener.armed()).toEqual([]);
-    expect([...front.verdicts(), ...opener.verdicts()]).toEqual([]);
   });
 });
 
