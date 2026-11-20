@@ -6,6 +6,7 @@ import { Sidebar } from "./components/sidebar/Sidebar";
 import { Rail } from "./components/sidebar/Rail";
 import { WindowLead } from "./components/sidebar/WindowLead";
 import { SidePaneToggle } from "./components/SidePaneToggle";
+import { closeTab } from "./components/pane-close";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
@@ -615,6 +616,18 @@ export function subscribeAgentPanes(store: StoreApi<AppState>, on: Subscribe): (
   return () => { for (const off of offs) off(); };
 }
 
+/**
+ * A browser pane's page called window.close(): its tab closes as the tab's × closes it, which for a
+ * browser deletes the item. Without the confirm the × asks for, since the page asked. Exported for its test.
+ */
+export function subscribeSelfClosedTabs(store: StoreApi<AppState>, links: Window["realm"]["links"]): (() => void) | undefined {
+  return links?.onCloseTab?.(({ browserId }) => {
+    const st = store.getState();
+    const closing = st.items.find((i) => i.kind === "browser" && i.refId === browserId);
+    if (closing) st.run(() => closeTab(closing, st));
+  });
+}
+
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
   /* One keymap, one handler. The three hooks this replaces each owned a slice of the keyboard and
@@ -810,12 +823,7 @@ export function App() {
       const st = store.getState();
       st.run(() => st.openPageTab(browserId, url, { background, focus, onCreated: (id) => window.realm?.links?.claimTab?.(page, id) }));
     });
-    // …and one whose page called window.close(): its tab closes, as the tab's × closes it.
-    const offCloseTab = window.realm?.links?.onCloseTab?.(({ browserId }) => {
-      const st = store.getState();
-      const closing = st.items.find((i) => i.kind === "browser" && i.refId === browserId);
-      if (closing) st.run(() => st.closeFromLayout(closing.id));
-    });
+    const offCloseTab = subscribeSelfClosedTabs(store, window.realm?.links);
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
