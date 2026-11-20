@@ -102,8 +102,12 @@ describe("Open the meeting when it starts", () => {
   });
 
   it("says nothing about access while it is off: nothing is reading the calendar", async () => {
-    await general({ settings: { [MEETINGS_OPEN_KEY]: false }, calendarAccess: "denied" });
+    const { api, store } = await general({ settings: { [MEETINGS_OPEN_KEY]: false }, calendarAccess: "denied" });
     await waitFor(() => expect(row().getByText("With a notification two minutes before")).toBeInTheDocument());
+    expect(row().queryByRole("button")).toBeNull();
+    // The access the store last heard is not shown either: the switch going off does not wait for main.
+    act(() => api.emitCalendarAccess("denied"));
+    expect(store.getState().calendarAccess).toBe("denied");
     expect(row().queryByRole("button")).toBeNull();
   });
 

@@ -181,7 +181,8 @@ export class MeetingWatch {
   }
 
   private readCalendar(line: string): void {
-    const read = parseCalendarLine(line);
+    // A helper told to stop may still have a line on its way.
+    const read = this.calendar ? parseCalendarLine(line) : null;
     if (!read) return;
     if ("access" in read) {
       this.setAccess(read.access);

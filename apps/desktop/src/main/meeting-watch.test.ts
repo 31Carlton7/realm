@@ -209,6 +209,11 @@ describe("opening a meeting when it starts", () => {
     w.service.setOpensMeetings(false);
     expect(w.calendar().running).toBe(false);
     expect(w.service.access).toBeNull();
+    expect(w.timers.size).toBe(0);
+    // A line the stopped helper had already written changes nothing.
+    w.calendar().onLine(eventsLine());
+    w.calendar().onLine('{"access":"denied"}');
+    expect(w.service.access).toBeNull();
     w.goTo(NOON + MIN);
     expect([w.seen.notified, w.seen.opened, w.seen.events]).toEqual([[], [], []]);
     expect(w.timers.size).toBe(0);
