@@ -190,7 +190,7 @@ export function electronViewFactory(
         const keyboard = { openerFocused: wc.isFocused(), personPressed: activation.personPressed(Date.now()) };
         return hostedTab<WebContents>(webPreferences, answer, keyboard,
           (page, focused) => hooks.openTab(details.url, action === "background-tab", page, focused),
-          (page) => hooks.adoptInPlace(details.url, page));
+          (page) => hooks.adoptInPlace(details.url, page, keyboard.openerFocused && keyboard.personPressed));
       }
       if (action === "in-place" || tab) {
         if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }
@@ -297,6 +297,11 @@ export function electronViewFactory(
     // Gone without `destroy` asking, from a window still up: the page called window.close().
     let destroying = false;
     wc.once("destroyed", () => { if (!destroying && !win.isDestroyed()) hooks.pageClosed(wc.id); });
+    // Kept from the events because a page that has gone can no longer be asked (`hasKeyboard`).
+    let keyboard = false;
+    wc.on("focus", () => { keyboard = true; });
+    wc.on("blur", () => { keyboard = false; });
+    wc.once("destroyed", () => hooks.closed());
     wc.on("found-in-page", (_e, r) => hooks.found({ activeMatchOrdinal: r.activeMatchOrdinal, matches: r.matches, finalUpdate: r.finalUpdate }));
     // ⌘F with the page holding the keyboard. That keydown goes to this view's renderer, never to the
     // window's, so this is the only place it can be heard; taken from the page so a site's own ⌘F
@@ -326,8 +331,9 @@ export function electronViewFactory(
       // reload of that reloads nothing. The bar names the page that was asked for, so that is Reload's.
       reload: () => { if (wc.getURL() === "about:blank" && wanted !== null && wanted !== "about:blank") loadURL(wanted); else wc.reload(); },
       stop: () => wc.stop(),
-      canGoBack: () => wc.navigationHistory.canGoBack(),
-      canGoForward: () => wc.navigationHistory.canGoForward(),
+      // The state getters answer for a page that has gone too (`closed`): a destroyed webContents throws.
+      canGoBack: () => !wc.isDestroyed() && wc.navigationHistory.canGoBack(),
+      canGoForward: () => !wc.isDestroyed() && wc.navigationHistory.canGoForward(),
       history: () => ({
         // `getAllEntries` carries a `pageState` blob as well; only the two fields a menu row needs
         // cross into the host, which keeps the handle's shape the thing the fake has to satisfy.
@@ -335,9 +341,9 @@ export function electronViewFactory(
         activeIndex: wc.navigationHistory.getActiveIndex(),
       }),
       goToIndex: (index) => wc.navigationHistory.goToIndex(index),
-      getURL: () => shownPage({ url: wc.getURL(), title: "" }, wanted).url,
-      getTitle: () => shownPage({ url: wc.getURL(), title: wc.getTitle() }, wanted).title,
-      isLoading: () => wc.isLoading(),
+      getURL: () => shownPage({ url: wc.isDestroyed() ? "" : wc.getURL(), title: "" }, wanted).url,
+      getTitle: () => shownPage(wc.isDestroyed() ? { url: "", title: "" } : { url: wc.getURL(), title: wc.getTitle() }, wanted).title,
+      isLoading: () => !wc.isDestroyed() && wc.isLoading(),
       getFavicon: () => favicon,
       getLoadError: () => pageLoad.error,
       isReady: () => pageLoad.ready,
@@ -371,6 +377,7 @@ export function electronViewFactory(
         wc.on("did-fail-load", failed);
       },
       reclaim: () => onView?.(id, wc, view),
+      hasKeyboard: () => (wc.isDestroyed() ? keyboard : wc.isFocused()),
       destroy: () => {
         for (const popup of popups) if (!popup.isDestroyed()) popup.destroy();
         onView?.(id, null, view);

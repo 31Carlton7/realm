@@ -435,7 +435,8 @@ const P = "persist:browser";
 function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
     entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null,
-    error: null as BrowserLoadError | null, ready: false, popups: [] as string[], scroll: { x: 0, y: 0 } as { x: number; y: number } | null };
+    error: null as BrowserLoadError | null, ready: false, popups: [] as string[], scroll: { x: 0, y: 0 } as { x: number; y: number } | null,
+    keyboard: false };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -459,6 +460,7 @@ function fakeView() {
     readScroll: async () => { calls.push("readScroll"); return nav.scroll; },
     scrollAfterLoad: (x, y) => calls.push(`scrollAfterLoad:${x},${y}`),
     reclaim: () => calls.push("reclaim"),
+    hasKeyboard: () => nav.keyboard,
     destroy: () => calls.push("destroy"),
   };
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
@@ -600,13 +602,13 @@ describe("BrowserPaneHost", () => {
 
   describe("a window nobody pressed for, shown in place (#543)", () => {
     /** b1 on `opener`, whose page has just opened `url` with no press behind it. */
-    const openedInPlace = (url = "https://example.com/x", allowlist: string[] | null = ["https://example.com"]) => {
+    const openedInPlace = (url = "https://example.com/x", allowlist: string[] | null = ["https://example.com"], focused = false) => {
       const made = makeHost();
       made.host.create("b1", "https://example.com/opener", allowlist, P);
       made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
       const opener = made.views.get("b1")!;
       const page = { close: vi.fn() };
-      opener.getHooks().adoptInPlace(url, page);
+      opener.getHooks().adoptInPlace(url, page, focused);
       return { ...made, opener, page, front: made.views.get("b1")! };
     };
 
@@ -674,12 +676,103 @@ describe("BrowserPaneHost", () => {
       // on a timer piles up pages behind the pane without end, or drags the pane off the page in front.
       const { host, opener, front } = openedInPlace();
       const again = { close: vi.fn() };
-      opener.getHooks().adoptInPlace("https://example.com/y", again);
+      opener.getHooks().adoptInPlace("https://example.com/y", again, false);
       expect(again.close).toHaveBeenCalled();
       opener.getHooks().openInPlace("https://example.com/z");
       expect(front.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
       expect(host.navigate("b1", "https://example.com/w")).toBe("https://example.com/w");
       expect(front.calls).toContain("load:https://example.com/w");
+    });
+
+    const focuses = (v: ReturnType<typeof fakeView>) => v.calls.filter((c) => c === "focus").length;
+
+    it("gives the new page the keyboard when the opener had it", () => {
+      // The opener held the keys, and on main the page shown in its place was the same webContents.
+      // THE MUTANT: never focus the new page, and the keys go on landing in the page hidden behind it.
+      const { host, front } = openedInPlace(undefined, undefined, true);
+      expect(focuses(front)).toBe(1);
+      host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      expect(focuses(front)).toBe(1);
+    });
+
+    it("leaves the keyboard where it is when the opener did not have it", () => {
+      // The caret is in the prompter, or an agent's run opened it. THE MUTANT: always focus the new
+      // page, and the person's draft stops taking keys.
+      const { host, front } = openedInPlace(undefined, undefined, false);
+      host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      expect(focuses(front)).toBe(0);
+    });
+
+    it("waits for the pane to show the new page before giving it the keyboard", () => {
+      // A hidden view holding the keyboard swallows the keys.
+      const made = makeHost();
+      made.host.create("b1", "https://example.com/opener", null, P);
+      made.views.get("b1")!.getHooks().adoptInPlace("https://example.com/x", { close: vi.fn() }, true);
+      const front = made.views.get("b1")!;
+      expect(focuses(front)).toBe(0);
+      made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      expect(focuses(front)).toBe(1);
+    });
+
+    it("gives the opener back the keyboard the page in front had", () => {
+      // THE MUTANT: never focus the opener when it is uncovered, and the keys go to a page that is gone.
+      const { host, opener, front } = openedInPlace();
+      front.nav.keyboard = true;
+      host.navAction("b1", "back");
+      expect(focuses(opener)).toBe(1);
+    });
+
+    it("leaves the keyboard alone on Back when the page in front did not have it", () => {
+      // Back pressed in the pane's own bar: the keyboard is in the window, not the page. THE MUTANT:
+      // always focus the opener, and the keyboard leaves wherever the person put it.
+      const { host, opener } = openedInPlace(undefined, undefined, true);
+      host.navAction("b1", "back");
+      expect(focuses(opener)).toBe(0);
+    });
+
+    it("shows the opener again when the page in front closes itself", () => {
+      // window.open, postMessage back, window.close(): the usual end of this. THE MUTANT: ignore the
+      // close, and the pane is left on a page that is gone, with the opener hidden behind it for good.
+      const { opener, front, states } = openedInPlace();
+      opener.nav.title = "Opener";
+      const shown = states.length;
+      expect(() => front.getHooks().closed()).not.toThrow();
+      expect(opener.calls).toContain("reclaim");
+      expect(opener.calls.at(-1)).toBe("visible:true");
+      expect(opener.calls.filter((c) => c.startsWith("load:"))).toEqual(["load:https://example.com/opener"]);
+      expect(states.length).toBe(shown + 1);
+      expect(states.at(-1)).toMatchObject({ id: "b1", url: "https://example.com/opener", title: "Opener", canGoBack: false });
+    });
+
+    it("hands the keyboard back when the page in front closes itself holding it", () => {
+      const { opener, front } = openedInPlace(undefined, undefined, true);
+      front.nav.keyboard = true;
+      front.getHooks().closed();
+      expect(focuses(opener)).toBe(1);
+    });
+
+    it("leaves a page with no opener behind it as it was when it closes itself", () => {
+      // What main does for a self-closed page. THE MUTANT: uncover on every close, from an empty stack.
+      const { host, views, states } = makeHost();
+      host.create("b1", "https://example.com/a", null, P);
+      const shown = states.length;
+      expect(() => views.get("b1")!.getHooks().closed()).not.toThrow();
+      expect(states.length).toBe(shown);
+    });
+
+    it("does nothing when a page the pane closed reports closing", () => {
+      // Back destroys the page in front, and its close arrives after. THE MUTANT: act on a close from
+      // a page no longer in front, and that late close uncovers the next opener too.
+      const { host, views, opener, front } = openedInPlace();
+      opener.getHooks().closed();
+      expect(opener.calls).not.toContain("reclaim"); // behind, it is not the pane's page
+      front.getHooks().adoptInPlace("https://example.com/y", { close: vi.fn() }, false);
+      const third = views.get("b1")!;
+      host.navAction("b1", "back");
+      expect(front.calls).toContain("reclaim");
+      third.getHooks().closed();
+      expect(alive(front)).toBe(true);
+      expect(opener.calls).not.toContain("reclaim");
     });
 
     it("keeps at most PARKED_OPENERS pages behind one pane, closing the oldest first", () => {
@@ -688,7 +781,7 @@ describe("BrowserPaneHost", () => {
       host.create("b1", "https://example.com/0", null, P);
       const chain = [views.get("b1")!];
       for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
-        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() });
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() }, false);
         chain.push(views.get("b1")!);
       }
       expect(alive(chain[0]!)).toBe(false);
@@ -702,7 +795,7 @@ describe("BrowserPaneHost", () => {
       host.create("b1", "https://example.com/0", null, P);
       const chain = [views.get("b1")!];
       for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
-        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() });
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() }, false);
         chain.push(views.get("b1")!);
       }
       for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");

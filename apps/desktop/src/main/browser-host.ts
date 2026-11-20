@@ -648,6 +648,8 @@ export type ViewHandle = {
   scrollAfterLoad(x: number, y: number): void;
   /** This view's page is its browser's again, after the page shown in its place went (`adoptInPlace`). */
   reclaim(): void;
+  /** Whether the page has the keyboard; once it has gone, whether it had it last. */
+  hasKeyboard(): boolean;
   /** Closes the view's popups with it. */
   destroy(): void;
 };
@@ -667,7 +669,9 @@ export type ViewHooks = {
   openTab(url: string, background: boolean, page: OpenedPage, focused: boolean): void;
   /** …and for one nobody pressed for (`hostedTab`): `page` is shown in this view's place, and this
    *  view's page waits behind it, still running, for Back. */
-  adoptInPlace(url: string, page: OpenedPage): void;
+  adoptInPlace(url: string, page: OpenedPage, focused: boolean): void;
+  /** The view's page went by itself (`window.close()`), or with the window. */
+  closed(): void;
   /** `found-in-page`: the view's answer to the last find. */
   found(result: FindResult): void;
   /** ⌘F with the page holding the keyboard (`isFindShortcut`) — the pane opens its find strip. */
@@ -950,7 +954,10 @@ export class BrowserPaneHost {
       emitState: () => { if (inFront()) this.emitState(id); },
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
       openInPlace: (target) => { if (inFront()) this.navigate(id, target); },
-      adoptInPlace: (target, page) => this.adoptInPlace(id, target, page, inFront()),
+      adoptInPlace: (target, page, focused) => this.adoptInPlace(id, target, page, focused, inFront()),
+      // A page that posts back to its opener and closes itself is the usual end of a window opened in
+      // place: the opener is shown again, as Back would.
+      closed: () => { if (inFront() && this.views.get(id)!.behind.length > 0) this.uncover(id); },
       openTab: (target, background, page, focused) => {
         const opener = this.views.get(id);
         const url = normalizeAddress(target);
@@ -979,9 +986,10 @@ export class BrowserPaneHost {
    * Show the page Chromium made for a window nobody pressed for in this browser, in place of the page
    * that opened it, as main once navigated the view there. The opener is kept, hidden and running, so
    * the window `window.open` handed it is live and can be written to or post back; Back from the new
-   * page's first entry shows it again (`navAction`).
+   * page's first entry shows it again (`navAction`). The new page takes the keyboard only if the
+   * opener had it: a timer's window must not take the keys the person is typing into the prompter.
    */
-  private adoptInPlace(id: string, target: string, page: OpenedPage, inFront: boolean): void {
+  private adoptInPlace(id: string, target: string, page: OpenedPage, focused: boolean, inFront: boolean): void {
     const v = this.views.get(id);
     const url = normalizeAddress(target);
     if (!inFront || !v || !url || !originAllowed(url, v.allowlist)) { page.close(); return; }
@@ -993,13 +1001,16 @@ export class BrowserPaneHost {
       oldest.destroy();
     }
     v.handle = this.makeView(id, v.partition, { page, url });
+    v.focusWhenShown = focused;
     this.show(id);
   }
 
-  /** The page in front goes, and the one that opened it is shown again, as it was left. */
+  /** The page in front goes, and the one that opened it is shown again, as it was left, with the
+   *  keyboard if the page in front had it. */
   private uncover(id: string): void {
     const v = this.views.get(id)!;
     const front = v.handle;
+    v.focusWhenShown = front.hasKeyboard();
     v.handle = v.behind.pop()!;
     try { front.destroy(); } catch { /* already gone with its window */ }
     v.handle.reclaim();
@@ -1011,7 +1022,9 @@ export class BrowserPaneHost {
     const v = this.views.get(id)!;
     v.emulated = null;
     this.place(id);
-    v.handle.setVisible(v.visible && !v.reviving);
+    const onScreen = v.visible && !v.reviving;
+    v.handle.setVisible(onScreen);
+    if (onScreen && v.focusWhenShown) { v.focusWhenShown = false; v.handle.focus(); }
     this.emitState(id);
   }
 
