@@ -1,0 +1,128 @@
+/* The PDF export's page (print-document.ts). Its own sheet, never the pane's: a page is light ink on
+   white paper whatever the app's theme, and nothing in it is a control. The inks and the code colours
+   are the light face's (renderer theme/tokens.css), so a printed page reads as Realm's light mode does. */
+
+:root {
+  color-scheme: light;
+  --ink: oklch(0.235 0.006 264);
+  --ink-2: oklch(0.459 0.01 264);
+  --ink-3: oklch(0.531 0.01 264);
+  --link: oklch(0.52 0.19 257);
+  --rule: oklch(0.9 0.004 264);
+  --well: oklch(0.968 0.004 264);
+  --body-face: "Inter", sans-serif;
+  --mono-face: "JetBrains Mono", monospace;
+}
+
+html { background: #fff; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font: 10.5pt/1.6 var(--body-face);
+  font-synthesis: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  orphans: 3;
+  widows: 3;
+  overflow-wrap: break-word;
+}
+
+/* A heading stays with what it heads: never the last thing on a page. */
+h1, h2, h3, h4, h5, h6 {
+  margin: 1.6em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  break-after: avoid-page;
+  break-inside: avoid;
+}
+body > :first-child { margin-top: 0; }
+h1 { font-size: 21pt; letter-spacing: -0.02em; }
+h2 { font-size: 15pt; }
+h3 { font-size: 12.5pt; }
+h4, h5, h6 { font-size: 10.5pt; }
+h6 { color: var(--ink-2); }
+h1.file-name { font: 500 10.5pt/1.4 var(--mono-face); letter-spacing: 0; color: var(--ink-2); margin-bottom: 1.2em; }
+
+p, ul, ol, dl, blockquote, pre, table, .math-display { margin: 0 0 0.8em; }
+p { text-wrap: pretty; }
+li { margin: 0.2em 0; }
+li > ul, li > ol { margin-bottom: 0; }
+ul, ol { padding-left: 1.4em; }
+li > p { margin-bottom: 0.4em; }
+li > input[type="checkbox"] { margin: 0 0.4em 0 -1.3em; vertical-align: -0.1em; }
+
+a { color: var(--link); text-decoration: none; }
+.dead-link { color: inherit; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 0.5pt solid var(--rule); margin: 1.6em 0; }
+
+blockquote { padding-left: 1em; border-left: 2pt solid var(--rule); color: var(--ink-2); }
+
+code {
+  font-family: var(--mono-face);
+  font-size: 0.86em;
+  background: var(--well);
+  padding: 0.1em 0.3em;
+  border-radius: 3pt;
+}
+pre {
+  font: 8.5pt/1.55 var(--mono-face);
+  background: var(--well);
+  border-radius: 6pt;
+  padding: 9pt 11pt;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  break-inside: avoid;
+}
+pre code { font: inherit; background: none; padding: 0; border-radius: 0; }
+pre.raw-html { color: var(--ink-2); }
+/* A file printed whole runs as long as it is, so it breaks between lines wherever the page ends. */
+pre.file { background: none; padding: 0; border-radius: 0; break-inside: auto; }
+
+/* A table is read row by row: a row never splits, and the header comes back on every page. */
+table { border-collapse: collapse; width: 100%; font-size: 9.5pt; line-height: 1.45; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th, td { padding: 4pt 8pt 4pt 0; border-bottom: 0.5pt solid var(--rule); text-align: left; vertical-align: top; }
+th { font-weight: 600; border-bottom-color: var(--ink-3); }
+th[align="center"], td[align="center"] { text-align: center; }
+th[align="right"], td[align="right"], td.num { text-align: right; }
+td.num { font-variant-numeric: tabular-nums; }
+table.sheet { font-size: 8.5pt; }
+
+/* A picture is never cut across two pages, and never taller than one. */
+img {
+  display: block;
+  max-width: 100%;
+  max-height: 8in;
+  height: auto;
+  margin: 0.4em 0;
+  break-inside: avoid;
+  outline: 0.5pt solid rgb(0 0 0 / 0.1);
+  outline-offset: -0.5pt;
+}
+.left-out { color: var(--ink-3); font-style: italic; }
+a.left-out { color: var(--link); }
+
+.katex { font-size: 1.08em; }
+.math-display { break-inside: avoid; overflow-wrap: normal; }
+.math-raw { color: var(--ink-2); }
+
+.footnotes { margin-top: 2em; padding-top: 0.6em; border-top: 0.5pt solid var(--rule); font-size: 9pt; color: var(--ink-2); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.hljs { color: var(--ink-2); }
+.hljs-comment, .hljs-quote { color: var(--ink-3); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-name { color: oklch(0.52 0.19 257); }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: oklch(0.51 0.14 152); }
+.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-template-variable, .hljs-variable { color: oklch(0.535 0.155 52); }
+.hljs-title, .hljs-section, .hljs-title.class_, .hljs-title.function_, .hljs-selector-id { color: var(--ink); font-weight: 500; }
+.hljs-type, .hljs-built_in, .hljs-class .hljs-title, .hljs-params { color: var(--ink); }
+.hljs-attr, .hljs-selector-attr, .hljs-selector-class, .hljs-property { color: var(--ink-2); }
+.hljs-meta, .hljs-comment .hljs-doctag { color: var(--ink-3); }
+.hljs-deletion { color: oklch(0.545 0.19 25); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }

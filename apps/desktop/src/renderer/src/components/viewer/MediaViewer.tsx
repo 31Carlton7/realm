@@ -6,7 +6,7 @@ import { useApp } from "../../state/store";
 import { VIEWER_SLOT, ownerOf, type FileProvenance, type ViewerState } from "../../state/viewer";
 import { Menu, type MenuItem } from "../Menu";
 import { canQuickLook, canShare, quickLook, shareFile } from "../file-actions";
-import { removeFromLibraryItem } from "../file-menu";
+import { downloadPdfItems, removeFromLibraryItem } from "../file-menu";
 import { useFileDrop } from "../use-file-drop";
 import { ViewerChat } from "./ViewerChat";
 import { ViewerStage, typingIn } from "./ViewerStage";
@@ -208,6 +208,7 @@ function ViewerHead({ viewer, facts, onClose }: { viewer: ViewerState; facts: Fa
     ...(canQuickLook() || canShare() ? [{ kind: "separator" } as MenuItem] : []),
     // Beside the pane, not instead of it: "open it in the app I edit pictures in" is its own request.
     ...(toOs && inPane ? [{ label: "Open with the default app", onSelect: toApp } as MenuItem] : []),
+    ...downloadPdfItems(file.path),
     { label: "Copy path", onSelect: () => { void navigator.clipboard?.writeText?.(file.path); } },
     ...(file.from?.kind === "added" && profileId
       ? [{ kind: "separator" } as MenuItem, removeFromLibraryItem(() => run(async () => { await removeLibraryFiles(profileId, [file.path]); }))]

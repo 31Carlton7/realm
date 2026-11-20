@@ -261,6 +261,26 @@ describe("files that are not media", () => {
     expect(await screen.findByText("macOS has no preview for data.bin.")).toBeInTheDocument();
   });
 
+  /* THE mutants: the row missing from the menu a transcript's file card opens into, offered for a
+     file it cannot typeset, or sent with another path. */
+  it("offers Download as PDF in its menu for a text file, and not for a PDF", async () => {
+    const realm = bridge([]);
+    const savePdf = vi.fn(async () => null);
+    Object.assign(realm.files, { savePdf });
+    const { store } = await mount([]);
+    const rows = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "More actions" }));
+      return within(await screen.findByRole("menu")).getAllByRole("menuitem").map((b) => b.querySelector(".menu-label")!.textContent);
+    };
+    act(() => store.getState().openViewer({ files: [{ path: "/work/notes.md" }] }));
+    expect(await rows()).toEqual(["Open with the default app", "Download as PDF…", "Copy path"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Download as PDF/ }));
+    expect(savePdf).toHaveBeenCalledWith("/work/notes.md");
+    act(() => store.getState().openViewer({ files: [{ path: "/work/brief.pdf" }] }));
+    await screen.findByRole("dialog", { name: "brief.pdf" });
+    expect(await rows()).not.toContain("Download as PDF…");
+  });
+
   it("says a file that has gone is gone, and offers nothing that would fail", async () => {
     bridge([], { "/work/gone.png": null });
     const { store } = await mount([]);

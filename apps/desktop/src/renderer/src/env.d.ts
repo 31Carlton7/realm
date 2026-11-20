@@ -197,6 +197,8 @@ interface Window {
       finderIcon(): Promise<string | null>;
       /** Copy it where the user points; the saved path, or null when they cancelled. */
       saveCopy(path: string): Promise<string | null>;
+      /** Typeset it as a PDF and save that where the user points (main/print-pdf.ts). Optional. */
+      savePdf?(path: string): Promise<string | null>;
       /** Quick Look, Share and drag-out (main/file-actions.ts). Optional, like every bridge. */
       quickLook?(path: string, base?: string): Promise<void>;
       share?(path: string, at: { x: number; y: number }, base?: string): Promise<void>;
