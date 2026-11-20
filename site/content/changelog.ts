@@ -21,6 +21,23 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-20-4",
+    title: "Realm v2.20.4",
+    date: "2026-11-20",
+    version: "v2.20.4",
+    area: "Release",
+    summary:
+      "When a page in the browser pane opens a window by itself, with no click, Realm now shows the page the site opened in the same tab. The page that opened it can now talk to the new window, and a form sent to it keeps what was filled in.",
+    short: "Windows a page opens by itself now work",
+    body: [
+      { kind: "p", text: "A window a page opens by itself, with no click, now works, and shows in the same tab." },
+      { kind: "h", text: "Fixed" },
+      { kind: "ul", items: [
+        "In the browser pane, when a page opens a window by itself, with no click behind it, Realm still shows the new page in the same tab, but it is now the page the site opened rather than a fresh load of its address. A page that writes to the window it opened, or waits for it to answer, now hears back, and a form a page sends to a new window keeps what was filled in. Before, the page was handed a window that was already closed, and the form arrived empty. Back returns to the page that opened it, as it was left rather than reloaded, and when the new page closes itself that page is shown again. Forward does not return to the new page after Back. (#557, fixes #543)",
+      ] },
+    ],
+  },
+  {
     slug: "v2-20-3",
     title: "Realm v2.20.3",
     date: "2026-11-20",
