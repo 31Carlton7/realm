@@ -65,6 +65,49 @@ export function pathFromMediaUrl(url: string): string | null {
   } catch { return null; } // a malformed escape is not a path
 }
 
+/** The host of a picture a Markdown document shows from its own space (#548). Its own host rather
+ *  than `f`, because main serves it under a different gate: inside the space folder, pictures only. */
+const SPACE_HOST = "space";
+
+/** `realm-media://space/<the space folder>/<the picture's path under it>`, each one encoded segment. */
+export function spaceImageUrl(root: string, path: string): string {
+  return `${MEDIA_SCHEME}://${SPACE_HOST}/${encodeURIComponent(root)}/${encodeURIComponent(path)}`;
+}
+
+export function spaceImageFromMediaUrl(url: string): { root: string; path: string } | null {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return null; }
+  if (parsed.protocol !== `${MEDIA_SCHEME}:` || parsed.hostname !== SPACE_HOST) return null;
+  const [root, path, ...rest] = parsed.pathname.replace(/^\//, "").split("/");
+  if (!root || !path || rest.length > 0) return null;
+  try { return { root: decodeURIComponent(root), path: decodeURIComponent(path) }; } catch { return null; }
+}
+
+/**
+ * What an `<img>` in the Documents pane loads for a Markdown image's `src`.
+ *
+ * A relative src is the file's own folder's, as on GitHub, and a leading `/` is the space folder's,
+ * as GitHub reads one against the repository. Anything with a scheme (`https:`, `data:`) or a
+ * protocol-relative `//host` is left as written, and so is everything in a file outside the space
+ * (`documentPath` absolute), which has no folder Realm may serve from.
+ *
+ * Only the drawn element sees the result. The document keeps the src it was written with, so a save
+ * never writes this URL into the file.
+ */
+export function documentImageSrc(src: string, documentPath: string, root: string | null): string {
+  if (!root || src === "" || src.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(src) || documentPath.startsWith("/")) return src;
+  let decoded: string;
+  try { decoded = decodeURIComponent(src.replace(/[?#].*$/, "")); } catch { return src; }
+  const parts = decoded.startsWith("/") ? [] : documentPath.split("/").slice(0, -1);
+  for (const part of decoded.split("/")) {
+    if (part === "" || part === ".") continue;
+    // A climb past the folder stays in the path: main refuses it, where a clamp would show another file.
+    if (part === ".." && parts.length > 0 && parts[parts.length - 1] !== "..") parts.pop();
+    else parts.push(part);
+  }
+  return spaceImageUrl(root, parts.join("/"));
+}
+
 /** One media file main confirmed is really there. `size` is a fact about the file on disk, so a card
  *  can say "10 MB" without the renderer having to have read it. */
 export type MediaFile = { path: string; mime: string; kind: MediaKind; size: number };

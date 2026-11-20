@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Image from "@tiptap/extension-image";
 import { Icon } from "@realm/ui";
-import { RawBlock, TABLE_EXTENSIONS, parseMarkdown, serializeMarkdown } from "./markdown-model";
+import { documentImageSrc } from "@realm/contracts";
+import { DocumentImage, RawBlock, TABLE_EXTENSIONS, parseMarkdown, serializeMarkdown } from "./markdown-model";
 import { UiCodeBlock } from "./UiBlockNode";
 import { recallCaret, rememberCaret, useScrollMemory } from "../scroll-memory";
 
@@ -19,8 +19,10 @@ import { recallCaret, rememberCaret, useScrollMemory } from "../scroll-memory";
  * (measured at 72% of lines on this repo's own docs). Replacing the document with the parsed nodes
  * themselves keeps identity intact, so only edited blocks are ever re-serialized.
  */
-export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = false }: {
+export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = false, root = null, path = "" }: {
   text: string; onChange: (markdown: string) => void;
+  /** The space folder and the document's path under it, which a relative picture is drawn from. */
+  root?: string | null; path?: string;
   /** Drawn the same, taking no edits and offering no toolbar: a file outside the space. */
   readOnly?: boolean;
   /** What this column is, for the scroll memory that survives a space switch (scroll-memory.ts).
@@ -39,7 +41,7 @@ export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = fa
     editable: !readOnly,
     // The same code block the schema has (`docSchema`), with a view that draws the block fences an
     // agent writes — a chart, a diagram, a comparison — rather than showing their source.
-    extensions: [StarterKit.configure({ codeBlock: false }), UiCodeBlock, Image.configure({ inline: true }), ...TABLE_EXTENSIONS, RawBlock],
+    extensions: [StarterKit.configure({ codeBlock: false }), UiCodeBlock, DocumentImage.configure({ inline: true, resolveSrc: (src) => documentImageSrc(src, path, root) }), ...TABLE_EXTENSIONS, RawBlock],
     editorProps: {
       attributes: { class: "documents-rich-surface", "aria-label": "Rich text editor" },
       handleDOMEvents: {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_MEDIA_CANDIDATES, directoriesNamedIn, isAudioMime, isPlayablePath, isVideoMime, mediaCandidatesIn, mediaKindFor,
-  mediaUrl, pathFromMediaUrl,
+  documentImageSrc, mediaUrl, pathFromMediaUrl, spaceImageFromMediaUrl,
 } from "./media";
 
 describe("mediaKindFor", () => {
@@ -149,5 +149,48 @@ describe("directoriesNamedIn", () => {
 
   it("dedupes, and keeps paths as written", () => {
     expect(directoriesNamedIn("/a/b/x.png /a/b/y.png")).toEqual(["/a/b"]);
+  });
+});
+
+describe("documentImageSrc", () => {
+  const root = "/Users/me/My Space";
+  const shown = (src: string, doc = "note.md") => spaceImageFromMediaUrl(documentImageSrc(src, doc, root));
+
+  it("resolves a picture beside the document, and one in a folder under it", () => {
+    expect(shown("pic.png")).toEqual({ root, path: "pic.png" });
+    expect(shown("img/pic.png")).toEqual({ root, path: "img/pic.png" });
+    expect(shown("./pic.png", "notes/week 1.md")).toEqual({ root, path: "notes/pic.png" });
+    expect(shown("../pic.png", "notes/week 1.md")).toEqual({ root, path: "pic.png" });
+  });
+
+  it("reads a leading slash as the space folder, the way a repository's own Markdown does", () => {
+    expect(shown("/img/pic.png", "notes/week 1.md")).toEqual({ root, path: "img/pic.png" });
+  });
+
+  it("decodes the escapes markdown-it writes into a link, and drops a query or fragment", () => {
+    expect(shown("my%20pic.png")).toEqual({ root, path: "my pic.png" });
+    expect(shown("pic.png?v=2#top")).toEqual({ root, path: "pic.png" });
+  });
+
+  it("keeps a climb out of the space for main to refuse", () => {
+    expect(shown("../../secret.png", "notes/a.md")).toEqual({ root, path: "../secret.png" });
+  });
+
+  it("leaves a src with a scheme, a protocol-relative one, and an empty one alone", () => {
+    for (const src of ["https://example.com/a.png", "http://127.0.0.1:8788/a.png", "data:image/png;base64,iVBORw0KGgo=", "//cdn.example.com/a.png", ""]) {
+      expect(documentImageSrc(src, "note.md", root)).toBe(src);
+    }
+  });
+
+  it("leaves it alone without a space folder, or for a file outside the space", () => {
+    expect(documentImageSrc("pic.png", "note.md", null)).toBe("pic.png");
+    expect(documentImageSrc("pic.png", "/Users/me/Downloads/readme.md", root)).toBe("pic.png");
+  });
+});
+
+describe("spaceImageFromMediaUrl", () => {
+  it("is not fooled by the plain media URL", () => {
+    expect(spaceImageFromMediaUrl(mediaUrl("/a/pic.png"))).toBeNull();
+    expect(pathFromMediaUrl(documentImageSrc("pic.png", "note.md", "/a"))).toBeNull();
   });
 });

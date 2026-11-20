@@ -6,9 +6,11 @@ import { tempDir } from "@realm/test-utils";
 
 /* `media.ts` imports `net` and `protocol` for the scheme; neither is touched by anything under
    test here, and pulling in the real electron module in node would fail at import. */
-vi.mock("electron", () => ({ net: {}, protocol: {}, nativeImage: { createFromPath: () => ({ isEmpty: () => true }) } }));
+const handlers = new Map<string, (request: Request) => Promise<Response>>();
+vi.mock("electron", () => ({ net: {}, protocol: { handle: (scheme: string, fn: (request: Request) => Promise<Response>) => handlers.set(scheme, fn) }, nativeImage: { createFromPath: () => ({ isEmpty: () => true }) } }));
 
-const { servablePath, serveFile, statMedia } = await import("./media");
+const { handleMediaProtocol, servablePath, serveFile, spaceImagePath, statMedia } = await import("./media");
+const { spaceImageUrl } = await import("@realm/contracts");
 
 let home: string;
 beforeEach(async () => { home = tempDir("realm-media-test-"); });
@@ -86,6 +88,58 @@ describe("servablePath", () => {
   it("refuses a symlink whose target is gone", async () => {
     await symlink(join(home, "never.mp4"), join(home, "dangling.mp4"));
     await expect(servablePath(join(home, "dangling.mp4"), home)).resolves.toBeNull();
+  });
+});
+
+/* The gate behind a Markdown document's own pictures (#548). The document is a file anyone can
+   write, so its relative srcs reach only the space's folder, and only pictures in it. */
+describe("spaceImagePath", () => {
+  it("serves a picture in the space, beside the document or in a folder under it", async () => {
+    const pic = await put("space/pic.png");
+    const nested = await put("space/img/pic.png");
+    await expect(spaceImagePath(join(home, "space"), "pic.png")).resolves.toBe(pic);
+    await expect(spaceImagePath(join(home, "space"), "img/pic.png")).resolves.toBe(nested);
+  });
+
+  it("refuses a climb out of the space, even to a real picture", async () => {
+    await put("space/note.md");
+    await put("outside.png");
+    await expect(spaceImagePath(join(home, "space"), "../outside.png")).resolves.toBeNull();
+    await expect(spaceImagePath(join(home, "space"), join(home, "outside.png"))).resolves.toBeNull();
+    // A sibling folder whose name starts with the space's is not inside it.
+    await put("space-2/pic.png");
+    await expect(spaceImagePath(join(home, "space"), "../space-2/pic.png")).resolves.toBeNull();
+  });
+
+  it("refuses a link in the space that points out of it", async () => {
+    const outside = await put("outside.png");
+    await mkdir(join(home, "space"), { recursive: true });
+    await symlink(outside, join(home, "space/pic.png"));
+    await expect(spaceImagePath(join(home, "space"), "pic.png")).resolves.toBeNull();
+  });
+
+  it("refuses what is not a picture, a movie included", async () => {
+    await put("space/clip.mp4");
+    await put("space/.env", "SECRET=1");
+    await expect(spaceImagePath(join(home, "space"), "clip.mp4")).resolves.toBeNull();
+    await expect(spaceImagePath(join(home, "space"), ".env")).resolves.toBeNull();
+  });
+
+  it("is what realm-media:// answers a space picture with", async () => {
+    await put("space/img/pic.png", "PNG");
+    await put("outside.png");
+    handleMediaProtocol(home);
+    const fetchMedia = (url: string) => handlers.get("realm-media")!(new Request(url));
+    const shown = await fetchMedia(spaceImageUrl(join(home, "space"), "img/pic.png"));
+    expect(shown.status).toBe(200);
+    expect(await shown.text()).toBe("PNG");
+    expect((await fetchMedia(spaceImageUrl(join(home, "space"), "../outside.png"))).status).toBe(404);
+  });
+
+  it("refuses a relative space folder and a missing picture", async () => {
+    await put("space/pic.png");
+    await expect(spaceImagePath("space", "pic.png")).resolves.toBeNull();
+    await expect(spaceImagePath(join(home, "space"), "gone.png")).resolves.toBeNull();
   });
 });
 
