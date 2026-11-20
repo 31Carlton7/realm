@@ -29,3 +29,15 @@ export const PAGE_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
 export const DELETES_ON_CLOSE: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
   ...PAGE_KINDS, "terminal", "browser", "documents",
 ]);
+
+/**
+ * Close a tab by the rule above: delete it if its kind deletes on close, else lift it out of the
+ * layout. The tab's × and a page that closed itself both close this way. Any confirm comes first,
+ * and is the caller's.
+ */
+export function closeTab(
+  item: Pick<Item, "id" | "kind">,
+  { deleteItem, closeFromLayout }: { deleteItem(id: string): Promise<void>; closeFromLayout(id: string): Promise<void> },
+): Promise<void> {
+  return DELETES_ON_CLOSE.has(item.kind) ? deleteItem(item.id) : closeFromLayout(item.id);
+}
