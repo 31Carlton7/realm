@@ -172,8 +172,6 @@ describe("documentImageSrc", () => {
     expect(shown("pic.png?v=2#top")).toEqual({ root, path: "pic.png" });
   });
 
-  /* The climb is kept in the URL rather than clamped at the folder: clamping would quietly show a
-     different file, and main is what refuses it (media.ts, spaceImagePath). */
   it("keeps a climb out of the space for main to refuse", () => {
     expect(shown("../../secret.png", "notes/a.md")).toEqual({ root, path: "../secret.png" });
   });
