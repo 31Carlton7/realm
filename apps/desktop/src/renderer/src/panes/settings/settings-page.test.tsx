@@ -808,11 +808,16 @@ describe("General → Updates row (Plan 15 W1)", () => {
     const { api } = await openApp({ updateStatus: { version: "1.0.0", state: { kind: "idle" } } });
     const btn = await screen.findByRole("button", { name: "Check for updates" });
     expect(btn).toBeEnabled();
-    api.delays.checkUpdates = 40; // hold the fake's answer so the genuine in-flight state is visible
+    // Main's answer waits until the test releases it, so the check is still in flight for the asserts below.
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const check = api.checkUpdates;
+    api.checkUpdates = async () => { await held; return check(); };
     fireEvent.click(btn);
     expect(await screen.findByText("Checking for updates…")).toBeInTheDocument();
     expect(btn).toBeDisabled(); // no double-check while one is in flight
     api.data.updateStatus = { version: "1.0.0", state: { kind: "up-to-date" } };
+    release();
     expect(await screen.findByText("You're on the latest version.")).toBeInTheDocument();
     expect(api.calls.filter((c) => c === "checkUpdates")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Check for updates" })).toBeEnabled();
