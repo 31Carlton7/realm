@@ -33,6 +33,12 @@ describe("questionForMe", () => {
     expect(questionForMe([first, second, third])?.text).toBe("What would you do if the budget for the pilot doubled next quarter?");
   });
 
+  it("waits when they go on past a question into a sentence not yet ended", () => {
+    const first = line("them", "How many seats do you need? And if we", 0);
+    expect(questionForMe([first])).toBeNull();
+    expect(questionForMe([first, line("them", "added a second team later?", 2_100)])?.text).toBe("And if we added a second team later?");
+  });
+
   it("never answers my own questions", () => {
     expect(questionForMe([line("me", "Does the annual plan include single sign on?", 0)])).toBeNull();
     expect(questionForMe([line("them", "We would want the annual plan.", 0), line("me", "Does it need single sign on?", 3_000)])).toBeNull();
@@ -44,9 +50,9 @@ describe("questionForMe", () => {
   });
 
   it("puts lines in the order they were said, not the order they finished", () => {
-    // My answer started before their next line finished, and reached Realm after it.
-    const lines = [line("them", "How many seats do you need?", 0), line("them", "Roughly.", 6_000), line("me", "About twelve.", 3_000)];
-    expect(questionForMe(lines)).toBeNull();
+    // My line was said first and finished last: their question still came after it.
+    const lines = [line("them", "How many seats do you need?", 6_000), line("me", "Thanks for having me, it took a while to get set up.", 0, 7_000)];
+    expect(questionForMe(lines)?.text).toBe("How many seats do you need?");
   });
 
   it("ignores a question they went on to answer themselves", () => {

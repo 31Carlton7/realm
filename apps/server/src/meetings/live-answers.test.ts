@@ -111,6 +111,23 @@ describe("meeting.answer", () => {
     c.close();
   });
 
+  it("sends nothing more of a cancelled answer, even from a model that keeps going", async () => {
+    class Deaf extends Model {
+      override async answer(req: LiveAnswerRequest) {
+        this.asked.push(req);
+        for (const piece of ["one ", "two ", "three"]) { await new Promise((r) => setTimeout(r, 20)); req.onText(piece); }
+        return "one two three";
+      }
+    }
+    const { model, c } = await boot(new Deaf());
+    const { answerId } = (await c.call("meeting.answer", { lines: question, customInfo: "", trigger: "key" })).result;
+    await waitFor(() => model.asked.length === 1);
+    await c.call("meeting.cancelAnswer", {});
+    await new Promise((r) => setTimeout(r, 120));
+    expect(c.answers.filter((e) => e.answerId === answerId).map((e) => e.t)).toEqual(["start", "cancelled"]);
+    c.close();
+  });
+
   it("answers on the model the Quick chat model setting names", async () => {
     const { model, c } = await boot();
     await c.call("settings.set", { key: "quickChatModel", value: { agentKind: "claude", model: "claude-sonnet-5-5" } });
