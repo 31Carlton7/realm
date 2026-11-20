@@ -19,8 +19,9 @@ export type DictationEvents = {
   level(rms: number): void;
   /** What was said, once dictation has stopped. Empty when nothing was. */
   done(text: string): void;
-  /** Dictation could not start, or broke. */
-  problem(message: string): void;
+  /** Dictation could not start, or broke. `heard` is what it had heard by then, as the recogniser
+   *  had it, and empty when nothing was. */
+  problem(message: string, heard: string): void;
 };
 
 /**
@@ -38,6 +39,8 @@ export class Dictation {
   private turn = 0;
   /** The words of the utterances the recogniser has already ended. */
   private kept = "";
+  /** The kept words and the last partial: what was heard, should the helper break before a final. */
+  private heard = "";
   private listenedAt = 0;
   private quickEnds = 0;
   private listening = false;
@@ -120,10 +123,11 @@ export class Dictation {
 
   private onHelper(e: HelperEvent): void {
     if (this.finished) return;
-    if (e.t === "error") { this.fail(e.message); return; }
+    if (e.t === "error") { this.fail(e.message, this.heard); return; }
     if (e.t === "fetching") { this.deps.events.fetching(e.progress ?? null); return; }
     if ((e.t !== "partial" && e.t !== "final") || e.turn !== this.turn) return;
     const words = this.withKept(e.text);
+    this.heard = words;
     if (e.t === "partial") {
       const settled = Math.min(e.settled ?? 0, e.text.length);
       this.deps.events.partial(words, settled ? words.length - e.text.length + settled : this.kept.length);
@@ -131,7 +135,7 @@ export class Dictation {
     }
     if (this.ending) { this.finish(words); return; }
     this.quickEnds = this.now() - this.listenedAt < QUICK_END_MS ? this.quickEnds + 1 : 0;
-    if (this.quickEnds >= QUICK_ENDS) { this.fail("Dictation stopped: this Mac's recogniser keeps stopping as soon as it starts."); return; }
+    if (this.quickEnds >= QUICK_ENDS) { this.fail("Dictation stopped: this Mac's recogniser keeps stopping as soon as it starts.", words); return; }
     this.kept = words;
     this.listen();
     this.deps.events.partial(this.kept, this.kept.length);
@@ -142,9 +146,9 @@ export class Dictation {
     this.deps.events.done(text.trim());
   }
 
-  private fail(message: string): void {
+  private fail(message: string, heard = ""): void {
     this.teardown();
-    this.deps.events.problem(message);
+    this.deps.events.problem(message, heard.trim());
   }
 
   private teardown(): void {
