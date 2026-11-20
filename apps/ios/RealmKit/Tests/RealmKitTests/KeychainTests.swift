@@ -20,11 +20,26 @@ struct KeychainTests {
         #expect(KeychainStore.sharedAccessGroup(nil) == nil)
     }
 
-    @Test func aRefusedReadIsDescribedInPlainWords() {
+    @Test func aMissingEntitlementSaysToInstallFromTestFlight() {
         let error = KeychainError(status: errSecMissingEntitlement)
-        #expect(error.localizedDescription == "The keychain refused to open an item Realm saved.")
-        #expect(!error.localizedDescription.contains("KeychainError error"))
-        #expect(!error.localizedDescription.contains("be completed"))
-        #expect(error.detail == "Keychain status -34018")
+        #expect(error.localizedDescription
+            == "This copy of Realm wasn't signed to open its keychain. Install Realm from TestFlight.")
+        expectPlainWords(error.localizedDescription)
+    }
+
+    @Test func anyOtherStatusSaysTheKeychainCouldNotBeRead() {
+        for status in [errSecInteractionNotAllowed, errSecDecode, errSecNotAvailable] {
+            let error = KeychainError(status: status)
+            #expect(error.localizedDescription == "Realm couldn't read this iPhone's keychain. Close Realm and open it again.")
+            expectPlainWords(error.localizedDescription)
+        }
+    }
+
+    private func expectPlainWords(_ text: String) {
+        let hasNumber = text.contains { $0.isNumber }
+        #expect(!hasNumber, "a status number is on the card: \(text)")
+        #expect(!text.contains("KeychainError"))
+        #expect(!text.contains("be completed"))
+        #expect(!text.contains("\u{2014}"))
     }
 }

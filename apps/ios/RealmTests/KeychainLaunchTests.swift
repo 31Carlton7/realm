@@ -8,7 +8,8 @@ import Testing
 @Suite("Reading the paired Mac at launch")
 struct KeychainLaunchTests {
     struct RefusingStore: SecureStore {
-        func read(_ account: String) throws -> Data? { throw KeychainError(status: errSecMissingEntitlement) }
+        var status = errSecMissingEntitlement
+        func read(_ account: String) throws -> Data? { throw KeychainError(status: status) }
         func write(_ data: Data, for account: String) throws {}
         func delete(_ account: String) throws {}
     }
@@ -17,9 +18,7 @@ struct KeychainLaunchTests {
         let model = AppModel(vault: Vault(store: RefusingStore()))
         #expect(!model.restorePairedMac())
         #expect(model.pairing == .failed(
-            "Realm couldn't read this iPhone's pairing from the keychain. Install the latest Realm from TestFlight, then open it again.",
-            detail: "Keychain status -34018"))
-        expectPlainWords(model.pairing)
+            "This copy of Realm wasn't signed to open its keychain. Install Realm from TestFlight."))
         #expect(model.store.pairedMac == nil)
     }
 
@@ -27,21 +26,13 @@ struct KeychainLaunchTests {
         let model = AppModel(vault: Vault(store: RefusingStore()))
         #expect(!model.restoreIdentity())
         #expect(model.pairing == .failed(
-            "Realm couldn't read this iPhone's keys from the keychain. Install the latest Realm from TestFlight, then open it again.",
-            detail: "Keychain status -34018"))
-        expectPlainWords(model.pairing)
+            "This copy of Realm wasn't signed to open its keychain. Install Realm from TestFlight."))
     }
 
-    private func expectPlainWords(_ pairing: PairingStatus) {
-        guard case .failed(let message, let detail) = pairing else {
-            Issue.record("pairing is \(pairing), not failed")
-            return
-        }
-        for text in [message, detail ?? ""] {
-            #expect(!text.contains("KeychainError error"))
-            #expect(!text.contains("be completed"))
-            #expect(!text.contains("\u{2014}"))
-        }
+    @Test func anotherRefusalSaysTheKeychainCouldNotBeRead() {
+        let model = AppModel(vault: Vault(store: RefusingStore(status: errSecInteractionNotAllowed)))
+        #expect(!model.restorePairedMac())
+        #expect(model.pairing == .failed("Realm couldn't read this iPhone's keychain. Close Realm and open it again."))
     }
 
     @Test func aPhoneNeverPairedAsksToPair() {

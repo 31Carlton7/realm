@@ -16,10 +16,15 @@ public struct KeychainError: LocalizedError, Equatable, Sendable {
         self.status = status
     }
 
-    public var errorDescription: String? { "The keychain refused to open an item Realm saved." }
+    /// What the phone says. The status itself goes to the log, never the screen.
+    public var errorDescription: String? {
+        status == errSecMissingEntitlement
+            ? "This copy of Realm wasn't signed to open its keychain. Install Realm from TestFlight."
+            : KeychainError.unreadable
+    }
 
-    /// The status the keychain returned, small enough to show under a message.
-    public var detail: String { "Keychain status \(status)" }
+    /// Any keychain read that failed for a reason the phone can't name.
+    public static let unreadable = "Realm couldn't read this iPhone's keychain. Close Realm and open it again."
 }
 
 /// Generic-password items, readable after the first unlock and never leaving this device (no backup,
