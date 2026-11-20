@@ -98,7 +98,6 @@ export class MeetingWatch {
   private calls = new CallTracker();
   private calendar: HelperProcess | null = null;
   private microphone: HelperProcess | null = null;
-  private opensMeetings = false;
   private calendarAccess: CalendarAccess | null = null;
   private meetings: Meeting[] = [];
   private microphoneLine: MicrophoneLine = { holders: [], titled: [] };
@@ -132,7 +131,6 @@ export class MeetingWatch {
 
   /** Settings ▸ General ▸ Meetings' switch. Off, the calendar is not read at all. */
   setOpensMeetings(on: boolean): void {
-    this.opensMeetings = on;
     if (on && !this.calendar) {
       this.calendar = this.d.startHelper("calendar", (line) => this.readCalendar(line));
     } else if (!on && this.calendar) {
@@ -203,12 +201,12 @@ export class MeetingWatch {
     for (const meeting of due.soon) {
       this.say(soonKey(meeting));
       this.events.emit("meetingSoon", meeting);
-      if (this.opensMeetings) this.d.notify(meeting, () => this.open(meeting));
+      this.d.notify(meeting, () => this.open(meeting));
     }
     for (const meeting of due.started) {
       this.say(startedKey(meeting));
       this.events.emit("meetingStarted", meeting);
-      if (this.opensMeetings) this.open(meeting);
+      this.open(meeting);
     }
     for (const meeting of due.missed) this.say(startedKey(meeting));
     if (due.next !== null) this.meetingTimer = this.d.at(due.next, () => this.lookAtMeetings());
