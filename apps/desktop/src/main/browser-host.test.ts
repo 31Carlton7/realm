@@ -464,6 +464,19 @@ describe("BrowserPaneHost", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("closes every page still waiting for a tab when the window goes", () => {
+    // THE MUTANT: clear the waiting pages without closing them, and they run on with no window.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    const unclaimed = { close: vi.fn() };
+    const claimed = { close: vi.fn() };
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, unclaimed);
+    views.get("b1")!.getHooks().openTab("https://example.com/b", true, claimed);
+    host.claimTab(tabs[1]!.page, "b2");
+    host.destroyAll();
+    expect(unclaimed.close).toHaveBeenCalled();
+    expect(claimed.close).toHaveBeenCalled();
+  });
 
   it("says which popups a view's page has open, and none for a view it does not have", () => {
     // What an agent's snapshot is told (browser-agent-host.ts). The mutant answering [] hides them.
