@@ -564,6 +564,18 @@ describe("BrowserPaneHost", () => {
     expect(focuses()).toBe(1); // the next frame's sync must not take it back from wherever it went
   });
 
+  it("leaves the keyboard where it is for a ⌘- or middle-click's tab, even once the person shows it", () => {
+    // THE MUTANT: focus a background tab the first time it shows, and the keyboard jumps out of the
+    // page the person went on reading into one they only switched to look at.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", true, { close: vi.fn() }, true);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/a", null, P);
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    expect(views.get("b2")!.calls).not.toContain("focus");
+  });
+
   it("leaves the keyboard alone when the page that opened the tab did not have it", () => {
     // An agent's click. THE MUTANT: focus every hosted page, and the prompter's draft stops taking keys.
     const { host, views, tabs } = makeHost();

@@ -723,7 +723,8 @@ export class BrowserPaneHost {
     /** Brought back from a discard and not yet painted: kept hidden until its page is ready, so the
      *  pane never shows a blank white view where the page was. */
     reviving: boolean;
-    /** A tab a person's click opened: its page takes the keyboard the first time it is on screen. */
+    /** A tab a person's click opened in front: its page takes the keyboard the first time it is on
+     *  screen. A ⌘- or middle-click's tab waits behind and never asks for it. */
     focusWhenShown: boolean;
   }>();
   /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
@@ -879,7 +880,7 @@ export class BrowserPaneHost {
         if (!opener || !url || !originAllowed(url, opener.allowlist) || !this.opts.openTab) { page.close(); return; }
         const name = `${id}:${++this.openedCount}`;
         const expires = setTimeout(() => { if (this.opened.delete(name)) page.close(); }, UNCLAIMED_TAB_MS);
-        this.opened.set(name, { page, partition: opener.partition, opener: id, url, focus: focused, expires });
+        this.opened.set(name, { page, partition: opener.partition, opener: id, url, focus: focused && !background, expires });
         this.opts.openTab({ id, url, background, focus: focused, page: name });
       },
       found: (result) => this.opts.sendFound?.({ id, ...result }),
