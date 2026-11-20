@@ -57,7 +57,8 @@ const panelVisible = () => main(`return panel?.isVisible() === true;`);
 const press = () => main(`globalThis.__quickChatChord.press(); return true;`);
 
 /** Every `sessions.delete` a page sends from here on is counted on that page. */
-const countDeletes = (page) => page.eval(`(() => { window.__deletes = 0; const send = WebSocket.prototype.send;
+const countDeletes = (page) => page.eval(`(() => { const counting = window.__deletes !== undefined; window.__deletes = 0; if (counting) return true;
+  const send = WebSocket.prototype.send;
   WebSocket.prototype.send = function (frame) { if (typeof frame === "string" && frame.includes('"sessions.delete"')) window.__deletes++; return send.call(this, frame); };
   return true; })()`);
 const deletes = (page) => page.eval(`window.__deletes`);
