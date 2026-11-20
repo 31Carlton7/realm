@@ -76,7 +76,7 @@ import { registerPasswordsIpc } from "./passwords-ipc";
 import { readSecretsFile, setAsideSecretsFile, writeSecretsFile } from "./secrets-file";
 import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
 import { attachTextContextMenu } from "./text-context-menu";
-import { windowOpenTarget } from "./link-open";
+import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
@@ -611,11 +611,14 @@ async function createWindow(info: { port: number; home: string; token: string },
   // Every link in the app reaches main as a window request (they are all target="_blank"): denied as
   // a window, and opened where Settings ▸ General ▸ Links says — the default browser, or a Realm
   // Browser tab the renderer makes beside the session.
-  const openInRealm = (url: string) => win.webContents.send("links:open-in-realm", url);
+  const openInRealm = (url: string, background = false) => win.webContents.send("links:open-in-realm", url, { background });
+  // The last press is what tells a middle-click from a ⌘-click: Chromium makes both a background tab.
+  let press: LastPress = "other";
+  win.webContents.on("input-event", (_e, input) => { press = lastPress(input as { type: string; button?: string }, press); });
   win.webContents.setWindowOpenHandler((details) => {
-    const to = windowOpenTarget(details, linksOpenIn);
-    if (to === "realm") openInRealm(details.url);
-    else if (to === "default") void shell.openExternal(details.url);
+    const open = windowOpenTarget(details, linksOpenIn, press);
+    if (open?.to === "realm") openInRealm(details.url, open.background);
+    else if (open?.to === "default") void shell.openExternal(details.url);
     return { action: "deny" };
   });
   // Keep the top frame inside the app: dev server origin in dev, file:// in production.
@@ -797,6 +800,7 @@ const agentHost = new BrowserAgentHost({
   touch: (id) => paneFor(id)?.host.touch(id),
   navigate: (id, url) => paneFor(id)?.host.navigate(id, url) ?? null,
   pageState: (id) => paneFor(id)?.pageState(id) ?? null,
+  takeOpenedTabs: async (id, waitMs) => (await paneFor(id)?.host.takeOpenedTabs(id, waitMs)) ?? [],
   // The fill op's only reach into the store. Passed as an object of bound methods rather than the
   // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
   secrets: {
@@ -877,6 +881,8 @@ ipcMain.handle("browser:create", async (e, id: string, url: string, allowlist: s
   governBrowserDownloads(owner.partition, downloadPolicy);
   pane.host.create(browserId, url, allowlist, owner.partition);
 });
+/* The renderer made the browser for a page's new tab (`links:open-tab`): its view hosts the page made for it. */
+ipcMain.on("links:claim-tab", (e, page: string, browserId: string) => { senderPane(e.sender)?.host.claimTab(String(page), String(browserId)); });
 /* The browser was closed or deleted: no window keeps a view of it. */
 ipcMain.handle("browser:destroy", (_e, id: string) => { for (const { pane } of windowPanes.values()) pane.host.destroy(String(id)); });
 // The pane went away without the browser being closed — a space or pane-group switch. The view

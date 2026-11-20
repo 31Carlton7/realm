@@ -40,7 +40,22 @@ export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = fa
     // The same code block the schema has (`docSchema`), with a view that draws the block fences an
     // agent writes — a chart, a diagram, a comparison — rather than showing their source.
     extensions: [StarterKit.configure({ codeBlock: false }), UiCodeBlock, Image.configure({ inline: true }), ...TABLE_EXTENSIONS, RawBlock],
-    editorProps: { attributes: { class: "documents-rich-surface", "aria-label": "Rich text editor" } },
+    editorProps: {
+      attributes: { class: "documents-rich-surface", "aria-label": "Rich text editor" },
+      handleDOMEvents: {
+        // A middle-click opens a link with `window.open` from the click, which main routes as a
+        // middle-click (main/link-open.ts): where "Links open in" says, behind the tab showing. TipTap's
+        // link handler only hears button 0.
+        auxclick: (view, event) => {
+          if (event.button !== 1) return false;
+          const link = event.target instanceof Element ? event.target.closest("a") : null;
+          if (!link?.href || !view.dom.contains(link)) return false;
+          event.preventDefault();
+          window.open(link.href, link.target || "_blank");
+          return true;
+        },
+      },
+    },
     onSelectionUpdate: ({ editor: ed }) => {
       if (scrollKey && !applying.current) rememberCaret(scrollKey, { anchor: ed.state.selection.anchor, head: ed.state.selection.head });
     },

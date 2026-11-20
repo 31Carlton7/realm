@@ -337,6 +337,13 @@ export type WindowRequest = { url: string; disposition: string };
 export const POPUP_LIMIT = 3;
 
 /**
+ * How many tabs one press lets a page open. Chrome allows one; a click whose handler opens a page and
+ * a companion to it needs two. Past this a page retrying `window.open` in a loop is refused, rather
+ * than filling the strip with tabs that are each a whole page.
+ */
+export const TABS_PER_PRESS = 3;
+
+/**
  * What a page's request for a new window becomes.
  *
  * A **popup** is a real window: the page keeps `window.opener` to it and it keeps one back, which is
@@ -349,16 +356,92 @@ export const POPUP_LIMIT = 3;
  * write into it or send it somewhere, and only a window it holds can be either; navigating the pane to
  * `about:blank` would wipe the page that asked.
  *
- * Everything else is a link (`target=_blank`, a ⌘-click) and goes **in-place**, as it always has: a
- * link opened in a new tab keeps no opener (`noopener` is implied), so nothing is waiting on it.
+ * A request for a tab — a `target=_blank` link or form, a plain `window.open(url)`, a ⌘- or
+ * middle-click — is a **tab**: a new Realm Browser tab beside this one, in front for `foreground-tab`
+ * and behind it for `background-tab`, as any browser does (`hostedTab`, which also refuses one nobody
+ * pressed for). Navigating the pane in place instead would throw away the page that was clicked on. Anything else (`default`, `current-tab`) goes **in-place**.
  *
  * Deliberately not sniffed from the address: the sign-in SDKs that use a popup give it a size, and a
  * link to an authorize URL is a redirect flow, which finishes in place.
  */
-export function windowOpenAction(request: WindowRequest, popupsOpen: number): "popup" | "in-place" | "refuse" {
+export function windowOpenAction(request: WindowRequest, popupsOpen: number): "popup" | "foreground-tab" | "background-tab" | "in-place" | "refuse" {
   const wantsWindow = request.disposition === "new-window" || request.url === "about:blank" || request.url === "";
-  if (!wantsWindow) return "in-place";
-  return popupsOpen < POPUP_LIMIT ? "popup" : "refuse";
+  if (wantsWindow) return popupsOpen < POPUP_LIMIT ? "popup" : "refuse";
+  return request.disposition === "foreground-tab" || request.disposition === "background-tab" ? request.disposition : "in-place";
+}
+
+/** How long a press lets the page open a tab: Chromium's transient user activation lifespan. */
+export const ACTIVATION_MS = 5_000;
+/** The input events Chromium counts as activation (`webContents` "input-event" types). */
+const ACTIVATING_INPUT = new Set(["mouseDown", "rawKeyDown", "keyDown", "touchEnd"]);
+
+/** What a window a page asked to open as a tab becomes (`UserActivation.decide`). */
+export type TabAnswer = "tab" | "in-place" | "refuse";
+
+/**
+ * What a page's tab request gets, from what was pressed on it: a person's press, or an agent's through
+ * CDP. A press in the last `ACTIVATION_MS` lets the page open up to `TABS_PER_PRESS` tabs, so a click
+ * whose handler opens two windows opens two tabs; Chromium spends its gesture on the first, and going
+ * by that alone would send the second in place and take away the page that was clicked. Past the
+ * count the window is refused outright, not followed in place, for the same reason. With no press the
+ * window goes in place, as every window but a popup did before tabs.
+ *
+ * Only the main frame's input reaches main. A press in a cross-site frame shows only as Chromium's
+ * `gestured` bit, which Chromium gives one window per press, so a gestured window with no main-frame
+ * press behind it is a press of its own.
+ */
+export class UserActivation {
+  private at = Number.NEGATIVE_INFINITY;
+  private opened = 0;
+  note(type: string, now: number): void {
+    if (!ACTIVATING_INPUT.has(type)) return;
+    this.at = now;
+    this.opened = 0;
+  }
+  decide(now: number, gestured: boolean): TabAnswer {
+    const pressed = now - this.at < ACTIVATION_MS;
+    if (!pressed && !gestured) return "in-place";
+    if (!pressed) { this.at = now; this.opened = 0; }
+    if (this.opened >= TABS_PER_PRESS) return "refuse";
+    this.opened++;
+    return "tab";
+  }
+  /** A new document: a press on the last one opens nothing on this one, as in Chromium. Its count goes
+   *  with it, since the next tab needs a new press, which starts a new count. */
+  forget(): void { this.at = Number.NEGATIVE_INFINITY; }
+}
+
+/**
+ * The window-open handler's answer for a tab: ALLOW the window, so Chromium makes it as the page asked
+ * — `window.open` answers a live window, `window.opener` is there unless the page said `noopener`, and
+ * a form's POST body goes with its navigation — and hand the web contents it made to `adopt` to be the
+ * tab's page instead of a window. A tab outlives the page that opened it. `webPreferences` are the
+ * pane's own, its profile's partition among them.
+ *
+ * Electron has no popup blocker, and a page's `window.open(url)` from its load or a timer arrives as
+ * a foreground tab like a click's, so what was pressed (`UserActivation.decide`) settles it. A window
+ * that is not a tab is closed as soon as it is made: followed `inPlace` when nothing was pressed, and
+ * dropped when the press has opened all the tabs it may.
+ */
+export function hostedTab<Page extends { close(): void }>(
+  webPreferences: Record<string, unknown>, answer: () => TabAnswer, adopt: (page: Page) => void, inPlace: () => void,
+) {
+  return {
+    action: "allow" as const,
+    outlivesOpener: true,
+    overrideBrowserWindowOptions: { webPreferences },
+    // Electron hands over the web contents it made as `options.webContents` (its guest-window-manager),
+    // which its types leave out of the options.
+    createWindow: (options: object): Page => {
+      const page = (options as { webContents?: Page }).webContents;
+      if (!page) throw new Error("Chromium made no page for this tab");
+      const as = answer();
+      if (as === "tab") { adopt(page); return page; }
+      page.close();
+      if (as === "in-place") inPlace();
+      return page;
+    },
+  };
 }
 
 /** A popup whose page names no size gets Electron's own default for a new window. */
@@ -536,18 +619,30 @@ export type ViewHooks = {
   emitState(): void;
   /** `will-navigate` / `will-redirect` consult — false means preventDefault. */
   allowNavigate(url: string): boolean;
-  /** `setWindowOpenHandler` funnel for a request `windowOpenAction` calls a link (`target=_blank`, a
-   *  ⌘-click): DENIED as a window and offered back as an in-place navigation of the same view. */
+  /** `setWindowOpenHandler` funnel for a request `windowOpenAction` sends in place: DENIED as a window
+   *  and offered back as a navigation of the same view. */
   openInPlace(url: string): void;
+  /** …and for one it calls a tab (`hostedTab`): `page` is the web contents Chromium made for it, to be
+   *  the new tab's view. `focused` is whether the page that asked had the keyboard: an agent's click
+   *  lands in a page the person is not typing in, and its tab must not take the keys they type. */
+  openTab(url: string, background: boolean, page: OpenedPage, focused: boolean): void;
   /** `found-in-page`: the view's answer to the last find. */
   found(result: FindResult): void;
   /** ⌘F with the page holding the keyboard (`isFindShortcut`) — the pane opens its find strip. */
   findShortcut(): void;
 };
 
+/** A page Chromium made for a new tab, waiting for the tab's browser to host it. */
+export type OpenedPage = { close(): void };
+/** A new tab a page opened: the browser hosting it, and the address it was opened on. */
+export type OpenedTab = { browserId: string; url: string };
+
 /** `partition` is the Electron session the view's cookies, site data and cache live in — its
- *  profile's own (Plan 27 Phase 2). */
-export type ViewFactory = (id: string, hooks: ViewHooks, partition: string) => ViewHandle;
+ *  profile's own (Plan 27 Phase 2). `page`, when given, is the view's page, already loading. */
+export type ViewFactory = (id: string, hooks: ViewHooks, partition: string, page?: OpenedPage) => ViewHandle;
+
+/** How long a page made for a new tab waits for the renderer to name the tab's browser (`claimTab`). */
+export const UNCLAIMED_TAB_MS = 30_000;
 
 /**
  * How many RETAINED (off-screen) browser views stay alive at once, on top of whatever is on screen.
@@ -633,6 +728,15 @@ export class BrowserPaneHost {
   private retained = new Set<string>();
   /** Views given up for memory (`discard`), by browser id, until a pane, an op or an agent wants them. */
   private discarded = new Map<string, Discarded>();
+  /** Pages made for new tabs, by the name `openTab` gave them, until a browser claims one. */
+  private opened = new Map<string, { page: OpenedPage; partition: string; opener: string; url: string; expires: ReturnType<typeof setTimeout> }>();
+  /** …and claimed ones, by browser id, until that browser's view is made or it closes unseen. */
+  private claimed = new Map<string, { page: OpenedPage; partition: string }>();
+  /** The tabs each browser's page opened, by its id, until an agent driving it is told (`takeOpenedTabs`). */
+  private openedBy = new Map<string, OpenedTab[]>();
+  /** Who is waiting on a claim (`takeOpenedTabs`). */
+  private claimWaiters = new Set<() => void>();
+  private openedCount = 0;
   /** The off-screen budget being enforced, while a guard's answers are awaited. */
   private budget: Promise<void> = Promise.resolve();
 
@@ -645,6 +749,9 @@ export class BrowserPaneHost {
     sendFound?: (m: FindResult & { id: string }) => void;
     /** ⌘F was pressed in this view's page. */
     requestFind?: (id: string) => void;
+    /** This view's page asked for a new tab on `url` (`windowOpenAction`); `page` names the page made
+     *  for it, for `claimTab`. */
+    openTab?: (m: { id: string; url: string; background: boolean; focus: boolean; page: string }) => void;
     /** Emulate a device on this view's page, or (null) stop. Over CDP, so best-effort: a view with
      *  DevTools already attached simply shows the page at the narrowed width instead. */
     emulate?: (id: string, metrics: DeviceMetrics | null) => void;
@@ -717,11 +824,45 @@ export class BrowserPaneHost {
     const existing = this.views.get(id);
     if (existing && existing.partition === partition) { this.emitState(id); return; }
     if (existing) this.destroy(id);
-    const handle = this.opts.createView(id, this.hooks(id), partition);
+    // The page Chromium made for this tab, if it was made in the jar asked for. A page from another
+    // profile is never shown under this one: it goes, and the address loads afresh here.
+    const opened = this.claimed.get(id);
+    this.claimed.delete(id);
+    if (opened && opened.partition !== partition) opened.page.close();
+    const page = opened?.partition === partition ? opened.page : undefined;
+    const handle = this.opts.createView(id, this.hooks(id), partition, page);
     this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false });
     const normalized = normalizeAddress(url);
-    if (normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
+    if (!page && normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
     this.emitState(id);
+  }
+
+  /** The renderer made `browserId` for the new tab `openTab` named `page`: its view hosts that page. */
+  claimTab(page: string, browserId: string): void {
+    const opened = this.opened.get(page);
+    if (!opened) return;
+    this.opened.delete(page);
+    clearTimeout(opened.expires);
+    this.claimed.set(browserId, { page: opened.page, partition: opened.partition });
+    this.openedBy.set(opened.opener, [...(this.openedBy.get(opened.opener) ?? []), { browserId, url: opened.url }]);
+    for (const wake of [...this.claimWaiters]) wake();
+  }
+
+  /** The tabs `opener`'s page opened since this was last asked, which it forgets once told. One it asked
+   *  for that the renderer is still making is waited on, for up to `waitMs`. */
+  async takeOpenedTabs(opener: string, waitMs: number): Promise<OpenedTab[]> {
+    const deadline = Date.now() + waitMs;
+    const waiting = () => [...this.opened.values()].some((o) => o.opener === opener);
+    while (waiting() && Date.now() < deadline) {
+      await new Promise<void>((resolve) => {
+        const done = () => { clearTimeout(timer); this.claimWaiters.delete(done); resolve(); };
+        const timer = setTimeout(done, deadline - Date.now());
+        this.claimWaiters.add(done);
+      });
+    }
+    const tabs = this.openedBy.get(opener) ?? [];
+    this.openedBy.delete(opener);
+    return tabs;
   }
 
   private hooks(id: string): ViewHooks {
@@ -729,6 +870,15 @@ export class BrowserPaneHost {
       emitState: () => this.emitState(id),
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
       openInPlace: (target) => this.navigate(id, target),
+      openTab: (target, background, page, focused) => {
+        const opener = this.views.get(id);
+        const url = normalizeAddress(target);
+        if (!opener || !url || !originAllowed(url, opener.allowlist) || !this.opts.openTab) { page.close(); return; }
+        const name = `${id}:${++this.openedCount}`;
+        const expires = setTimeout(() => { if (this.opened.delete(name)) page.close(); }, UNCLAIMED_TAB_MS);
+        this.opened.set(name, { page, partition: opener.partition, opener: id, url, expires });
+        this.opts.openTab({ id, url, background, focus: focused, page: name });
+      },
       found: (result) => this.opts.sendFound?.({ id, ...result }),
       findShortcut: () => this.opts.requestFind?.(id),
     };
@@ -982,6 +1132,9 @@ export class BrowserPaneHost {
    *  unmounting `retain`s instead, or a space switch would throw the page away. */
   destroy(id: string): void {
     this.discarded.delete(id);
+    this.openedBy.delete(id);
+    this.claimed.get(id)?.page.close();
+    this.claimed.delete(id);
     const v = this.views.get(id); if (!v) return;
     this.views.delete(id);
     this.retained.delete(id);
@@ -992,7 +1145,14 @@ export class BrowserPaneHost {
   }
 
   /** Window teardown: the views must never outlive the window they composite into. */
-  destroyAll(): void { this.discarded.clear(); for (const id of [...this.views.keys()]) this.destroy(id); }
+  destroyAll(): void {
+    this.discarded.clear();
+    for (const { page, expires } of this.opened.values()) { clearTimeout(expires); page.close(); }
+    this.opened.clear();
+    for (const { page } of this.claimed.values()) page.close();
+    this.claimed.clear();
+    for (const id of [...this.views.keys()]) this.destroy(id);
+  }
 
   /** Which cookie jar this view lives in — its profile's — or null when there is no view. */
   partitionOf(id: string): string | null { return this.views.get(id)?.partition ?? this.discarded.get(id)?.partition ?? null; }

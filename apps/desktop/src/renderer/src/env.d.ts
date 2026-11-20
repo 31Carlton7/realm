@@ -82,7 +82,11 @@ interface Window {
      *  back to open in a Realm Browser tab. Optional like the other late bridges. */
     links?: {
       setOpenIn(pref: import("@realm/contracts").LinksOpenIn): void;
-      onOpenInRealm(cb: (url: string) => void): () => void;
+      onOpenInRealm(cb: (url: string, opts: { background: boolean }) => void): () => void;
+      /** A browser pane's page asked for a new tab: beside it, and behind it when `background`. */
+      onOpenTab?(cb: (m: { browserId: string; url: string; background: boolean; focus: boolean; page: string }) => void): () => void;
+      /** The new tab's browser, for the page Chromium made (`onOpenTab`'s `page`). */
+      claimTab?(page: string, browserId: string): void;
     };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };
