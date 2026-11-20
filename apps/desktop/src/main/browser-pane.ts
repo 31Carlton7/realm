@@ -2,7 +2,7 @@ import { WebContentsView, app, nativeImage, screen, session, type BrowserWindow,
 import { FAVICON_MAX_BYTES, type BrowserLoadError, type PaneHealth } from "@realm/contracts";
 import {
   BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, UserActivation, browserUserAgent, createFaviconResolver, hostedTab, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
-  shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type ViewFactory,
+  sendAsAgent, shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type ViewFactory,
 } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
 import { PAGE_BUSY, TypedSince } from "./page-busy";
@@ -187,9 +187,9 @@ export function electronViewFactory(
       if (tab && opener === wc) {
         if (!hooks.allowNavigate(details.url)) return { action: "deny" };
         // Read now: by the time Chromium has made the page, the keyboard may have moved on.
-        const focused = wc.isFocused() && activation.personPressed(Date.now());
-        return hostedTab<WebContents>(webPreferences, answer,
-          (page) => hooks.openTab(details.url, action === "background-tab", page, focused),
+        const keyboard = { openerFocused: wc.isFocused(), personPressed: activation.personPressed(Date.now()) };
+        return hostedTab<WebContents>(webPreferences, answer, keyboard,
+          (page, focused) => hooks.openTab(details.url, action === "background-tab", page, focused),
           () => hooks.openInPlace(details.url));
       }
       if (action === "in-place" || tab) {
@@ -591,12 +591,8 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
       try { if (!wc.debugger.isAttached()) wc.debugger.attach("1.3"); } catch { return null; }
-      const activation = activations.get(wc);
       return {
-        send: (method, params) => {
-          const command = () => wc.debugger.sendCommand(method, params) as Promise<unknown>;
-          return activation && method.startsWith("Input.") ? activation.asAgent(command) : command();
-        },
+        send: sendAsAgent(activations.get(wc), (method, params) => wc.debugger.sendCommand(method, params) as Promise<unknown>),
         onEvent: (cb) => { wc.debugger.on("message", (_e, method, params) => cb(method, params)); },
       };
     },

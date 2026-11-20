@@ -4,6 +4,7 @@
  * webContents events) live behind `ViewFactory`, implemented in browser-pane.ts.
  */
 import { ERR_ABORTED, FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
+import type { CdpSend } from "./browser-agent";
 
 export type ViewRect = { x: number; y: number; width: number; height: number };
 
@@ -429,6 +430,17 @@ export class UserActivation {
   forget(): void { this.at = Number.NEGATIVE_INFINITY; }
 }
 
+/** The agent's CDP `send` for a page: its `Input.*` commands go `asAgent`, so the presses they make
+ *  are the agent's (`personPressed`). A page with no `activation` sends as before. */
+export function sendAsAgent(activation: UserActivation | undefined, send: CdpSend): CdpSend {
+  return (method, params) =>
+    activation && method.startsWith("Input.") ? activation.asAgent(() => send(method, params)) : send(method, params);
+}
+
+/** Who had the keyboard when a page asked for a window (`hostedTab`). `personPressed` is
+ *  `UserActivation.personPressed`. */
+export type WindowKeyboard = { openerFocused: boolean; personPressed: boolean };
+
 /**
  * The window-open handler's answer for a tab: ALLOW the window, so Chromium makes it as the page asked
  * — `window.open` answers a live window, `window.opener` is there unless the page said `noopener`, and
@@ -440,9 +452,13 @@ export class UserActivation {
  * a foreground tab like a click's, so what was pressed (`UserActivation.decide`) settles it. A window
  * that is not a tab is closed as soon as it is made: followed `inPlace` when nothing was pressed, and
  * dropped when the press has opened all the tabs it may.
+ *
+ * A tab takes the keyboard only if the opener had it and the person pressed for it: the agent's click
+ * may land in the page the person is typing in.
  */
 export function hostedTab<Page extends { close(): void }>(
-  webPreferences: Record<string, unknown>, answer: () => TabAnswer, adopt: (page: Page) => void, inPlace: () => void,
+  webPreferences: Record<string, unknown>, answer: () => TabAnswer, keyboard: WindowKeyboard,
+  adopt: (page: Page, focused: boolean) => void, inPlace: () => void,
 ) {
   return {
     action: "allow" as const,
@@ -454,7 +470,7 @@ export function hostedTab<Page extends { close(): void }>(
       const page = (options as { webContents?: Page }).webContents;
       if (!page) throw new Error("Chromium made no page for this tab");
       const as = answer();
-      if (as === "tab") { adopt(page); return page; }
+      if (as === "tab") { adopt(page, keyboard.openerFocused && keyboard.personPressed); return page; }
       page.close();
       if (as === "in-place") inPlace();
       return page;
