@@ -1,10 +1,12 @@
 import Foundation
 import RealmKit
+import SwiftUI
 import Testing
+import UIKit
 @testable import Realm
 
 @MainActor
-@Suite("Home's Team")
+@Suite("Home's Team", .serialized)
 struct TeamTests {
     static func teammate(_ id: String, space: String = "realm", lead: Bool = false, state: TeammateState? = .idle,
                          unread: Bool = false, chat: String? = nil) -> Teammate {
@@ -17,17 +19,58 @@ struct TeamTests {
         let team = [Self.teammate("cto", lead: true), Self.teammate("tutor", space: "thesis"), Self.teammate("designer", space: "site")]
         #expect(TeamListing.teammates(team, in: Staged.home, choice: .profile("work")).map(\.id) == ["cto", "designer"])
         #expect(TeamListing.teammates(team, in: Staged.home, choice: .profile("school")).map(\.id) == ["tutor"])
-        #expect(TeamListing.spaces(of: team, in: Staged.home).map(\.id) == ["realm", "site", "thesis"])
     }
 
-    /// A short team is listed whole; a long one, its Lead and whoever is working, waiting or unread, in
-    /// the team's own order, so no row jumps when a state changes.
-    @Test func aLongTeamShowsItsLeadAndItsBusyOnes() {
-        let short = (1...6).map { Self.teammate("t\($0)") }
-        #expect(TeamSection.shown(short).count == 6)
-        let long = [Self.teammate("cto", lead: true)] + (1...8).map { Self.teammate("t\($0)") }
-            + [Self.teammate("qa", state: .needsYou), Self.teammate("writer", unread: true), Self.teammate("designer", state: .working)]
-        #expect(TeamSection.shown(long).map(\.id) == ["cto", "qa", "writer", "designer"])
+    /// Home's row leads with the Leads, then each space's Team in its own order, the spaces as Home lists
+    /// them; a profile with no teammates has none.
+    @Test func theRowLeadsWithTheLeadThenEachSpacesTeam() {
+        let team = [Self.teammate("designer", space: "site"), Self.teammate("cto", lead: true), Self.teammate("qa"),
+                    Self.teammate("web", space: "site", lead: true), Self.teammate("tutor", space: "thesis")]
+        #expect(TeamListing.row(team, in: Staged.home, choice: .profile("work")).map(\.id) == ["cto", "web", "qa", "designer"])
+        #expect(TeamListing.row(team, in: Staged.home, choice: .profile("school")).map(\.id) == ["tutor"])
+        #expect(TeamListing.row(team.filter { $0.spaceId != "thesis" }, in: Staged.home, choice: .profile("school")).isEmpty)
+    }
+
+    /// The row draws every teammate's name, a long team whole for the sideways scroll, and nothing at all
+    /// for a profile with none.
+    @Test func theRowDrawsItsTeamAndNothingWhenEmpty() throws {
+        let model = AppModel()
+        let row = [Self.teammate("mira", lead: true), Self.teammate("otis"), Self.teammate("juno")]
+        let words = try Drawing.words(TeamRow(teammates: row).environment(model))
+        #expect(words.contains("Mira") && words.contains("Otis") && words.contains("Juno"), "\(words)")
+        #expect(try #require(words.range(of: "Mira")).lowerBound < (try #require(words.range(of: "Juno"))).lowerBound, "\(words)")
+        func height(_ team: [Teammate]) -> CGFloat {
+            UIHostingController(rootView: TeamRow(teammates: team).environment(model))
+                .sizeThatFits(in: CGSize(width: 390, height: 1_000)).height
+        }
+        #expect(height([]) == 0 && height(row) > 60, "\(height([])) \(height(row))")
+    }
+
+    /// A mark in the row says how its teammate stands as its row does: the dot while it works or needs
+    /// you, the name bold while its chat is unread, and nothing extra while it is idle and read.
+    @Test func aMarkShowsItsTeammatesState() throws {
+        let model = AppModel()
+        func drawn(_ teammate: Teammate) throws -> [UInt8] {
+            let image = try #require(Drawing.image(of: TeammateAvatar(teammate: teammate).environment(model), width: 100, dark: false).cgImage)
+            var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let context = try #require(CGContext(data: &pixels, width: image.width, height: image.height, bitsPerComponent: 8,
+                                                 bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return pixels
+        }
+        /// How many pixels of two drawings of one size differ visibly.
+        func changed(_ a: [UInt8], _ b: [UInt8]) -> Int {
+            guard a.count == b.count else { return .max }
+            return stride(from: 0, to: a.count, by: 4).count { i in (0..<3).contains { abs(Int(a[i + $0]) - Int(b[i + $0])) > 48 } }
+        }
+        _ = try drawn(Self.teammate("otis"))
+        let idle = try drawn(Self.teammate("otis"))
+        #expect(changed(try drawn(Self.teammate("otis")), idle) < 10)
+        #expect(changed(try drawn(Self.teammate("otis", state: .working)), idle) > 40)
+        #expect(changed(try drawn(Self.teammate("otis", state: .needsYou)), idle) > 40)
+        #expect(changed(try drawn(Self.teammate("otis", unread: true)), idle) > 40)
+        #expect(TeammateWords.spoken(Self.teammate("otis", state: .needsYou, unread: true)) == "Otis, Needs you, Unread")
     }
 
     /// A teammate's chat is listed once, as the teammate, except where Needs you says it waits, and in a

@@ -1,42 +1,89 @@
 import RealmKit
 import SwiftUI
 
-/// Home's Team: a profile's teammates, the Lead first and then in each space's Team order, as the
-/// Mac's sidebar heads each space with them. A long team shows the Lead and whoever is busy, waiting
-/// on the person or unread, and the rest are a press away on the Team page; a short one shows whole.
-struct TeamSection: View {
+/// Home's teammates as Messages pins its conversations: a row of their marks at the head of the list,
+/// each a press from its chat, under every filter. The Lead first, then each space's Team in the Mac's
+/// order; a long team scrolls sideways rather than folding. Held, a mark offers its row's actions. A
+/// profile with no teammates has no row.
+struct TeamRow: View {
     let teammates: [Teammate]
-    let spaces: [Space]
-    /// The profile's teammates put away, folded at the section's end.
-    var archived: [Teammate] = []
-    @Environment(AppModel.self) private var model
-
-    /// Shown whole up to this many; past it, the Lead and the busy ones.
-    static let whole = 6
 
     var body: some View {
-        let shown = Self.shown(teammates)
-        Section {
-            // More than one space's teammates: each space's under a quiet line naming it.
-            ForEach(spaces) { space in
-                let team = shown.filter { $0.spaceId == space.id }
-                if spaces.count > 1, !team.isEmpty {
-                    HStack(spacing: 5) {
-                        SpaceGlyph(space: space, size: 13, relativeTo: .footnote)
-                        Text(space.name)
-                    }
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(Palette.ink2)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 0, trailing: 20))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .accessibilityAddTraits(.isHeader)
+        if !teammates.isEmpty {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 4) {
+                    ForEach(teammates) { teammate in TeammateAvatar(teammate: teammate) }
                 }
-                ForEach(team) { teammate in TeammateLink(teammate: teammate) }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
             }
-            if shown.count < teammates.count {
+            .scrollIndicators(.hidden)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Team")
+            .accessibilityIdentifier("team-row")
+        }
+    }
+}
+
+/// One teammate in Home's row: its mark, and under it its name with the sidebar's dot while it works or
+/// waits on the person, bold while its chat is unread.
+struct TeammateAvatar: View {
+    let teammate: Teammate
+    @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 52
+    @State private var archiving = false
+
+    var body: some View {
+        let mark = min(side, 88)
+        let unread = teammate.unread == true
+        // Realm's menu rather than a context menu: in a List row, a context menu is the whole row's, so
+        // every mark in the row would lift the row and offer the first teammate's actions.
+        RealmMenu(teammate.name, primaryAction: { Task { await model.openTeammate(teammate) } }) {
+            TeammateMenu(teammate: teammate, archiving: $archiving, head: teammate.name)
+        } label: {
+            VStack(spacing: 6) {
+                TeammateMark(icon: teammate.icon, size: mark, lead: teammate.lead)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if TeammateWords.state(teammate.state) != nil {
+                        StateDot(state: teammate.state)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
+                    }
+                    Text(teammate.name)
+                        .font(.footnote.weight(unread ? .semibold : .regular))
+                        .foregroundStyle(unread ? Palette.ink : Palette.ink2)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
+                }
+            }
+            .padding(.vertical, 4)
+            .frame(width: mark + 24)
+            .contentShape(.rect)
+        }
+        .sensoryFeedback(.selection, trigger: teammate.lead)
+        .modifier(ConfirmArchive(teammate: teammate, shown: $archiving))
+        .accessibilityLabel(TeammateWords.spoken(teammate))
+        .accessibilityHint("Opens its chat")
+        .accessibilityIdentifier("avatar-\(teammate.handle)")
+    }
+}
+
+/// Home's Team section under the row: the way to a new teammate, the Team page, where each says what it
+/// is doing and the order is edited, and the ones put away.
+struct TeamSection: View {
+    let count: Int
+    let spaceId: String?
+    /// The profile's teammates put away, folded at the section's end.
+    var archived: [Teammate] = []
+
+    var body: some View {
+        Section {
+            if count > 0 {
                 NavigationLink(value: Route.team) {
-                    Text("All \(teammates.count) teammates")
+                    Text("All \(count) teammates")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Palette.ink2)
                 }
@@ -51,18 +98,10 @@ struct TeamSection: View {
                 Image(systemName: "person.2").foregroundStyle(Palette.ink2)
             }
             .overlay(alignment: .trailing) {
-                NewTeammateButton(spaceId: (teammates.first ?? archived.first)?.spaceId ?? spaces.first?.id)
+                NewTeammateButton(spaceId: spaceId)
                     .padding(.trailing, 16)
             }
         }
-    }
-
-    /// Which teammates Home lists, in their order: all of a short team; of a long one the Leads and the
-    /// ones with something going on, up to `whole`. Order never follows state, so a row does not jump.
-    static func shown(_ teammates: [Teammate]) -> [Teammate] {
-        guard teammates.count > whole else { return teammates }
-        let busy = teammates.filter { $0.lead || $0.state == .working || $0.state == .needsYou || $0.unread == true }
-        return Array(busy.prefix(whole))
     }
 }
 
@@ -215,20 +254,7 @@ struct TeammateLink: View {
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        .contextMenu {
-            Button("Open chat", systemImage: "bubble.left.and.text.bubble.right") {
-                Task { await model.openTeammate(teammate) }
-            }
-            Button("Edit…", systemImage: "pencil") { model.teammateEditing = teammate.id }
-                .disabled(!model.isConnected)
-            Button(teammate.lead ? "Not the Lead" : "Make Lead", systemImage: teammate.lead ? "star.slash" : "star") {
-                Task { await model.toggleLead(teammate) }
-            }
-            .disabled(!model.isConnected)
-            Divider()
-            Button("Archive", systemImage: "archivebox", role: .destructive) { archiving = true }
-                .disabled(!model.isConnected)
-        }
+        .contextMenu { TeammateMenu(teammate: teammate, archiving: $archiving) }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button("Archive", systemImage: "archivebox") { archiving = true }
                 .tint(Palette.accentFill)
@@ -245,15 +271,59 @@ struct TeammateLink: View {
             .disabled(!model.isConnected)
         }
         .sensoryFeedback(.selection, trigger: teammate.lead)
-        // The Mac's own words for what Archive does.
-        .sheet(isPresented: $archiving) {
-            ConfirmSheet(title: "Archive \(teammate.name)?", message: "Leaves the Team list; its sessions stay.",
-                         button: "Archive", role: .destructive) {
-                archiving = false
-                Task { await model.archive(teammate) }
-            }
-        }
+        .modifier(ConfirmArchive(teammate: teammate, shown: $archiving))
         .accessibilityIdentifier("teammate-\(teammate.handle)")
+    }
+}
+
+/// A teammate's actions, held on its row or its mark: its chat, Edit, the Lead, and Archive, which asks
+/// first. On a mark, headed by its name, since Realm's menu stands beside the mark rather than lifting it.
+private struct TeammateMenu: View {
+    let teammate: Teammate
+    @Binding var archiving: Bool
+    var head: String?
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if let head {
+            Section(head: head) { actions }
+        } else {
+            Section { actions }
+        }
+        Section {
+            Button("Archive", systemImage: "archivebox", role: .destructive) { archiving = true }
+                .disabled(!model.isConnected)
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        Button("Open chat", systemImage: "bubble.left.and.text.bubble.right") {
+            Task { await model.openTeammate(teammate) }
+        }
+        Button("Edit…", systemImage: "pencil") { model.teammateEditing = teammate.id }
+            .disabled(!model.isConnected)
+        Button(teammate.lead ? "Not the Lead" : "Make Lead", systemImage: teammate.lead ? "star.slash" : "star") {
+            Task { await model.toggleLead(teammate) }
+        }
+        .disabled(!model.isConnected)
+    }
+}
+
+/// Archive asks first, in the Mac's own words for what it does.
+private struct ConfirmArchive: ViewModifier {
+    let teammate: Teammate
+    @Binding var shown: Bool
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $shown) {
+                ConfirmSheet(title: "Archive \(teammate.name)?", message: "Leaves the Team list; its sessions stay.",
+                             button: "Archive", role: .destructive) {
+                    shown = false
+                    Task { await model.archive(teammate) }
+                }
+            }
     }
 }
 
@@ -496,17 +566,17 @@ struct TeammateSaid: View {
     }
 }
 
-/// Which teammates Home's Team lists: those of the spaces the profile shows, in the Mac's order.
+/// Which teammates Home lists: those of the spaces the profile shows, in the Mac's order.
 enum TeamListing {
     static func teammates(_ all: [Teammate], in home: Home, choice: ProfileChoice) -> [Teammate] {
         let shown = Set(home.spaces.filter(choice.includes).map(\.id))
         return all.filter { shown.contains($0.spaceId) }
     }
 
-    /// The spaces those teammates are in, which the section names when there is more than one.
-    static func spaces(of teammates: [Teammate], in home: Home) -> [Space] {
-        let ids = Set(teammates.map(\.spaceId))
-        return home.spaces.filter { ids.contains($0.id) }
+    /// Home's row: the Leads first, then each space's Team in its order, the spaces as Home lists them.
+    static func row(_ all: [Teammate], in home: Home, choice: ProfileChoice) -> [Teammate] {
+        let bySpace = home.spaces.filter(choice.includes).flatMap { space in all.filter { $0.spaceId == space.id } }
+        return bySpace.filter(\.lead) + bySpace.filter { !$0.lead }
     }
 }
 
