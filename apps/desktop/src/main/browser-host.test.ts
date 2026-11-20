@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  ACTIVATION_MS, AGENT_GRACE_MS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
+  ACTIVATION_MS, AGENT_GRACE_MS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, sendAsAgent, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
-  type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks,
+  type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks, type WindowKeyboard,
 } from "./browser-host";
 
 describe("normalizeAddress", () => {
@@ -232,6 +232,14 @@ describe("UserActivation", () => {
     expect(a.personPressed(1)).toBe(true);
   });
 
+  it("leaves the person's click in a cross-site frame theirs", () => {
+    // THE MUTANT: mark a gestured window's press as the agent's with no command in flight, and the
+    // person's click on a link in a cross-site frame opens a tab that leaves the keyboard behind.
+    const a = new UserActivation();
+    expect(a.decide(1_000, true)).toBe("tab");
+    expect(a.personPressed(1_001)).toBe(true);
+  });
+
   it("comes from a press, not from a mouse passing over or a key let go", () => {
     const a = new UserActivation();
     for (const type of ["mouseMove", "mouseEnter", "mouseWheel", "keyUp", "char"]) a.note(type, 0);
@@ -244,19 +252,79 @@ describe("UserActivation", () => {
   });
 });
 
+describe("sendAsAgent", () => {
+  /** What `personPressed` reads while the page is answering `send`. */
+  const pressedDuring = (a: UserActivation, answer: () => Promise<unknown> = async () => ({})) => {
+    const seen: boolean[] = [];
+    const send = sendAsAgent(a, async () => { seen.push(a.personPressed(0)); return answer(); });
+    return { send, seen };
+  };
+
+  it("sends the agent's Input commands as its own, until they answer (#561)", async () => {
+    // THE MUTANT: send Input.* straight to the page, and the agent's click in the page the person is
+    // typing in opens a tab that takes the keyboard.
+    const a = new UserActivation();
+    const { send, seen } = pressedDuring(a, async () => ({ ok: 1 }));
+    await expect(send("Input.dispatchMouseEvent", { type: "mousePressed" })).resolves.toEqual({ ok: 1 });
+    expect(seen).toEqual([false]);
+    expect(a.personPressed(0)).toBe(true);
+  });
+
+  it("leaves its other commands alone", async () => {
+    // THE MUTANT: send every command asAgent, and a person's click while the agent reads the page
+    // (Runtime.evaluate) opens a tab that leaves the keyboard behind.
+    const a = new UserActivation();
+    const { send, seen } = pressedDuring(a);
+    await send("Runtime.evaluate", { expression: "1" });
+    expect(seen).toEqual([true]);
+  });
+
+  it("ends a command that fails, so the person's next press is theirs", async () => {
+    // THE MUTANT: count down only on success, and one failed CDP click marks every press after it as the agent's.
+    const a = new UserActivation();
+    const { send, seen } = pressedDuring(a, async () => { throw new Error("detached"); });
+    await expect(send("Input.dispatchKeyEvent", { type: "keyDown" })).rejects.toThrow("detached");
+    expect(seen).toEqual([false]);
+    a.note("mouseDown", 0);
+    expect(a.personPressed(1)).toBe(true);
+  });
+
+  it("sends as before for a page with no activation", async () => {
+    const send = vi.fn(async () => "sent");
+    await expect(sendAsAgent(undefined, send)("Input.dispatchMouseEvent", { type: "mousePressed" })).resolves.toBe("sent");
+    expect(send).toHaveBeenCalledWith("Input.dispatchMouseEvent", { type: "mousePressed" });
+  });
+});
+
 describe("hostedTab", () => {
+  /** The person pressed in the page that had the keyboard. */
+  const PERSON: WindowKeyboard = { openerFocused: true, personPressed: true };
   it("lets Chromium make the window, so window.open answers a live window, and hosts it as the tab", () => {
     // Denying the window and loading its address fresh in a new tab makes window.open answer null, as
     // if the popup were blocked, and loses the window.opener link and a POST form's body.
     // THE MUTANT: answer "deny".
     const adopt = vi.fn();
-    const r = hostedTab({ partition: P }, () => "tab", adopt, () => {});
+    const r = hostedTab({ partition: P }, () => "tab", PERSON, adopt, () => {});
     expect(r.action).toBe("allow");
     const page = livePage();
     // THE MUTANT: make a page of our own here, and Electron throws — the window it made is not hosted.
     expect(r.createWindow({ webContents: page })).toBe(page);
-    expect(adopt).toHaveBeenCalledWith(page);
+    expect(adopt).toHaveBeenCalledWith(page, true);
     expect(page.close).not.toHaveBeenCalled();
+  });
+
+  it("gives the tab the keyboard only when the opener had it and the person pressed for it (#561)", () => {
+    // THE MUTANTS: drop `personPressed`, and the agent's click in the page the person is typing in
+    // opens a tab that takes the keyboard; drop `openerFocused`, and a click in a page without the
+    // keyboard takes it from wherever it was.
+    const focused = (keyboard: WindowKeyboard) => {
+      const adopt = vi.fn();
+      hostedTab({ partition: P }, () => "tab", keyboard, adopt, () => {}).createWindow({ webContents: livePage() });
+      return adopt.mock.calls[0]?.[1];
+    };
+    expect(focused(PERSON)).toBe(true);
+    expect(focused({ openerFocused: true, personPressed: false })).toBe(false);
+    expect(focused({ openerFocused: false, personPressed: true })).toBe(false);
   });
 
   it("goes in place when nobody pressed anything: the window is closed, no tab is made, and the pane follows the link", () => {
@@ -266,7 +334,7 @@ describe("hostedTab", () => {
     const adopt = vi.fn();
     const inPlace = vi.fn();
     const page = livePage();
-    hostedTab({ partition: P }, () => "in-place", adopt, inPlace).createWindow({ webContents: page });
+    hostedTab({ partition: P }, () => "in-place", PERSON, adopt, inPlace).createWindow({ webContents: page });
     expect(adopt).not.toHaveBeenCalled();
     expect(page.close).toHaveBeenCalled();
     expect(inPlace).toHaveBeenCalledTimes(1);
@@ -277,7 +345,7 @@ describe("hostedTab", () => {
     const adopt = vi.fn();
     const inPlace = vi.fn();
     const page = livePage();
-    hostedTab({ partition: P }, () => "refuse", adopt, inPlace).createWindow({ webContents: page });
+    hostedTab({ partition: P }, () => "refuse", PERSON, adopt, inPlace).createWindow({ webContents: page });
     expect(page.close).toHaveBeenCalled();
     expect(adopt).not.toHaveBeenCalled();
     expect(inPlace).not.toHaveBeenCalled();
@@ -285,7 +353,7 @@ describe("hostedTab", () => {
 
   it("outlives the page that opened it, as a tab does, in the pane's profile", () => {
     // THE MUTANT: drop outlivesOpener, and closing the page that opened a tab closes the tab too.
-    const r = hostedTab({ partition: P, sandbox: true }, () => "tab", () => {}, () => {});
+    const r = hostedTab({ partition: P, sandbox: true }, () => "tab", PERSON, () => {}, () => {});
     expect(r.outlivesOpener).toBe(true);
     expect(r.overrideBrowserWindowOptions).toEqual({ webPreferences: { partition: P, sandbox: true } });
   });
