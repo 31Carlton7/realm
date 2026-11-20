@@ -70,17 +70,23 @@ export function useDictation({ port, draft, onDraftChange, caret, select, level 
   const show = (next: DictationNote, about: string) => { noted.current = about; setNote(next); };
   const dismiss = () => { noted.current = null; setNote(null); setCleaned(null); };
 
+  /** Put `words` in the draft at `at`, the first `from` of them already final. */
+  const land = (at: number, words: string, from: number) => {
+    const placed = placeDictation(draftNow.current, at, words);
+    setLive(null);
+    setLanded({ draft: placed.text, start: placed.start, end: placed.end, from });
+    onDraftChange(placed.text);
+    select(placed.end);
+    return placed;
+  };
+
   const finish = async (at: number, raw: string) => {
     control.current = null;
     if (!raw || !port) { setLive(null); return; }
     setLive({ at, words: raw, settled: settledNow.current, cleaning: true });
     const result = await port.clean(raw).catch((): DictationCleanResult => ({ outcome: "failed", text: raw }));
-    const placed = placeDictation(draftNow.current, at, result.text);
-    setLive(null);
     // Cleaned words are new words: all of them settle. Raw ones keep what was already final.
-    setLanded({ draft: placed.text, start: placed.start, end: placed.end, from: result.text === raw ? Math.min(settledNow.current, raw.length) : 0 });
-    onDraftChange(placed.text);
-    select(placed.end);
+    const placed = land(at, result.text, result.text === raw ? Math.min(settledNow.current, raw.length) : 0);
     if (result.outcome === "cleaned" && result.text !== raw) {
       setCleaned({ draft: placed.text, start: placed.start, cleaned: result.text, raw });
       show({ kind: "cleaned" }, placed.text);
@@ -104,7 +110,13 @@ export function useDictation({ port, draft, onDraftChange, caret, select, level 
       fetching: (progress) => setLive((l) => (l && !l.cleaning ? { ...l, fetching: { progress } } : l)),
       level: (rms) => levelNow.current?.(rms),
       done: (raw) => void finish(at, raw),
-      problem: (message) => { control.current = null; setLive(null); show({ kind: "problem", text: message }, draftNow.current); },
+      problem: (message, heard) => {
+        control.current = null;
+        setLive(null);
+        // What was heard lands as it was heard: a dictation that broke is not one to clean up.
+        const about = heard ? land(at, heard, Math.min(settledNow.current, heard.length)).text : draftNow.current;
+        show({ kind: "problem", text: message }, about);
+      },
     });
     control.current = c;
     void c.start();

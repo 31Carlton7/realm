@@ -6,7 +6,8 @@
 const SPEECH_RATE = 16_000;
 
 export interface VoiceAudio {
-  start(onFrame: (level: number, samples: Int16Array) => void): Promise<void>;
+  /** `onLost` is called if the microphone goes away while it is open: unplugged, or taken back. */
+  start(onFrame: (level: number, samples: Int16Array) => void, onLost?: () => void): Promise<void>;
   stop(): void;
 }
 
@@ -37,13 +38,14 @@ export class WebVoiceAudio implements VoiceAudio {
 
   constructor(private readonly microphone: string | null = null) {}
 
-  async start(onFrame: (level: number, samples: Int16Array) => void): Promise<void> {
+  async start(onFrame: (level: number, samples: Int16Array) => void, onLost?: () => void): Promise<void> {
     const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
     // A chosen microphone that is unplugged falls back to the default input rather than leaving
     // dictation deaf.
     this.mic = await (this.microphone
       ? navigator.mediaDevices.getUserMedia({ audio: { ...audio, deviceId: { exact: this.microphone } } }).catch(() => navigator.mediaDevices.getUserMedia({ audio }))
       : navigator.mediaDevices.getUserMedia({ audio }));
+    for (const track of this.mic.getAudioTracks()) track.onended = () => onLost?.();
     const ctx = new AudioContext({ latencyHint: "interactive" });
     this.ctx = ctx;
     const source = ctx.createMediaStreamSource(this.mic);
