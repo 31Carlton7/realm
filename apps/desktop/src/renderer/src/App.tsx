@@ -806,9 +806,9 @@ export function App() {
     });
     // A browser pane's page asked for a new tab (main/browser-pane.ts): beside that page, showing the
     // page Chromium made for it.
-    const offTab = window.realm?.links?.onOpenTab?.(({ browserId, url, background, page }) => {
+    const offTab = window.realm?.links?.onOpenTab?.(({ browserId, url, background, focus, page }) => {
       const st = store.getState();
-      st.run(() => st.openPageTab(browserId, url, { background, onCreated: (id) => window.realm?.links?.claimTab?.(page, id) }));
+      st.run(() => st.openPageTab(browserId, url, { background, focus, onCreated: (id) => window.realm?.links?.claimTab?.(page, id) }));
     });
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.

@@ -130,6 +130,15 @@ describe("UserActivation", () => {
     expect(a.consume(1_000 + ACTIVATION_MS)).toBe(false);
   });
 
+  it("lasts five seconds, as Chromium's does", () => {
+    // THE MUTANT: any other ACTIVATION_MS — the tests above read the constant, so only a number here pins it.
+    const a = new UserActivation();
+    a.note("mouseDown", 0);
+    expect(a.consume(4_999)).toBe(true);
+    a.note("mouseDown", 0);
+    expect(a.consume(5_000)).toBe(false);
+  });
+
   it("comes from a press, not from a mouse passing over or a key let go", () => {
     const a = new UserActivation();
     for (const type of ["mouseMove", "mouseEnter", "mouseWheel", "keyUp", "char"]) a.note(type, 0);
@@ -147,7 +156,7 @@ describe("hostedTab", () => {
     // if the popup were blocked, and loses the window.opener link and a POST form's body.
     // THE MUTANT: answer "deny".
     const adopt = vi.fn();
-    const r = hostedTab({ partition: P }, () => true, adopt);
+    const r = hostedTab({ partition: P }, () => true, adopt, () => {});
     expect(r.action).toBe("allow");
     const page = { close: vi.fn() };
     // THE MUTANT: make a page of our own here, and Electron throws — the window it made is not hosted.
@@ -156,19 +165,22 @@ describe("hostedTab", () => {
     expect(page.close).not.toHaveBeenCalled();
   });
 
-  it("closes the window a page opened with nobody pressing anything, and makes no tab of it", () => {
+  it("goes in place when nobody pressed anything: the window is closed, no tab is made, and the pane follows the link", () => {
     // Measured on 2.19.0: a window.open(url) as a page loads, or from its timer, reaches the handler as
-    // a foreground tab like a click's. THE MUTANT: ignore `pressed`, and a page spawns tabs on its own.
+    // a foreground tab like a click's. THE MUTANTS: ignore `pressed`, and a page spawns tabs on its own;
+    // drop `inPlace`, and the page's window.open does nothing at all, where main followed it in place.
     const adopt = vi.fn();
+    const inPlace = vi.fn();
     const page = { close: vi.fn() };
-    hostedTab({ partition: P }, () => false, adopt).createWindow({ webContents: page });
+    hostedTab({ partition: P }, () => false, adopt, inPlace).createWindow({ webContents: page });
     expect(adopt).not.toHaveBeenCalled();
     expect(page.close).toHaveBeenCalled();
+    expect(inPlace).toHaveBeenCalledTimes(1);
   });
 
   it("outlives the page that opened it, as a tab does, in the pane's profile", () => {
     // THE MUTANT: drop outlivesOpener, and closing the page that opened a tab closes the tab too.
-    const r = hostedTab({ partition: P, sandbox: true }, () => true, () => {});
+    const r = hostedTab({ partition: P, sandbox: true }, () => true, () => {}, () => {});
     expect(r.outlivesOpener).toBe(true);
     expect(r.overrideBrowserWindowOptions).toEqual({ webPreferences: { partition: P, sandbox: true } });
   });
@@ -282,7 +294,7 @@ function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReas
   const found: (FindResult & { id: string })[] = [];
   const findRequests: string[] = [];
   const emulations: { id: string; metrics: DeviceMetrics | null }[] = [];
-  const tabs: { id: string; url: string; background: boolean; page: string }[] = [];
+  const tabs: { id: string; url: string; background: boolean; focus: boolean; page: string }[] = [];
   const factory = vi.fn((id: string, hooks: ViewHooks, _partition: string, _page?: unknown) => {
     const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle;
   });
@@ -408,8 +420,8 @@ describe("BrowserPaneHost", () => {
     const { host, views, tabs, factory } = makeHost();
     host.create("b1", "", ["https://example.com"], P);
     const page = { close: vi.fn() };
-    views.get("b1")!.getHooks().openTab("https://example.com/echo", true, page);
-    expect(tabs).toEqual([{ id: "b1", url: "https://example.com/echo", background: true, page: expect.any(String) }]);
+    views.get("b1")!.getHooks().openTab("https://example.com/echo", true, page, true);
+    expect(tabs).toEqual([{ id: "b1", url: "https://example.com/echo", background: true, focus: true, page: expect.any(String) }]);
     host.claimTab(tabs[0]!.page, "b2");
     host.create("b2", "https://example.com/echo", ["https://example.com"], P);
     expect(factory).toHaveBeenLastCalledWith("b2", expect.anything(), P, page);
@@ -424,7 +436,7 @@ describe("BrowserPaneHost", () => {
     const { host, views, tabs, factory } = makeHost();
     host.create("b1", "", null, P);
     const page = { close: vi.fn() };
-    views.get("b1")!.getHooks().openTab("https://example.com/docs", false, page);
+    views.get("b1")!.getHooks().openTab("https://example.com/docs", false, page, false);
     host.claimTab(tabs[0]!.page, "b2");
     host.create("b2", "https://example.com/docs", null, "persist:browser-other");
     expect(page.close).toHaveBeenCalled();
@@ -436,7 +448,7 @@ describe("BrowserPaneHost", () => {
     const { host, views, tabs } = makeHost();
     host.create("b1", "", ["https://example.com"], P);
     const page = { close: vi.fn() };
-    views.get("b1")!.getHooks().openTab("https://evil.com/docs", false, page);
+    views.get("b1")!.getHooks().openTab("https://evil.com/docs", false, page, false);
     expect(tabs).toEqual([]);
     expect(page.close).toHaveBeenCalled();
   });
@@ -448,14 +460,14 @@ describe("BrowserPaneHost", () => {
       const { host, views, tabs } = makeHost();
       host.create("b1", "", null, P);
       const unclaimed = { close: vi.fn() };
-      views.get("b1")!.getHooks().openTab("https://example.com/a", false, unclaimed);
+      views.get("b1")!.getHooks().openTab("https://example.com/a", false, unclaimed, false);
       vi.advanceTimersByTime(UNCLAIMED_TAB_MS - 1);
       expect(unclaimed.close).not.toHaveBeenCalled();
       vi.advanceTimersByTime(1);
       expect(unclaimed.close).toHaveBeenCalled();
 
       const closed = { close: vi.fn() };
-      views.get("b1")!.getHooks().openTab("https://example.com/b", true, closed);
+      views.get("b1")!.getHooks().openTab("https://example.com/b", true, closed, false);
       host.claimTab(tabs[1]!.page, "b3");
       vi.advanceTimersByTime(UNCLAIMED_TAB_MS);
       expect(closed.close).not.toHaveBeenCalled(); // claimed: a background tab may wait unseen
@@ -464,14 +476,36 @@ describe("BrowserPaneHost", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("says a page asked for its tab without the keyboard, so the tab does not take it", () => {
+    // An agent's click lands in a page the person is not typing in. THE MUTANT: always send focus: true,
+    // and the keys going to the prompter land in a page they never opened.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, { close: vi.fn() }, false);
+    expect(tabs[0]).toMatchObject({ focus: false });
+  });
+
+  it("tells whoever asks for the page next which tabs it opened, once, waiting for one still being made", async () => {
+    // What an agent's next act or snapshot is told (browser-agent-host.ts): the click opened a tab
+    // rather than doing nothing. THE MUTANT: never record the claim, and the agent hears nothing.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, { close: vi.fn() }, false);
+    const told = host.takeOpenedTabs("b1", 1_000);
+    host.claimTab(tabs[0]!.page, "b2");
+    expect(await told).toEqual([{ browserId: "b2", url: "https://example.com/a" }]);
+    expect(await host.takeOpenedTabs("b1", 0)).toEqual([]);
+    expect(await host.takeOpenedTabs("b2", 0)).toEqual([]);
+  });
+
   it("closes every page still waiting for a tab when the window goes", () => {
     // THE MUTANT: clear the waiting pages without closing them, and they run on with no window.
     const { host, views, tabs } = makeHost();
     host.create("b1", "", null, P);
     const unclaimed = { close: vi.fn() };
     const claimed = { close: vi.fn() };
-    views.get("b1")!.getHooks().openTab("https://example.com/a", false, unclaimed);
-    views.get("b1")!.getHooks().openTab("https://example.com/b", true, claimed);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, unclaimed, false);
+    views.get("b1")!.getHooks().openTab("https://example.com/b", true, claimed, false);
     host.claimTab(tabs[1]!.page, "b2");
     host.destroyAll();
     expect(unclaimed.close).toHaveBeenCalled();

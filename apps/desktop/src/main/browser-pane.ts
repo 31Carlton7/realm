@@ -179,7 +179,11 @@ export function electronViewFactory(
       const tab = action === "foreground-tab" || action === "background-tab";
       if (tab && opener === wc) {
         if (!hooks.allowNavigate(details.url)) return { action: "deny" };
-        return hostedTab<WebContents>(webPreferences, pressed, (page) => hooks.openTab(details.url, action === "background-tab", page));
+        // Read now: by the time Chromium has made the page, the keyboard may have moved on.
+        const focused = wc.isFocused();
+        return hostedTab<WebContents>(webPreferences, pressed,
+          (page) => hooks.openTab(details.url, action === "background-tab", page, focused),
+          () => hooks.openInPlace(details.url));
       }
       if (action === "in-place" || tab) {
         if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }
@@ -459,7 +463,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
     sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
-    openTab: ({ id, url, background, page }) => send("links:open-tab", { browserId: id, url, background, page }),
+    openTab: ({ id, url, background, focus, page }) => send("links:open-tab", { browserId: id, url, background, focus, page }),
     // The keyboard is in the VIEW when this fires, and focusing an input inside the window's own page
     // does not move it — typing would go on landing in the site. Handing focus to the window's
     // webContents first is what lets the find field the pane focuses actually receive the keys.

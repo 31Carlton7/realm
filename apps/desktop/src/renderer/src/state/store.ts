@@ -3049,8 +3049,10 @@ export type AppState = TeammatesSlice & {
   openLinkInBrowser(url: string, opts?: { background?: boolean }): Promise<void>;
   /** A new tab a browser pane's page asked for (a target=_blank link, a ⌘- or middle-click): a tab
    *  beside that page's, as `openLinkInBrowser` makes one — behind it, keyboard untouched, when
-   *  `background`. `onCreated` is how main learns which browser hosts the page Chromium already made. */
-  openPageTab(browserId: string, url: string, opts: { background: boolean; onCreated?: (browserId: string) => void }): Promise<void>;
+   *  `background`. Without `focus` (the page that asked did not have the keyboard: an agent clicked)
+   *  it never takes the keyboard, and comes to the front as an agent's page does. `onCreated` is how
+   *  main learns which browser hosts the page Chromium already made. */
+  openPageTab(browserId: string, url: string, opts: { background: boolean; focus: boolean; onCreated?: (browserId: string) => void }): Promise<void>;
   /** Which editor the transcript's path menu offers — an id, "realm" for none, null for the first
    *  installed one (see `resolveEditor`). */
   openFilesIn: OpenFilesIn | null;
@@ -4312,9 +4314,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** `newTab`'s browser, and a link's: a tab in the side pane of the session the ask is about, on
      *  `url` (blank without one). Answers the browser's item, or null when it never reached the screen.
-     *  `background` puts it behind the tab showing and leaves the keyboard where it is. `onCreated` hears
-     *  the browser's id before the tab is placed, which is before its pane can mount. */
-    const openBrowserTab = async (leafId: string | null, url?: string, opts: { background?: boolean; onCreated?: (browserId: string) => void } = {}): Promise<string | null> => {
+     *  `background` puts it behind the tab showing and leaves the keyboard where it is; `quiet` leaves
+     *  the keyboard too, and shows the tab by the rule an agent's pages follow. `onCreated` hears the
+     *  browser's id before the tab is placed, which is before its pane can mount. */
+    const openBrowserTab = async (leafId: string | null, url?: string, opts: { background?: boolean; quiet?: boolean; onCreated?: (browserId: string) => void } = {}): Promise<string | null> => {
       // For the session the ask came from — read before the awaits, since the click or the key was
       // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
       // in, or in the panel the session whose tab is showing, else the first session on screen.
@@ -4327,8 +4330,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (!inProfile(sid)) return null;
       // A tab of that session's run — and with no session on screen, an ordinary browser beside the
       // focused pane.
-      if (opts.background) {
-        if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { front: false }))) await get().openItemBesideQuiet(itemId);
+      if (opts.background || opts.quiet) {
+        const place = opts.background ? { front: false } : {};
+        if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, place))) await get().openItemBesideQuiet(itemId);
       } else if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
       return itemId;
     };
@@ -5642,7 +5646,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const layout = get().layout;
         const opener = get().items.find((i) => i.kind === "browser" && i.refId === browserId);
         const leaf = layout && opener ? findLeafOfItem(layout, opener.id) : null;
-        await openBrowserTab(leaf?.id ?? null, url, opts);
+        await openBrowserTab(leaf?.id ?? null, url, { background: opts.background, quiet: !opts.focus, onCreated: opts.onCreated });
       },
       peekOwner() {
         const layout = get().layout; if (!layout) return null;

@@ -340,7 +340,7 @@ describe("a new tab a browser pane's page asked for", () => {
     const { store } = await strip();
     let stripWhenNamed: string[] | null = null;
     let named: string | null = null;
-    await store.getState().openPageTab("br", "https://example.com/echo", { background: false, onCreated: (browserId) => { named = browserId; stripWhenNamed = side(store).tabs!; } });
+    await store.getState().openPageTab("br", "https://example.com/echo", { background: false, focus: true, onCreated: (browserId) => { named = browserId; stripWhenNamed = side(store).tabs!; } });
     const id = newest(store);
     expect(named).toBe(store.getState().items.find((i) => i.id === id)!.refId);
     expect(stripWhenNamed).toEqual(["i-br", "i-other"]);
@@ -352,7 +352,7 @@ describe("a new tab a browser pane's page asked for", () => {
     const { api, store } = await strip();
     const lead = findLeafOfItem(store.getState().layout!, "i-lead")!.id;
     store.getState().focusLeaf(lead);
-    await store.getState().openPageTab("br", "https://example.com/docs", { background: false });
+    await store.getState().openPageTab("br", "https://example.com/docs", { background: false, focus: true });
     const id = newest(store);
     expect(api.calls).toContain("createBrowser:s1:https://example.com/docs");
     expect(side(store).tabs).toEqual(["i-br", id, "i-other"]);
@@ -360,12 +360,37 @@ describe("a new tab a browser pane's page asked for", () => {
     expect(store.getState().focusedLeafId).toBe(side(store).id);
   });
 
+  it("asked for by a page without the keyboard (an agent's click), comes to the front of its session's strip but leaves the keyboard alone", async () => {
+    // The person is typing in the prompter while an agent clicks a target=_blank link. THE MUTANT: open
+    // it with focus as a person's click does, and the keys they type next land in the new page.
+    const { store } = await strip();
+    const lead = findLeafOfItem(store.getState().layout!, "i-lead")!.id;
+    store.getState().focusLeaf(lead);
+    await store.getState().openPageTab("br", "https://example.com/docs", { background: false, focus: false });
+    const id = newest(store);
+    expect(side(store).tabs).toEqual(["i-br", id, "i-other"]);
+    expect(side(store).itemId).toBe(id);
+    expect(store.getState().focusedLeafId).toBe(lead);
+  });
+
+  it("from a browser no session owns, asked for without the keyboard, opens beside it and leaves the keyboard alone", async () => {
+    // THE MUTANT: fall back to openItemBeside, which moves the keyboard into the new page.
+    const api = fakeApi({ items: { s1: [item("i-br", "s1", { kind: "browser", refId: "br", title: "Docs" }), item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" })] }, sessions: [session("lead", "s1")] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-br");
+    const focused = store.getState().focusedLeafId;
+    await store.getState().openPageTab("br", "https://example.com/docs", { background: false, focus: false });
+    expect(allItems(store.getState().layout!)).toEqual(expect.arrayContaining(["i-br", newest(store)]));
+    expect(store.getState().focusedLeafId).toBe(focused);
+  });
+
   it("in the background, waits behind the page that asked, which keeps the screen and the keyboard", async () => {
     // ⌘- or middle-click. THE MUTANT: open it as a click does, and the page being read is swapped out.
     const { store } = await strip();
     const lead = findLeafOfItem(store.getState().layout!, "i-lead")!.id;
     store.getState().focusLeaf(lead);
-    await store.getState().openPageTab("br", "https://example.com/later", { background: true });
+    await store.getState().openPageTab("br", "https://example.com/later", { background: true, focus: true });
     const id = newest(store);
     expect(side(store).tabs).toEqual(["i-br", id, "i-other"]);
     expect(side(store).itemId).toBe("i-br");
@@ -386,7 +411,7 @@ describe("a new tab a browser pane's page asked for", () => {
     await store.getState().openItemBeside("i-two");
     await store.getState().openInSidePane("two", "i-br");
     store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i-lead")!.id);
-    await store.getState().openPageTab("br", "https://example.com/docs", { background: false });
+    await store.getState().openPageTab("br", "https://example.com/docs", { background: false, focus: true });
     const panel = findSidePane(store.getState().layout!, "i-two")!;
     expect(panel.tabs).toEqual(["i-br", newest(store)]);
     expect(tabOwner(panel, newest(store))).toBe("i-two");
@@ -399,7 +424,7 @@ describe("a new tab a browser pane's page asked for", () => {
     await store.getState().boot();
     await store.getState().openItem("i-br");
     const focused = store.getState().focusedLeafId;
-    await store.getState().openPageTab("br", "https://example.com/later", { background: true });
+    await store.getState().openPageTab("br", "https://example.com/later", { background: true, focus: true });
     const id = newest(store);
     expect(allItems(store.getState().layout!)).toEqual(expect.arrayContaining(["i-br", id]));
     expect(store.getState().focusedLeafId).toBe(focused);

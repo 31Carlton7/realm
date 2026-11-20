@@ -75,9 +75,10 @@ contextBridge.exposeInMainWorld("realm", {
       return () => ipcRenderer.removeListener("links:open-in-realm", handler);
     },
     /** A browser pane's page asked for a new tab (a target=_blank link, a ⌘- or middle-click). `page`
-     *  names the page Chromium already made for it, which `claimTab` gives to the new tab's browser. */
-    onOpenTab: (cb: (m: { browserId: string; url: string; background: boolean; page: string }) => void): (() => void) => {
-      const handler = (_e: IpcRendererEvent, m: { browserId: string; url: string; background: boolean; page: string }) => cb(m);
+     *  names the page Chromium already made for it, which `claimTab` gives to the new tab's browser;
+     *  `focus` is whether the page that asked had the keyboard. */
+    onOpenTab: (cb: (m: { browserId: string; url: string; background: boolean; focus: boolean; page: string }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string; url: string; background: boolean; focus: boolean; page: string }) => cb(m);
       ipcRenderer.on("links:open-tab", handler);
       return () => ipcRenderer.removeListener("links:open-tab", handler);
     },

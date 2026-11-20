@@ -800,6 +800,7 @@ const agentHost = new BrowserAgentHost({
   touch: (id) => paneFor(id)?.host.touch(id),
   navigate: (id, url) => paneFor(id)?.host.navigate(id, url) ?? null,
   pageState: (id) => paneFor(id)?.pageState(id) ?? null,
+  takeOpenedTabs: async (id, waitMs) => (await paneFor(id)?.host.takeOpenedTabs(id, waitMs)) ?? [],
   // The fill op's only reach into the store. Passed as an object of bound methods rather than the
   // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
   secrets: {

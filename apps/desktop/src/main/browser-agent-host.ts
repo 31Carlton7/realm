@@ -106,6 +106,9 @@ export type BrowserAgentHostDeps = {
    *  the page is still loading (`isLoading()`, the pane's own spinner), why it did not load, and the
    *  addresses of the popup windows it has open (a sign-in, mostly). */
   pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null; popups?: string[] } | null;
+  /** The new tabs the page opened since it was last asked, waiting up to `waitMs` for one still being
+   *  made (`BrowserPaneHost.takeOpenedTabs`). Absent, a page is taken to open none. */
+  takeOpenedTabs?(browserId: string, waitMs: number): Promise<{ browserId: string; url: string }[]>;
   /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
   now?: () => number;
   /** How long a screenshot waits for the page to paint. A test seam; `SCREENSHOT_TIMEOUT_MS` otherwise. */
@@ -224,6 +227,8 @@ const REQUESTS_MAX = 500;
  *  enough to be invisible to a person and to a twenty-step batch; long enough for the renderer to
  *  dispatch the click handler and for the CDP event to cross the debugger. */
 const CHOOSER_SETTLE_MS = 150;
+/** How long an act waits for a tab its click asked for to be made, so the act's answer can name it. */
+const TAB_SETTLE_MS = 2_000;
 /** How long a screenshot waits for a frame. A page on screen captures in well under a second; one that
  *  is not on screen never does, and this is how long it takes to say so. */
 const SCREENSHOT_TIMEOUT_MS = 5_000;
@@ -606,6 +611,8 @@ export class BrowserAgentHost {
         if (popups.length > 0) {
           wire.text = `${wire.text}\n(this page has a popup window open over it, on ${popups.join(" and ")} — a sign-in, usually. Browser tools reach this page, not the popup, so what happens in it is for the person to do; when it is done it closes itself and this page carries on.)`;
         }
+        const tabs = await this.openedTabsNote(browserId, 0);
+        if (tabs) wire.text = `${wire.text}\n(this page opened ${tabs})`;
         return this.hideFilledCodes(browserId, wire);
       }
       case "read":
@@ -641,7 +648,10 @@ export class BrowserAgentHost {
         const result = await performAct(entry.binding.send, action);
         // Whatever the method: inserted text sends no key event for the keyboard's own record to hear.
         if (result.ok && (action.kind === "type" || action.kind === "key")) this.d.typed?.(browserId);
-        return this.withChooserNote(entry, result);
+        const acted = await this.withChooserNote(entry, result);
+        if (!acted.ok || (action.kind !== "click" && action.kind !== "key")) return acted;
+        const tabs = await this.openedTabsNote(browserId, TAB_SETTLE_MS);
+        return tabs ? { ...acted, detail: `${acted.detail} — that opened ${tabs}` } : acted;
       }
       /**
        * Attach files to a page (Plan 26). The gate, the path resolution, the symlink check, the
@@ -1059,6 +1069,15 @@ export class BrowserAgentHost {
         `${result.detail} — that opened a file chooser, which Realm intercepted, so no macOS panel appeared. ` +
         "Call browser_upload with this same ref and the paths to attach, or browser_dismiss_dialog to cancel it.",
     };
+  }
+
+  /** What to tell an agent about the tabs this page opened since it was last told — a tab is a browser
+   *  of its own, so nothing in this page shows it, and the click looks like it did nothing. */
+  private async openedTabsNote(browserId: string, waitMs: number): Promise<string | null> {
+    const tabs = (await this.d.takeOpenedTabs?.(browserId, waitMs)) ?? [];
+    if (tabs.length === 0) return null;
+    const named = tabs.map((t) => `browser ${t.browserId}, on ${t.url}`).join("; ");
+    return `${tabs.length === 1 ? "a new tab" : `${tabs.length} new tabs`}, ${named}; this page stayed as it was. Pass a tab's browserId to the browser tools to work in it`;
   }
 
   /** One audit line per fill attempt: timestamp, origin, credentialId, outcome — and never the

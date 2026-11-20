@@ -84,7 +84,7 @@ interface Window {
       setOpenIn(pref: import("@realm/contracts").LinksOpenIn): void;
       onOpenInRealm(cb: (url: string, opts: { background: boolean }) => void): () => void;
       /** A browser pane's page asked for a new tab: beside it, and behind it when `background`. */
-      onOpenTab?(cb: (m: { browserId: string; url: string; background: boolean; page: string }) => void): () => void;
+      onOpenTab?(cb: (m: { browserId: string; url: string; background: boolean; focus: boolean; page: string }) => void): () => void;
       /** The new tab's browser, for the page Chromium made (`onOpenTab`'s `page`). */
       claimTab?(page: string, browserId: string): void;
     };

@@ -35,6 +35,8 @@ function setup(opts: {
   loadError?: BrowserLoadError;
   /** The popup windows the page has open, as `BrowserPane.pageState` carries them. */
   popups?: string[];
+  /** The tabs the page opened since the agent was last told, as `BrowserPaneHost.takeOpenedTabs` answers them. */
+  openedTabs?: { browserId: string; url: string }[];
   now?: () => number;
   screenshotTimeoutMs?: number;
   /** Run while the page is being captured — something the page does mid-snapshot. */
@@ -90,6 +92,7 @@ function setup(opts: {
       ...(opts.loadError ? { error: opts.loadError } : {}),
       ...(opts.popups ? { popups: opts.popups } : {}),
     } : null),
+    ...(opts.openedTabs ? { takeOpenedTabs: async () => opts.openedTabs!.splice(0) } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.screenshotTimeoutMs !== undefined ? { screenshotTimeoutMs: opts.screenshotTimeoutMs } : {}),
     secrets: opts.credentials === undefined ? undefined : {
@@ -1032,6 +1035,26 @@ describe("file-chooser interception", () => {
     expect(snap.text).toContain("popup window open over it, on https://accounts.google.com and a blank page");
     expect(snap.text).toContain("for the person to do");
     expect(snap.text).not.toContain("page-written"); // the path is the page's to write; the note is Realm's
+  });
+
+  it("a tab the page opened is named, by browser id and address, in the act that opened it and only there", async () => {
+    // A new tab is a browser of its own, so this page's tree does not change: the click looks like it
+    // did nothing. THE MUTANT that drops the note leaves an agent clicking the link again.
+    const openedTabs = [{ browserId: "b9", url: "https://example.com/docs" }];
+    const { host } = setup({ openedTabs });
+    const act = (await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } })) as { ok: boolean; detail: string };
+    expect(act.detail).toContain("opened a new tab, browser b9, on https://example.com/docs");
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).not.toContain("new tab");
+  });
+
+  it("a tab the page opened after the act is named in the next snapshot", async () => {
+    // THE MUTANT: name it in acts alone, and a tab a page opens on a timer is never mentioned.
+    const openedTabs: { browserId: string; url: string }[] = [];
+    const { host } = setup({ openedTabs });
+    openedTabs.push({ browserId: "b9", url: "https://example.com/later" });
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).toContain("opened a new tab, browser b9, on https://example.com/later");
   });
 
   it("a snapshot with no popup open says nothing about one", async () => {
