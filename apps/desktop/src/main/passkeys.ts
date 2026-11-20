@@ -21,8 +21,8 @@
  * What Realm can do is be the authenticator itself. Chromium's virtual authenticator is not a test
  * double bolted on from outside: it is a real CTAP2 implementation inside the same FIDO stack, doing
  * real P-256 signatures over real authenticator data, and a relying party cannot tell its assertions
- * from a security key's. Realm installs one per pane over in-process CDP, holds the private keys
- * sealed in the secret store, and puts a fingerprint in front of every use.
+ * from a security key's. Realm installs one in each page of a pane over in-process CDP, holds the
+ * private keys sealed in the secret store, and puts a fingerprint in front of every use.
  *
  * ## The four facts this design is built on
  *
@@ -107,6 +107,9 @@ export const PASSKEY_REQUEST_TIMEOUT_MS = 120_000;
 export type PasskeyCdp = {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
   onEvent(cb: (method: string, params: unknown) => void): void;
+  /** Whether this page is the one its pane shows. A page waiting behind another (`adoptInPlace` in
+   *  browser-host.ts) is off screen, so a passkey it asks for is refused without a prompt. */
+  inFront(): boolean;
 };
 
 export type PasskeyBrokerDeps = {
@@ -251,7 +254,7 @@ type PaneState = {
   authenticatorId: string;
   /** Resolves when the shim reports the in-flight request settled. */
   awaitingDone: Map<string, () => void>;
-  /** One request at a time per pane: the next `ask` queues behind the last one's teardown, so two
+  /** One request at a time per page: the next `ask` queues behind the last one's teardown, so two
    *  frames racing cannot leave one request's keys loaded under the other's presence window. */
   queue: Promise<void>;
 };
@@ -286,12 +289,17 @@ export class PasskeyBroker {
       if (method !== "Runtime.bindingCalled") return;
       const p = params as { name?: string; payload?: string; executionContextId?: number };
       if (p?.name !== PASSKEY_BINDING || typeof p.payload !== "string") return;
-      this.onMessage(paneId, p.payload, p.executionContextId);
+      const msg = parsePasskeyMessage(p.payload);
+      if (!msg) return;
+      // Refused on the page's own CDP: no prompt, no notice, and nothing sent to the page in front.
+      if (msg.t === "ask" && !cdp.inFront()) { void this.reply(state, msg.id, "deny", p.executionContextId); return; }
+      this.onMessage(paneId, state, msg, p.executionContextId);
     });
   }
 
-  /** The pane's view is gone. Nothing to unwind at the authenticator — it died with the view — but
-   *  any request still waiting must be let go rather than left holding the queue. */
+  /** The pane's view is gone, or its page changed. Nothing to unwind at the authenticator — it died
+   *  with the view — but any request still waiting must be let go rather than left holding the queue.
+   *  A page covered by another keeps its install, and answers on it again once it is back in front. */
   release(paneId: string): void {
     const state = this.panes.get(paneId);
     if (!state) return;
@@ -299,11 +307,7 @@ export class PasskeyBroker {
     this.panes.delete(paneId);
   }
 
-  private onMessage(paneId: string, payload: string, contextId: number | undefined): void {
-    const state = this.panes.get(paneId);
-    if (!state) return;
-    const msg = parsePasskeyMessage(payload);
-    if (!msg) return;
+  private onMessage(paneId: string, state: PaneState, msg: PasskeyAsk | PasskeyDone, contextId: number | undefined): void {
     if (msg.t === "done") {
       const resolve = state.awaitingDone.get(msg.id);
       if (resolve) { state.awaitingDone.delete(msg.id); resolve(); }
