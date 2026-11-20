@@ -1151,7 +1151,7 @@ export const Methods = {
   /** A meeting's live answer (`apps/server/src/meetings/live-answers.ts`). The transcript's last few
    *  minutes and the prompter's custom info go to the quick chat model, and nothing else does:
    *  `.strict()`, and only Realm's own app may ask. It answers at once with the answer's id; the text
-   *  streams to the asking window as `meeting.answer` events. A newer ask cancels the one before. */
+   *  streams to the asking window as `meeting.answer` events. */
   "meeting.answer": { params: z.object({ lines: z.array(MeetingLineSchema).max(5_000), customInfo: z.string().max(20_000), trigger: z.enum(LIVE_ANSWER_TRIGGERS) }).strict(),
     result: z.object({ answerId: z.string() }) },
   /** Stop the answer in flight, if any: its window gets `cancelled`. */

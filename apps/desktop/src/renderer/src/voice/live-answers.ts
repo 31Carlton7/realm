@@ -35,7 +35,6 @@ export class MeetingAnswers {
 
   constructor(private readonly deps: {
     api: LiveAnswersApi;
-    /** Answer the other side's questions as they are asked. */
     auto: boolean;
     /** The prompter's custom info, read at each ask, so an edit mid-call reaches the next answer. */
     customInfo: () => string;

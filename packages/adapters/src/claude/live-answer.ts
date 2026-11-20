@@ -98,7 +98,6 @@ export class ClaudeLiveAnswers implements LiveAnswerModel {
       // No tools at all: their definitions alone are thousands of tokens on every answer, and a tool is
       // a way for the transcript to go somewhere other than the model.
       tools: [],
-      allowedTools: [],
       settingSources: [],
       thinking: { type: "disabled" },
       persistSession: false,
