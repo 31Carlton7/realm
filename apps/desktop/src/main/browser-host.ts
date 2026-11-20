@@ -1036,7 +1036,8 @@ export class BrowserPaneHost {
    * One of a browser's pages closed itself. The page in front, with an opener behind it, is the usual
    * end of a window opened in place (post back, then `window.close()`): the opener is shown again, as
    * Back would. With nothing behind it, the browser's tab closes, as in Chrome. An opener waiting
-   * behind just leaves the stack. A page the browser no longer has was closed by Realm.
+   * behind leaves the stack and is destroyed, which closes its popups. A page the browser no longer
+   * has was closed by Realm.
    */
   private pageClosed(id: string, page: ViewHandle | null): void {
     const v = this.views.get(id);
@@ -1051,7 +1052,7 @@ export class BrowserPaneHost {
     }
     const parked = v.behind.findIndex((p) => p.handle === page);
     if (parked === -1) return;
-    v.behind.splice(parked, 1);
+    destroyPage(v.behind.splice(parked, 1)[0]!.handle);
     this.emitState(id);
   }
 
