@@ -6932,10 +6932,10 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .saved-turn-open,
 :root[data-squircle] .library-tile { box-shadow: var(--rl-object-shadow); }
 /* The file cards draw on their own edge (the documents card's lit edge and lift, the tile's shadow and
-   the picture it clips), and the half-curve circle every other card keeps traced a tighter corner than
-   the painted fill: a hovered card showed two contours, with its well following neither. So their box
-   states the card's curve itself, and every layer of them is on it. */
-:root[data-squircle] :is(.docs-card, .library-tile) { border-radius: var(--r-squircle-card); corner-shape: squircle; }
+   the picture it clips, the saved turn's shadow), and the half-curve circle every other card keeps traced
+   a tighter corner than the painted fill: a hovered card showed two contours, with its well following
+   neither. So their box states the card's curve itself, and every layer of them is on it. */
+:root[data-squircle] :is(.docs-card, .library-tile, .saved-turn-open) { border-radius: var(--r-squircle-card); corner-shape: squircle; }
 :root[data-squircle] .stat-tile,
 :root[data-squircle] .usage-card,
 :root[data-squircle] .usage-figures,
