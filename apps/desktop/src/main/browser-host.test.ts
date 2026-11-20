@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  ACTIVATION_MS, AGENT_GRACE_MS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
+  ACTIVATION_MS, AGENT_GRACE_MS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks,
@@ -115,46 +115,86 @@ describe("windowOpenAction", () => {
 });
 
 describe("UserActivation", () => {
-  it("is not spent by a tab: a click whose handler opens two windows opens two tabs", () => {
-    // THE MUTANT: spend it as Chromium does, and the second window goes in place, taking the clicked page with it.
+  it("lets one press open TABS_PER_PRESS tabs, so a click that opens two windows opens two tabs, and refuses the rest", () => {
+    // THE MUTANTS: spend the press on the first tab, and the second window of one click goes in place,
+    // taking the clicked page with it; never count, and a page looping window.open fills the strip.
     const a = new UserActivation();
     a.note("mouseDown", 1_000);
-    expect(a.active(1_000 + ACTIVATION_MS - 1)).toBe(true);
-    expect(a.active(1_000 + ACTIVATION_MS - 1)).toBe(true);
+    for (let i = 0; i < TABS_PER_PRESS; i++) expect(a.decide(1_001, false)).toBe("tab");
+    expect(a.decide(1_002, false)).toBe("refuse");
+    expect(TABS_PER_PRESS).toBe(3);
+  });
+
+  it("counts again from a new press", () => {
+    // THE MUTANT: keep the count across presses, and a page someone has clicked on three times opens no more tabs.
+    const a = new UserActivation();
+    a.note("mouseDown", 0);
+    for (let i = 0; i < TABS_PER_PRESS; i++) a.decide(1, false);
+    a.note("keyDown", 2);
+    expect(a.decide(3, false)).toBe("tab");
+  });
+
+  it("counts the windows Chromium marked as gestured toward the same press", () => {
+    // THE MUTANT: let a gestured window through uncounted, and each window of a looping click handler
+    // that Chromium happens to mark gets a tab on top of the cap.
+    const a = new UserActivation();
+    a.note("mouseDown", 0);
+    for (let i = 0; i < TABS_PER_PRESS; i++) expect(a.decide(1, true)).toBe("tab");
+    expect(a.decide(1, true)).toBe("refuse");
+  });
+
+  it("takes a gestured window with no main-frame press behind it for a press of its own: a click in a cross-site frame", () => {
+    // THE MUTANT: treat it as no press, and a link in a cross-site frame goes in place instead of opening a tab.
+    const a = new UserActivation();
+    expect(a.decide(1_000, true)).toBe("tab");
+    expect(a.decide(1_001, false)).toBe("tab");
+  });
+
+  it("goes in place when nothing was pressed and Chromium saw no gesture", () => {
+    const a = new UserActivation();
+    expect(a.decide(1_000, false)).toBe("in-place");
   });
 
   it("runs out", () => {
     // THE MUTANT: no expiry, and a click an hour ago still opens the tab a timer asks for now.
     const a = new UserActivation();
     a.note("mouseDown", 1_000);
-    expect(a.active(1_000 + ACTIVATION_MS)).toBe(false);
+    expect(a.decide(1_000 + ACTIVATION_MS, false)).toBe("in-place");
   });
 
   it("lasts five seconds, as Chromium's does", () => {
     // THE MUTANT: any other ACTIVATION_MS — the tests above read the constant, so only a number here pins it.
-    const a = new UserActivation();
-    a.note("mouseDown", 0);
-    expect(a.active(4_999)).toBe(true);
-    expect(a.active(5_000)).toBe(false);
+    const pressed = new UserActivation();
+    pressed.note("mouseDown", 0);
+    expect(pressed.decide(4_999, false)).toBe("tab");
+    const lapsed = new UserActivation();
+    lapsed.note("mouseDown", 0);
+    expect(lapsed.decide(5_000, false)).toBe("in-place");
   });
 
-  it("belongs to the page pressed on, not the one a navigation brings next", () => {
-    // THE MUTANT: keep it across documents, and a link clicked to a page that calls window.open as it
-    // loads opens that page's tab as if the click had been for it.
+  it("belongs to the page pressed on: a navigation forgets the press and its count", () => {
+    // THE MUTANTS: keep the press across documents, and a link clicked to a page that calls window.open
+    // as it loads opens that page's tab as if the click had been for it; keep the count, and a
+    // gestured click on the next page is refused.
     const a = new UserActivation();
     a.note("mouseDown", 0);
     a.forget();
-    expect(a.active(1)).toBe(false);
+    expect(a.decide(1, false)).toBe("in-place");
+    const spent = new UserActivation();
+    spent.note("mouseDown", 0);
+    for (let i = 0; i < TABS_PER_PRESS; i++) spent.decide(1, false);
+    spent.forget();
+    expect(spent.decide(2, true)).toBe("tab");
   });
 
   it("comes from a press, not from a mouse passing over or a key let go", () => {
     const a = new UserActivation();
     for (const type of ["mouseMove", "mouseEnter", "mouseWheel", "keyUp", "char"]) a.note(type, 0);
-    expect(a.active(1)).toBe(false);
+    expect(a.decide(1, false)).toBe("in-place");
     for (const type of ["mouseDown", "rawKeyDown", "keyDown", "touchEnd"]) {
       const pressed = new UserActivation();
       pressed.note(type, 0);
-      expect(pressed.active(1)).toBe(true);
+      expect(pressed.decide(1, false)).toBe("tab");
     }
   });
 });
@@ -165,7 +205,7 @@ describe("hostedTab", () => {
     // if the popup were blocked, and loses the window.opener link and a POST form's body.
     // THE MUTANT: answer "deny".
     const adopt = vi.fn();
-    const r = hostedTab({ partition: P }, () => true, adopt, () => {});
+    const r = hostedTab({ partition: P }, () => "tab", adopt, () => {});
     expect(r.action).toBe("allow");
     const page = { close: vi.fn() };
     // THE MUTANT: make a page of our own here, and Electron throws — the window it made is not hosted.
@@ -181,15 +221,26 @@ describe("hostedTab", () => {
     const adopt = vi.fn();
     const inPlace = vi.fn();
     const page = { close: vi.fn() };
-    hostedTab({ partition: P }, () => false, adopt, inPlace).createWindow({ webContents: page });
+    hostedTab({ partition: P }, () => "in-place", adopt, inPlace).createWindow({ webContents: page });
     expect(adopt).not.toHaveBeenCalled();
     expect(page.close).toHaveBeenCalled();
     expect(inPlace).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses a window past the press's tabs: closed, no tab, and the pane stays on its page", () => {
+    // THE MUTANT: follow it in place like a window nobody pressed for, and the page that was pressed is gone.
+    const adopt = vi.fn();
+    const inPlace = vi.fn();
+    const page = { close: vi.fn() };
+    hostedTab({ partition: P }, () => "refuse", adopt, inPlace).createWindow({ webContents: page });
+    expect(page.close).toHaveBeenCalled();
+    expect(adopt).not.toHaveBeenCalled();
+    expect(inPlace).not.toHaveBeenCalled();
+  });
+
   it("outlives the page that opened it, as a tab does, in the pane's profile", () => {
     // THE MUTANT: drop outlivesOpener, and closing the page that opened a tab closes the tab too.
-    const r = hostedTab({ partition: P, sandbox: true }, () => true, () => {}, () => {});
+    const r = hostedTab({ partition: P, sandbox: true }, () => "tab", () => {}, () => {});
     expect(r.outlivesOpener).toBe(true);
     expect(r.overrideBrowserWindowOptions).toEqual({ webPreferences: { partition: P, sandbox: true } });
   });

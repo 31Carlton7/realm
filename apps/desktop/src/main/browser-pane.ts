@@ -163,7 +163,7 @@ export function electronViewFactory(
        here off that event, ahead of Electron's own listener. That catches a press in a cross-site
        frame too, which the page's input events never show main. Chromium spends its gesture on the
        first window, so a press on the main frame in the last 5 s counts as well: the second window
-       of one click is a tab too. An Electron that changes the event leaves `gesture` null, and the
+       of one click is a tab too, up to `TABS_PER_PRESS` (`UserActivation`). An Electron that changes the event leaves `gesture` null, and the
        main frame's input decides alone. */
     let gesture: boolean | null = null;
     wc.prependListener("-add-new-contents", (_e: unknown, _page: unknown, _disposition: unknown, userGesture: unknown) => {
@@ -172,10 +172,10 @@ export function electronViewFactory(
     const activation = new UserActivation();
     wc.on("input-event", (_e, input) => activation.note(input.type, Date.now()));
     wc.on("did-navigate", () => activation.forget());
-    const pressed = () => {
-      const was = gesture === true || activation.active(Date.now());
+    const answer = () => {
+      const as = activation.decide(Date.now(), gesture === true);
       gesture = null;
-      return was;
+      return as;
     };
     const openWindow = (opener: WebContents) => (details: HandlerDetails): WindowOpenHandlerResponse => {
       const action = windowOpenAction(details, popups.size);
@@ -184,7 +184,7 @@ export function electronViewFactory(
         if (!hooks.allowNavigate(details.url)) return { action: "deny" };
         // Read now: by the time Chromium has made the page, the keyboard may have moved on.
         const focused = wc.isFocused();
-        return hostedTab<WebContents>(webPreferences, pressed,
+        return hostedTab<WebContents>(webPreferences, answer,
           (page) => hooks.openTab(details.url, action === "background-tab", page, focused),
           () => hooks.openInPlace(details.url));
       }

@@ -337,6 +337,13 @@ export type WindowRequest = { url: string; disposition: string };
 export const POPUP_LIMIT = 3;
 
 /**
+ * How many tabs one press lets a page open. Chrome allows one; a click whose handler opens a page and
+ * a companion to it needs two. Past this a page retrying `window.open` in a loop is refused, rather
+ * than filling the strip with tabs that are each a whole page.
+ */
+export const TABS_PER_PRESS = 3;
+
+/**
  * What a page's request for a new window becomes.
  *
  * A **popup** is a real window: the page keeps `window.opener` to it and it keeps one back, which is
@@ -368,18 +375,39 @@ export const ACTIVATION_MS = 5_000;
 /** The input events Chromium counts as activation (`webContents` "input-event" types). */
 const ACTIVATING_INPUT = new Set(["mouseDown", "rawKeyDown", "keyDown", "touchEnd"]);
 
+/** What a window a page asked to open as a tab becomes (`UserActivation.decide`). */
+export type TabAnswer = "tab" | "in-place" | "refuse";
+
 /**
- * Whether something was pressed in a page in the last `ACTIVATION_MS` — a person's press, or an
- * agent's through CDP. Unlike Chromium's activation, opening a tab does not spend it: a click whose
- * handler opens two windows opens two tabs, where spending it would send the second in place and
- * take away the page that was clicked. Only the main frame's input reaches main, so a press in a
- * cross-site frame is not seen here.
+ * What a page's tab request gets, from what was pressed on it: a person's press, or an agent's through
+ * CDP. A press in the last `ACTIVATION_MS` lets the page open up to `TABS_PER_PRESS` tabs, so a click
+ * whose handler opens two windows opens two tabs; Chromium spends its gesture on the first, and going
+ * by that alone would send the second in place and take away the page that was clicked. Past the
+ * count the window is refused outright, not followed in place, for the same reason. With no press the
+ * window goes in place, as every window but a popup did before tabs.
+ *
+ * Only the main frame's input reaches main. A press in a cross-site frame shows only as Chromium's
+ * `gestured` bit, which Chromium gives one window per press, so a gestured window with no main-frame
+ * press behind it is a press of its own.
  */
 export class UserActivation {
   private at = Number.NEGATIVE_INFINITY;
-  note(type: string, now: number): void { if (ACTIVATING_INPUT.has(type)) this.at = now; }
-  active(now: number): boolean { return now - this.at < ACTIVATION_MS; }
-  /** A new document: a press on the last one opens nothing on this one, as in Chromium. */
+  private opened = 0;
+  note(type: string, now: number): void {
+    if (!ACTIVATING_INPUT.has(type)) return;
+    this.at = now;
+    this.opened = 0;
+  }
+  decide(now: number, gestured: boolean): TabAnswer {
+    const pressed = now - this.at < ACTIVATION_MS;
+    if (!pressed && !gestured) return "in-place";
+    if (!pressed) { this.at = now; this.opened = 0; }
+    if (this.opened >= TABS_PER_PRESS) return "refuse";
+    this.opened++;
+    return "tab";
+  }
+  /** A new document: a press on the last one opens nothing on this one, as in Chromium. Its count goes
+   *  with it, since the next tab needs a new press, which starts a new count. */
   forget(): void { this.at = Number.NEGATIVE_INFINITY; }
 }
 
@@ -390,13 +418,13 @@ export class UserActivation {
  * tab's page instead of a window. A tab outlives the page that opened it. `webPreferences` are the
  * pane's own, its profile's partition among them.
  *
- * Unless nobody `pressed` anything for it: Electron has no popup blocker, and a page's
- * `window.open(url)` from its load or a timer arrives as a foreground tab like a click's. That window
- * is closed as soon as it is made, no tab comes of it, and the pane goes to the address `inPlace`,
- * as every new window but a popup did before tabs.
+ * Electron has no popup blocker, and a page's `window.open(url)` from its load or a timer arrives as
+ * a foreground tab like a click's, so what was pressed (`UserActivation.decide`) settles it. A window
+ * that is not a tab is closed as soon as it is made: followed `inPlace` when nothing was pressed, and
+ * dropped when the press has opened all the tabs it may.
  */
 export function hostedTab<Page extends { close(): void }>(
-  webPreferences: Record<string, unknown>, pressed: () => boolean, adopt: (page: Page) => void, inPlace: () => void,
+  webPreferences: Record<string, unknown>, answer: () => TabAnswer, adopt: (page: Page) => void, inPlace: () => void,
 ) {
   return {
     action: "allow" as const,
@@ -407,8 +435,10 @@ export function hostedTab<Page extends { close(): void }>(
     createWindow: (options: object): Page => {
       const page = (options as { webContents?: Page }).webContents;
       if (!page) throw new Error("Chromium made no page for this tab");
-      if (pressed()) adopt(page);
-      else { page.close(); inPlace(); }
+      const as = answer();
+      if (as === "tab") { adopt(page); return page; }
+      page.close();
+      if (as === "in-place") inPlace();
       return page;
     },
   };
