@@ -1,5 +1,5 @@
 import { logUncaught } from "./uncaught";
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents, powerMonitor } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents, powerMonitor } from "electron";
 import { BrowserCredentialInputSchema, PasswordSaveAnswerSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -63,7 +63,8 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
-import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietWindowsOn } from "./quiet-windows";
+import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietWindowsOn } from "./quiet-windows";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -91,7 +92,7 @@ import { registerAppearance, savedAppearance } from "./appearance";
 import { titleBarOverlay, windowChrome } from "./window-chrome";
 import { windowArguments } from "./window-args";
 import { registerWhatsNew, WhatsNewState } from "./whats-new";
-import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, KeybindingSchema, QUICK_CHAT_HIDE_FROM_SHARING_KEY, QUICK_CHAT_SHORTCUT_KEY, quickChatShortcutFrom, type Keybinding, type QuickChatShortcutState } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleBackgroundProtocol, handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 import { findFfmpeg, playableCopy } from "./media-proxy";
@@ -689,8 +690,93 @@ async function createWindow(info: { port: number; home: string; token: string },
     presence.check();
     windowPanes.delete(id);
     if (appDriveWindow === id) { appDriveHost.forget(); appDriveWindow = null; }
+    // Electron's `window-all-closed` waits for the quick chat panel too, which is kept hidden
+    // between uses, so the last Realm window closing beside one is said here.
+    if (windows.size === 0 && quickChatPanel.window()) lastWindowClosed();
   });
 }
+
+/**
+ * The quick chat panel (quick-chat-panel.ts): the renderer's Quick Chat alone in a small window that
+ * floats over every app, on every Space. It loads the same bundle as a Realm window and is told it
+ * is the panel on its command line (`window.realm.surface`).
+ */
+function createQuickChatPanelWindow(info: { port: number; home: string; token: string }) {
+  const stateFile = join(app.getPath("userData"), "quick-chat-panel.json");
+  const primary = screen.getPrimaryDisplay();
+  const place = quickChatPanelPlace(readWindowState(stateFile),
+    [primary.workArea, ...screen.getAllDisplays().filter((d) => d.id !== primary.id).map((d) => d.workArea)],
+    screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
+  const win = new BrowserWindow({
+    ...QUICK_CHAT_PANEL_OPTIONS, ...place,
+    // A non-activating panel: it can hold the keyboard while another app stays in front. Its ground
+    // is the system's material, which the page covers in Plain and shows through in Glass.
+    ...(process.platform === "darwin" ? { type: "panel", vibrancy: "popover" as const, visualEffectState: "active" as const, backgroundColor: "#00000000" } : {}),
+    webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
+      ...(quiet ? { backgroundThrottling: false } : {}),
+      additionalArguments: [...windowArguments({ ...info, profileId: null, spaceId: null, land: null }), `--realm-surface=${QUICK_CHAT_SURFACE}`] },
+  });
+  if (quiet) quietKeyable(win);
+  // Above a full-screen app and on every Space, without turning Realm into an agent app to get there.
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  // The page's own <title> would name the window to anything listing windows.
+  win.on("page-title-updated", (e) => e.preventDefault());
+  win.webContents.setWindowOpenHandler((details) => {
+    if (windowOpenTarget(details, "default", "other")) void shell.openExternal(details.url);
+    return { action: "deny" };
+  });
+  const devOrigin = process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : null;
+  win.webContents.on("will-navigate", (e, url) => {
+    const inApp = devOrigin ? url === devOrigin || url.startsWith(`${devOrigin}/`) : url.startsWith("file://");
+    if (!inApp) e.preventDefault();
+  });
+  attachTextContextMenu(win.webContents);
+  trackWindowState(win, stateFile);
+  const ready = process.env.ELECTRON_RENDERER_URL ? win.loadURL(process.env.ELECTRON_RENDERER_URL) : win.loadFile(join(__dirname, "../renderer/index.html"));
+  return { win, ready };
+}
+/** `quickChatPanel.toggle()` opens the panel over whatever is in front, or puts it away, and
+ *  `quickChatPanel.isOpen()` says which. Every key that opens the panel calls those two: the chord
+ *  below, and a native key helper when there is one. */
+const quickChatPanel = new QuickChatPanel(() => (serverInfo ? createQuickChatPanelWindow(serverInfo) : null), process.platform);
+
+const quickChatShortcut = new QuickChatShortcut({
+  register: (accelerator, press) => globalShortcut.register(accelerator, press),
+  unregister: (accelerator) => globalShortcut.unregister(accelerator),
+  press: () => quickChatPanel.toggle(),
+  platform: process.platform,
+});
+/** The panel's two settings, read from the server once it answers: main registers the chord, so it
+ *  cannot wait for a window to be opened to hear what the chord is. */
+async function readQuickChatPanelSettings(): Promise<void> {
+  const read = async (key: string) => ((await bridgeClient?.call("settings.get", { key })) as { value?: unknown } | null | undefined)?.value;
+  try {
+    const [chord, hide] = await Promise.all([read(QUICK_CHAT_SHORTCUT_KEY), read(QUICK_CHAT_HIDE_FROM_SHARING_KEY)]);
+    quickChatShortcut.set(quickChatShortcutFrom(chord));
+    quickChatPanel.setHiddenFromSharing(hide !== false);
+  } catch { /* the bridge dropped; the next connection reads them */ }
+}
+ipcMain.handle("quick-chat-panel:shortcut", (): QuickChatShortcutState => quickChatShortcut.current());
+ipcMain.handle("quick-chat-panel:set-shortcut", (_e, chord: unknown): QuickChatShortcutState =>
+  quickChatShortcut.set(typeof chord === "string" ? chord : null));
+ipcMain.on("quick-chat-panel:set-hide-from-sharing", (_e, on: unknown) => quickChatPanel.setHiddenFromSharing(on !== false));
+// Only the panel's own page puts it away: Escape there, or its chat being deleted.
+ipcMain.on("quick-chat-panel:hide", (e) => { if (e.sender === quickChatPanel.window()?.webContents) quickChatPanel.close(); });
+// "Open" on a chat the panel saved to a space: the session opens in a Realm window, as one picked
+// from the menu bar does, and the panel goes.
+ipcMain.on("quick-chat-panel:open-in-realm", (e, target: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  const t = target as { sessionId?: unknown; spaceId?: unknown } | null;
+  if (typeof t?.sessionId !== "string" || typeof t.spaceId !== "string") return;
+  quickChatPanel.close();
+  void reattach({ sessionId: t.sessionId, spaceId: t.spaceId });
+});
+// The quick chat is one chat wherever it is shown, so a page that opened or deleted it tells the rest.
+ipcMain.on("quick-chat:changed", (e) => {
+  for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send("quick-chat:changed");
+});
+app.on("will-quit", () => quickChatShortcut.release());
 
 /**
  * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
@@ -2507,7 +2593,7 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       endpoint: () => serverEndpoint() ?? info,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readMeetingsPreference(); void readKeysPreferences(); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readMeetingsPreference(); void readKeysPreferences(); void readPairedPhones(); void readQuickChatPanelSettings(); presence.reset(); void profileDirectory.refresh(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
       onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); sleepGuard.setWaiting(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
@@ -2587,7 +2673,10 @@ app.whenReady().then(async () => {
  * and this gesture only ever meant the first one — see `quit-policy.ts`. The dock icon goes away and
  * the menu-bar item comes up, so there is always exactly one visible sign that something is running.
  */
-app.on("window-all-closed", () => { if (!quittingForReal) goResident(); });
+function lastWindowClosed(): void {
+  if (!quittingForReal) goResident();
+}
+app.on("window-all-closed", lastWindowClosed);
 
 /** Reopening from the dock, Spotlight, or the tray's *Open Realm*. */
 app.on("activate", () => { void reattach(); });

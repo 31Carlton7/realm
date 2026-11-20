@@ -702,6 +702,15 @@ describe("BrowserPaneHost", () => {
       expect(factory).toHaveBeenCalledTimes(1);
     });
 
+    it("counts the popups of the opener behind as the browser's: a discard would close them with it", () => {
+      // What keeps the browser from a discard ("popup"). THE MUTANT: read only the page in front, and
+      // a sign-in window the opener has open goes when the sweep takes the browser.
+      const { host, opener, front } = openedInPlace();
+      opener.nav.popups = ["https://accounts.google.com/o/oauth2/v2/auth"];
+      front.nav.popups = ["https://example.com/share"];
+      expect(host.popupsOf("b1")).toEqual(["https://example.com/share", "https://accounts.google.com/o/oauth2/v2/auth"]);
+    });
+
     it("closes the opener's page with the browser", () => {
       // THE MUTANT: destroy only the page in front, and the opener runs on unseen with nothing to end it.
       const { host, opener, front } = openedInPlace();

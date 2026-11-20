@@ -1,9 +1,10 @@
 import { KEY_COMMANDS, type KeybindingsFile } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { rpc } from "../../rpc/client";
 import { capabilities } from "../../platform";
+import { rpc } from "../../rpc/client";
 import { useApp } from "../../state/store";
+import { QuickChatPanelSettings } from "./QuickChatPanelSettings";
 import { GlobalKeysSection } from "./GlobalKeysSection";
 import {
   commandEntries, describeRules, filterEntries, groupEntries, type CommandEntry, type RuleView,
@@ -59,6 +60,8 @@ export function KeybindingsPanel() {
         </>
       )}
 
+      {/* Ahead of the list: the one key here that is recorded on this page and works outside Realm. */}
+      {capabilities().quickChatPanel && <QuickChatPanelSettings />}
       {capabilities().accessibility && <GlobalKeysSection />}
 
       <div className="field" data-setting="keys">

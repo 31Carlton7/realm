@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
+import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
 import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp, GlobalKeysEvent, GlobalKeysState, HoldKey } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
@@ -30,6 +30,34 @@ contextBridge.exposeInMainWorld("realm", {
   /** The space a window brought back after a relaunch lands on: the one it showed, which can differ
    *  from the one it was opened for. Undefined for a window opened now. */
   landSpaceId: arg("realm-land") || undefined,
+  /** "quick-chat" in the quick chat panel's page, which draws the Quick Chat and nothing else
+   *  (main/quick-chat-panel.ts); undefined in a Realm window. */
+  surface: arg("realm-surface") || undefined,
+  /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). */
+  quickChatPanel: {
+    /** Put the panel away. Answered only for the panel's own page. */
+    hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),
+    /** The panel has just been opened, with the keyboard. */
+    onShown: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("quick-chat-panel:shown", handler);
+      return () => ipcRenderer.removeListener("quick-chat-panel:shown", handler);
+    },
+    shortcut: (): Promise<QuickChatShortcutState> => ipcRenderer.invoke("quick-chat-panel:shortcut"),
+    /** Register this chord in place of the one held, or none for null. The answer says whether the
+     *  system took it. */
+    setShortcut: (chord: string | null): Promise<QuickChatShortcutState> => ipcRenderer.invoke("quick-chat-panel:set-shortcut", chord),
+    setHideFromSharing: (on: boolean): void => ipcRenderer.send("quick-chat-panel:set-hide-from-sharing", on),
+    /** Put the panel away and bring a Realm window forward on a session the chat was saved as. */
+    openInRealm: (target: { sessionId: string; spaceId: string }): void => ipcRenderer.send("quick-chat-panel:open-in-realm", target),
+    /** This page opened, deleted or moved the quick chat: every other page reads the setting again. */
+    chatChanged: (): void => ipcRenderer.send("quick-chat:changed"),
+    onChatChanged: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("quick-chat:changed", handler);
+      return () => ipcRenderer.removeListener("quick-chat:changed", handler);
+    },
+  },
   /** The window's page zoom (⌘+/⌘−/⌘0, Chromium's own through the View menu). 1 at 100%.
    *
    *  A getter rather than a subscription because Chromium fires no zoom event, and a value rather

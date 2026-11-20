@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
 import { PAGE_BUSY, TypedSince } from "./page-busy";
 
@@ -39,23 +40,70 @@ describe("what the page says", () => {
 });
 
 describe("what the keyboard says", () => {
-  it("marks a view typed into, keeps it through an in-page step, and forgets it on a new document", () => {
-    const t = new TypedSince();
-    t.input("b", { type: "keyDown", key: "Shift" });
-    t.input("b", { type: "keyUp", key: "4" });
+  /** A page as main sees it: its webContents' keyboard and navigation. */
+  const page = () => {
+    const page = new EventEmitter();
+    return {
+      on: page.on.bind(page),
+      key: (key: string, type = "keyDown") => page.emit("before-input-event", {}, { type, key }),
+      navigate: () => page.emit("did-navigate"),
+    };
+  };
+
+  it("marks a page typed into, keeps it through an in-page step, and forgets it on a new document", () => {
+    const t = new TypedSince<ReturnType<typeof page>>();
+    const b = page();
+    t.show("b", b);
+    b.key("Shift");
+    b.key("4", "keyUp");
     expect(t.has("b")).toBe(false);
-    t.input("b", { type: "keyDown", key: "4" });
+    b.key("4");
     expect(t.has("b")).toBe(true);
     expect(t.has("other")).toBe(false);
-    t.navigated("b");
-    expect(t.has("b")).toBe(false);
-    t.input("b", { type: "keyDown", key: "Enter" });
-    t.forget("b");
+    b.navigate();
     expect(t.has("b")).toBe(false);
     // An agent's typing is told rather than heard, and goes the same way.
     t.mark("b");
     expect(t.has("b")).toBe(true);
-    t.navigated("b");
+    b.navigate();
+    expect(t.has("b")).toBe(false);
+  });
+
+  it("is nothing for a browser it no longer shows", () => {
+    const t = new TypedSince<ReturnType<typeof page>>();
+    const b = page();
+    t.show("b", b);
+    b.key("4");
+    t.forget("b");
+    expect(t.has("b")).toBe(false);
+    t.mark("b");
+    expect(t.has("b")).toBe(false);
+  });
+
+  // A page shown in place of its opener (`adoptInPlace`) leaves the opener parked and running behind it.
+  it("keeps the page in front typed into when the opener behind it navigates", () => {
+    const t = new TypedSince<ReturnType<typeof page>>();
+    const opener = page(), front = page();
+    t.show("b", opener);
+    t.show("b", front);
+    front.key("4");
+    expect(t.has("b")).toBe(true);
+    opener.navigate();
+    expect(t.has("b")).toBe(true);
+  });
+
+  it("gives an opener back its mark when it is uncovered, and only until its own next document", () => {
+    const t = new TypedSince<ReturnType<typeof page>>();
+    const opener = page(), front = page();
+    t.show("b", opener);
+    opener.key("4");
+    t.show("b", front);
+    expect(t.has("b")).toBe(false);
+    t.show("b", opener);
+    expect(t.has("b")).toBe(true);
+    t.show("b", front);
+    opener.navigate();
+    t.show("b", opener);
     expect(t.has("b")).toBe(false);
   });
 });

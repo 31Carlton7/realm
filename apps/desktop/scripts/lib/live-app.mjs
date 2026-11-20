@@ -142,17 +142,23 @@ function hookExit() {
  * (a `screencapture` of native material or a native panel). The reason is printed, so a run that
  * takes the screen says so.
  *
+ * `frontApp: "<why>"` is for a stand-in that has to really become the front app, to hear what a page
+ * in front is told when something else opens over it. It runs on the quiet Electron, so it is never
+ * a Dock app, but without quiet mode's patches, which keep an app from ever being in front: the
+ * script hushes its own window and hands the front back. The reason is printed.
+ *
  * Quiet mode is preloaded (`-r`), ahead of the script's own wrapper: a wrapper that stands in for
  * the hand on a menu or a dialog patches Electron before it imports Realm's main, and main installing
  * quiet mode after that would put the quiet stubs back over the wrapper's.
  */
-export function spawnLiveElectron(args, { visible, ...options } = {}) {
+export function spawnLiveElectron(args, { visible, frontApp, ...options } = {}) {
   if (visible) process.stderr.write(`[live-app] this check is seen on screen: ${visible}\n`);
+  if (frontApp) process.stderr.write(`[live-app] this check is the front app for a moment: ${frontApp}\n`);
   const env = { ...quietEnv(options.env ?? process.env), REALM_QUIET_MAIN: quietMain };
-  if (visible) delete env.REALM_QUIET_WINDOWS;
+  if (visible || frontApp) delete env.REALM_QUIET_WINDOWS;
   const child = visible
     ? spawn(electronBinary(), args, { ...options, env })
-    : spawn(quietElectronBinary(), ["-r", quietPreload, ...args], { ...options, env });
+    : spawn(quietElectronBinary(), frontApp ? args : ["-r", quietPreload, ...args], { ...options, env });
   launched.push({ child, ports: portsOf(args, env), home: env.REALM_HOME });
   hookExit();
   return child;

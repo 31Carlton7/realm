@@ -17,6 +17,7 @@ export * from "./commands";
 export * from "./scripts";
 export * from "./keybindings";
 export * from "./key-event";
+export * from "./quick-chat-panel";
 export * from "./project-search";
 export * from "./mentions";
 export * from "./mention-refs";
