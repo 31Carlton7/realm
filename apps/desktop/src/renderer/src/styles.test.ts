@@ -1503,8 +1503,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // the room it leaves under the last row (`slack`): both read off the laid-out list at the pick.
       // Used with 0px fallbacks, so a held picker that never receives them is merely unpadded.
       "--mp-floor", "--mp-slack",
-      // The microphone's level while dictating (Composer.tsx), 0–1, written on the mic's ring each
-      // frame; 0 without it.
+      // The microphone's level while dictating (Composer.tsx), 0–1, written on each of the listening
+      // pill's bars each frame; 0 without it.
       "--mic-level",
       // A glass surface's fitted lens (glass/fitted-lens.ts), drawn for its own box and named on it
       // once its map exists; every rule reads it with a CSS frost to stand in until then.
@@ -5997,13 +5997,27 @@ describe("dictation in the prompter", () => {
     expect(css).toMatch(/@keyframes rl-heard-settle \{\s*from \{ color: var\(--rl-text-dim\); \}\s*\}/);
   });
 
-  it("swells the mic's ring inside its box, and stands it still under Reduce motion", () => {
-    const ring = bodiesFor(".composer-dictate-ring").join(" ");
-    expect(ring).toContain("position: absolute");
-    expect(ring).toContain("inset: 2px");
-    expect(bodiesFor('.composer-dictate[aria-pressed="true"] .composer-dictate-ring').join(" ")).toContain("scale: calc(.7 + var(--mic-level, 0) * .3)");
+  it("grows the mic into a red pill of level bars and a stop square on the spring, and cuts it under Reduce motion", () => {
+    const pill = bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]').join(" ");
+    // THE MUTANTS: the pill in a new red, or in the bare --red meant for text and dots.
+    expect(pill).toContain("background: var(--rl-danger-fill)");
+    expect(pill).toContain("color: var(--rl-danger-contrast)");
+    expect(pill).toContain("width: 48px");
+    expect(bodiesFor(".composer-actions .composer-dictate").join(" ")).toContain("width var(--dur-base) var(--spring-smooth)");
+    // The press that starts it is a hover, whose zero duration would cut the morph.
+    expect(bodiesFor(".composer-actions .composer-dictate:is(:hover, :active, [data-press-tracking])").join(" "))
+      .toContain("transition-duration: 0s, 0s, var(--dur-base)");
+    expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:hover').join(" ")).toContain("background: var(--rl-danger-fill-hover)");
+    expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled)').join(" "))
+      .toContain("background: var(--rl-danger-press)");
+    expect(bodiesFor(".dictate-bar").join(" ")).toContain("scale: 1 calc(.2 + var(--mic-level, 0) * .8)");
+    // The stop is a filled square in the pill's ink, as a recorder's is, not an outline.
+    expect(bodiesFor(".dictate-stop").join(" ")).toContain("background: currentColor");
+    // Idle shows the mic alone; listening shows the bars and the stop alone.
+    expect(bodiesFor('.composer-dictate[aria-pressed="true"] .dictate-mic').join(" ")).toContain("opacity: 0");
+    expect(bodiesFor('.composer-dictate[aria-pressed="false"] .dictate-live').join(" ")).toContain("opacity: 0");
     expect(blocksAfter("@media (prefers-reduced-motion: reduce)").join(" ").replace(/\s+/g, " "))
-      .toContain('.composer-dictate[aria-pressed="true"] .composer-dictate-ring { scale: 1; }');
+      .toContain(".composer-actions .composer-dictate, .composer-dictate > *, .dictate-bar { transition: none; }");
   });
 });
 
