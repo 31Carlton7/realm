@@ -26,6 +26,7 @@ interface Window {
      *  every bridge: jsdom has none. */
     quickChatPanel?: {
       hide(): void;
+      opening(): Promise<boolean>;
       onShown(cb: () => void): () => void;
       shortcut(): Promise<import("@realm/contracts").QuickChatShortcutState>;
       setShortcut(chord: string | null): Promise<import("@realm/contracts").QuickChatShortcutState>;

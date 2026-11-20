@@ -755,11 +755,23 @@ async function readQuickChatPanelSettings(): Promise<void> {
     const [chord, hide] = await Promise.all([read(QUICK_CHAT_SHORTCUT_KEY), read(QUICK_CHAT_HIDE_FROM_SHARING_KEY)]);
     quickChatShortcut.set(quickChatShortcutFrom(chord));
     quickChatPanel.setHiddenFromSharing(hide !== false);
+    preparePanel();
   } catch { /* the bridge dropped; the next connection reads them */ }
 }
+/** The panel's window is made ahead of the first press, hidden, once there is a key that opens it.
+ *  With no chord there is nothing to open it from another app, and a renderer kept for it would be
+ *  memory spent on nothing. */
+function preparePanel(): void {
+  if (quickChatShortcut.current().registered) quickChatPanel.prepare();
+}
 ipcMain.handle("quick-chat-panel:shortcut", (): QuickChatShortcutState => quickChatShortcut.current());
-ipcMain.handle("quick-chat-panel:set-shortcut", (_e, chord: unknown): QuickChatShortcutState =>
-  quickChatShortcut.set(typeof chord === "string" ? chord : null));
+ipcMain.handle("quick-chat-panel:set-shortcut", (_e, chord: unknown): QuickChatShortcutState => {
+  const state = quickChatShortcut.set(typeof chord === "string" ? chord : null);
+  preparePanel();
+  return state;
+});
+// Whether the panel's page was loaded to be opened, or made ahead of time and is to wait for a press.
+ipcMain.handle("quick-chat-panel:opening", (e): boolean => e.sender === quickChatPanel.window()?.webContents && quickChatPanel.isOpen());
 ipcMain.on("quick-chat-panel:set-hide-from-sharing", (_e, on: unknown) => quickChatPanel.setHiddenFromSharing(on !== false));
 // Only the panel's own page puts it away: Escape there, or its chat being deleted.
 ipcMain.on("quick-chat-panel:hide", (e) => { if (e.sender === quickChatPanel.window()?.webContents) quickChatPanel.close(); });

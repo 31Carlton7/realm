@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld("realm", {
   quickChatPanel: {
     /** Put the panel away. Answered only for the panel's own page. */
     hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),
+    /** Whether the panel was opened while its page loaded, rather than made ahead of a press. */
+    opening: (): Promise<boolean> => ipcRenderer.invoke("quick-chat-panel:opening"),
     /** The panel has just been opened, with the keyboard. */
     onShown: (cb: () => void): (() => void) => {
       const handler = () => cb();

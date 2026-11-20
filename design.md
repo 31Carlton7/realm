@@ -372,9 +372,13 @@ Rules:
   it comes with no Realm window behind it, and Escape puts it away and deletes nothing: a key
   pressed to get out of the way never costs a conversation. It is the quick chat's card with the
   window as its edge, so in Plain it is the card's surface, and in Glass its ground thins over the
-  window's own material, which is macOS's and not a fill of ours. What Settings says about hiding
-  it from screen sharing is what was measured and no more: left out of what macOS captures, still
-  listed without a name, and a meeting app's own share unchecked.
+  window's own material, which is macOS's and not a fill of ours. It thins only to the panes'
+  reading point, because the app behind it is a desktop nobody chose, and a white one took the
+  dark face's hints to nothing at the thinner ground it first had. Until it is saved its bar says
+  Quick chat, never a session's placeholder; saved, it says the name it has in that space. What
+  Settings says about hiding it from screen sharing is what was measured and no more: left out of
+  screenshots and screen recordings on this Mac, still listed without a name, and a call seen from
+  the other side unchecked.
 - The window is a frame with sheets set into it. The rail and the top row across the whole window
   are one ground, a step off the sidebar's, and the sidebar's toggle, the panes' bars and the side
   panel's tabs all stand in that strip (the owner, 11-11: the outer colour on the top strip and the
