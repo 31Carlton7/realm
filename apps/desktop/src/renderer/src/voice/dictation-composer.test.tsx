@@ -189,6 +189,26 @@ describe("dictating into the prompter", () => {
     expect(mic.stops).toBe(2);
   });
 
+  it("keeps listening, and the words, when the recogniser ends on its own, until the mic is clicked", async () => {
+    const { store } = await mount();
+    const helper = downloadingHelper();
+    mic.helper = helper.helper;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dictate" })); await new Promise((res) => setTimeout(res, 0)); });
+    await helper.ready({ t: "ready", stt: "analyzer" });
+    helper.emit({ t: "partial", turn: 1, text: "run the build" });
+    helper.emit({ t: "final", turn: 1, text: "run the build" });
+    expect(screen.getByRole("button", { name: "Stop dictating" }).getAttribute("aria-pressed")).toBe("true");
+    expect(dictating()).toBe("run the build");
+    helper.emit({ t: "partial", turn: 2, text: "and the tests" });
+    expect(dictating()).toBe("run the build and the tests");
+    expect(store.getState().drafts["se1"] ?? "").toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictating" }));
+    helper.emit({ t: "final", turn: 2, text: "and the tests" });
+    await act(async () => { await new Promise((res) => setTimeout(res, 0)); });
+    expect(store.getState().drafts["se1"]).toBe("run the build and the tests");
+    expect(helper.life.stopped).toBe(true);
+  });
+
   it("with Clean up dictation off, which it is until turned on, asks no model and lands the raw words", async () => {
     expect(DEFAULT_VOICE_PREFS.cleanUp).toBe(false);
     expect(readVoicePrefs({ rate: 1.2 }).cleanUp).toBe(false);
