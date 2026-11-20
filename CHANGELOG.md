@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.20.3 - 2026-11-20
+
+A new tab whose page closes itself straight away no longer stays behind as a blank tab.
+
+### Fixed
+
+- A page opened in a new tab that closes itself straight away could leave its tab open over a blank pane when Realm was slow to show it. The tab now closes, the way it does when a page closes itself a moment later. (#570, fixes #569)
 ## v2.20.2 - 2026-11-20
 
 An agent's click no longer pulls your keyboard into the tab it opens.
