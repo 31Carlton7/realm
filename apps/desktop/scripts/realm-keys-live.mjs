@@ -442,6 +442,14 @@ if (!parts[part]) {
   console.error("usage: node apps/desktop/scripts/realm-keys-live.mjs taps|app|settings");
   process.exit(64);
 }
+// Behind the lock screen a posted event reaches no tap, so the proof tool's first answer never comes.
+if (part !== "settings") {
+  const front = execFileSync("lsappinfo", ["front"], { encoding: "utf8" }).trim();
+  if (execFileSync("lsappinfo", ["info", "-only", "bundleid", front], { encoding: "utf8" }).includes("com.apple.loginwindow")) {
+    console.error("the screen is locked: unlock the Mac and run this again");
+    process.exit(75);
+  }
+}
 try {
   fs.mkdirSync(out, { recursive: true });
   await parts[part]();
