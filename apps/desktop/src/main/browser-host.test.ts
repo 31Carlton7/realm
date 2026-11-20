@@ -115,37 +115,46 @@ describe("windowOpenAction", () => {
 });
 
 describe("UserActivation", () => {
-  it("lets one click open one tab, for as long as Chromium's own activation lasts", () => {
-    // THE MUTANT: never consume it, and one click lets the page open as many tabs as it likes.
+  it("is not spent by a tab: a click whose handler opens two windows opens two tabs", () => {
+    // THE MUTANT: spend it as Chromium does, and the second window goes in place, taking the clicked page with it.
     const a = new UserActivation();
     a.note("mouseDown", 1_000);
-    expect(a.consume(1_000 + ACTIVATION_MS - 1)).toBe(true);
-    expect(a.consume(1_000 + ACTIVATION_MS - 1)).toBe(false);
+    expect(a.active(1_000 + ACTIVATION_MS - 1)).toBe(true);
+    expect(a.active(1_000 + ACTIVATION_MS - 1)).toBe(true);
   });
 
   it("runs out", () => {
     // THE MUTANT: no expiry, and a click an hour ago still opens the tab a timer asks for now.
     const a = new UserActivation();
     a.note("mouseDown", 1_000);
-    expect(a.consume(1_000 + ACTIVATION_MS)).toBe(false);
+    expect(a.active(1_000 + ACTIVATION_MS)).toBe(false);
   });
 
   it("lasts five seconds, as Chromium's does", () => {
     // THE MUTANT: any other ACTIVATION_MS — the tests above read the constant, so only a number here pins it.
     const a = new UserActivation();
     a.note("mouseDown", 0);
-    expect(a.consume(4_999)).toBe(true);
+    expect(a.active(4_999)).toBe(true);
+    expect(a.active(5_000)).toBe(false);
+  });
+
+  it("belongs to the page pressed on, not the one a navigation brings next", () => {
+    // THE MUTANT: keep it across documents, and a link clicked to a page that calls window.open as it
+    // loads opens that page's tab as if the click had been for it.
+    const a = new UserActivation();
     a.note("mouseDown", 0);
-    expect(a.consume(5_000)).toBe(false);
+    a.forget();
+    expect(a.active(1)).toBe(false);
   });
 
   it("comes from a press, not from a mouse passing over or a key let go", () => {
     const a = new UserActivation();
     for (const type of ["mouseMove", "mouseEnter", "mouseWheel", "keyUp", "char"]) a.note(type, 0);
-    expect(a.consume(1)).toBe(false);
+    expect(a.active(1)).toBe(false);
     for (const type of ["mouseDown", "rawKeyDown", "keyDown", "touchEnd"]) {
-      a.note(type, 0);
-      expect(a.consume(1)).toBe(true);
+      const pressed = new UserActivation();
+      pressed.note(type, 0);
+      expect(pressed.active(1)).toBe(true);
     }
   });
 });

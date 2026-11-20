@@ -369,18 +369,18 @@ export const ACTIVATION_MS = 5_000;
 const ACTIVATING_INPUT = new Set(["mouseDown", "rawKeyDown", "keyDown", "touchEnd"]);
 
 /**
- * Whether the person just pressed something in a page, kept from the page's own input by Chromium's
- * rule: a press activates the page for `ACTIVATION_MS`, and opening a tab spends it — one press, one
- * tab. Only the main frame's input reaches main, so a press in a cross-site frame is not seen here.
+ * Whether something was pressed in a page in the last `ACTIVATION_MS` — a person's press, or an
+ * agent's through CDP. Unlike Chromium's activation, opening a tab does not spend it: a click whose
+ * handler opens two windows opens two tabs, where spending it would send the second in place and
+ * take away the page that was clicked. Only the main frame's input reaches main, so a press in a
+ * cross-site frame is not seen here.
  */
 export class UserActivation {
   private at = Number.NEGATIVE_INFINITY;
   note(type: string, now: number): void { if (ACTIVATING_INPUT.has(type)) this.at = now; }
-  consume(now: number): boolean {
-    const active = now - this.at < ACTIVATION_MS;
-    this.at = Number.NEGATIVE_INFINITY;
-    return active;
-  }
+  active(now: number): boolean { return now - this.at < ACTIVATION_MS; }
+  /** A new document: a press on the last one opens nothing on this one, as in Chromium. */
+  forget(): void { this.at = Number.NEGATIVE_INFINITY; }
 }
 
 /**

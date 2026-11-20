@@ -157,20 +157,23 @@ export function electronViewFactory(
        not get is the pane's saved passwords and passkeys: those are installed per pane and answer for
        the pane's page, never for another. */
     const popups = new Set<BrowserWindow>();
-    /* Whether a person pressed something for the window Chromium just made. Chromium knows (its
+    /* Whether something was pressed for the window Chromium just made. Chromium knows (its
        `user_gesture`) and passes it to Electron's internal "-add-new-contents" event, which runs just
        before `createWindow` and keeps it to itself (lib/browser/api/web-contents.ts), so it is read
        here off that event, ahead of Electron's own listener. That catches a press in a cross-site
-       frame too, which the page's input events never show main. An Electron that changes the event
-       leaves `gesture` null, and the main frame's input decides alone. */
+       frame too, which the page's input events never show main. Chromium spends its gesture on the
+       first window, so a press on the main frame in the last 5 s counts as well: the second window
+       of one click is a tab too. An Electron that changes the event leaves `gesture` null, and the
+       main frame's input decides alone. */
     let gesture: boolean | null = null;
     wc.prependListener("-add-new-contents", (_e: unknown, _page: unknown, _disposition: unknown, userGesture: unknown) => {
       gesture = typeof userGesture === "boolean" ? userGesture : null;
     });
     const activation = new UserActivation();
     wc.on("input-event", (_e, input) => activation.note(input.type, Date.now()));
+    wc.on("did-navigate", () => activation.forget());
     const pressed = () => {
-      const was = gesture ?? activation.consume(Date.now());
+      const was = gesture === true || activation.active(Date.now());
       gesture = null;
       return was;
     };
