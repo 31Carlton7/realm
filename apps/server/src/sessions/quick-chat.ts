@@ -1,5 +1,6 @@
 import { DEFAULT_PERMISSION_MODE_KEY, type AgentKind, type Session } from "@realm/contracts";
 import { QUICK_CHAT_MODEL_SETTING, quickChatModelOf, type QuickChatModel } from "@realm/view";
+import { NotFoundError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { resolveDefaultPermissionMode, type SessionService } from "./service";
 
@@ -52,7 +53,9 @@ export class QuickChatEngines {
     const spare = this.take();
     const fits = spare !== null && spare.spaceId === spaceId && spare.agentKind === want.agentKind && spare.model === want.model && spare.permissionMode === want.permissionMode;
     if (spare && !fits) await this.d.sessions.delete(spare.id).catch(() => {});
-    const session = fits ? this.d.sessions.get(spare.id) : this.create(spaceId, want).session;
+    // A spare whose space was deleted went with it.
+    const kept = fits ? this.rowOf(spare.id) : null;
+    const session = kept ?? this.create(spaceId, want).session;
     this.open.set(session.id, spaceId);
     return session;
   }
@@ -93,6 +96,10 @@ export class QuickChatEngines {
       console.error(`[quick-chat] could not start the spare engine: ${e instanceof Error ? e.message : String(e)}`);
       if (this.spare?.id === session.id) await this.stop();
     }
+  }
+
+  private rowOf(id: string): Session | null {
+    try { return this.d.sessions.get(id); } catch (e) { if (e instanceof NotFoundError) return null; throw e; }
   }
 
   private take(): Spare | null {
