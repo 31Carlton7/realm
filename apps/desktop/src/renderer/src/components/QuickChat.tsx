@@ -1,11 +1,14 @@
-import { AGENT_META, sessionModeOf } from "@realm/contracts";
+import { AGENT_META, findLeafOfItem, sessionModeOf, type Space } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Composer } from "../panes/session/Composer";
 import { emptyTranscript } from "../panes/session/transcript-model";
 import { Transcript } from "../panes/session/Transcript";
-import { useApp, useBrowserRects } from "../state/store";
+import { useApp, useAppStore, useBrowserRects, type AppState } from "../state/store";
+import { Menu } from "./Menu";
+import { orderSpaces } from "./sidebar/model";
+import { SpaceIcon } from "./SpaceIcon";
 import { useFileDrop } from "./use-file-drop";
 import { complementOf } from "../state/no-overlay";
 import { MediaSessionContext } from "./viewer/open";
@@ -16,6 +19,8 @@ const W = 380;
 const H = 520;
 /** How far the window sits from the window's edges when it has not been dragged. */
 const MARGIN = 16;
+/** How many spaces the Save row names before "Other". */
+const SAVE_CHIPS = 3;
 
 /**
  * The quick chat — a session in a window instead of a pane.
@@ -59,6 +64,11 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
   const pos = useApp((s) => s.quickChatPos);
   const setQuickChatPos = useApp((s) => s.setQuickChatPos);
   const closeQuickChat = useApp((s) => s.closeQuickChat);
+  const keepQuickChat = useApp((s) => s.keepQuickChat);
+  const openKeptQuickChat = useApp((s) => s.openKeptQuickChat);
+  const keptIn = useApp((s) => s.quickChat?.keptIn ?? null);
+  const spaces = useApp((s) => s.spaces);
+  const store = useAppStore();
   const setDraft = useApp((s) => s.setDraft);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
@@ -83,6 +93,44 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
   const drag = useDrag({ pos, onMove: setQuickChatPos });
   const said = transcript.blocks.length > 0;
   const [confirming, setConfirming] = useState(false);
+  /* Saving is offered once there is an answer to keep, and from then on: a second question does not
+     take the row away while it runs. */
+  const answered = transcript.blocks.some((b) => b.kind === "assistant" && !b.streaming);
+  /* The space it ran in, held from the start: saving it elsewhere changes the session's space and
+     leaves its folder where it was, and the row has to be able to say whose folder that is. */
+  const [ranIn] = useState(session?.spaceId ?? "");
+  /* Ordered once, when the row appears. Read live, a session writing in another space would reorder
+     the chips under the pointer. */
+  const recent = useMemo(() => (answered ? recentSpaceIds(store.getState(), ranIn) : []), [answered, ranIn, store]);
+  const saveSpaces = recent.flatMap((id) => spaces.find((sp) => sp.id === id) ?? []).slice(0, SAVE_CHIPS);
+  const firstSpace = saveSpaces[0];
+  const saveAndOpen = useCallback(() => run(async () => {
+    if (!keptIn && firstSpace) await keepQuickChat(firstSpace.id);
+    await openKeptQuickChat();
+  }), [run, keptIn, firstSpace, keepQuickChat, openKeptQuickChat]);
+
+  /* ⌘Return takes the chat to the big surface, with nothing typed. With a draft it is the
+     prompter's own send, as in every prompter, and this leaves it alone. */
+  const nothingTyped = draft.trim() === "" && attachments.length === 0;
+  useEffect(() => {
+    if (!answered || !nothingTyped) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
+      e.preventDefault(); e.stopPropagation();
+      saveAndOpen();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [answered, nothingTyped, saveAndOpen]);
+
+  /* A saved chat is a session in a list, and a click on its row opens it in a pane. A session is on
+     screen once, so the window gives way to the pane. */
+  const inPane = useApp((s) => {
+    if (!s.quickChat?.keptIn || !s.layout) return false;
+    const item = s.items.find((i) => i.kind === "session" && i.refId === sessionId);
+    return item !== undefined && findLeafOfItem(s.layout, item.id) !== null;
+  });
+  useEffect(() => { if (inPane) run(() => closeQuickChat()); }, [inPane, closeQuickChat, run]);
 
   /* Escape closes an EMPTY chat and nothing else. A chat with a conversation in it is something a
      stray key would cost you, and Escape is not a key anyone presses deliberately to delete. */
@@ -114,7 +162,23 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
             (design.md: name the consequence, and distinguish removing from a layout from deleting
             the object). It arms first once there is something to lose, and not before: a confirm on
             an empty chat guards nothing. */}
-        {confirming ? (
+        {keptIn ? (
+          <button type="button" className="icon-btn" aria-label="Close quick chat" title="Close"
+            onClick={() => run(() => closeQuickChat())}>
+            <Icon name="close" size={14} />
+          </button>
+        ) : confirming && answered && firstSpace ? (
+          /* Closing a chat with an answer in it offers the way to keep it first, beside the delete. */
+          <span className="quick-chat-closing" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setConfirming(false); }}>
+            <button type="button" className="btn-quiet" autoFocus
+              onClick={() => run(async () => { await keepQuickChat(firstSpace.id); await closeQuickChat(); })}>
+              Save to {firstSpace.name}
+            </button>
+            <button type="button" className="btn-quiet quick-chat-confirm" onClick={() => run(() => closeQuickChat())}>
+              Delete chat
+            </button>
+          </span>
+        ) : confirming ? (
           <button type="button" className="btn-quiet quick-chat-confirm" autoFocus
             onClick={() => run(() => closeQuickChat())} onBlur={() => setConfirming(false)}>
             Delete this chat?
@@ -181,9 +245,72 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
         onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
         sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
         submitKey={submitKey} />
+      {answered && firstSpace && (
+        <SaveRow spaces={spaces} saveSpaces={saveSpaces} keptIn={keptIn} ranIn={ranIn}
+          onKeep={(spaceId) => run(() => keepQuickChat(spaceId))} onOpen={() => run(() => openKeptQuickChat())} />
+      )}
     </section>
     </MediaSessionContext.Provider>,
     document.body,
+  );
+}
+
+/** Every space in the order Save offers them: the one the chat ran in, then its profile's others by
+ *  how recently each was used. */
+function recentSpaceIds(s: AppState, ranIn: string): string[] {
+  const profileId = s.spaces.find((sp) => sp.id === ranIn)?.profileId;
+  const others = s.spaces.filter((sp) => sp.profileId === profileId && sp.id !== ranIn);
+  return [ranIn, ...orderSpaces(others, true, s).map((sp) => sp.id)];
+}
+
+/**
+ * The row under the prompter that files the chat into a space.
+ *
+ * It lives inside the chat's own box and reads nothing of the window around it, so the same row
+ * serves wherever this chat is drawn.
+ */
+function SaveRow({ spaces, saveSpaces, keptIn, ranIn, onKeep, onOpen }: {
+  spaces: readonly Space[]; saveSpaces: readonly Space[]; keptIn: string | null; ranIn: string;
+  onKeep: (spaceId: string) => void; onOpen: () => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const otherRef = useRef<HTMLButtonElement>(null);
+  const nameOf = (id: string) => spaces.find((sp) => sp.id === id)?.name ?? "";
+  /* A chat that has run keeps its folder when its space changes (`sessions.moveToSpace`), so saved
+     anywhere but where it ran it goes on working in the first space's folder. */
+  const folderNote = `It keeps working in ${nameOf(ranIn)}'s folder.`;
+
+  if (keptIn) {
+    return (
+      <footer className="quick-chat-save" data-kept="">
+        <span className="quick-chat-saved"><Icon name="check" size={12} />Saved to {nameOf(keptIn)}</span>
+        <span aria-hidden="true">·</span>
+        <button type="button" className="btn-quiet" title="Open it in Realm (⌘↩)" onClick={onOpen}>Open</button>
+        {keptIn !== ranIn && <span className="quick-chat-save-note">{folderNote}</span>}
+      </footer>
+    );
+  }
+  return (
+    <footer className="quick-chat-save">
+      <span className="quick-chat-save-label">Save to</span>
+      {saveSpaces.map((sp, i) => (
+        <button key={sp.id} type="button" className="btn-quiet quick-chat-save-chip" aria-label={`Save to ${sp.name}`}
+          title={[sp.id === ranIn ? "" : folderNote, i === 0 ? "⌘↩ saves it here and opens it." : ""].filter(Boolean).join(" ") || undefined}
+          onClick={() => onKeep(sp.id)}>
+          <SpaceIcon icon={sp.icon} size={12} /><span>{sp.name}</span>
+        </button>
+      ))}
+      {spaces.length > saveSpaces.length && (
+        <button ref={otherRef} type="button" className="btn-quiet quick-chat-save-other" aria-haspopup="menu" aria-expanded={picking}
+          onClick={() => setPicking(true)}>
+          Other…
+        </button>
+      )}
+      {picking && (
+        <Menu anchorRef={otherRef} placement="up" align="right" label="Save to a space" onClose={() => setPicking(false)}
+          items={spaces.map((sp) => ({ label: sp.name, icon: <SpaceIcon icon={sp.icon} size={14} />, onSelect: () => onKeep(sp.id) }))} />
+      )}
+    </footer>
   );
 }
 

@@ -1318,6 +1318,7 @@ export function registerMethods(d: Deps): void {
   });
   reg("sessions.setEnvironment", (p) => d.sessions.setEnvironment(p.id, p.environmentId));
   reg("sessions.moveToSpace", (p) => d.sessions.moveToSpace(p.id, p.spaceId));
+  reg("sessions.keep", (p) => d.sessions.keep(p.id, p.spaceId));
   reg("sessions.moveOptions", (p) => d.sessions.moveOptions(p.id));
   reg("sessions.move", (p) => d.sessions.move(p.id, { to: p.to, keepSourceChanges: p.keepSourceChanges, when: p.when }));
   reg("sessions.cancelMove", (p) => ({ cancelled: d.sessions.cancelMove(p.id) }));

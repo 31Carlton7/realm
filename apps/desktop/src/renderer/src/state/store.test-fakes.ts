@@ -1688,6 +1688,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       return s;
     },
+    /** Mirrors the server: the move, then the item an unlisted session never had. */
+    keepSession: async (id, spaceId) => {
+      calls.push(`keepSession:${id}=${spaceId}`);
+      const kept = await api.moveSessionToSpace(id, spaceId);
+      const listed = Object.values(data.items).flat().find((it) => it.kind === "session" && it.refId === id);
+      if (listed) return { session: kept, itemId: listed.id };
+      const it = item(`i${++n}`, spaceId, { kind: "session", title: kept.title, refId: id });
+      (data.items[spaceId] ??= []).push(it);
+      return { session: kept, itemId: it.id };
+    },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     // Read as of the moment it answers, as the server's is: the log's last seq, and the reply so far.
     // No timer unless a test asks for one: suites that wait one tick for a transcript to load would

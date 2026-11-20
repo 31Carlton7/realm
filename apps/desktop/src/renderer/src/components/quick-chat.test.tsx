@@ -5,7 +5,7 @@ import { reduceAll } from "../panes/session/transcript-model";
 import { QuickChat } from "./QuickChat";
 import { StoreContext, createAppStore, useAppStore } from "../state/store";
 import { appCommands } from "../keys/commands";
-import { fakeApi, type FakeData } from "../state/store.test-fakes";
+import { fakeApi, space, type FakeData } from "../state/store.test-fakes";
 
 /** Quick chat is a keystroke now, not a sidebar row (Plan 27): this presses it through the app's own
  *  command table, the path ⌘⇧N takes. */
@@ -160,6 +160,134 @@ describe("the quick chat", () => {
     expect(store.getState().quickChat).not.toBeNull();
     fireEvent.click(confirm);
     await waitFor(() => expect(store.getState().quickChat).toBeNull());
+  });
+
+  describe("saving it to a space", () => {
+    const SPACES = [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p1", "Realm"),
+      space("s4", "p1", "Taxes"), space("s5", "p1", "Garden"), space("s6", "p2", "Thesis")];
+    /** A chat with its first answer in, opened in s1. */
+    async function answeredChat(overrides: FakeData = {}) {
+      const mounted = await mount({ spaces: SPACES, ...overrides });
+      await openChat();
+      const { sessionId } = mounted.store.getState().quickChat!;
+      // s4 was used after s2; s3 and s5 never.
+      mounted.store.setState({
+        sessionSpace: { ...mounted.store.getState().sessionSpace, old: "s2", newer: "s4" },
+        sessionActivityAt: { old: 100, newer: 200 },
+      });
+      mounted.store.setState({ transcripts: { [sessionId]: { lastSeq: 2, t: reduceAll([
+        sessionEvent("user_message", { text: "how do I run the suite?", attachments: [] }),
+        sessionEvent("assistant_text", { messageId: "m1", text: "pnpm vitest run" }),
+      ]) } } });
+      return { ...mounted, sessionId };
+    }
+    const chipNames = () => within(chat()).getAllByRole("button", { name: /^Save to / }).map((b) => b.getAttribute("aria-label"));
+
+    it("offers nothing until there is an answer to keep", async () => {
+      const { store } = await mount({ spaces: SPACES });
+      await openChat();
+      const { sessionId } = store.getState().quickChat!;
+      store.setState({ transcripts: { [sessionId]: { lastSeq: 1, t: reduceAll([
+        sessionEvent("user_message", { text: "how do I run the suite?", attachments: [] }),
+      ]) } } });
+      await within(chat()).findByText("how do I run the suite?");
+      expect(within(chat()).queryByText("Save to")).toBeNull();
+    });
+
+    it("names the space it ran in, then the two used most recently, then Other", async () => {
+      await answeredChat();
+      await within(chat()).findByText("Save to");
+      expect(chipNames()).toEqual(["Save to Versed", "Save to Taxes", "Save to Homework"]);
+      expect(within(chat()).getByRole("button", { name: "Other…" })).toBeInTheDocument();
+    });
+
+    it("one click lists it in that space, and the window stays with a way to open it", async () => {
+      const { store, api, sessionId } = await answeredChat();
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Save to Versed" }));
+      await within(chat()).findByText("Saved to Versed");
+      expect(api.calls).toContain(`keepSession:${sessionId}=s1`);
+      expect(store.getState().items.filter((i) => i.kind === "session" && i.refId === sessionId)).toMatchObject([{ spaceId: "s1" }]);
+      expect(within(chat()).getByRole("button", { name: "Open" })).toBeInTheDocument();
+      // It ran in Versed and was saved to Versed: there is no other folder to name.
+      expect(within(chat()).queryByText(/keeps working in/)).toBeNull();
+    });
+
+    it("Other lists every space, and one saved away from where it ran says whose folder it works in", async () => {
+      const { store, sessionId } = await answeredChat();
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Other…" }));
+      const picker = await screen.findByRole("menu", { name: "Save to a space" });
+      expect(within(picker).getAllByRole("menuitem").map((r) => r.textContent)).toEqual(SPACES.map((sp) => sp.name));
+      fireEvent.click(within(picker).getByRole("menuitem", { name: "Garden" }));
+      await within(chat()).findByText("Saved to Garden");
+      expect(store.getState().sessions[sessionId]!.spaceId).toBe("s5");
+      expect(within(chat()).getByText("It keeps working in Versed's folder.")).toBeInTheDocument();
+    });
+
+    it("a saved chat closes without deleting, and is listed like any other session", async () => {
+      const { store, api, sessionId } = await answeredChat();
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Save to Versed" }));
+      await within(chat()).findByText("Saved to Versed");
+      fireEvent.click(within(chat()).getByRole("button", { name: "Close quick chat" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Quick chat" })).toBeNull());
+      expect(api.calls).not.toContain(`deleteSession:${sessionId}`);
+      expect(store.getState().sessions[sessionId]).toBeDefined();
+      // The setting the sidebar and the phone hide the quick chat by no longer names it.
+      const next = createAppStore(api);
+      await next.getState().boot();
+      expect(next.getState().quickChat).toBeNull();
+      expect(next.getState().items.some((i) => i.refId === sessionId)).toBe(true);
+    });
+
+    it("⌘Return saves it to the first space and opens it in a pane", async () => {
+      const { store, api, sessionId } = await answeredChat();
+      await within(chat()).findByText("Save to");
+      fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Quick chat" })).toBeNull());
+      expect(api.calls).toContain(`keepSession:${sessionId}=s1`);
+      expect(api.calls).not.toContain(`deleteSession:${sessionId}`);
+      const item = store.getState().items.find((i) => i.refId === sessionId)!;
+      await waitFor(() => expect(allItems(store.getState().layout!)).toContain(item.id));
+    });
+
+    it("⌘Return with words in the prompter sends them, and saves nothing", async () => {
+      const { store, api, sessionId } = await answeredChat();
+      await within(chat()).findByText("Save to");
+      store.getState().setDraft(sessionId, "and the typecheck?");
+      await waitFor(() => expect(within(chat()).getByRole("textbox")).toHaveValue("and the typecheck?"));
+      fireEvent.keyDown(within(chat()).getByRole("textbox"), { key: "Enter", metaKey: true });
+      await waitFor(() => expect(api.calls.some((c) => c.startsWith(`sendMessage:${sessionId}=and the typecheck?`))).toBe(true));
+      expect(api.calls.some((c) => c.startsWith("keepSession:"))).toBe(false);
+      expect(store.getState().quickChat).toMatchObject({ keptIn: null });
+    });
+
+    it("closing an unsaved chat with an answer offers Save beside Delete", async () => {
+      const { store, api, sessionId } = await answeredChat();
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Close quick chat" }));
+      expect(await within(chat()).findByRole("button", { name: "Delete chat" })).toBeInTheDocument();
+      fireEvent.click(within(chat().querySelector("header")!).getByRole("button", { name: "Save to Versed" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Quick chat" })).toBeNull());
+      expect(api.calls).toContain(`keepSession:${sessionId}=s1`);
+      expect(api.calls).not.toContain(`deleteSession:${sessionId}`);
+      expect(store.getState().items.some((i) => i.refId === sessionId)).toBe(true);
+    });
+
+    it("Delete there still deletes", async () => {
+      const { api, sessionId } = await answeredChat();
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Close quick chat" }));
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Delete chat" }));
+      await waitFor(() => expect(api.calls).toContain(`deleteSession:${sessionId}`));
+      expect(api.calls.some((c) => c.startsWith("keepSession:"))).toBe(false);
+    });
+
+    it("gives way when the saved chat is opened in a pane: a session is on screen once", async () => {
+      const { store, sessionId } = await answeredChat();
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Save to Versed" }));
+      await within(chat()).findByText("Saved to Versed");
+      const item = store.getState().items.find((i) => i.refId === sessionId)!;
+      await store.getState().openItem(item.id);
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Quick chat" })).toBeNull());
+      expect(store.getState().sessions[sessionId]).toBeDefined();
+    });
   });
 
   it("stays up across a space switch, session and all — it is not native to a space", async () => {

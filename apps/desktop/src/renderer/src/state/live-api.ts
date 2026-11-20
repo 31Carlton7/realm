@@ -190,6 +190,7 @@ export const liveApi = (): Api => ({
   layaDeleteRecordings: () => rpc().call("laya.deleteRecordings", {}),
   setSessionEnvironment: (id, environmentId) => rpc().call("sessions.setEnvironment", { id, environmentId }),
   moveSessionToSpace: (id, spaceId) => rpc().call("sessions.moveToSpace", { id, spaceId }),
+  keepSession: (id, spaceId) => rpc().call("sessions.keep", { id, spaceId }),
   sessionMoveOptions: (id) => rpc().call("sessions.moveOptions", { id }),
   moveSession: (id, to, keepSourceChanges, when) => rpc().call("sessions.move", { id, to, keepSourceChanges, when }),
   cancelSessionMove: (id) => rpc().call("sessions.cancelMove", { id }),

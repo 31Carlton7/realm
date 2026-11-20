@@ -867,6 +867,61 @@ describe("SessionService over rpc", () => {
     });
   });
 
+  describe("sessions.keep (the quick chat's Save to)", () => {
+    async function quickChat() {
+      const booted = await boot(new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }] }] }));
+      const profileId = (await booted.c.call("profiles.list", {})).result[0].id;
+      const other = (await booted.c.call("spaces.create", { profileId, name: "Other" })).result;
+      const { session } = (await booted.c.call("sessions.create", { spaceId: booted.sp.id, agentKind: "fake", unlisted: true })).result;
+      await booted.c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => booted.c.eventTypes(session.id).includes("usage"));
+      return { ...booted, other, session };
+    }
+    const sessionItems = async (c: Any, spaceId: string) =>
+      (await c.call("items.list", { spaceId })).result.filter((i: Any) => i.kind === "session");
+
+    it("lists the chat in the space it ran in, under the title it has by then, with its transcript", async () => {
+      const { c, sp, session } = await quickChat();
+      expect(await sessionItems(c, sp.id)).toEqual([]);
+      const title = (await c.call("sessions.get", { id: session.id })).result.title;
+      const ran = (await c.call("sessions.events", { id: session.id })).result;
+      const r = await c.call("sessions.keep", { id: session.id, spaceId: sp.id });
+      expect(r.ok).toBe(true);
+      expect(await sessionItems(c, sp.id)).toMatchObject([{ id: r.result.itemId, refId: session.id, title }]);
+      expect(c.events.filter((e) => e.event === "items.changed").map((e) => e.payload.spaceId)).toContain(sp.id);
+      expect((await c.call("sessions.events", { id: session.id })).result).toEqual(ran);
+      expect(ran.map((e: Any) => e.event.type)).toContain("assistant_text");
+      c.close();
+    });
+
+    it("kept in another space, it is listed there only and still works in the folder it ran in", async () => {
+      const { c, sp, other, session } = await quickChat();
+      const r = await c.call("sessions.keep", { id: session.id, spaceId: other.id });
+      expect(r.result.session.spaceId).toBe(other.id);
+      expect(r.result.session.cwd).toBe(session.cwd);
+      expect(await sessionItems(c, other.id)).toMatchObject([{ id: r.result.itemId, refId: session.id }]);
+      expect(await sessionItems(c, sp.id)).toEqual([]);
+      c.close();
+    });
+
+    it("keeping it twice moves the one item and makes no second", async () => {
+      const { c, sp, other, session } = await quickChat();
+      const first = (await c.call("sessions.keep", { id: session.id, spaceId: sp.id })).result;
+      const again = (await c.call("sessions.keep", { id: session.id, spaceId: other.id })).result;
+      expect(again.itemId).toBe(first.itemId);
+      expect(await sessionItems(c, other.id)).toHaveLength(1);
+      expect(await sessionItems(c, sp.id)).toEqual([]);
+      c.close();
+    });
+
+    it("NOT_FOUND for an unknown space, and the chat stays unlisted", async () => {
+      const { c, sp, session } = await quickChat();
+      expect((await c.call("sessions.keep", { id: session.id, spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).error.code).toBe("NOT_FOUND");
+      expect(await sessionItems(c, sp.id)).toEqual([]);
+      c.close();
+    });
+  });
+
   it("survives a restart: statuses reset on boot, dangling permission denied, events replayed, a new send resumes with providerSessionId", async () => {
     const started: Array<{ resume?: string | null }> = [];
     const script = [{ on: "go", emit: [{ kind: "tool" as const, name: "Bash", input: { command: "ls" }, needsPermission: true, result: "x" }] }];

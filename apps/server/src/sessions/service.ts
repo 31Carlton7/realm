@@ -1396,6 +1396,19 @@ export class SessionService {
   }
 
   /**
+   * Keep a quick chat (`sessions.keep`). The session was created `unlisted`, so it has no item and
+   * `moveToSpace` has none to carry: this moves it and then makes the item `create` would have made.
+   */
+  keep(id: string, spaceId: string): { session: Session; itemId: string } {
+    const session = this.moveToSpace(id, spaceId);
+    const listed = this.d.items.findByRefId(id);
+    if (listed) return { session, itemId: listed.id };
+    const item = this.d.items.create({ spaceId, kind: "session", title: session.title, refId: id });
+    this.d.rpc.broadcast("items.changed", { spaceId });
+    return { session, itemId: item.id };
+  }
+
+  /**
    * The destination space's environment row for a checkout a moving session has already run in.
    * Environments are space-scoped (`environments_space_path` is UNIQUE per space, not globally), so
    * "the same checkout in another space" means a second row at the same path — which is legal, and is
