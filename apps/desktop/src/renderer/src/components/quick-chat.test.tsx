@@ -239,6 +239,16 @@ describe("the quick chat", () => {
       expect(next.getState().items.some((i) => i.refId === sessionId)).toBe(true);
     });
 
+    it("a relaunch with the saved chat still up does not bring the window back over it", async () => {
+      const { api, sessionId } = await answeredChat();
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Save to Versed" }));
+      await within(chat()).findByText("Saved to Versed");
+      const next = createAppStore(api);
+      await next.getState().boot();
+      expect(next.getState().quickChat).toBeNull();
+      expect(next.getState().items.some((i) => i.refId === sessionId)).toBe(true);
+    });
+
     it("is hidden from the sidebar's lists only until it is saved", async () => {
       let quickChatId: string | null | undefined;
       function SidebarProbe() { quickChatId = useSidebarState().quickChatId; return null; }
