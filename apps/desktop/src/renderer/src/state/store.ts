@@ -3747,9 +3747,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * The quick chat as the setting has it now, after another page opened or deleted it. There is one
      * quick chat, shown in the panel, in a window's card, or both. A chat this page shows that is no
      * longer the one is dropped. The panel then shows the new one; a window puts up no card it was
-     * not asked for.
+     * not asked for. A chat saved to a space is no longer the quick chat, so the page showing it
+     * keeps showing it.
      */
     const followQuickChat = async (raw: unknown) => {
+      if (get().quickChat?.keptIn) return;
       const id = quickChatIdOf(raw);
       const mine = get().quickChat?.sessionId ?? null;
       if (mine === id) return;
@@ -7733,11 +7735,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const qc = get().quickChat;
         if (!qc?.keptIn) return;
         await get().closeQuickChat();
+        // The panel has no panes: a Realm window comes forward on the session instead.
+        if (inQuickChatPanel()) { window.realm?.quickChatPanel?.openInRealm({ sessionId: qc.sessionId, spaceId: qc.keptIn }); return; }
         await get().revealSession(qc.sessionId, qc.keptIn);
       },
       setQuickChatPos(pos) { set({ quickChatPos: pos }); scheduleQuickChatPersist(); },
       async syncQuickChat() { await followQuickChat(await api.getSetting(SETTING_QUICK_CHAT)); },
       async showQuickChatPanel() {
+        // A chat saved to a space since the panel was last open lives there now: this starts a new one.
+        if (get().quickChat?.keptIn) await get().closeQuickChat();
         await get().boot();
         if (!get().quickChat) await get().openQuickChat();
       },

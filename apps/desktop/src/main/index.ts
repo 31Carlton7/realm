@@ -751,6 +751,15 @@ ipcMain.handle("quick-chat-panel:set-shortcut", (_e, chord: unknown): QuickChatS
 ipcMain.on("quick-chat-panel:set-hide-from-sharing", (_e, on: unknown) => quickChatPanel.setHiddenFromSharing(on !== false));
 // Only the panel's own page puts it away: Escape there, or its chat being deleted.
 ipcMain.on("quick-chat-panel:hide", (e) => { if (e.sender === quickChatPanel.window()?.webContents) quickChatPanel.close(); });
+// "Open" on a chat the panel saved to a space: the session opens in a Realm window, as one picked
+// from the menu bar does, and the panel goes.
+ipcMain.on("quick-chat-panel:open-in-realm", (e, target: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  const t = target as { sessionId?: unknown; spaceId?: unknown } | null;
+  if (typeof t?.sessionId !== "string" || typeof t.spaceId !== "string") return;
+  quickChatPanel.close();
+  void reattach({ sessionId: t.sessionId, spaceId: t.spaceId });
+});
 // The quick chat is one chat wherever it is shown, so a page that opened or deleted it tells the rest.
 ipcMain.on("quick-chat:changed", (e) => {
   for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send("quick-chat:changed");

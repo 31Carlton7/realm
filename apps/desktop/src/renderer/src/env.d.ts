@@ -30,6 +30,7 @@ interface Window {
       shortcut(): Promise<import("@realm/contracts").QuickChatShortcutState>;
       setShortcut(chord: string | null): Promise<import("@realm/contracts").QuickChatShortcutState>;
       setHideFromSharing(on: boolean): void;
+      openInRealm(target: { sessionId: string; spaceId: string }): void;
       chatChanged(): void;
       onChatChanged(cb: () => void): () => void;
     };

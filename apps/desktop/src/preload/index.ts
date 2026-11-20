@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld("realm", {
      *  system took it. */
     setShortcut: (chord: string | null): Promise<QuickChatShortcutState> => ipcRenderer.invoke("quick-chat-panel:set-shortcut", chord),
     setHideFromSharing: (on: boolean): void => ipcRenderer.send("quick-chat-panel:set-hide-from-sharing", on),
+    /** Put the panel away and bring a Realm window forward on a session the chat was saved as. */
+    openInRealm: (target: { sessionId: string; spaceId: string }): void => ipcRenderer.send("quick-chat-panel:open-in-realm", target),
     /** This page opened, deleted or moved the quick chat: every other page reads the setting again. */
     chatChanged: (): void => ipcRenderer.send("quick-chat:changed"),
     onChatChanged: (cb: () => void): (() => void) => {

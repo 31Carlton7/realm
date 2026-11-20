@@ -75,6 +75,43 @@ describe("the quick chat panel's page", () => {
   });
 });
 
+describe("a chat the panel saved to a space", () => {
+  it("stays on the page that saved it while another page changes the quick chat", async () => {
+    const h = home();
+    await h.panel((s) => s.showQuickChatPanel());
+    const saved = h.panelState().quickChat!.sessionId;
+    await h.panel((s) => s.keepQuickChat(h.api.data.spaces[0]!.id));
+    await h.win((s) => s.boot());
+    await h.win((s) => s.openQuickChat());
+    await h.panel((s) => s.syncQuickChat());
+    expect(h.panelState().quickChat).toMatchObject({ sessionId: saved, keptIn: h.api.data.spaces[0]!.id });
+  });
+
+  it("is left in its space when the panel opens again, on a new chat", async () => {
+    const h = home();
+    await h.panel((s) => s.showQuickChatPanel());
+    const saved = h.panelState().quickChat!.sessionId;
+    await h.panel((s) => s.keepQuickChat(h.api.data.spaces[0]!.id));
+    await h.panel((s) => s.showQuickChatPanel());
+    expect(h.panelState().quickChat).toMatchObject({ keptIn: null });
+    expect(h.panelState().quickChat!.sessionId).not.toBe(saved);
+    expect(h.deleted()).toBe(0);
+  });
+
+  it("opens in a Realm window, since the panel has no pane to show it in", async () => {
+    const h = home();
+    const openInRealm = vi.fn();
+    await h.panel((s) => s.showQuickChatPanel());
+    const saved = h.panelState().quickChat!.sessionId;
+    const spaceId = h.api.data.spaces[0]!.id;
+    await h.panel((s) => s.keepQuickChat(spaceId));
+    await h.panel((s) => { (window as any).realm.quickChatPanel.openInRealm = openInRealm; return s.openKeptQuickChat(); });
+    expect(openInRealm).toHaveBeenCalledWith({ sessionId: saved, spaceId });
+    expect(h.panelState().quickChat).toBeNull();
+    expect(h.deleted()).toBe(0);
+  });
+});
+
 describe("a Realm window, beside the panel", () => {
   it("puts up no card for a chat made in the panel just because it was launched", async () => {
     const h = home();
