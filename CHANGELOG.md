@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.20.0 - 2026-11-20
+
+Documents, sheets and code files download as typeset PDFs.
+
+### New
+
+- **Download as PDF.** "Download as PDF…" sits in the documents pane's ⋯ menu, the file menu on the documents home's cards and rows, and the ⋯ menu of the file viewer. Markdown prints as a document, a CSV or TSV as a table, and a code file as one highlighted block under its name. The page is dark ink on white whatever your theme, with the title and page numbers in the footer, and headings become bookmarks. Paper is Letter or A4, following your Mac's region. Realm asks where to save, starting in Downloads. (#545)
+
+### Fixed
+
+- A tab you open by clicking a link in the browser pane now takes the keyboard. In 2.19.1 the keyboard stayed with the page you clicked, hidden behind the new tab. A tab opened behind, with a ⌘-click or a middle-click, still leaves the keyboard where it was. (#547, fixes #546)
+- When a Markdown file in a space links a picture by a relative path, the picture now draws in the Documents pane instead of showing as broken. A path is read from the file's own folder, and one starting with / from the space's folder. Saving keeps the path as you wrote it. (#549, fixes #548)
+- The suggested prompt hides while you dictate into an empty prompter, so the words you say no longer draw on top of it. It comes back if dictation stops with nothing heard. (#552, fixes #550)
+- Dictation no longer adds a second full stop after a long pause, as in "run the build..". (#553, fixes #551)
+
 ## v2.19.1 - 2026-11-19
 
 Dictation listens until you stop it, and new-tab links stay in the browser pane.
