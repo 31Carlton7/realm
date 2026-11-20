@@ -100,6 +100,7 @@ import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
+import { QuickChatEngines } from "./sessions/quick-chat";
 import { TabContextReader } from "./sessions/tab-context";
 import { RECAP_AFTER_IDLE_MS, SessionSummaryService } from "./sessions/summary";
 import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
@@ -795,6 +796,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number; graceMs?: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
   /** How long a teammate's clock turn may run before it is stopped (`TEAMMATE_CLOCK_TURN_MS`), shortened by suites. */
   teammates?: { clockTurnMs?: number };
+  /** How long the quick chat's spare engine waits before it is stopped (`QUICK_CHAT_WARM_MS`), shortened by suites. */
+  quickChat?: { warmMs?: number };
   /** Plan 13 W3: the same knobs for the reviewer recipe. `fallbackKind` (the reviewer's kind when the
    *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
    *  `browserAgent`'s. */
@@ -1884,9 +1887,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** The remote listener, once it is up (below, after the loopback socket). */
   let access: Access | null = null;
   const owner = opts.owner ?? "app";
+  const quickChats = new QuickChatEngines({ sessions, settings, registered: Object.keys(adapterRegistry) as AgentKind[], ...(opts.quickChat?.warmMs ? { warmMs: opts.quickChat.warmMs } : {}) });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
@@ -1915,6 +1919,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   sessions.markStaleOnBoot();
   await sessions.recoverMoves();
+  await quickChats.dropLeftover();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
   runs.recoverOnBoot();
@@ -2039,6 +2044,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // a gigabyte of weights — and any install in flight.
     await layaShadow.close();
     await laya.close();
+    await quickChats.stop();
     await sessions.closeAll();
     // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
     // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.

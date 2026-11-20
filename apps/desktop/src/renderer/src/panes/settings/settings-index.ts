@@ -113,6 +113,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "submit-key", tab: "general", section: "Sessions", label: "Send message with", terms: "enter return submit keyboard" },
   { id: "mid-turn", tab: "general", section: "Sessions", label: "A message typed while a turn is running", terms: "queue steer interrupt" },
   { id: "default-permission", tab: "general", section: "Sessions", label: "New sessions start in", terms: "permission mode default full access accept edits ask bypass" },
+  { id: "quick-chat-model", tab: "general", section: "Sessions", label: "Quick chat model", terms: "quick chat popup fast model haiku engine option command n" },
   { id: "open-files-in", tab: "general", section: "Files", label: "Open files in", terms: "editor cursor vscode code zed xcode ide path" },
   { id: "open-links-in", tab: "general", section: "Links", label: "Open links in", terms: "web url browser default safari chrome realm click command" },
   { id: "sidebar-activity-order", tab: "general", section: "Sidebar", label: "Sort spaces by activity", terms: "order drag strip" },

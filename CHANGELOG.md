@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.21.0 - 2026-11-20
+
+Closing a tab a page opened brings you back to the page that opened it.
+
+### Improved
+
+- **A tab a page opened hands you back to that page when it closes.** In the browser pane, when a tab that a page opened from another tab closes while it is in front, the tab that opened it now comes forward, as in a browser. It works the same whether the page closed itself or you pressed its ×. If you have picked another tab in that pane since it opened, switched spaces or reopened Realm, the tab beside it comes forward, as before. (#585, fixes #571)
+
 ## v2.20.5 - 2026-11-20
 
 An error inside Realm no longer stops every window behind an error box.

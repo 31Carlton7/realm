@@ -220,7 +220,7 @@ describe("useKeybindings", () => {
     expect(store.getState().quickChat).toBe(null);
     key({ key: "˜", code: "KeyN", metaKey: true, altKey: true });
     await waitFor(() => expect(store.getState().quickChat).not.toBe(null));
-    expect(made(api, "createUnlistedSession")).toBe(true);
+    expect(made(api, "startQuickChat")).toBe(true);
   });
 
   it("leaves an open quick chat alone rather than toggling it shut, because closing one deletes it", async () => {
