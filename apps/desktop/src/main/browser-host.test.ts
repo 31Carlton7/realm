@@ -694,6 +694,25 @@ describe("BrowserPaneHost", () => {
       expect(alive(chain[0]!)).toBe(false);
       expect(chain.slice(1).every(alive)).toBe(true);
     });
+
+    it("Back past the kept openers loads the closed one's address again, as main's Back did", () => {
+      // The bound is on renderers left running, not on where Back can go. THE MUTANT: forget the closed
+      // opener, and Back stops one page short of where the person started.
+      const { host, views, states } = makeHost();
+      host.create("b1", "https://example.com/0", null, P);
+      const chain = [views.get("b1")!];
+      for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() });
+        chain.push(views.get("b1")!);
+      }
+      for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");
+      const last = chain[1]!;
+      expect(states.at(-1)).toMatchObject({ id: "b1", canGoBack: true });
+      host.navAction("b1", "back");
+      expect(last.calls.at(-1)).toBe("load:https://example.com/0");
+      expect(alive(last)).toBe(true);
+      expect(states.at(-1)).toMatchObject({ id: "b1", url: "https://example.com/0" });
+    });
   });
 
   it("hosts the page Chromium made for a new tab, and never loads its address again", () => {

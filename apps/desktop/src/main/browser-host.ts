@@ -693,6 +693,8 @@ export type ViewFactory = (id: string, hooks: ViewHooks, partition: string, open
 /**
  * How many pages may wait behind one browser's page for Back (`adoptInPlace`). Each is a renderer
  * left running, so a chain of pages each opening the next without a press closes the oldest first.
+ * This bounds what is kept alive, not where Back goes: Back past the kept ones loads a closed page's
+ * address again, as Back did on main.
  */
 export const PARKED_OPENERS = 3;
 
@@ -783,6 +785,8 @@ export class BrowserPaneHost {
     /** The pages that opened the one in front with no press behind it, oldest first, each kept running
      *  and hidden (`adoptInPlace`): Back from the front page's first entry shows the last again. */
     behind: ViewHandle[];
+    /** The addresses of openers closed to keep `behind` within `PARKED_OPENERS`, oldest first. */
+    closedBehind: string[];
   }>();
   /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
    *  delete moves an id to the back. Views with a mounted pane are absent, never evictable. */
@@ -900,7 +904,7 @@ export class BrowserPaneHost {
     if (opened && opened.partition !== partition) opened.page.close();
     const hosted = opened?.partition === partition ? opened : undefined;
     const handle = this.makeView(id, partition, hosted && { page: hosted.page, url: hosted.url });
-    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false, focusWhenShown: !!hosted?.focus, behind: [] });
+    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false, focusWhenShown: !!hosted?.focus, behind: [], closedBehind: [] });
     const normalized = normalizeAddress(url);
     if (!hosted && normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
     this.emitState(id);
@@ -983,7 +987,11 @@ export class BrowserPaneHost {
     if (!inFront || !v || !url || !originAllowed(url, v.allowlist)) { page.close(); return; }
     v.handle.setVisible(false);
     v.behind.push(v.handle);
-    if (v.behind.length > PARKED_OPENERS) v.behind.shift()!.destroy();
+    if (v.behind.length > PARKED_OPENERS) {
+      const oldest = v.behind.shift()!;
+      v.closedBehind.push(oldest.getURL());
+      oldest.destroy();
+    }
     v.handle = this.makeView(id, v.partition, { page, url });
     this.show(id);
   }
@@ -1036,7 +1044,7 @@ export class BrowserPaneHost {
     const url = normalizeAddress(d.url);
     const loads = Boolean(url && originAllowed(url, d.allowlist));
     // Hidden until painted only when there is a page coming to paint.
-    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: loads, focusWhenShown: false, behind: [] });
+    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: loads, focusWhenShown: false, behind: [], closedBehind: [] });
     if (loads) {
       if (d.scroll && (d.scroll.x !== 0 || d.scroll.y !== 0)) handle.scrollAfterLoad(d.scroll.x, d.scroll.y);
       handle.loadURL(url!);
@@ -1146,7 +1154,9 @@ export class BrowserPaneHost {
   navAction(id: string, action: "back" | "forward" | "reload" | "stop"): void {
     if (!this.live(id)) return;
     const v = this.views.get(id)!;
-    if (action === "back" && !v.handle.canGoBack() && v.behind.length > 0) this.uncover(id);
+    const firstEntry = action === "back" && !v.handle.canGoBack();
+    if (firstEntry && v.behind.length > 0) this.uncover(id);
+    else if (firstEntry && v.closedBehind.length > 0) v.handle.loadURL(v.closedBehind.pop()!);
     else if (action === "back") v.handle.goBack();
     else if (action === "forward") v.handle.goForward();
     else if (action === "reload") v.handle.reload();
@@ -1304,7 +1314,7 @@ export class BrowserPaneHost {
     const v = this.views.get(id); if (!v) return;
     this.opts.sendState({
       id, url: v.handle.getURL(), title: v.handle.getTitle(), loading: v.handle.isLoading(),
-      canGoBack: v.handle.canGoBack() || v.behind.length > 0, canGoForward: v.handle.canGoForward(), device: v.device?.id ?? null,
+      canGoBack: v.handle.canGoBack() || v.behind.length > 0 || v.closedBehind.length > 0, canGoForward: v.handle.canGoForward(), device: v.device?.id ?? null,
       favicon: v.handle.getFavicon(), error: v.handle.getLoadError(), ready: v.handle.isReady(),
     });
   }
