@@ -42,7 +42,7 @@ import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CHILD_ORIGINS } from "../panes/session-labels";
-import { FALLBACK_AGENT, LAST_AGENT_SETTING, QUICK_CHAT_SETTING } from "@realm/view";
+import { FALLBACK_AGENT, LAST_AGENT_SETTING, QUICK_CHAT_MODEL_SETTING, QUICK_CHAT_SETTING, type QuickChatModel } from "@realm/view";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
   isOverridden, parseFontPref, type FontPref,
@@ -324,10 +324,10 @@ export type Api = TeammatesApi & {
   sessionsDigest(spaceId: string): Promise<{ sessionId: string; lastReply: string | null }[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
-  /** A session with NO item row, and so in no list anywhere — the quick chat's shape. Its own method
-   *  rather than a flag on `createSession`, because the two differ in what they RETURN: everything
-   *  else gets an item and goes on to place it, and this has none to place. */
-  createUnlistedSession(input: CreateSessionInput): Promise<{ session: Session }>;
+  /** A new quick chat's session: NO item row, and so in no list anywhere, on the engine and model the
+   *  Quick chat model setting names. Its own method rather than a flag on `createSession`, because the
+   *  two differ in what they RETURN: everything else gets an item and goes on to place it. */
+  startQuickChat(spaceId: string): Promise<{ session: Session }>;
   /** `sessions.delete` — the row, its transcript and its pty. The one route for a session with no
    *  item to delete through. */
   deleteSession(id: string): Promise<void>;
@@ -1485,7 +1485,8 @@ export type AppState = TeammatesSlice & {
    *  polarity, matching the service), and the permission mode new sessions start in
    *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
    *  mount, and a null renders as loading rather than as every-toggle-on lies. */
-  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string } | null;
+  /** `quickChatModel` is the stored value as read; `quickChatModelOf` says what it means. */
+  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string; quickChatModel: unknown } | null;
   /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
    *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
    *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
@@ -2945,6 +2946,8 @@ export type AppState = TeammatesSlice & {
    *  by the time this runs the user has already said it twice. */
   setDefaultPermissionMode(mode: string): Promise<void>;
   setMidTurnMode(mode: MidTurnMode): Promise<void>;
+  /** Persist what new quick chats start on (`QUICK_CHAT_MODEL_SETTING`), read server-side when one opens. */
+  setQuickChatModel(pick: QuickChatModel): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
   /** Load one profile's sign-ins and passkeys, and the store's own state (encryption available,
@@ -7631,12 +7634,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async openQuickChat() {
         if (get().quickChat) return;
         const sid = get().activeSpaceId; if (!sid) return;
-        const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
-        /* `unlisted`: no item row, so no sidebar entry, no pinned tile, no palette hit, no Library
-           row and no pane. The window is the only place this conversation is ever shown — which is
-           also why it is not confined to the space it happens to run in. */
-        const { session } = await api.createUnlistedSession({ agentKind, spaceId: sid });
-        rememberAgent(agentKind);
+        /* Unlisted: no item row, so no sidebar entry, no pinned tile, no palette hit, no Library row
+           and no pane. The window is the only place this conversation is ever shown — which is also
+           why it is not confined to the space it happens to run in. The server picks its engine and
+           model from the Quick chat model setting, not from the last pane's. */
+        const { session } = await api.startQuickChat(sid);
         // Unconditional, unlike every other create: the quick chat outlives the active space, so its
         // row has to be in `sessions` whichever space is current (see `keepQuickChatSession`).
         set({ sessions: { ...get().sessions, [session.id]: session }, sessionStatus: { ...get().sessionStatus, [session.id]: session.status },
@@ -8290,15 +8292,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       memoryLibraryCreate(input) { return api.memoryLibraryCreate(input); },
       memoryLibraryDelete(id, confirmExternal) { return api.memoryLibraryDelete(id, confirmExternal); },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone, quickChatModel] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
           api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY), api.getSetting(MID_TURN_MODE_KEY),
-          api.getSetting(NOTIFICATIONS_IPHONE_KEY),
+          api.getSetting(NOTIFICATIONS_IPHONE_KEY), api.getSetting(QUICK_CHAT_MODEL_SETTING),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
+        set({ settingsPrefs: { disabledCategories, defaultPermissionMode, quickChatModel }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
           soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume), iphoneNotifications: rawIphone !== false });
       },
       async refreshModelFavorites() {
@@ -8363,6 +8365,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const prefs = get().settingsPrefs; if (!prefs) return;
         await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
         set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+      },
+      async setQuickChatModel(pick) {
+        const prefs = get().settingsPrefs; if (!prefs) return;
+        await api.setSetting(QUICK_CHAT_MODEL_SETTING, pick);
+        set({ settingsPrefs: { ...prefs, quickChatModel: pick } });
       },
       async setMidTurnMode(mode) {
         await api.setSetting(MID_TURN_MODE_KEY, mode);
