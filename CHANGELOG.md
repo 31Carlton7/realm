@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.19.1 - 2026-11-19
+
+Dictation listens until you stop it, and new-tab links stay in the browser pane.
+
+### Improved
+
+- **Dictation keeps listening until you stop it.** A pause no longer ends dictation. It runs until you press the mic button or Esc, and the words heard so far carry over from one sentence to the next. It still stops on its own if the microphone goes away or won't open, and the words heard by then land in the prompter. (#538)
+- **The mic turns into a stop button while you dictate.** The mic grows into a small red pill with four level bars that follow your voice and a stop square. Press it to stop. (#542)
+- **New-tab links open as tabs in the browser pane.** A link or form meant for a new tab, a ⌘-click and a middle-click now open a new tab beside the page instead of replacing it, and so does a page that opens a window when you click, up to three tabs for one click. A plain click brings the tab to the front. A ⌘-click or middle-click opens it behind, so you stay on the page you were reading. When an agent clicks one of these links, the tab opens without taking the keyboard from what you are typing. Sign-in popups still open as their own windows. In a chat and in the Documents editor, a middle-click on a link now follows your "Links open in" setting, and when it opens in Realm the tab goes behind. (#539, fixes #537)
+
+### Fixed
+
+- When dictation stops on a problem, the words it heard are kept. They land in the prompter as heard, next to a note about the problem, instead of being cleared. (#541)
+
+### Realm for iPhone
+
+- Every teammate at the head of Home. Home opens with a row of every teammate's mark and name, on All, Needs you and Pinned, so any teammate's chat is one tap from launch. A dot beside the name shows when it is working or needs you, and the name is bold while its chat is unread. A long press opens the same actions as the Team row. (#534)
+- A pairing the phone can't read says so. When the phone can't read its pairing or keys from the keychain, it shows a plain error instead of the scan screen, so it no longer looks as if the phone was never paired. A copy of Realm that wasn't signed to open its keychain is told to install Realm from TestFlight. (#526, #535)
+
 ## v2.19.0 - 2026-11-19
 
 A space gets a page of its own, and Documents gets a grid.
