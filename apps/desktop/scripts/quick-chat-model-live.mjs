@@ -2,7 +2,8 @@
  * Live check: the Quick chat model setting, and the engine kept started for the next quick chat.
  *
  *   pnpm build && node apps/desktop/scripts/quick-chat-model-live.mjs            # captures, no turns
- *   LIVE_MEASURE=1 node apps/desktop/scripts/quick-chat-model-live.mjs           # BILLS: three tiny turns
+ *   LIVE_MEASURE=1 node apps/desktop/scripts/quick-chat-model-live.mjs           # BILLS: a tiny turn per run
+ *   LIVE_WIRE=1 node apps/desktop/scripts/quick-chat-model-live.mjs              # the same runs, on a stand-in API
  *
  * Boots the built app quietly on a scratch home. The Claude CLI is the real one, signed in where it
  * always is (`~/.claude`, read in place); nothing is copied into the scratch home.
@@ -10,19 +11,30 @@
  * Captures (default): the Settings row and a quick chat on the default model, light and dark, then a
  * pick in the row and a quick chat on that pick. Opening a quick chat sends nothing, so nothing bills.
  *
- * Measure (`LIVE_MEASURE=1`): three quick chats, each asked one short question on the default model —
- * the first on a cold engine, the next two on the engine started when the one before was deleted.
- * Time to first token is from the send to the first streamed text. Every broadcast is written to
- * LIVE_OUT as it arrives, since the scratch home is gone when the app stops.
+ * Measure (`LIVE_MEASURE=1`): quick chats, each asked one short question on the default model — the
+ * first on a cold engine, the rest on the engine started when the one before was deleted. LIVE_RUNS
+ * names them (default `cold,warm 1,warm 2`). Each run is split at the stages a person waits through:
+ * the send, the engine's `init`, its first thinking, and its first streamed text. Every broadcast is
+ * written to LIVE_OUT as it arrives, since the scratch home is gone when the app stops.
+ *
+ * Wire (`LIVE_WIRE=1`): the same runs, with the CLI pointed at a local stand-in for the Messages API
+ * on a scratch config folder. Nothing bills. It records when each request left the CLI and what it
+ * carried — the system prompt, the tools, the thinking and effort asked for — in `wire-requests.jsonl`.
+ * With `LIVE_MEASURE=1` as well, the stand-in passes each request on to the real API under the
+ * signed-in login, and also records when the answer's first byte, first thinking and first text came.
  */
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 import { launchLiveApp, sleep, until } from "./lib/live-app.mjs";
 
 const OUT = process.env.LIVE_OUT ?? path.join(os.tmpdir(), "realm-quick-chat-model-live");
-const MEASURE = process.env.LIVE_MEASURE === "1";
+const WIRE = process.env.LIVE_WIRE === "1";
+const BILLED = process.env.LIVE_MEASURE === "1";
+const MEASURE = BILLED || WIRE;
+const RUNS = (process.env.LIVE_RUNS ?? "cold,warm 1,warm 2").split(",");
 fs.mkdirSync(OUT, { recursive: true });
 const js = (v) => JSON.stringify(v);
 const check = (name, cond, detail) => {
@@ -52,7 +64,9 @@ function rpc(port, token, onEvent) {
 
 // The fake agent stays registered in both modes: it is also what keeps the built server's titler and
 // recap off the account (billed-calls.ts), so the measure's only billed calls are its three turns.
-const app = await launchLiveApp({ name: "quick-chat-model" });
+const requests = [];
+const wire = WIRE ? await standInApi(path.join(OUT, "wire-requests.jsonl"), BILLED ? "https://api.anthropic.com" : null) : null;
+const app = await launchLiveApp({ name: "quick-chat-model", env: wire?.env ?? {} });
 const page = app.page;
 const ev = (expr) => page.eval(expr);
 const events = [];
@@ -90,20 +104,30 @@ try {
   const chip = () => ev(`document.querySelector('.quick-chat button[aria-label="Model"]')?.textContent ?? null`);
 
   if (MEASURE) {
+    // The scratch config folder lists only the CLI's aliases, so the stand-in run names the model.
+    if (WIRE && !BILLED) await api.call("settings.set", { key: "quickChatModel", value: { agentKind: "claude", model: "claude-haiku-5-5" } });
     const runs = [];
-    for (const label of ["cold", "warm 1", "warm 2"]) {
+    for (const label of RUNS) {
       const id = await openQuickChat();
       const row = await api.call("sessions.get", { id });
       const t0 = Date.now();
       await api.call("sessions.send", { id, text: "Reply with the single word: ready" });
-      const first = await until(async () => events.find((e) => e.at >= t0 && e.event === "session.event" && e.payload.sessionId === id
-        && (e.payload.event.type === "assistant_delta" || e.payload.event.type === "assistant_text")), 90_000, `${label}: first token`);
+      const mine = (type) => events.find((e) => e.at >= t0 && e.event === "session.event" && e.payload.sessionId === id && type(e.payload.event.type));
+      const first = await until(async () => mine((t) => t === "assistant_delta" || t === "assistant_text"), 90_000, `${label}: first token`);
       await until(async () => (await api.call("sessions.get", { id })).status === "idle", 90_000, `${label}: turn settled`);
-      const init = events.find((e) => e.event === "session.event" && e.payload.sessionId === id && e.payload.event.type === "init");
-      const run = { label, sessionId: id, model: row.model, ranModel: init?.payload.event.payload.model ?? null, firstTokenMs: first.at - t0 };
+      const init = mine((t) => t === "init");
+      const thinking = mine((t) => t === "thinking");
+      const asked = requests.find((r) => r.at >= t0 && r.url.startsWith("/v1/messages") && r.stream);
+      const since = (e) => (e ? e.at - t0 : null);
+      const run = { label, sessionId: id, model: row.model, effort: row.effort, ranModel: init?.payload.event.payload.model ?? null,
+        tools: init?.payload.event.payload.tools.length ?? null,
+        initMs: since(init), firstThinkingMs: since(thinking), firstTokenMs: since(first),
+        ...(asked ? { requestMs: asked.at - t0, request: asked } : {}) };
+      // The answer's own marks are written as it streams; read them once it has.
+      if (asked?.answer) for (const [k, v] of Object.entries(asked.answer)) run[`api${k[0].toUpperCase()}${k.slice(1)}Ms`] = v === null ? null : v - t0;
       runs.push(run);
       fs.writeFileSync(path.join(OUT, "measure.json"), js(runs));
-      console.log(`${label}: ${run.firstTokenMs} ms to first token on ${run.ranModel}`);
+      console.log(`${label}: init ${run.initMs} ms, thinking ${run.firstThinkingMs ?? "none"}, first token ${run.firstTokenMs} ms on ${run.ranModel}`);
       await deleteQuickChat();
       // The spare's engine is started at the delete; give it the time a person takes to ask again.
       await sleep(8_000);
@@ -182,4 +206,72 @@ try {
   api.close();
 } finally {
   await app.stop();
+  wire?.close();
+}
+
+/**
+ * A stand-in for the Messages API: each request is written down as it arrives. Alone, it answers
+ * "ready" at once, and the CLI reaches it through a scratch config folder and a placeholder key, so
+ * the signed-in login is neither used nor touched. Given `upstream`, it passes each request on with
+ * the CLI's own headers and streams the answer back, noting when its first byte, thinking and text
+ * came (`answer`), so a slow turn shows whether the time went before the API answered or inside it.
+ */
+async function standInApi(file, upstream) {
+  fs.writeFileSync(file, "");
+  const config = upstream ? null : fs.mkdtempSync(path.join(os.tmpdir(), "realm-quick-chat-wire-"));
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (d) => chunks.push(d));
+    req.on("end", async () => {
+      const body = Buffer.concat(chunks);
+      let j = {};
+      try { j = JSON.parse(body.toString()); } catch {}
+      const system = Array.isArray(j.system) ? j.system.map((b) => b.text ?? "").join("") : String(j.system ?? "");
+      const row = { at: Date.now(), url: req.url, model: j.model, stream: j.stream === true, thinking: j.thinking ?? null, outputConfig: j.output_config ?? null,
+        systemChars: system.length, tools: (j.tools ?? []).length, toolsChars: js(j.tools ?? []).length, bytes: body.length };
+      requests.push(row);
+      fs.appendFileSync(file, `${js(row)}\n`);
+      if (upstream) {
+        row.answer = { firstByte: null, thinking: null, text: null, end: null };
+        const headers = { ...req.headers };
+        delete headers.host; delete headers["content-length"]; delete headers["accept-encoding"];
+        const up = await fetch(upstream + req.url, { method: req.method, headers, body: req.method === "GET" ? undefined : body }).catch((e) => e);
+        if (up instanceof Error) { res.writeHead(502); res.end(String(up)); return; }
+        res.writeHead(up.status, Object.fromEntries([...up.headers].filter(([k]) => k !== "content-encoding" && k !== "content-length")));
+        for await (const chunk of up.body) {
+          const text = Buffer.from(chunk).toString();
+          const now = Date.now();
+          row.answer.firstByte ??= now;
+          if (row.answer.thinking === null && /"type":"thinking/.test(text)) row.answer.thinking = now;
+          if (row.answer.text === null && /"text_delta"/.test(text)) row.answer.text = now;
+          res.write(chunk);
+        }
+        row.answer.end = Date.now();
+        res.end();
+        fs.appendFileSync(file, `${js({ at: row.at, url: row.url, answer: row.answer })}\n`);
+        return;
+      }
+      const usage = { input_tokens: 1, output_tokens: 1 };
+      if (!j.stream) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(js({ id: "msg_wire", type: "message", role: "assistant", model: j.model, content: [{ type: "text", text: "ready" }], stop_reason: "end_turn", usage, input_tokens: 1 }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const send = (type, data) => res.write(`event: ${type}\ndata: ${js({ type, ...data })}\n\n`);
+      send("message_start", { message: { id: "msg_wire", type: "message", role: "assistant", model: j.model, content: [], stop_reason: null, usage } });
+      send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
+      send("content_block_delta", { index: 0, delta: { type: "text_delta", text: "ready" } });
+      send("content_block_stop", { index: 0 });
+      send("message_delta", { delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } });
+      send("message_stop", {});
+      res.end();
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  return {
+    env: upstream ? { ANTHROPIC_BASE_URL: base } : { ANTHROPIC_BASE_URL: base, ANTHROPIC_API_KEY: "stand-in", CLAUDE_CONFIG_DIR: config, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
+    close: () => { server.close(); if (config) fs.rmSync(config, { recursive: true, force: true }); },
+  };
 }
