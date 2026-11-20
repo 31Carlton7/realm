@@ -20,6 +20,20 @@ interface Window {
     /** The space this window was opened for, or undefined. Boot lands on it. */
     spaceId?: string;
     landSpaceId?: string;
+    /** "quick-chat" in the quick chat panel's page; undefined in a Realm window. */
+    surface?: string;
+    /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). Optional like
+     *  every bridge: jsdom has none. */
+    quickChatPanel?: {
+      hide(): void;
+      onShown(cb: () => void): () => void;
+      shortcut(): Promise<import("@realm/contracts").QuickChatShortcutState>;
+      setShortcut(chord: string | null): Promise<import("@realm/contracts").QuickChatShortcutState>;
+      setHideFromSharing(on: boolean): void;
+      openInRealm(target: { sessionId: string; spaceId: string }): void;
+      chatChanged(): void;
+      onChatChanged(cb: () => void): () => void;
+    };
     /** Realm's windows (main/window-registry.ts). Optional like every bridge: jsdom has none. */
     windows?: {
       openProfile(profileId: string): Promise<void>;

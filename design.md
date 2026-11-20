@@ -367,6 +367,14 @@ Rules:
   are `--surface` with the overlay stack's edge; cards are their fill and lift. Nothing scrolls under
   them, so a blur there has nothing to say. A scrim that dims what is behind a modal is a dim, not a
   material.
+- The quick chat panel is the one window of Realm's that opens over another app, so it behaves as a
+  guest there. It takes the keyboard without becoming the front app and gives it back when it goes,
+  it comes with no Realm window behind it, and Escape puts it away and deletes nothing: a key
+  pressed to get out of the way never costs a conversation. It is the quick chat's card with the
+  window as its edge, so in Plain it is the card's surface, and in Glass its ground thins over the
+  window's own material, which is macOS's and not a fill of ours. What Settings says about hiding
+  it from screen sharing is what was measured and no more: left out of what macOS captures, still
+  listed without a name, and a meeting app's own share unchecked.
 - The window is a frame with sheets set into it. The rail and the top row across the whole window
   are one ground, a step off the sidebar's, and the sidebar's toggle, the panes' bars and the side
   panel's tabs all stand in that strip (the owner, 11-11: the outer colour on the top strip and the
@@ -670,12 +678,14 @@ corner, and everything else a box does — its `box-shadow` lift, the clip of wh
 outline — follows the curve with no filter and no extra layer, which matters when a transcript or a
 Library holds dozens of cards. `styles.test.ts` works the containment out rather than trusting it.
 A card that draws on its own edge is the exception: the documents grid's card, with its lit edge and
-lift, and the Library's tile, with its shadow and the picture it clips. On screen that circle traced a
-tighter corner than the painted fill, so a hovered card showed two contours and its well followed
-neither (the owner, 11-19: "Fix the corners here too"). Their box states the card's curve itself
-(`corner-shape: squircle` at the card rung), which draws on the worklet's curve. A well inside one
-takes the card's corner less the card's padding, and a control in the well's corner takes the well's
-corner less its gap, on the same curve. `styles.test.ts` holds every file card to this.
+lift, the Library's tile, with its shadow and the picture it clips, and a saved turn, with its
+shadow. On screen that circle traced a tighter corner than the painted fill, so a hovered card
+showed two contours and its well followed neither (the owner, 11-19: "Fix the corners here too"),
+and a saved turn cast its shadow from the circle rather than the edge it painted. Their box states
+the card's curve itself (`corner-shape: squircle` at the card rung), which draws on the worklet's
+curve. A well inside one takes the card's corner less the card's padding, and a control in the
+well's corner takes the well's corner less its gap, on the same curve. `styles.test.ts` holds every
+file card to this.
 
 `corner-shape: squircle` was inert in Electron 37's Chromium 138 and draws from 139, but the
 signature curve is the paint worklet's, so a surface that declares it must also be listed in the

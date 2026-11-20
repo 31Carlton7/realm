@@ -5743,6 +5743,7 @@ describe("file cards", () => {
   const CARDS = [
     { card: ".docs-card", well: ".docs-card-preview", pad: "var(--doc-card-inset)", corner: ".docs-card-cell > .docs-home-attach", gap: "var(--attach-gap)" },
     { card: ".library-tile", corner: ".library-grid .library-file-more", gap: "var(--more-gap)" },
+    { card: ".saved-turn-open" },
   ];
   const esc = (s: string) => s.replace(/[.()]/g, "\\$&");
   /** Every rule with a selector part naming `cls`, under the painter or not. */
@@ -5947,6 +5948,14 @@ describe("one segmented control", () => {
     const capped = RULES.filter((r) => r.selectors.some((s) => /\.settings-tabs$/.test(s)) && /max-width/.test(r.body)).flatMap((r) => r.selectors);
     expect(capped).toEqual([]);
     expect(prop(".settings-row[data-stack] > .settings-tabs", "align-self")).toBe("flex-start");
+  });
+
+  it("scrolls a strip too wide for a narrow page inside its row, rather than running past the column", () => {
+    /* #530: a fieldset's UA `min-inline-size: min-content` held the strip as wide as its tabs, so at the
+       narrow width it ran past the column with the last tab cut off and never scrolled. THE MUTANT:
+       either half dropped, and the strip spills again. */
+    const narrow = blockAfter("@container (max-width: 640px)");
+    expect(narrow).toMatch(/\.settings-tabs \{[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;[^}]*overflow-x: auto/);
   });
 });
 

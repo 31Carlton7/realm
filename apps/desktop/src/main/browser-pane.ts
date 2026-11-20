@@ -452,10 +452,9 @@ export type BrowserPane = {
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller, o: { retainedLimit?: () => number | null } = {}): BrowserPane {
   const views = new Map<string, WebContents>();
-  const typedSince = new TypedSince();
+  const typedSince = new TypedSince<WebContents>();
   const viewBoxes = new Map<string, WebContentsView>();
   const destroyedCbs: ((id: string) => void)[] = [];
-  const watched = new WeakSet<WebContents>();
   const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
   /** The discard guard (`BrowserPaneHost.sweep`): what the process says, then what the page says. */
   const guard = async (id: string): Promise<KeepReason | null> => {
@@ -487,10 +486,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       if (wc) {
         if (views.has(id) && views.get(id) !== wc) gone();
         views.set(id, wc); if (view) viewBoxes.set(id, view);
-        if (watched.has(wc)) return;
-        watched.add(wc);
-        wc.on("before-input-event", (_e, input) => typedSince.input(id, input));
-        wc.on("did-navigate", () => typedSince.navigated(id));
+        typedSince.show(id, wc);
       } else if (viewBoxes.get(id) === view) gone();
     }, installPasskeysFor),
     sendState: (s) => send("realm:browser-state", s),
@@ -553,7 +549,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       const b = view.getBounds();
       return { x: b.x, y: b.y, zoom: wc.getZoomFactor() };
     },
-    markTyped: (id) => { if (views.has(id)) typedSince.mark(id); },
+    markTyped: (id) => typedSince.mark(id),
     viewProcesses: () => host.processes(),
     capture: async (id) => {
       host.live(id);

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, Notification, shell, systemPreferences, webContents, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, systemPreferences, webContents, type WebContents } from "electron";
 
 /**
  * Quiet windows: a live check's app that the person at the Mac never sees or hears.
@@ -24,6 +24,9 @@ import { app, BrowserWindow, dialog, Menu, Notification, shell, systemPreference
  *     `getFocusedWebContents`. The real `webContents.focus()` makes its window key and activates the
  *     app whatever the window allows (measured: browser-menu-live had Electron in front for 18s);
  *   - secrets are sealed with Chromium's mock Keychain, so macOS never asks for the login password;
+ *   - no key is taken from the system: `globalShortcut.register` answers yes and registers nothing,
+ *     except the one accelerator a check names in `REALM_QUIET_GLOBAL_SHORTCUT`, which has to be a
+ *     chord nobody presses by accident;
  *   - no sound, notification, About panel, system dialog, permission prompt, Finder window or
  *     browser: each is recorded in `quietWindowsLog` instead, where a check can read it over
  *     `--inspect`.
@@ -50,6 +53,19 @@ export const QUIET_ALPHA = 1 / 255;
 
 /** Construction options for a window that must not flash before `browser-window-created` runs. */
 export const QUIET_WINDOW_OPTIONS = { show: false, focusable: false, opacity: QUIET_ALPHA, hasShadow: false } as const;
+
+/**
+ * A window whose check is that it really takes the keyboard: the quick chat panel, which is a
+ * non-activating panel, so it can be key without the front app changing. Marked on the window
+ * rather than kept here, because this module may be loaded twice. Honoured only while the check
+ * asks (`REALM_QUIET_REAL_KEY=1`), and the window stays as hushed as every other.
+ */
+const KEYABLE = Symbol.for("realm.quietWindows.keyable");
+type Keyable = { [KEYABLE]?: true };
+export function quietKeyable(w: BrowserWindow): void {
+  (w as Keyable)[KEYABLE] = true;
+}
+const takesKey = (w: BrowserWindow) => process.env.REALM_QUIET_REAL_KEY === "1" && (w as Keyable)[KEYABLE] === true;
 
 /** Once per process, though the module may be loaded twice: a live check's wrapper loads its own
  *  build of this file before Realm's main, which carries another. */
@@ -87,6 +103,7 @@ export function installQuietWindows(): void {
   /* ── Windows ─────────────────────────────────────────────────────────────────────────────── */
   const proto = BrowserWindow.prototype;
   const showInactive = proto.showInactive;
+  const focus = proto.focus;
   const order: BrowserWindow[] = [];
   let key: BrowserWindow | null = null;
   const live = (w: BrowserWindow | null) => (w && !w.isDestroyed() ? w : null);
@@ -100,7 +117,7 @@ export function installQuietWindows(): void {
   const hush = (w: BrowserWindow) => {
     w.setOpacity(QUIET_ALPHA);
     w.setHasShadow(false);
-    w.setFocusable(false);
+    w.setFocusable(takesKey(w));
     w.setIgnoreMouseEvents(true);
     // Above everything, on every Space: a window anything covers is occluded, and an occluded
     // window's page stops getting frames whatever the Chromium switches say.
@@ -117,6 +134,7 @@ export function installQuietWindows(): void {
     setKey(this);
   };
   proto.focus = function (this: BrowserWindow) {
+    if (takesKey(this)) focus.call(this);
     if (this.isVisible()) setKey(this);
   };
   proto.blur = function (this: BrowserWindow) {
@@ -150,6 +168,13 @@ export function installQuietWindows(): void {
     wc.focus = () => { keyboard = wc; };
     wc.isFocused = () => holder() === wc;
   });
+
+  const register = globalShortcut.register.bind(globalShortcut);
+  globalShortcut.register = (accelerator: string, callback: () => void) => {
+    if (accelerator === process.env.REALM_QUIET_GLOBAL_SHORTCUT) return register(accelerator, callback);
+    note("global shortcut", accelerator);
+    return true;
+  };
 
   /* ── Everything else that reaches the person ─────────────────────────────────────────────── */
   Notification.isSupported = () => false;
