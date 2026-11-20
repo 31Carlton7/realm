@@ -1429,7 +1429,9 @@ input.sb-space-name { flex: 1; }
   --fade-h: 28px; --fade-top-h: 28px; scroll-padding-block: 28px; }
 .skill-picker-group + .skill-picker-group { margin-top: 6px; }
 .skill-picker-group-label { padding: 5px 8px 3px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
-.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
+/* A row is two 20px lines, the 1px between them and its padding: 53px, the height its corner is worked
+   out from, on the control curve the other pickers' rows take. */
+.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; --btn-h: 53px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);
   transition: background-color var(--dur-hover) ease; }
 .skill-picker-row[data-active] { background: var(--hover); }
 .skill-picker-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }

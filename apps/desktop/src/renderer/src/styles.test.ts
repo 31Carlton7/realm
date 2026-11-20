@@ -5659,7 +5659,7 @@ describe("one squircle ladder (the owner, 11-17)", () => {
     const fixed = RULES.filter((r) => /corner-shape: squircle/.test(r.body) && /border-radius: var\(--r-(ctl|chip)\)/.test(r.body))
       .flatMap(partsOf);
     expect(fixed).not.toContain(".documents-tab");
-    expect(fixed.length).toBeLessThanOrEqual(63);
+    expect(fixed.length).toBeLessThanOrEqual(62);
   });
 });
 
@@ -5727,7 +5727,7 @@ describe("segmented controls", () => {
     expect(rings.length).toBeGreaterThanOrEqual(2);
     for (const r of rings) expect(r.body, partsOf(r).join(", ")).toContain("border-radius: inherit; corner-shape: inherit;");
     // The pickers' rows are controls on the control curve too.
-    for (const sel of [".mp-row", ".mention-row", ".mp-bolt"])
+    for (const sel of [".mp-row", ".mention-row", ".mp-bolt", ".skill-picker-row"])
       expect(bodiesFor(sel).join(" "), sel).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);");
   });
 });
