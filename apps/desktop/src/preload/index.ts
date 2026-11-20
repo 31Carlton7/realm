@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BrowserCredentialEdit, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
+import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
 import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
@@ -121,6 +121,19 @@ contextBridge.exposeInMainWorld("realm", {
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
   power: {
     preventSleep: (on: boolean): Promise<void> => ipcRenderer.invoke("power:prevent-sleep", on),
+  },
+  /** Settings ▸ General ▸ Meetings. Main reads the calendar; `askForCalendar` is the one call here
+   *  that makes macOS ask, and only the page's button makes it. */
+  meetings: {
+    setOpenWhenStarts: (on: boolean): Promise<void> => ipcRenderer.invoke("meetings:open-when-starts", on),
+    calendarAccess: (): Promise<CalendarAccess | null> => ipcRenderer.invoke("meetings:calendar-access"),
+    askForCalendar: (): Promise<void> => ipcRenderer.invoke("meetings:ask-for-calendar"),
+    openCalendarSettings: (): Promise<void> => ipcRenderer.invoke("meetings:open-calendar-settings"),
+    onCalendarAccess: (cb: (access: CalendarAccess | null) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, access: CalendarAccess | null) => cb(access);
+      ipcRenderer.on("realm:calendar-access", handler);
+      return () => ipcRenderer.removeListener("realm:calendar-access", handler);
+    },
   },
   /** The apps installed on this Mac and their icons, for the prompter's `@` list. `icons` answers only
    *  for bundles main's own scan found; any other path is simply absent from the answer. */

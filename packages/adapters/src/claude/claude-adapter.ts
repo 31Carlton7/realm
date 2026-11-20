@@ -653,6 +653,11 @@ export class ClaudeAdapter implements AgentAdapter {
     const streamPercent = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 100; };
     const streamMillis = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 1000; };
 
+    /** The plan reads, init's and each limit event's, one after another (see `rate_limit_event`). A read that throws is logged and the next still runs. */
+    let planReads: Promise<void> = Promise.resolve();
+    const chainPlanRead = (read: () => Promise<void>) => {
+      planReads = planReads.then(read).catch((e) => console.error(`[claude] plan read failed: ${e instanceof Error ? e.message : String(e)}`));
+    };
     /**
      * Ask the CLI for the whole plan picture — every rate-limit window, plus the subscription tier.
      *
@@ -776,7 +781,10 @@ export class ClaudeAdapter implements AgentAdapter {
             // The plan panel should be answerable before any limit moves, so it is read once here
             // rather than waiting for the first `rate_limit_event` — which on a quiet account may
             // never come. Off the message loop, like the fast-mode probe above it.
-            void readPlanLimits().then((p) => { if (p && !disposed) events.push(sessionEvent("rate_limit", p)); }).catch(() => {});
+            chainPlanRead(async () => {
+              const p = await readPlanLimits();
+              if (p && !disposed) events.push(sessionEvent("rate_limit", p));
+            });
             if (!running) events.push(sessionEvent("status", { status: "idle" })); // init arrives after the first send in streaming mode
             continue;
           }
@@ -815,16 +823,24 @@ export class ClaudeAdapter implements AgentAdapter {
             // The full picture first, so a panel opened on this event shows every window rather than
             // only the one that moved. Its `alert` is always "none" — the control request reports
             // quotas, not status — so the stream's verdict is laid over it here.
-            const full = await readPlanLimits();
-            const id = streamWindowId(typeof info.rateLimitType === "string" ? info.rateLimitType : null, full?.windows ?? []);
-            const window: PlanWindow[] = id
-              ? [{ id, label: full?.windows.find((w) => w.id === id)?.label ?? planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
-              : [];
-            const merged = full
-              ? { ...full, windows: mergeWindows(full.windows, window), alert, alertWindow: id }
-              : { subscriptionType: null, organization: null, windows: window, alert, alertWindow: id,
-                  unavailable: null, detail: typeof info.overageDisabledReason === "string" ? info.overageDisabledReason : null };
-            events.push(sessionEvent("rate_limit", merged));
+            //
+            // Off the message loop. The CLI sends this event just before a response's body, and it
+            // answers the control request by asking the usage endpoint, which can take seconds (a 429
+            // it waits out): awaited here, the turn's text and result waited with it, and a one-word
+            // answer that streamed in 1.5 s reached the chat at 15. Chained, so readings land in the
+            // order the stream sent them and a slow early one never overwrites a later one.
+            chainPlanRead(async () => {
+              const full = await readPlanLimits();
+              const id = streamWindowId(typeof info.rateLimitType === "string" ? info.rateLimitType : null, full?.windows ?? []);
+              const window: PlanWindow[] = id
+                ? [{ id, label: full?.windows.find((w) => w.id === id)?.label ?? planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
+                : [];
+              const merged = full
+                ? { ...full, windows: mergeWindows(full.windows, window), alert, alertWindow: id }
+                : { subscriptionType: null, organization: null, windows: window, alert, alertWindow: id,
+                    unavailable: null, detail: typeof info.overageDisabledReason === "string" ? info.overageDisabledReason : null };
+              if (!disposed) events.push(sessionEvent("rate_limit", merged));
+            });
             continue;
           }
           for (const e of mapper.map(msg)) events.push(e);

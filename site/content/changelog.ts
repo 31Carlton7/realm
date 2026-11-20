@@ -21,6 +21,23 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-21-0",
+    title: "Realm v2.21.0",
+    date: "2026-11-20",
+    version: "v2.21.0",
+    area: "Release",
+    summary:
+      "In the browser pane, when a tab a page opened closes while it is in front, the tab that opened it comes forward, as in a browser.",
+    short: "Closing a tab returns you to the page that opened it",
+    body: [
+      { kind: "p", text: "Closing a tab a page opened brings you back to the page that opened it." },
+      { kind: "h", text: "Improved" },
+      { kind: "ul", items: [
+        "**A tab a page opened hands you back to that page when it closes.** In the browser pane, when a tab that a page opened from another tab closes while it is in front, the tab that opened it now comes forward, as in a browser. It works the same whether the page closed itself or you pressed its ×. If you have picked another tab in that pane since it opened, switched spaces or reopened Realm, the tab beside it comes forward, as before. (#585, fixes #571)",
+      ] },
+    ],
+  },
+  {
     slug: "v2-20-5",
     title: "Realm v2.20.5",
     date: "2026-11-20",

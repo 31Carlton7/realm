@@ -116,6 +116,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "quick-chat-model", tab: "general", section: "Sessions", label: "Quick chat model", terms: "quick chat popup fast model haiku engine option command n" },
   { id: "open-files-in", tab: "general", section: "Files", label: "Open files in", terms: "editor cursor vscode code zed xcode ide path" },
   { id: "open-links-in", tab: "general", section: "Links", label: "Open links in", terms: "web url browser default safari chrome realm click command" },
+  { id: "open-meetings", tab: "general", section: "Meetings", label: "Open the meeting when it starts", terms: "calendar join call zoom meet teams webex facetime link notification auto",
+    available: () => capabilities().meetings },
   { id: "sidebar-activity-order", tab: "general", section: "Sidebar", label: "Sort spaces by activity", terms: "order drag strip" },
   { id: "confirm-delete", tab: "general", section: "Deleting", label: "Ask before deleting", terms: "confirm delete trash" },
   { id: "terminal-history", tab: "general", section: "Terminals", label: TERMINALS_HISTORY_COPY.label, terms: "output history restart" },
