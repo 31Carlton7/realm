@@ -210,7 +210,7 @@ describe("the quick chat", () => {
       expect(store.getState().items.filter((i) => i.kind === "session" && i.refId === sessionId)).toMatchObject([{ spaceId: "s1" }]);
       expect(within(chat()).getByRole("button", { name: "Open" })).toBeInTheDocument();
       // It ran in Versed and was saved to Versed: there is no other folder to name.
-      expect(within(chat()).queryByText(/keeps working in/)).toBeNull();
+      expect(within(chat()).queryByText(/Still works in/)).toBeNull();
     });
 
     it("Other lists every space, and one saved away from where it ran says whose folder it works in", async () => {
@@ -221,7 +221,7 @@ describe("the quick chat", () => {
       fireEvent.click(within(picker).getByRole("menuitem", { name: "Garden" }));
       await within(chat()).findByText("Saved to Garden");
       expect(store.getState().sessions[sessionId]!.spaceId).toBe("s5");
-      expect(within(chat()).getByText("It keeps working in the Versed folder.")).toBeInTheDocument();
+      expect(within(chat()).getByText("Still works in the Versed folder.")).toBeInTheDocument();
     });
 
     it("a saved chat closes without deleting, and is listed like any other session", async () => {

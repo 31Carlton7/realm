@@ -278,7 +278,7 @@ function SaveRow({ spaces, saveSpaces, keptIn, ranIn, onKeep, onOpen }: {
   const nameOf = (id: string) => spaces.find((sp) => sp.id === id)?.name ?? "";
   /* A chat that has run keeps its folder when its space changes (`sessions.moveToSpace`), so saved
      anywhere but where it ran it goes on working in the first space's folder. */
-  const folderNote = `It keeps working in the ${nameOf(ranIn)} folder.`;
+  const folderNote = `Still works in the ${nameOf(ranIn)} folder.`;
 
   if (keptIn) {
     return (
@@ -286,7 +286,7 @@ function SaveRow({ spaces, saveSpaces, keptIn, ranIn, onKeep, onOpen }: {
         <span className="quick-chat-saved"><Icon name="check" size={12} />Saved to {nameOf(keptIn)}</span>
         <span aria-hidden="true">·</span>
         <button type="button" className="btn-quiet" title="Open it in Realm (⌘↩)" onClick={onOpen}>Open</button>
-        {keptIn !== ranIn && <span className="quick-chat-save-note">{folderNote}</span>}
+        {keptIn !== ranIn && <span className="quick-chat-save-note" title={folderNote}>{folderNote}</span>}
       </footer>
     );
   }
