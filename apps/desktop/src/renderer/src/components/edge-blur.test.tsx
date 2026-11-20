@@ -147,6 +147,39 @@ describe("a scroller wearing it", () => {
     blur.stop();
   });
 
+  it("comes in as content grows past the bar, with no scroll", async () => {
+    // THE mutant: the share left as it was until the next scroll, so content that grew under a column
+    // held 10px short of its end ran on past the bar with the foot band 15% in.
+    canvases();
+    const observers: { fire: () => void; targets: Element[] }[] = [];
+    vi.stubGlobal("ResizeObserver", class {
+      targets: Element[] = [];
+      constructor(cb: () => void) { observers.push({ fire: cb, targets: this.targets }); }
+      observe(t: Element) { this.targets.push(t); }
+      unobserve() {}
+      disconnect() { this.targets.length = 0; }
+    });
+    const el = document.createElement("div");
+    const content = el.appendChild(document.createElement("div"));
+    let height = 3000;
+    Object.defineProperties(el, { clientWidth: { value: 700 }, clientHeight: { value: 800 }, scrollHeight: { get: () => height },
+      scrollTop: { value: 3000 - 800 - 10 } });
+    document.body.append(el);
+    el.style.setProperty("--fade-h", "68px");
+    el.style.setProperty("--dur-fast", "0ms");
+    const blur = attachEdgeBlur(el);
+    blur.set(true, true);
+    await frames(4);
+    const id = el.style.getPropertyValue("--edge-blur").slice(5, -1);
+    const foot = () => +document.getElementById(id)!.querySelector('feImage[result^="bottom-"]')!.getAttribute("y")!;
+    expect(foot()).toBeCloseTo(800 - 10);
+    height = 3400;
+    for (const o of observers) if (o.targets.includes(content)) o.fire();
+    expect(foot()).toBe(800 - 68);
+    blur.stop();
+    vi.unstubAllGlobals();
+  });
+
   it("follows the scroll at once, without easing after it", async () => {
     // THE mutant: the scroll left to the slide, which lags a band behind the content under it.
     canvases();

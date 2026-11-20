@@ -180,9 +180,6 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
     if (moving) frame = requestAnimationFrame(step);
     else last = 0;
   };
-  // Drawn the first time an end opens, so a scroller that never moves builds nothing.
-  const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => { if (shape) fit(); });
-  sized?.observe(el);
   // The scroll is already continuous, so a band follows it at once rather than easing after it. Most
   // of a scroll is far from both ends, where neither band moves and the filter is left alone.
   const scrolled = () => {
@@ -194,6 +191,12 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
     place();
   };
   el.addEventListener("scroll", scrolled, { passive: true });
+  // Drawn the first time an end opens, so a scroller that never moves builds nothing. The content is
+  // watched as well: content growing under a scroller held short of its end puts more past the bar
+  // with no scroll, and the band stayed where the last scroll left it.
+  const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => { if (shape) fit(); scrolled(); });
+  sized?.observe(el);
+  for (const child of Array.from(el.children)) sized?.observe(child);
   return {
     set(start, end) {
       want.top = start;

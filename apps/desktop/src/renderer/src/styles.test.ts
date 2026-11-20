@@ -5949,6 +5949,14 @@ describe("one segmented control", () => {
     expect(capped).toEqual([]);
     expect(prop(".settings-row[data-stack] > .settings-tabs", "align-self")).toBe("flex-start");
   });
+
+  it("scrolls a strip too wide for a narrow page inside its row, rather than running past the column", () => {
+    /* #530: a fieldset's UA `min-inline-size: min-content` held the strip as wide as its tabs, so at the
+       narrow width it ran past the column with the last tab cut off and never scrolled. THE MUTANT:
+       either half dropped, and the strip spills again. */
+    const narrow = blockAfter("@container (max-width: 640px)");
+    expect(narrow).toMatch(/\.settings-tabs \{[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;[^}]*overflow-x: auto/);
+  });
 });
 
 it("draws a disclosure with the icon set's chevron, never a typed triangle", () => {
