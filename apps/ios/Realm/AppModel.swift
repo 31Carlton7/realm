@@ -44,8 +44,8 @@ enum PairingStatus: Equatable {
     case idle
     case working(String)
     case confirmOnMac(String)
-    /// What happened and what to do, with an optional quiet detail for diagnosis.
-    case failed(String, detail: String? = nil)
+    /// What happened and what to do.
+    case failed(String)
 
     var isBusy: Bool {
         switch self {
@@ -331,8 +331,7 @@ final class AppModel {
             identity = try vault.loadOrCreateIdentity()
             return true
         } catch {
-            pairing = .failed("Realm couldn't read this iPhone's keys from the keychain. Install the latest Realm from TestFlight, then open it again.",
-                              detail: keychainDetail(error))
+            pairing = .failed(keychainMessage(error))
             return false
         }
     }
@@ -344,16 +343,19 @@ final class AppModel {
             if let mac = try vault.pairedMacs().last { adopt(mac) }
             return true
         } catch {
-            pairing = .failed("Realm couldn't read this iPhone's pairing from the keychain. Install the latest Realm from TestFlight, then open it again.",
-                              detail: keychainDetail(error))
+            pairing = .failed(keychainMessage(error))
             return false
         }
     }
 
-    /// The keychain's status for a failed read, logged in full and shown in brief.
-    private func keychainDetail(_ error: Error) -> String? {
-        log.error("Keychain read failed: \(String(describing: error), privacy: .public)")
-        return (error as? KeychainError)?.detail
+    /// The words for a failed keychain read. Its status is logged, not shown.
+    private func keychainMessage(_ error: Error) -> String {
+        guard let error = error as? KeychainError else {
+            log.error("Keychain read failed: \(String(describing: error), privacy: .public)")
+            return KeychainError.unreadable
+        }
+        log.error("Keychain read failed with status \(error.status, privacy: .public)")
+        return error.localizedDescription
     }
 
     /// Takes a Mac as the one this phone shows, with whatever was kept of it.
