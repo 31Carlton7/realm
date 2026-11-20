@@ -70,6 +70,19 @@ describe("message boxes in main", () => {
     expect(callers).toEqual([]);
   });
 
+  // `showErrorBox` is app-modal too, with no window to put a sheet on. "Realm failed to start" is
+  // its one use, because nothing else is running yet; anything later belongs in a log (#567).
+  // Mutant: show an uncaught exception with `dialog.showErrorBox` in `uncaught.ts`.
+  it("show an error box only when Realm failed to start", () => {
+    const calls: string[] = [];
+    for (const path of sources(MAIN)) {
+      for (const line of readFileSync(path, "utf8").split("\n")) {
+        if (/\bshowErrorBox\s*\(/.test(line)) calls.push(`${relative(MAIN, path)} ${line.match(/showErrorBox\(\s*("[^"]*")?/)?.[1]}`);
+      }
+    }
+    expect(calls).toEqual(['index.ts "Realm failed to start"']);
+  });
+
   // Mutant: show the update-ready prompt with `askAppModal`. Each caller here is a click the person
   // has just made; anything that fires on its own must use a sheet.
   it("are app-modal only for the tray's quit and a launch's hand-off", () => {
