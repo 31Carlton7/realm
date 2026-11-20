@@ -391,14 +391,14 @@ export class UserActivation {
  * The window-open handler's answer for a tab: ALLOW the window, so Chromium makes it as the page asked
  * — `window.open` answers a live window, `window.opener` is there unless the page said `noopener`, and
  * a form's POST body goes with its navigation — and hand the web contents it made to `adopt` to be the
- * tab's page instead of a window. A tab outlives the page that opened it, and stays hidden until a pane
- * shows it. `webPreferences` are the pane's own, its profile's partition among them.
+ * tab's page instead of a window. A tab outlives the page that opened it. `webPreferences` are the
+ * pane's own, its profile's partition among them.
  */
 export function hostedTab<Page>(webPreferences: Record<string, unknown>, adopt: (page: Page) => void) {
   return {
     action: "allow" as const,
     outlivesOpener: true,
-    overrideBrowserWindowOptions: { show: false, webPreferences },
+    overrideBrowserWindowOptions: { webPreferences },
     // Electron hands over the web contents it made as `options.webContents` (its guest-window-manager),
     // which its types leave out of the options.
     createWindow: (options: object): Page => {

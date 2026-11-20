@@ -165,11 +165,11 @@ describe("hostedTab", () => {
     expect(adopt).toHaveBeenCalledWith(page);
   });
 
-  it("outlives the page that opened it, as a tab does, hidden until its pane shows it, in the opener's profile", () => {
+  it("outlives the page that opened it, as a tab does, in the pane's profile", () => {
     // THE MUTANT: drop outlivesOpener, and closing the page that opened a tab closes the tab too.
     const r = hostedTab({ partition: P, sandbox: true }, () => {});
     expect(r.outlivesOpener).toBe(true);
-    expect(r.overrideBrowserWindowOptions).toEqual({ show: false, webPreferences: { partition: P, sandbox: true } });
+    expect(r.overrideBrowserWindowOptions).toEqual({ webPreferences: { partition: P, sandbox: true } });
   });
 });
 

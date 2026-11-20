@@ -147,8 +147,8 @@ export function electronViewFactory(
 
     /* Guard 1: a page's request for a new window (`windowOpenAction`). A link meant for a tab, pressed
        for, is a new tab beside this one hosting the page Chromium made for it (`hostedTab`); any other
-       link is navigated in place; both allowlist-checked. A popup — a sign-in, mostly — is a real window, because the page that opened it is waiting
-       for it to post back and close.
+       link is navigated in place; both allowlist-checked. A popup — a sign-in, mostly — is a real
+       window, because the page that opened it is waiting for it to post back and close.
 
        Every popup is this pane's and nobody else's: Chromium makes it in its opener's session (which
        is what lets the two script each other), so it signs in to the pane's profile; it gets the same
@@ -157,18 +157,18 @@ export function electronViewFactory(
        not get is the pane's saved passwords and passkeys: those are installed per pane and answer for
        the pane's page, never for another. */
     const popups = new Set<BrowserWindow>();
-    // Whether the person pressed something in the page just now: only that lets it open a tab.
     const activation = new UserActivation();
     wc.on("input-event", (_e, input) => activation.note(input.type, Date.now()));
     const openWindow = (opener: WebContents) => (details: HandlerDetails): WindowOpenHandlerResponse => {
       // A popup's own links stay in the popup whatever pressed them (below), so only the pane's page
       // spends its activation.
       const action = windowOpenAction(details, popups.size, opener !== wc || activation.consume(Date.now()));
-      if ((action === "foreground-tab" || action === "background-tab") && opener === wc) {
+      const tab = action === "foreground-tab" || action === "background-tab";
+      if (tab && opener === wc) {
         if (!hooks.allowNavigate(details.url)) return { action: "deny" };
-        return hostedTab<WebContents>(webPreferences, (tab) => hooks.openTab(details.url, action === "background-tab", tab));
+        return hostedTab<WebContents>(webPreferences, (page) => hooks.openTab(details.url, action === "background-tab", page));
       }
-      if (action === "in-place" || action === "foreground-tab" || action === "background-tab") {
+      if (action === "in-place" || tab) {
         if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }
         // A link in a popup opens in the popup: the page behind it is waiting on the popup, not on this.
         const url = normalizeAddress(details.url);
