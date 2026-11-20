@@ -509,15 +509,18 @@ describe("ClaudeAdapter", () => {
     // The CLI answers the plan read by asking the usage endpoint, which took 7 s a call live. THE
     // MUTANT: await it on the message loop, and the turn's result waits for an answer that only
     // comes after it, so this times out.
+    const reading = { subscription_type: "max", rate_limits: { seven_day: { utilization: 40, resets_at: null }, five_hour: { utilization: 3, resets_at: null } } };
     const answers: ((v: unknown) => void)[] = [];
-    const planLimits = () => new Promise((r) => { answers.push(r); });
+    let answering = false;
+    const planLimits = () => (answering ? Promise.resolve(reading) : new Promise((r) => { answers.push(r); }));
     const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: { status: "allowed", rateLimitType: "seven_day", utilization: 0.4 }, planLimits, hang: true }) as never });
     const h = a.start({ cwd: "/tmp", mcpServers: [] });
     const turn = collectUntil(h.events, (e) => e.type === "usage");
     await h.send({ text: "hi", attachments: [] });
     expect(types(await turn)).not.toContain("rate_limit");
     const late = collectUntil(h.events, (e) => e.type === "rate_limit" && e.payload.alertWindow === "seven_day");
-    for (const answer of answers) answer({ subscription_type: "max", rate_limits: { seven_day: { utilization: 40, resets_at: null }, five_hour: { utilization: 3, resets_at: null } } });
+    answering = true;
+    for (const answer of answers) answer(reading);
     const got = (await late).at(-1); await h.dispose();
     expect(got?.type === "rate_limit" && got.payload.windows.map((w) => w.id).sort()).toEqual(["five_hour", "seven_day"]);
   });
@@ -535,6 +538,34 @@ describe("ClaudeAdapter", () => {
     const c = collectUntil(h.events, (_, all) => fromStream(all).length === 2);
     await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
     expect(fromStream(got)).toEqual(["none", "approaching"]);
+  });
+  it("lays the init read down before a later limit reading, however long it takes", async () => {
+    // THE MUTANT: fire the init read off the chain. The stream's reading lands first, and the init
+    // read's "none" lands last and stands over its alert.
+    const slow = () => new Promise((r) => setTimeout(() => r({ rate_limits: { seven_day: { utilization: 40, resets_at: null } } }), 30));
+    const now = () => Promise.resolve({ rate_limits: { seven_day: { utilization: 41, resets_at: null } } });
+    const answers = [slow, now];
+    let call = 0;
+    const planLimits = () => (answers[call++] ?? now)();
+    const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: { status: "allowed_warning", rateLimitType: "seven_day" }, planLimits, hang: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const alerts = (all: SessionEvent[]) => all.flatMap((e) => (e.type === "rate_limit" ? [e.payload.alert] : []));
+    const c = collectUntil(h.events, (_, all) => alerts(all).length === 2);
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(alerts(got)).toEqual(["none", "approaching"]);
+  });
+  it("still lays down later limit readings after one throws", async () => {
+    // THE MUTANT: drop the catch on each read. The throw leaves the chain rejected and every later
+    // reading is skipped, so the warning never arrives.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const planLimits = () => Promise.resolve({ rate_limits: { seven_day: { utilization: 41, resets_at: null } } });
+    const broken = { status: "allowed", rateLimitType: "seven_day", get resetsAt(): number { throw new Error("bad reset"); } };
+    const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: broken, rateLimitAgain: { status: "allowed_warning", rateLimitType: "seven_day" }, planLimits, hang: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e) => e.type === "rate_limit" && e.payload.alert === "approaching");
+    await h.send({ text: "hi", attachments: [] }); await c; await h.dispose();
+    expect(logged).toHaveBeenCalledWith("[claude] plan read failed: bad reset");
+    logged.mockRestore();
   });
   it("concurrent canUseTool calls: one waiting_permission → running transition for the whole batch", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", concurrentPermissions: 2 }) as never });
