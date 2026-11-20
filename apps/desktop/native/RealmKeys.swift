@@ -127,7 +127,7 @@ enum HoldKey: String {
 struct Chords {
   var hold = HoldKey.fn { didSet { if hold != oldValue { holdDown = false } } }
   var registered: Set<Int64> = []
-  private(set) var holdDown = false
+  private var holdDown = false
   /// Key codes whose down was swallowed, so their up is swallowed too, even after the modifier lifts.
   private var swallowedDown: Set<Int64> = []
 
