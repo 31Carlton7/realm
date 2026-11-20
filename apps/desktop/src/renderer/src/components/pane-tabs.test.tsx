@@ -92,6 +92,19 @@ describe("a side pane's tab strip", () => {
     await waitFor(() => expect(api.calls).toContain("deleteItem:i-br"));
   });
 
+  it("brings forward the tab a page was opened from when that page's tab is deleted", async () => {
+    // THE MUTANT: the opener only on a page's own close. The × hands the pane to the neighbour.
+    const { store, rerender } = await mount();
+    await store.getState().openPageTab("br", "https://example.com/pay", { background: false, focus: true });
+    const d = side(store).itemId!;
+    expect(side(store).tabs).toEqual(["i-br", d, "i-kid"]);
+    rerender();
+    fireEvent.click(strip().getByRole("button", { name: "Delete Browser" }));
+    fireEvent.click(strip().getByRole("button", { name: "Really delete Browser?" }));
+    await waitFor(() => expect(side(store).tabs).toEqual(["i-br", "i-kid"]));
+    expect(side(store).itemId).toBe("i-br");
+  });
+
   it("draws the trash on a tab whose close deletes, and the × on one that only closes", async () => {
     await mount();
     // THE MUTANT: one glyph for both, which is what made "Delete" and "Close tab (keep in space)" twins.

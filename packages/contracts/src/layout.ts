@@ -161,12 +161,12 @@ function hasLeaf(l: Layout, leafId: string): boolean {
 /** Remove an item from wherever it is open, pruning the leaf it vacates (unless that empties the whole
  *  tree — then the first leaf survives, same id, empty). Leaves that were ALREADY deliberately empty are
  *  kept: only the leaf the item vacated is pruned. */
-export function closeItem(l: Layout, itemId: string): Layout {
+export function closeItem(l: Layout, itemId: string, opener?: string): Layout {
   const pruned = prune(l);
   return pruned ?? plainLeaf({ ...firstLeaf(l), itemId: null });
 
   function prune(n: Layout): Layout | null {
-    if (n.type === "leaf" && n.tabs?.includes(itemId)) return closeTab(n, itemId);
+    if (n.type === "leaf" && n.tabs?.includes(itemId)) return closeTab(n, itemId, opener);
     if (n.type === "leaf") return n.itemId === itemId ? null : n;
     const kept: Layout[] = []; const sizes: number[] = [];
     n.children.forEach((c, i) => { const p = prune(c); if (p) { kept.push(p); sizes.push(n.sizes[i] ?? 0); } });
@@ -184,13 +184,16 @@ function plainLeaf(l: LayoutLeaf): LayoutLeaf {
 }
 
 /** A tab leaves its strip. The leaf goes with its last tab, and the tab beside a closed active one
- *  comes on screen — the next one, else the one before, as every tab strip does it. */
-function closeTab(leaf: LayoutLeaf, itemId: string): LayoutLeaf | null {
+ *  comes on screen — the next one, else the one before, as every tab strip does it. A closed active
+ *  tab with an `opener` still in the strip hands the screen back to that tab instead, as a browser
+ *  does for a tab it opened from another. */
+function closeTab(leaf: LayoutLeaf, itemId: string, opener?: string): LayoutLeaf | null {
   const tabs = leaf.tabs!;
   const at = tabs.indexOf(itemId);
   const left = tabs.filter((t) => t !== itemId);
   if (left.length === 0) return null;
-  const active = leaf.itemId === itemId ? left[Math.min(at, left.length - 1)]! : leaf.itemId;
+  const next = opener && left.includes(opener) ? opener : left[Math.min(at, left.length - 1)]!;
+  const active = leaf.itemId === itemId ? next : leaf.itemId;
   return { ...leaf, itemId: active, tabs: left };
 }
 
