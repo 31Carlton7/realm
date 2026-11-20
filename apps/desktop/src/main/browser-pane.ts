@@ -102,6 +102,7 @@ export function electronViewFactory(
   win: BrowserWindow,
   onView?: (id: string, wc: WebContents | null, view?: WebContentsView) => void,
   installPasskeysFor?: PasskeyInstaller,
+  typedInto?: (wc: WebContents) => boolean,
 ): ViewFactory {
   return (id, hooks, partition, opened) => {
     applyBrowserUserAgent(partition);
@@ -356,6 +357,7 @@ export function electronViewFactory(
       // The system dialog, attached to the window. A failure or a cancel is the dialog's to report.
       print: () => wc.print({}, () => {}),
       popups: () => [...popups].filter((popup) => !popup.isDestroyed()).map((popup) => popup.webContents.getURL()),
+      typed: () => typedInto?.(wc) ?? false,
       readScroll: async () => {
         if (wc.isDestroyed()) return null;
         const at = await wc.executeJavaScript("[window.scrollX, window.scrollY]", false).catch(() => null) as unknown;
@@ -461,7 +463,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     const wc = views.get(id);
     if (!wc || wc.isDestroyed()) return null;
     if (wc.isDevToolsOpened()) return "devtools";
-    if (typedSince.has(id)) return "form";
+    if (host.typedOf(id)) return "form";
     if (wc.isCurrentlyAudible()) return "media";
     if (wc.isLoading()) return "loading";
     if (host.popupsOf(id).length > 0) return "popup";
@@ -488,7 +490,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
         views.set(id, wc); if (view) viewBoxes.set(id, view);
         typedSince.show(id, wc);
       } else if (viewBoxes.get(id) === view) gone();
-    }, installPasskeysFor),
+    }, installPasskeysFor, (wc) => typedSince.typedInto(wc)),
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
     sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
