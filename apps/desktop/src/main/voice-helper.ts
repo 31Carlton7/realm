@@ -2,10 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-const VOICE_CHANNEL = "realm:voice";
+/** How main talks to one of the helper's two modes: the arguments it starts with, what the renderer
+ *  may tell it (audio travels on its own channel, as bytes) and where its events go. */
+type HelperWire = { args: string[]; commands: Set<string>; channel: string };
 
-/** What the renderer may tell the helper. Audio travels on its own channel, as bytes. */
-const COMMANDS = new Set(["listen", "end", "cancel"]);
+const DICTATION: HelperWire = { args: [], commands: new Set(["listen", "end", "cancel"]), channel: "realm:voice" };
 
 /** The line the helper sends once it can listen: whether this Mac has a recogniser for its language. */
 export type VoiceReady = { t: "ready"; stt: "analyzer" | "none" };
@@ -30,10 +31,10 @@ export function voiceHelperPath(appPath: string, resourcesPath: string): string 
  */
 export class VoiceHelper {
   private child: ChildProcess | null = null;
-  private ready: Promise<VoiceStart> | null = null;
-  private owner: VoiceOwner | null = null;
+  protected ready: Promise<VoiceStart> | null = null;
+  protected owner: VoiceOwner | null = null;
 
-  constructor(private readonly bin: () => string | null, private readonly spawnHelper: typeof spawn = spawn) {}
+  constructor(private readonly bin: () => string | null, private readonly spawnHelper: typeof spawn = spawn, private readonly wire: HelperWire = DICTATION) {}
 
   start(owner: VoiceOwner): Promise<VoiceStart> {
     this.owner = owner;
@@ -44,7 +45,7 @@ export class VoiceHelper {
   command(from: VoiceOwner, command: unknown): void {
     if (from.id !== this.owner?.id || !command || typeof command !== "object") return;
     const t = (command as { t?: unknown }).t;
-    if (typeof t === "string" && COMMANDS.has(t)) this.write(command);
+    if (typeof t === "string" && this.wire.commands.has(t)) this.write(command);
   }
 
   /** 16 kHz mono Int16 samples from the window's microphone. */
@@ -62,7 +63,7 @@ export class VoiceHelper {
     try { child?.stdin?.end(); child?.kill(); } catch { /* already gone */ }
   }
 
-  private write(line: unknown): void {
+  protected write(line: unknown): void {
     if (!this.child?.stdin?.writable) return;
     this.child.stdin.write(`${JSON.stringify(line)}\n`);
   }
@@ -72,7 +73,7 @@ export class VoiceHelper {
     if (!bin) return Promise.resolve({ t: "unavailable", reason: "Dictation needs Realm's speech helper, which this build does not have." });
     return new Promise<VoiceStart>((resolve) => {
       let child: ChildProcess;
-      try { child = this.spawnHelper(bin, [], { stdio: ["pipe", "pipe", "pipe"] }); } catch (e) {
+      try { child = this.spawnHelper(bin, this.wire.args, { stdio: ["pipe", "pipe", "pipe"] }); } catch (e) {
         this.ready = null;
         resolve({ t: "unavailable", reason: `The speech helper did not start: ${(e as Error).message}` });
         return;
@@ -88,7 +89,7 @@ export class VoiceHelper {
           try { event = JSON.parse(line) as { t?: unknown }; } catch { continue; }
           if (event.t === "ready") { resolve(event as VoiceReady); continue; }
           const owner = this.owner;
-          if (owner && !owner.isDestroyed()) owner.send(VOICE_CHANNEL, event);
+          if (owner && !owner.isDestroyed()) owner.send(this.wire.channel, event);
         }
       });
       child.stderr!.on("data", (d: Buffer) => { const s = d.toString().trim(); if (s) console.warn("[realmvoice]", s); });
@@ -96,7 +97,7 @@ export class VoiceHelper {
       child.on("exit", (code) => {
         resolve({ t: "unavailable", reason: `The speech helper stopped (exit ${code ?? "signal"}).` });
         const owner = this.owner;
-        if (this.child === child && owner && !owner.isDestroyed()) owner.send(VOICE_CHANNEL, { t: "error", message: "The speech helper stopped." });
+        if (this.child === child && owner && !owner.isDestroyed()) owner.send(this.wire.channel, { t: "error", message: "The speech helper stopped." });
         this.forget(child);
       });
     });
@@ -106,5 +107,41 @@ export class VoiceHelper {
     if (this.child !== child) return;
     this.child = null;
     this.ready = null;
+  }
+}
+
+export type TranscriptSource = "me" | "them";
+const SOURCES = new Set<unknown>(["me", "them"]);
+
+/** System Audio Recording as the helper read it, without asking. */
+export type SystemAudioGrant = "granted" | "denied" | "not decided";
+export type TranscriptReady = { t: "ready"; stt: "analyzer" | "none"; startedAt: number; systemAudio: SystemAudioGrant };
+
+/**
+ * `realmvoice continuous`: a meeting's transcript, "me" from the window's microphone and "them" from
+ * this Mac's sound output. Every line comes back with its source and its time (see RealmVoice.swift).
+ * A second helper beside dictation's, so dictating during a meeting is dictation as it always was.
+ */
+export class TranscriptHelper extends VoiceHelper {
+  constructor(bin: () => string | null, spawnHelper: typeof spawn = spawn) {
+    super(bin, spawnHelper, { args: ["continuous"], commands: new Set(["stop"]), channel: "realm:transcript" });
+  }
+
+  /** 16 kHz mono Int16 samples for one source. "them" is the window's when the tap is not in use. */
+  sourceAudio(from: VoiceOwner, source: unknown, pcm: Uint8Array): void {
+    if (from.id !== this.owner?.id || !SOURCES.has(source) || !(pcm instanceof Uint8Array)) return;
+    this.write({ t: "audio", source, pcm: Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength).toString("base64") });
+  }
+
+  /** Hear this Mac's sound output as "them". The tap is asked for only once System Audio Recording is
+   *  granted, in System Settings or by an Allow on macOS's own prompt: otherwise the window is told why,
+   *  and nothing that could raise macOS's prompt runs. */
+  async systemAudio(from: VoiceOwner): Promise<void> {
+    if (from.id !== this.owner?.id || !this.ready) return;
+    const ready = await this.ready;
+    if (ready.t !== "ready" || from.id !== this.owner?.id) return;
+    const grant = (ready as TranscriptReady).systemAudio;
+    if (grant === "granted") { this.write({ t: "tap" }); return; }
+    if (!from.isDestroyed()) from.send("realm:transcript", { t: "tap", state: grant === "denied" ? "denied" : "needs permission" });
   }
 }

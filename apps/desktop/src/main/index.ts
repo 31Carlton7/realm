@@ -38,7 +38,7 @@ import { shareImage } from "./share-images";
 import { clearBrowserPartition, coverJpeg, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
 import { refuseCapture } from "./capture-guard";
-import { VoiceHelper, voiceHelperPath } from "./voice-helper";
+import { TranscriptHelper, VoiceHelper, voiceHelperPath } from "./voice-helper";
 import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
 import { nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
@@ -1638,6 +1638,22 @@ ipcMain.handle("meetings:calendar-access", () => { meetingWatch.checkCalendar();
 ipcMain.handle("meetings:ask-for-calendar", () => { meetingWatch.askForCalendar(); });
 ipcMain.handle("meetings:open-calendar-settings", () => { void shell.openExternal(MAC_SETTINGS_URLS.calendars); });
 app.on("will-quit", () => meetingWatch.stop());
+
+// ── Meeting transcript ───────────────────────────────────────────────────────────────────────────
+// The same helper in its continuous mode, beside dictation's: "me" from the window's microphone,
+// "them" from this Mac's sound output. Nothing here asks for a permission; the window asks for the
+// microphone through voice:microphone, from a click, and System Audio Recording is only read.
+const transcript = new TranscriptHelper(() => voiceHelperPath(app.getAppPath(), process.resourcesPath));
+const transcriptWindows = new WeakSet<WebContents>();
+ipcMain.handle("transcript:start", (e) => {
+  if (!transcriptWindows.has(e.sender)) { transcriptWindows.add(e.sender); e.sender.once("destroyed", () => transcript.stop(e.sender)); }
+  return transcript.start(e.sender);
+});
+ipcMain.on("transcript:command", (e, command: unknown) => transcript.command(e.sender, command));
+ipcMain.on("transcript:audio", (e, source: unknown, pcm: unknown) => { if (pcm instanceof Uint8Array) transcript.sourceAudio(e.sender, source, pcm); });
+ipcMain.on("transcript:system-audio", (e) => void transcript.systemAudio(e.sender));
+ipcMain.on("transcript:stop", (e) => transcript.stop(e.sender));
+app.on("will-quit", () => transcript.stop());
 
 /** A real iPhone's picture, live. macOS reaches a connected iPhone's screen as a camera, so this raises
  *  the camera prompt — on purpose, and only from a click on the pane's Show live. Answers the status

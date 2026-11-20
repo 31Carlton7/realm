@@ -107,7 +107,7 @@ describe("macOS consent packaging (Settings → Permissions can only work if the
     // The mutant: Electron's boilerplate ("This app needs access to …"), which tells nobody anything.
     expect(builder).not.toMatch(/This app needs access to/);
     const strings = builder.match(/NS\w+UsageDescription: >-\n(?:\s{6}.+\n)+/g) ?? [];
-    expect(strings).toHaveLength(8);
+    expect(strings).toHaveLength(9);
     for (const s of strings) expect(s).toContain("Realm");
   });
 
@@ -123,6 +123,13 @@ describe("macOS consent packaging (Settings → Permissions can only work if the
     expect(camera).toMatch(/never turns on this Mac's camera/);
   });
 
+  it("says System Audio Recording is for the other side of a call, and keeps no audio", () => {
+    // Until this key was set, Electron's own Info.plist answered it: "This app needs access to audio capture".
+    const capture = builder.match(/NSAudioCaptureUsageDescription: >-\n((?:\s{6}.+\n)+)/)?.[1].replace(/\s+/g, " ") ?? "";
+    expect(capture).toMatch(/other side of a call/);
+    expect(capture).toMatch(/audio is never saved/);
+  });
+
   it("every usage string Info.plist declares is backed by the entitlement that lets the hardened runtime ask", () => {
     // 2.17.0 shipped the Calendar and Contacts strings without these entitlements, and macOS denied
     // both requests without showing a dialog.
@@ -135,6 +142,7 @@ describe("macOS consent packaging (Settings → Permissions can only work if the
       NSContactsUsageDescription: "com.apple.security.personal-information.addressbook",
       NSCameraUsageDescription: "com.apple.security.device.camera",
       NSMicrophoneUsageDescription: "com.apple.security.device.audio-input",
+      NSAudioCaptureUsageDescription: "com.apple.security.device.audio-input",
     };
     const declared = [...builder.matchAll(/^ {4}(NS\w+UsageDescription):/gm)].map((m) => m[1]);
     expect(declared).toEqual(expect.arrayContaining(["NSCalendarsUsageDescription", "NSContactsUsageDescription"]));

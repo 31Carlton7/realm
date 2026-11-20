@@ -258,6 +258,15 @@ interface Window {
       stop(): void;
       onEvent(cb: (event: unknown) => void): () => void;
     };
+    /** A meeting's transcript, the speech helper's continuous mode; its wire is voice/transcript.ts. */
+    transcript?: {
+      start(): Promise<unknown>;
+      command(command: Record<string, unknown>): void;
+      audio(source: string, pcm: Uint8Array): void;
+      systemAudio(): void;
+      stop(): void;
+      onEvent(cb: (event: unknown) => void): () => void;
+    };
     /** A real iPhone's picture, live (the phone pane's Show live). Raises macOS's camera prompt — it
      *  reaches a connected iPhone's screen as a camera — and answers the camera's status after. */
     phoneScreen?: {

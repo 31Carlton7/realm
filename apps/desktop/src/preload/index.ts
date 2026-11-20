@@ -329,6 +329,21 @@ contextBridge.exposeInMainWorld("realm", {
       return () => ipcRenderer.removeListener("realm:voice", handler);
     },
   },
+  /** A meeting's transcript (main/voice-helper.ts's TranscriptHelper): "me" is the window's
+   *  microphone, sent as `audio("me", …)`; `systemAudio` hears "them" from this Mac's sound output
+   *  only where System Audio Recording is already granted, and never asks. */
+  transcript: {
+    start: (): Promise<unknown> => ipcRenderer.invoke("transcript:start"),
+    command: (command: Record<string, unknown>): void => ipcRenderer.send("transcript:command", command),
+    audio: (source: string, pcm: Uint8Array): void => ipcRenderer.send("transcript:audio", source, pcm),
+    systemAudio: (): void => ipcRenderer.send("transcript:system-audio"),
+    stop: (): void => ipcRenderer.send("transcript:stop"),
+    onEvent: (cb: (event: unknown) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, event: unknown) => cb(event);
+      ipcRenderer.on("realm:transcript", handler);
+      return () => ipcRenderer.removeListener("realm:transcript", handler);
+    },
+  },
   /** Settings page's macOS Permissions tab (Plan 12 W6). `probe` never triggers a TCC prompt —
    *  tcc.ts's governing rule; `openSettings` takes a ROW id (validated in main against a closed
    *  table), never a URL. */
