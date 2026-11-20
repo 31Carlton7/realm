@@ -895,6 +895,103 @@ describe("BrowserPaneHost", () => {
       expect(alive(last)).toBe(true);
       expect(states.at(-1)).toMatchObject({ id: "b1", url: "https://example.com/0" });
     });
+
+    it("Back past the kept openers loads a closed one's address only if the allowlist still lets it in", () => {
+      // THE MUTANT: load the remembered address straight into the view, past the check navigate makes.
+      const { host, views } = makeHost();
+      host.create("b1", "https://example.com/0", ["https://example.com"], P);
+      const chain = [views.get("b1")!];
+      for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() }, false);
+        chain.push(views.get("b1")!);
+      }
+      for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");
+      host.setAllowlist("b1", ["https://other.com"]);
+      host.navAction("b1", "back");
+      expect(chain[1]!.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
+    });
+
+    it("tells each page whether it is the one its browser shows", () => {
+      // What the passkey and password brokers ask before acting on a page's request. THE MUTANT:
+      // answer true for every page, and the opener hidden behind can raise a fingerprint prompt.
+      const { host, opener, front } = openedInPlace();
+      expect(opener.getHooks().inFront()).toBe(false);
+      expect(front.getHooks().inFront()).toBe(true);
+      host.navAction("b1", "back");
+      expect(opener.getHooks().inFront()).toBe(true);
+      expect(front.getHooks().inFront()).toBe(false);
+    });
+
+    it("a hook a factory calls while it is still making the view throws nothing and moves nothing", () => {
+      // Not done by Electron's factory today. THE MUTANT: read the handle being made before it is
+      // assigned, and the hook throws a ReferenceError out of `create`.
+      const made = makeHost();
+      made.factory.mockImplementationOnce((id, hooks) => {
+        hooks.emitState();
+        expect(hooks.inFront()).toBe(false);
+        const v = fakeView(); v.setHooks(hooks); made.views.set(id, v); return v.handle;
+      });
+      expect(() => made.host.create("b1", "https://example.com/", null, P)).not.toThrow();
+      expect(made.host.has("b1")).toBe(true);
+    });
+
+    describe("a window closing with a page shown in place", () => {
+      // #559 measured, on macOS, the window's "closed" firing before its pages' "destroyed", and the
+      // factory hears none of those as a page closing itself. These hold the host to the same if a
+      // close does reach it while the window goes, from either page first.
+      const chainOf = (pages: number) => {
+        let gone = false;
+        const made = makeHost(2, { windowGone: () => gone });
+        made.host.create("b1", "https://example.com/0", null, P);
+        made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+        const chain = [made.views.get("b1")!];
+        for (let i = 1; i <= pages; i++) {
+          chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() }, true);
+          chain.push(made.views.get("b1")!);
+        }
+        chain.at(-1)!.nav.keyboard = true;
+        return { ...made, chain, closeWindow: () => { gone = true; } };
+      };
+      const quiet = (v: ReturnType<typeof fakeView>, from: number) =>
+        v.calls.slice(from).filter((c) => c === "reclaim" || c === "focus" || c === "visible:true" || c.startsWith("bounds:"));
+
+      for (const [order, pages] of [["the page behind first", 1], ["the page in front first", 1], ["the page behind first, two shown in place", 2], ["the page in front first, two shown in place", 2]] as const) {
+        it(`touches no page and closes no tab: ${order}`, async () => {
+          // THE MUTANT: no window check in pageClosed, and the front page's close shows, unmutes and
+          // focuses the page behind it on a window that is going.
+          const { host, chain, states, closedTabs, closeWindow } = chainOf(pages);
+          const marks = chain.map((v) => v.calls.length);
+          const sent = states.length;
+          closeWindow();
+          const closing = order.startsWith("the page in front") ? [...chain].reverse() : chain;
+          for (const v of closing) v.getHooks().pageClosed();
+          await turn();
+          chain.forEach((v, i) => expect(quiet(v, marks[i]!)).toEqual([]));
+          expect(chain.slice(0, -1).every((v) => v.nav.muted)).toBe(true);
+          expect(states.length).toBe(sent);
+          expect(closedTabs).toEqual([]);
+          host.destroyAll();
+          expect(chain.every((v) => !alive(v))).toBe(true);
+        });
+      }
+
+      it("forgets the browser before destroying its pages, so a close any of them reports on the way is nobody's", async () => {
+        // A factory that did not mark its own destroy would report each page closing. THE MUTANT:
+        // forget the browser after its pages, and the page behind is dropped, the one in front taken
+        // for a tab closing itself, and its tab closed.
+        const { host, chain, states, closedTabs } = chainOf(2);
+        for (const v of chain) {
+          const destroy = v.handle.destroy;
+          v.handle.destroy = () => { destroy(); v.getHooks().pageClosed(); };
+        }
+        const sent = states.length;
+        host.destroyAll();
+        await turn();
+        expect(chain.every((v) => !alive(v))).toBe(true);
+        expect(states.length).toBe(sent);
+        expect(closedTabs).toEqual([]);
+      });
+    });
   });
 
   it("hosts the page Chromium made for a new tab, and never loads its address again", () => {

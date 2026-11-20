@@ -47,6 +47,7 @@ function harness(over: Partial<PasskeyBrokerDeps> = {}, keys: PasskeyKeyMaterial
       return {};
     },
     onEvent: (cb) => { listener = cb; },
+    inFront: () => true,
   };
 
   const deps: PasskeyBrokerDeps = {
@@ -70,8 +71,32 @@ function harness(over: Partial<PasskeyBrokerDeps> = {}, keys: PasskeyKeyMaterial
   };
 
   const broker = new PasskeyBroker(deps);
+  /** Another page in the same pane, with a CDP, an authenticator and a shim of its own. */
+  const page = (authenticatorId: string) => {
+    const own: Sent[] = [];
+    let heard: ((method: string, params: unknown) => void) | null = null;
+    const at = { inFront: true };
+    const pageCdp: PasskeyCdp = {
+      send: async (method, params = {}) => {
+        own.push({ method, params });
+        if (method === "WebAuthn.addVirtualAuthenticator") return { authenticatorId };
+        if (method === "WebAuthn.getCredentials") return { credentials: [] };
+        return {};
+      },
+      onEvent: (cb) => { heard = cb; },
+      inFront: () => at.inFront,
+    };
+    return {
+      cdp: pageCdp, sent: own, at,
+      fire: (payload: Record<string, unknown>) => {
+        heard?.("Runtime.bindingCalled", { name: PASSKEY_BINDING, payload: JSON.stringify(payload), executionContextId: 7 });
+      },
+      verdicts: () => own.filter((s) => s.method === "Runtime.evaluate").map((s) => String(s.params.expression)),
+      armed: () => own.filter((s) => s.method === "WebAuthn.addCredential" || s.method === "WebAuthn.setAutomaticPresenceSimulation" && s.params.enabled === true),
+    };
+  };
   return {
-    broker, cdp, sent, notices, audits, prompted, recorded, counters, asked,
+    broker, cdp, page, sent, notices, audits, prompted, recorded, counters, asked,
     setCredentials: (c: Array<Record<string, unknown>>) => { credentials = c; },
     denyPresence: () => { presenceGranted = false; },
     fire: (payload: Record<string, unknown>) => {
@@ -118,6 +143,51 @@ describe("PasskeyBroker — install", () => {
     expect(methods).toContain("Runtime.addBinding");
     const script = h.sent.find((s) => s.method === "Page.addScriptToEvaluateOnNewDocument")!;
     expect(String(script.params.source)).toContain(PASSKEY_BINDING);
+  });
+});
+
+describe("PasskeyBroker — a pane whose page changes (#543)", () => {
+  // A page that opens a window with no press waits behind it (`adoptInPlace`), and main releases the
+  // pane each time the page in front changes: once when the opener is covered, once when it comes back.
+  const covered = async () => {
+    const h = harness();
+    const opener = h.page("auth-opener");
+    const front = h.page("auth-front");
+    await h.broker.install("b1", opener.cdp);
+    opener.at.inFront = false;
+    h.broker.release("b1");
+    await h.broker.install("b1", front.cdp);
+    return { h, opener, front };
+  };
+
+  it("answers the opener's request once it is back in front, on its own authenticator", async () => {
+    // Self-close is how a sign-in popup shown in place usually ends. THE MUTANT: look the pane's
+    // install up by its id, and the release on the way back leaves the opener's
+    // navigator.credentials.get() waiting forever.
+    const { h, opener, front } = await covered();
+    front.at.inFront = false;
+    opener.at.inFront = true;
+    h.broker.release("b1");
+    opener.fire(ask());
+    await until(() => opener.verdicts().length > 0);
+    expect(h.prompted).toEqual(["get:github.com"]);
+    expect(opener.verdicts()[0]).toContain('"allow"');
+    expect(opener.armed().every((s) => s.params.authenticatorId === "auth-opener")).toBe(true);
+    expect(opener.armed()).toHaveLength(2);
+    expect(front.armed()).toEqual([]);
+  });
+
+  it("asks nothing for a page waiting behind, and never arms the page in front for it", async () => {
+    // On the code before this, the opener's ask went to the pane's latest install: a fingerprint
+    // prompt, then keys and presence in the FRONT page's authenticator for up to two minutes, waiting
+    // on a "done" that could never come. THE MUTANT: let a covered page's asks through.
+    const { h, opener, front } = await covered();
+    opener.fire(ask());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.prompted).toEqual([]);
+    expect(front.armed()).toEqual([]);
+    expect(opener.armed()).toEqual([]);
+    expect([...front.verdicts(), ...opener.verdicts()]).toEqual([]);
   });
 });
 

@@ -46,7 +46,7 @@ export const PASSKEY_INSTALL_TIMEOUT_MS = 5_000;
  * not — on a document-less view they never return at all (measured, Electron 37). One in-process
  * navigation to the emptiest document there is gives them something to attach to.
  */
-async function installPasskeys(id: string, wc: WebContents, install: PasskeyInstaller, blank = true): Promise<void> {
+async function installPasskeys(id: string, wc: WebContents, install: PasskeyInstaller, inFront: () => boolean, blank = true): Promise<void> {
   try {
     if (blank) await wc.loadURL("about:blank");
     if (wc.isDestroyed()) return;
@@ -54,6 +54,7 @@ async function installPasskeys(id: string, wc: WebContents, install: PasskeyInst
     await install(id, {
       send: (method, params) => wc.debugger.sendCommand(method, params) as Promise<unknown>,
       onEvent: (cb) => { wc.debugger.on("message", (_e, method, params) => cb(method, params)); },
+      inFront,
     });
   } catch {
     // A pane without passkey support is exactly the pane Realm shipped before this existed. A pane
@@ -140,13 +141,13 @@ export function electronViewFactory(
     let wanted: string | null = opened?.url ?? null;
     const ready = installPasskeysFor && !adopted
       ? Promise.race([
-          installPasskeys(id, wc, installPasskeysFor),
+          installPasskeys(id, wc, installPasskeysFor, hooks.inFront),
           new Promise<void>((r) => setTimeout(r, PASSKEY_INSTALL_TIMEOUT_MS).unref?.()),
         ])
       : Promise.resolve();
     // A new tab's first page is already loading, so there is no blank page to install ahead of it:
     // the install goes in once that page has a document, and covers every page after it.
-    if (installPasskeysFor && adopted) wc.once("dom-ready", () => { void installPasskeys(id, wc, installPasskeysFor, false); });
+    if (installPasskeysFor && adopted) wc.once("dom-ready", () => { void installPasskeys(id, wc, installPasskeysFor, hooks.inFront, false); });
 
     /* Guard 1: a page's request for a new window (`windowOpenAction`). A link meant for a tab, pressed
        for, is a new tab beside this one hosting the page Chromium made for it (`hostedTab`); any other
@@ -157,8 +158,8 @@ export function electronViewFactory(
        is what lets the two script each other), so it signs in to the pane's profile; it gets the same
        sandbox, the allowlist on every page it goes to, these same rules for its own `window.open`, and
        it closes with the pane. It is a child of the Realm window, so it stays above it. What it does
-       not get is the pane's saved passwords and passkeys: those are installed per pane and answer for
-       the pane's page, never for another. */
+       not get is the pane's saved passwords and passkeys: those are installed in each of the pane's
+       own pages and answer for the one in front, never for another. */
     const popups = new Set<BrowserWindow>();
     /* Whether something was pressed for the window Chromium just made. Chromium knows (its
        `user_gesture`) and passes it to Electron's internal "-add-new-contents" event, which runs just
@@ -294,7 +295,9 @@ export function electronViewFactory(
       "page-title-updated", "did-fail-load", "did-fail-provisional-load", "dom-ready",
     ] as const;
     for (const ev of stateEvents) wc.on(ev as Parameters<typeof wc.on>[0], () => hooks.emitState());
-    // Gone without `destroy` asking, from a window still up: the page called window.close().
+    // Gone without `destroy` asking (Realm closing it) and from a window still up (the window taking
+    // it): the page called window.close(). The hooks are this page's own (`makeView`), so the host
+    // hears which of its browser's pages went.
     let destroying = false;
     wc.once("destroyed", () => { if (!destroying && !win.isDestroyed()) hooks.pageClosed(); });
     // Kept from the events because a page that has gone can no longer be asked (`hasKeyboard`).
@@ -322,7 +325,7 @@ export function electronViewFactory(
     return {
       setBounds: (r) => view.setBounds(r),
       setVisible: (v) => view.setVisible(v),
-      focus: () => wc.focus(),
+      focus: () => { if (!wc.isDestroyed()) wc.focus(); },
       loadURL,
       goBack: () => wc.navigationHistory.goBack(),
       goForward: () => wc.navigationHistory.goForward(),
@@ -375,10 +378,11 @@ export function electronViewFactory(
         wc.on("did-finish-load", loaded);
         wc.on("did-fail-load", failed);
       },
-      reclaim: () => onView?.(id, wc, view),
+      // Reached from `uncover`, whose page may have gone with its window: none of these may throw.
+      reclaim: () => { if (!wc.isDestroyed()) onView?.(id, wc, view); },
       hasKeyboard: () => (wc.isDestroyed() ? keyboard : wc.isFocused()),
-      isAudioMuted: () => wc.isAudioMuted(),
-      setAudioMuted: (muted) => wc.setAudioMuted(muted),
+      isAudioMuted: () => !wc.isDestroyed() && wc.isAudioMuted(),
+      setAudioMuted: (muted) => { if (!wc.isDestroyed()) wc.setAudioMuted(muted); },
       getOSProcessId: () => (wc.isDestroyed() ? null : wc.getOSProcessId()),
       destroy: () => {
         for (const popup of popups) if (!popup.isDestroyed()) popup.destroy();

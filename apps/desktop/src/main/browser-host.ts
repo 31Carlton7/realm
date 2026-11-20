@@ -682,6 +682,8 @@ export type ViewHooks = {
    *  contents are gone, and every getter on the handle would throw. Each page has hooks of its own
    *  (`makeView`), so these say which of a browser's pages went: the one in front or one behind it. */
   pageClosed(): void;
+  /** Whether this page is the one its browser shows, rather than one waiting behind it. */
+  inFront(): boolean;
 };
 
 /** A page Chromium made for a new tab, waiting for the tab's browser to host it. */
@@ -966,11 +968,12 @@ export class BrowserPaneHost {
   /** A view for `id`, whose page moves its browser only while it is the one in front: a page waiting
    *  behind another (`adoptInPlace`) is off screen, so nothing it asks for was pressed for. */
   private makeView(id: string, partition: string, opened?: { page: OpenedPage; url: string }): ViewHandle {
-    const handle: ViewHandle = this.opts.createView(id, this.hooks(id, () => handle), partition, opened);
+    let handle: ViewHandle | null = null; // a hook called while the factory is still making the view is no page's yet
+    handle = this.opts.createView(id, this.hooks(id, () => handle), partition, opened);
     return handle;
   }
 
-  private hooks(id: string, self: () => ViewHandle): ViewHooks {
+  private hooks(id: string, self: () => ViewHandle | null): ViewHooks {
     const inFront = () => this.views.get(id)?.handle === self();
     return {
       emitState: () => { if (inFront()) this.emitState(id); },
@@ -989,6 +992,7 @@ export class BrowserPaneHost {
       found: (result) => this.opts.sendFound?.({ id, ...result }),
       findShortcut: () => this.opts.requestFind?.(id),
       pageClosed: () => this.pageClosed(id, self()),
+      inFront,
     };
   }
 
@@ -1028,9 +1032,11 @@ export class BrowserPaneHost {
    * Back would. With nothing behind it, the browser's tab closes, as in Chrome. An opener waiting
    * behind just leaves the stack. A page the browser no longer has was closed by Realm.
    */
-  private pageClosed(id: string, page: ViewHandle): void {
+  private pageClosed(id: string, page: ViewHandle | null): void {
     const v = this.views.get(id);
-    if (!v) return;
+    // A window that is closing takes all its pages with it, in whatever order: none of them is a page
+    // closing itself, and nothing may be shown or focused on it.
+    if (!v || this.opts.windowGone?.()) return;
     if (v.handle === page) {
       if (v.behind.length > 0) { this.uncover(id); return; }
       this.destroy(id);
@@ -1209,7 +1215,7 @@ export class BrowserPaneHost {
     const v = this.views.get(id)!;
     const firstEntry = action === "back" && !v.handle.canGoBack();
     if (firstEntry && v.behind.length > 0) this.uncover(id);
-    else if (firstEntry && v.closedBehind.length > 0) v.handle.loadURL(v.closedBehind.pop()!);
+    else if (firstEntry && v.closedBehind.length > 0) this.navigate(id, v.closedBehind.pop()!);
     else if (action === "back") v.handle.goBack();
     else if (action === "forward") v.handle.goForward();
     else if (action === "reload") v.handle.reload();
