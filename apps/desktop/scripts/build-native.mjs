@@ -5,7 +5,8 @@
 // DeviceOwner → sign-ins unlock with Touch ID only, PolicyStamp → sign-ins stay on Touch ID: a
 // looser unlock policy is only honoured beside the Keychain stamp this helper keeps, KeychainPasswords
 // → the login keychain's passwords are not offered, RealmVoice → dictation is not offered, BackdropState →
-// moving backgrounds do not see Low Power Mode or a covered window).
+// moving backgrounds do not see Low Power Mode or a covered window, MeetingWatch → no meeting is
+// opened and no call is noticed).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -31,6 +32,7 @@ export const HELPERS = [
   ["KeychainPasswords.swift", "realmkeychain", "13.0"],
   ["RealmVoice.swift", "realmvoice", "26.0"],
   ["BackdropState.swift", "backdropstate", "13.0"],
+  ["MeetingWatch.swift", "meetingwatch", "13.0"],
 ];
 
 // Imported (by native-helpers.mjs) for the table alone.

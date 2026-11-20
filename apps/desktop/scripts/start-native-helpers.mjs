@@ -23,6 +23,9 @@ const STARTS = {
   realmkeychain: { args: [], exits: [2] },
   // Prints the power state once and quits when stdin closes.
   backdropstate: { args: [], input: "", exits: [0] },
+  // Reads who holds the microphone from Core Audio's properties, which needs no permission, and quits
+  // when stdin closes. The calendar mode is left alone: it would read the runner's calendar access.
+  meetingwatch: { args: ["calls"], input: "", exits: [0] },
 };
 
 const dir = process.argv[2];

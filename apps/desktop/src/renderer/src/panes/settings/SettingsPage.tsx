@@ -5,6 +5,7 @@ import { BackgroundPicker } from "../../components/settings/BackgroundPicker";
 import { FoldedList } from "../../components/settings/FoldedList";
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { QuickChatModelRow } from "../../components/settings/QuickChatModelRow";
+import { MeetingsRow } from "../../components/settings/MeetingsRow";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, hasAccounts, type AgentKind, type MidTurnMode, type ReducedMotionPref,
@@ -1434,6 +1435,11 @@ function GeneralTab() {
 
       <h3 className="settings-head">Links</h3>
       <OpenLinksInRow />
+
+      {capabilities().meetings && <>
+        <h3 className="settings-head">Meetings</h3>
+        <MeetingsRow />
+      </>}
 
       <h3 className="settings-head">Sidebar</h3>
       <ul className="settings-list">

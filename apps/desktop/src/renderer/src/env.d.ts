@@ -92,6 +92,14 @@ interface Window {
     };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };
+    /** Settings ▸ General ▸ Meetings: the switch, and calendar access as macOS reports it. */
+    meetings?: {
+      setOpenWhenStarts(on: boolean): Promise<void>;
+      calendarAccess(): Promise<import("@realm/contracts").CalendarAccess | null>;
+      askForCalendar(): Promise<void>;
+      openCalendarSettings(): Promise<void>;
+      onCalendarAccess(cb: (access: import("@realm/contracts").CalendarAccess | null) => void): () => void;
+    };
     /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every
      *  late bridge: jsdom has none, and a renderer without it simply lists no apps. */
     apps?: {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { FILES_OPEN_IN_KEY, LINKS_OPEN_IN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY } from "@realm/contracts";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { FILES_OPEN_IN_KEY, LINKS_OPEN_IN_KEY, MEETINGS_OPEN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY, platformCapabilities } from "@realm/contracts";
 import { SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
@@ -34,6 +34,96 @@ describe("Keep the Mac awake while agents work", () => {
     const { api } = await general({ settings: { [POWER_PREVENT_SLEEP_KEY]: true } });
     expect(screen.getByRole("switch", { name: AWAKE })).toBeChecked();
     expect(api.calls).toContain("setPreventSleep:true");
+  });
+});
+
+const MEETINGS = "Open the meeting when it starts";
+
+describe("Open the meeting when it starts", () => {
+  const row = () => within(screen.getByRole("switch", { name: MEETINGS }).closest("li")!);
+
+  it("is on until turned off, and turning it off reaches main at once as well as the stored row", async () => {
+    const { api, store } = await general();
+    expect(screen.getByRole("switch", { name: MEETINGS })).toBeChecked();
+    // THE boot mutant: main reads the stored value only when it connects.
+    expect(api.calls).toContain("setOpensMeetings:true");
+    fireEvent.click(screen.getByRole("switch", { name: MEETINGS }));
+    await waitFor(() => expect(store.getState().opensMeetings).toBe(false));
+    expect(api.calls).toContain(`setSetting:${MEETINGS_OPEN_KEY}=false`);
+    expect(api.calls).toContain("setOpensMeetings:false");
+  });
+
+  it("stays off when it was saved off", async () => {
+    const { api } = await general({ settings: { [MEETINGS_OPEN_KEY]: false } });
+    expect(screen.getByRole("switch", { name: MEETINGS })).not.toBeChecked();
+    expect(api.calls).toContain("setOpensMeetings:false");
+  });
+
+  it("with calendar access, says what else it does and offers nothing to press", async () => {
+    await general();
+    await waitFor(() => expect(row().getByText("With a notification two minutes before")).toBeInTheDocument());
+    expect(row().queryByRole("button")).toBeNull();
+  });
+
+  it("before macOS has been asked, says so, and asks only when the button is pressed", async () => {
+    const { api } = await general({ calendarAccess: "notDetermined" });
+    await waitFor(() => expect(row().getByText(/has not asked macOS for your calendar yet/)).toBeInTheDocument());
+    // THE ask-on-open mutant: the page opening must never be what raises the prompt.
+    expect(api.calls).not.toContain("askForCalendar");
+    fireEvent.click(row().getByRole("button", { name: "Ask macOS" }));
+    await waitFor(() => expect(api.calls).toContain("askForCalendar"));
+    expect(row().queryByRole("button", { name: "Open System Settings" })).toBeNull();
+  });
+
+  it("shows the answer when macOS gives it", async () => {
+    const { api } = await general({ calendarAccess: "notDetermined" });
+    await waitFor(() => expect(row().getByRole("button", { name: "Ask macOS" })).toBeInTheDocument());
+    act(() => api.emitCalendarAccess("full"));
+    await waitFor(() => expect(row().queryByRole("button")).toBeNull());
+    expect(row().getByText("With a notification two minutes before")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["denied", /not letting Realm read your calendar/],
+    ["writeOnly", /add events but not read them/],
+  ] as const)("after macOS said %s, points at System Settings and never asks again", async (access, says) => {
+    const { api } = await general({ calendarAccess: access });
+    await waitFor(() => expect(row().getByText(says)).toBeInTheDocument());
+    expect(row().queryByRole("button", { name: "Ask macOS" })).toBeNull();
+    fireEvent.click(row().getByRole("button", { name: "Open System Settings" }));
+    await waitFor(() => expect(api.calls).toContain("openCalendarSettings"));
+    expect(api.calls).not.toContain("askForCalendar");
+  });
+
+  it("on a Mac that restricts the calendar, says so and offers nothing that cannot work", async () => {
+    await general({ calendarAccess: "restricted" });
+    await waitFor(() => expect(row().getByText(/does not let apps read the calendar/)).toBeInTheDocument());
+    expect(row().queryByRole("button")).toBeNull();
+  });
+
+  it("says nothing about access while it is off: nothing is reading the calendar", async () => {
+    await general({ settings: { [MEETINGS_OPEN_KEY]: false }, calendarAccess: "denied" });
+    await waitFor(() => expect(row().getByText("With a notification two minutes before")).toBeInTheDocument());
+    expect(row().queryByRole("button")).toBeNull();
+  });
+
+  it("reads the access again when the window comes back to the front", async () => {
+    const { api } = await general({ calendarAccess: "denied" });
+    await waitFor(() => expect(row().getByRole("button", { name: "Open System Settings" })).toBeInTheDocument());
+    api.data.calendarAccess = "full";
+    fireEvent.focus(window);
+    await waitFor(() => expect(row().queryByRole("button")).toBeNull());
+  });
+
+  it("is not drawn where there is no calendar to read", async () => {
+    (window as { realm?: unknown }).realm = { capabilities: platformCapabilities("linux") };
+    try {
+      await general();
+      expect(screen.queryByRole("switch", { name: MEETINGS })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Meetings" })).toBeNull();
+    } finally {
+      delete (window as { realm?: unknown }).realm;
+    }
   });
 });
 
