@@ -26,13 +26,13 @@ function fakes(opts: { grant?: string; ready?: HelperStart; micFails?: string } 
     },
     stop: () => { life.micStopped = true; },
   } as unknown as VoiceAudio;
-  const seen = { partials: [] as string[], settled: [] as number[], levels: [] as number[], done: [] as string[], problems: [] as string[] };
+  const seen = { partials: [] as string[], settled: [] as number[], levels: [] as number[], done: [] as string[], problems: [] as string[], heardAtProblem: [] as string[] };
   const events: DictationEvents = {
     partial: (t, settled) => { seen.partials.push(t); seen.settled.push(settled); },
     fetching: () => {},
     level: (l) => seen.levels.push(l),
     done: (t) => seen.done.push(t),
-    problem: (m) => seen.problems.push(m),
+    problem: (m, heard) => { seen.problems.push(m); seen.heardAtProblem.push(heard); },
   };
   let now = 0;
   const d = new Dictation({ helper, audio, events, now: () => now });
@@ -109,6 +109,7 @@ describe("Dictation", () => {
     expect(f.commands.filter((c) => c.t === "listen").length).toBe(4);
     f.emit({ t: "final", turn: 4, text: "" });
     expect(f.seen.problems).toEqual([expect.stringMatching(/keeps stopping/)]);
+    expect(f.seen.heardAtProblem).toEqual(["hello"]);
     expect(f.life.micStopped).toBe(true);
     expect(f.life.helperStopped).toBe(true);
   });
@@ -129,7 +130,45 @@ describe("Dictation", () => {
     await f.d.start();
     f.emit({ t: "error", message: "The speech helper stopped." });
     expect(f.seen.problems).toEqual(["The speech helper stopped."]);
+    expect(f.seen.heardAtProblem).toEqual([""]);
     expect(f.life.micStopped).toBe(true);
+  });
+
+  it("hands over what was heard, kept words and the last partial, when the helper breaks minutes in", async () => {
+    const f = fakes();
+    await f.d.start();
+    f.emit({ t: "partial", turn: 1, text: "run the build" });
+    f.frames(0.001, 5_000);
+    f.emit({ t: "final", turn: 1, text: "run the build" });
+    f.emit({ t: "partial", turn: 2, text: "and the tests", settled: 3 });
+    f.frames(0.1, 300_000);
+    f.emit({ t: "error", message: "Transcription stopped: boom" });
+    expect(f.seen.problems).toEqual(["Transcription stopped: boom"]);
+    expect(f.seen.heardAtProblem).toEqual(["run the build and the tests"]);
+    expect(f.seen.done).toEqual([]);
+    expect(f.life.helperStopped).toBe(true);
+  });
+
+  it("lands the words once when the helper sends its error and then the turn's final", async () => {
+    const f = fakes();
+    await f.d.start();
+    f.emit({ t: "partial", turn: 1, text: "fix the login" });
+    // RealmVoice.swift: a throwing analyzer emits `error`, then `final` with the same words.
+    f.emit({ t: "error", message: "Transcription stopped: boom" });
+    f.emit({ t: "final", turn: 1, text: "fix the login" });
+    expect(f.seen.heardAtProblem).toEqual(["fix the login"]);
+    expect(f.seen.problems.length).toBe(1);
+    expect(f.seen.done).toEqual([]);
+  });
+
+  it("hands over what was heard when the helper breaks while finishing after stop", async () => {
+    const f = fakes();
+    await f.d.start();
+    f.emit({ t: "partial", turn: 1, text: "fix the login" });
+    f.d.stop();
+    f.emit({ t: "error", message: "Transcription stopped: boom" });
+    expect(f.seen.heardAtProblem).toEqual(["fix the login"]);
+    expect(f.seen.done).toEqual([]);
   });
 
   it("says why when the microphone will not open", async () => {

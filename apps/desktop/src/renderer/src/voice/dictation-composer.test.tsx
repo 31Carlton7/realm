@@ -209,6 +209,67 @@ describe("dictating into the prompter", () => {
     expect(helper.life.stopped).toBe(true);
   });
 
+  /** Dictation over the real `Dictation` and a helper the test speaks for, listening. */
+  const listening = async () => {
+    const helper = downloadingHelper();
+    mic.helper = helper.helper;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dictate" })); await new Promise((res) => setTimeout(res, 0)); });
+    await helper.ready({ t: "ready", stt: "analyzer" });
+    return helper;
+  };
+  const settle = () => act(async () => { await new Promise((res) => setTimeout(res, 0)); });
+
+  it("lands what was heard, as heard, with the problem, when the helper breaks minutes in", async () => {
+    const { store } = await mount(true);
+    typeAt("Then: ", 6);
+    const helper = await listening();
+    helper.emit({ t: "partial", turn: 1, text: "run the build" });
+    helper.emit({ t: "final", turn: 1, text: "run the build" });
+    helper.emit({ t: "partial", turn: 2, text: "um and the tests" });
+    helper.emit({ t: "error", message: "Transcription stopped: boom" });
+    await settle();
+    expect(store.getState().drafts["se1"]).toBe("Then: run the build um and the tests");
+    // No clean-up pass on words a broken dictation hands over, even with Clean up dictation on.
+    expect(mic.cleaned).toEqual([]);
+    expect(screen.getByRole("status").textContent).toContain("Transcription stopped: boom");
+    expect(dictating()).toBeNull();
+    expect(box().readOnly).toBe(false);
+    expect(screen.getByRole("button", { name: "Dictate" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("lands the words once when the helper's error is followed by the turn's final", async () => {
+    const { store } = await mount();
+    const helper = await listening();
+    helper.emit({ t: "partial", turn: 1, text: "fix the login" });
+    helper.emit({ t: "error", message: "Transcription stopped: boom" });
+    helper.emit({ t: "final", turn: 1, text: "fix the login" });
+    await settle();
+    expect(store.getState().drafts["se1"]).toBe("fix the login");
+    expect(screen.getByRole("status").textContent).toContain("Transcription stopped: boom");
+  });
+
+  it("lands what was heard when the recogniser keeps ending as soon as it starts", async () => {
+    const { store } = await mount();
+    const helper = await listening();
+    helper.emit({ t: "partial", turn: 1, text: "hello there" });
+    for (let turn = 1; turn <= 4; turn++) helper.emit({ t: "final", turn, text: turn === 1 ? "hello there" : "" });
+    await settle();
+    expect(store.getState().drafts["se1"]).toBe("hello there");
+    expect(screen.getByRole("status").textContent).toMatch(/keeps stopping/);
+  });
+
+  it("lands nothing, and only says why, when a dictation that heard nothing breaks", async () => {
+    const { store } = await mount();
+    typeAt("Fix  please", 4);
+    const helper = await listening();
+    helper.emit({ t: "error", message: "The speech helper stopped." });
+    await settle();
+    expect(store.getState().drafts["se1"]).toBe("Fix  please");
+    expect(screen.getByRole("status").textContent).toContain("The speech helper stopped.");
+    expect(box().readOnly).toBe(false);
+    expect(screen.getByRole("button", { name: "Dictate" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("with Clean up dictation off, which it is until turned on, asks no model and lands the raw words", async () => {
     expect(DEFAULT_VOICE_PREFS.cleanUp).toBe(false);
     expect(readVoicePrefs({ rate: 1.2 }).cleanUp).toBe(false);
