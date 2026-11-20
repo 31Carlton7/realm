@@ -2301,6 +2301,13 @@ export class SessionService {
     return sandboxWrapFor(this.d.sandbox, { spaceId: s.spaceId, extraWritableRoots: memoryDir ? [s.cwd, memoryDir] : [s.cwd] });
   }
 
+  /** Start the session's engine before anything is sent to it, so its first message does not wait on
+   *  a cold start. The quick chat's spare is the caller (`QuickChatEngines`). */
+  async warm(id: string): Promise<void> {
+    await this.ensurePorts(id);
+    this.ensureLive(id);
+  }
+
   /** `at` starts it somewhere other than the row's environment — a move's boot, before the row moves. */
   private ensureLive(id: string, at?: Environment): AgentHandle {
     const existing = this.live.get(id); if (existing) return existing.handle;

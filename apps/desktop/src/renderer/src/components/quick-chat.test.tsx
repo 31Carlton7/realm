@@ -59,7 +59,7 @@ describe("the quick chat", () => {
     const { store, api } = await mount();
     const before = allItems(store.getState().layout!);
     await openChat();
-    expect(api.calls.some((c) => c.startsWith("createUnlistedSession:"))).toBe(true);
+    expect(api.calls.some((c) => c.startsWith("startQuickChat:"))).toBe(true);
     expect(allItems(store.getState().layout!)).toEqual(before);
     // …and no item either, so it is in no list anywhere: not the sidebar, the pinned grid, the
     // command palette, the Library, or any pane.

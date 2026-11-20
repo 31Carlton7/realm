@@ -1213,6 +1213,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.sessions.push(s);
       return { session: s };
     },
+    startQuickChat: async (spaceId) => {
+      calls.push(`startQuickChat:${spaceId}`);
+      const s = session(`se${++n}`, spaceId, { agentKind: "claude", model: "claude-haiku-5-5", title: "Fake agent session" });
+      data.sessions.push(s);
+      return { session: s };
+    },
     deleteSession: async (id) => {
       calls.push(`deleteSession:${id}`);
       data.sessions = data.sessions.filter((x) => x.id !== id);

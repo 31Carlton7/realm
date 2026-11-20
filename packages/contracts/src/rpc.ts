@@ -2154,6 +2154,10 @@ export const Methods = {
    * `itemId` is null for exactly those, and for nothing else.
    */
   "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional(), userDispatched: z.boolean().default(false), unlisted: z.boolean().default(false) }), result: z.object({ session: SessionSchema, itemId: IdSchema.nullable() }) },
+  /** A new quick chat in `spaceId`: an unlisted session on the engine and model the Quick chat model
+   *  setting names, whose engine is often already started (`QuickChatEngines`). Always a session that
+   *  has never had a message. */
+  "sessions.startQuickChat": { params: z.object({ spaceId: IdSchema }), result: z.object({ session: SessionSchema }) },
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */

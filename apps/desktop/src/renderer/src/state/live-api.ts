@@ -111,6 +111,7 @@ export const liveApi = (): Api => ({
     return { session, itemId: itemId! };
   },
   createUnlistedSession: (input) => rpc().call("sessions.create", { ...input, unlisted: true }),
+  startQuickChat: (spaceId) => rpc().call("sessions.startQuickChat", { spaceId }),
   deleteSession: async (id) => { await rpc().call("sessions.delete", { id }); },
   forkSession: (checkpointId, agentKind) => rpc().call("sessions.fork", { checkpointId, ...(agentKind ? { agentKind } : {}) }),
   listSkills: (spaceId) => rpc().call("skills.list", { spaceId }),
