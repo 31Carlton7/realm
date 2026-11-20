@@ -20,6 +20,7 @@ import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
+import { askAppModal, askInSheet } from "./message-box";
 import { BROWSER_KEEP_HIDDEN_DEFAULT, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
@@ -1025,7 +1026,7 @@ ipcMain.handle("browser:clear-data", async (e, id: unknown): Promise<{ cleared: 
     profileName: profile?.name ?? "this profile",
     confirm: async (copy) => {
       const options = { type: "warning" as const, buttons: [copy.clear, copy.cancel], defaultId: 1, cancelId: 1, message: copy.message, detail: copy.detail };
-      return (win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)).response;
+      return await askInSheet(win, options) ?? options.cancelId;
     },
     clear: () => clearBrowserPartition(partition),
   });
@@ -1318,16 +1319,14 @@ registerPasswordsIpc({
       message: `Move ${basename(path)} to the Trash?`,
       detail: "Realm has imported and encrypted these passwords. The file still holds every one of them in plain text.",
     };
-    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
-    if (r.response !== 0) return false;
+    if (await askInSheet(win, options) !== 0) return false;
     await shell.trashItem(path);
     return true;
   },
   showPassword: async (sender, title, value) => {
     const win = BrowserWindow.fromWebContents(sender as WebContents);
     const options = { type: "none" as const, buttons: ["Done", "Copy"], defaultId: 0, cancelId: 0, message: title, detail: value };
-    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
-    return r.response === 1;
+    return await askInSheet(win, options) === 1;
   },
   clipboard: { writeText: (t) => clipboard.writeText(t), readText: () => clipboard.readText(), clear: () => clipboard.clear() },
   setTimer: (fn, ms) => { setTimeout(fn, ms).unref?.(); },
@@ -1749,9 +1748,8 @@ updater = new RealmUpdater({
   onInstallFailed: (message, { reopen }) => {
     console.error(`[update] the install did not go through: ${message}`);
     if (reopen) { reopenAfterFailedInstall(message); return; }
-    const win = windows.primary();
-    const box = { type: "warning" as const, message: "Realm couldn't install the update", detail: message, buttons: ["OK"] };
-    void (win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box));
+    // A sheet, or nothing when no window is on screen: Settings → General says the same.
+    void askInSheet(BrowserWindow.getFocusedWindow() ?? windows.primary(), { type: "warning", message: "Realm couldn't install the update", detail: message, buttons: ["OK"] });
   },
   onDownloaded: (version) => void (async () => {
     // Restarting stops the server, and every agent working in it, before the installer runs — said
@@ -1762,7 +1760,9 @@ updater = new RealmUpdater({
     const lastTry = previousInstallFailure
       ? ` The last try didn't install (${previousInstallFailure}). If this one doesn't either, download Realm from realm.computer.`
       : "";
-    void dialog.showMessageBox({
+    // A sheet on the window the person is in, or no question at all: the rail's restart button and
+    // Settings → General carry the same choice, and a download finishes whether or not anyone is there.
+    void askInSheet(BrowserWindow.getFocusedWindow(), {
       type: "info",
       title: "Realm update ready",
       message: `Realm v${version} is ready to install.`,
@@ -1770,7 +1770,7 @@ updater = new RealmUpdater({
       buttons: ["Restart and update", "Later"],
       defaultId: 0,
       cancelId: 1,
-    }).then(({ response }) => { if (response === 0) void updater.install(); });
+    }).then((response) => { if (response === 0) void updater.install(); });
   })(),
   // Pushed, not polled: a download's progress has to reach the rail's button while the window sits
   // at the front, which is exactly when nothing else would make the renderer ask.
@@ -2134,11 +2134,11 @@ async function handOff(state: DaemonState, why: HandoffWhy): Promise<HandoffResu
   if (decision.kind === "confirm") {
     const copy = handoffCopy(decision);
     const buttons = decision.keepable ? [copy.restart, copy.keep] : [copy.restart];
-    const r = await dialog.showMessageBox({
+    const response = await askAppModal({
       type: "question", buttons, defaultId: 0, cancelId: decision.keepable ? 1 : 0,
       message: copy.message, detail: copy.detail,
     });
-    decision = r.response === 0 ? { kind: "restart" } : { kind: "keep" };
+    decision = response === 0 ? { kind: "restart" } : { kind: "keep" };
   }
   if (decision.kind === "keep") return { kind: "adopt", stale: why === "replaced" ? "bundle" : why };
   // Experimental, and off by default: let the old daemon finish what is in flight instead of
@@ -2706,11 +2706,11 @@ async function quitAndStopAll() {
   const decision = decideQuit({ trigger: "quit-all", working: working.working });
   if (decision.kind === "confirm") {
     const copy = confirmQuitCopy(decision.working);
-    const r = await dialog.showMessageBox({
+    const response = await askAppModal({
       type: "warning", buttons: [copy.confirm, "Cancel"], defaultId: 1, cancelId: 1,
       message: copy.message, detail: copy.detail,
     });
-    if (r.response !== 0) return;
+    if (response !== 0) return;
   }
   quittingForReal = true;
   app.quit();

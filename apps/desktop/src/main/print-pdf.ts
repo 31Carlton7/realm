@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, type BrowserWindowConstructorOptions } from "electron";
 import { documentStem, printsAsPdf } from "@realm/contracts";
 import { existingPath, statFile } from "./attachments";
+import { askInSheet } from "./message-box";
 import { readTextFile } from "./read-text";
 
 /**
@@ -110,7 +111,7 @@ export function registerPdfExport(): void {
     const name = basename(path);
     const fail = async (detail: string): Promise<null> => {
       const box = { type: "warning" as const, message: `Realm could not make a PDF of ${name}.`, detail };
-      await (win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box));
+      await askInSheet(win, box);
       return null;
     };
     const read = await readTextFile(path);

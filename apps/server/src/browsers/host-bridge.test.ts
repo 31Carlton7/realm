@@ -66,6 +66,17 @@ describe("BrowserHostBridge", () => {
     expect(await p).toEqual({ text: "snap" });
   });
 
+  // Mutant: leave `deadline` off the op. Main then runs, when it wakes from a modal alert (#562), every
+  // op that queued while it was stopped, each already failed back to its agent.
+  it("tells main when it stops waiting for each op", () => {
+    const { ws, rpc, sent, close } = fakeHost();
+    const bridge = new BrowserHostBridge({ rpc, now: () => 1_000 });
+    bridge.register(ws);
+    void bridge.call("navigate", {}).catch(() => {});
+    expect(sent[0]!.payload).toMatchObject({ op: "navigate", deadline: 61_000 });
+    close();
+  });
+
   it("a host-reported failure rejects with its message", async () => {
     const { ws, rpc, sent } = fakeHost();
     const bridge = new BrowserHostBridge({ rpc });
