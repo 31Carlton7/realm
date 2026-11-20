@@ -143,8 +143,8 @@ describe("UserActivation", () => {
 
 describe("hostedTab", () => {
   it("lets Chromium make the window, so window.open answers a live window, and hosts it as the tab", () => {
-    // #539 denied the window and loaded its address fresh in a new tab: window.open answered null, as
-    // if the popup were blocked, and the window.opener link and a POST form's body were gone.
+    // Denying the window and loading its address fresh in a new tab makes window.open answer null, as
+    // if the popup were blocked, and loses the window.opener link and a POST form's body.
     // THE MUTANT: answer "deny".
     const adopt = vi.fn();
     const r = hostedTab({ partition: P }, () => true, adopt);
@@ -157,9 +157,8 @@ describe("hostedTab", () => {
   });
 
   it("closes the window a page opened with nobody pressing anything, and makes no tab of it", () => {
-    // Measured on 2.19.0 (#539): a window.open(url) as a page loads, or from its timer, reaches the
-    // handler as a foreground tab like a click's. Main navigated the pane away to it; #539 opened a tab
-    // for each. THE MUTANT: ignore `pressed`, and a page spawns tabs on its own.
+    // Measured on 2.19.0: a window.open(url) as a page loads, or from its timer, reaches the handler as
+    // a foreground tab like a click's. THE MUTANT: ignore `pressed`, and a page spawns tabs on its own.
     const adopt = vi.fn();
     const page = { close: vi.fn() };
     hostedTab({ partition: P }, () => false, adopt).createWindow({ webContents: page });

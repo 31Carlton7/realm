@@ -352,8 +352,7 @@ export const POPUP_LIMIT = 3;
  * A request for a tab — a `target=_blank` link or form, a plain `window.open(url)`, a ⌘- or
  * middle-click — is a **tab**: a new Realm Browser tab beside this one, in front for `foreground-tab`
  * and behind it for `background-tab`, as any browser does (`hostedTab`, which also refuses one nobody
- * pressed for). Navigating the pane in place instead (what these did before) threw away the page that
- * was clicked on. Anything else (`default`, `current-tab`) goes **in-place**.
+ * pressed for). Navigating the pane in place instead would throw away the page that was clicked on. Anything else (`default`, `current-tab`) goes **in-place**.
  *
  * Deliberately not sniffed from the address: the sign-in SDKs that use a popup give it a size, and a
  * link to an authorize URL is a redirect flow, which finishes in place.
