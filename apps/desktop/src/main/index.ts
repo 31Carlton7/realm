@@ -1,3 +1,4 @@
+import { logUncaught } from "./uncaught";
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents, powerMonitor } from "electron";
 import { BrowserCredentialInputSchema, PasswordSaveAnswerSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -92,6 +93,8 @@ import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/c
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleBackgroundProtocol, handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 import { findFfmpeg, playableCopy } from "./media-proxy";
+
+logUncaught();
 
 /* `realm-media://` has to be declared privileged before `app.ready`, which is why this is a
    top-level statement rather than a line in `whenReady` — Electron ignores the registration
