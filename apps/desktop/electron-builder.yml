@@ -87,6 +87,9 @@ mac:
     NSMicrophoneUsageDescription: >-
       Realm hears you while you dictate into the prompter. What you say is transcribed on this
       Mac and typed into your message.
+    NSAudioCaptureUsageDescription: >-
+      Realm hears the other side of a call through this Mac's sound output, to write the meeting's
+      transcript. It is transcribed on this Mac, and the audio is never saved.
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
 afterSign: scripts/notarize.cjs
