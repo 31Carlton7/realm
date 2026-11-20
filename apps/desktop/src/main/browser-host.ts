@@ -657,7 +657,10 @@ export type ViewHooks = {
 };
 
 /** A page Chromium made for a new tab, waiting for the tab's browser to host it. */
-export type OpenedPage = { close(): void };
+export type OpenedPage = { close(): void; isDestroyed(): boolean };
+/** A page that called window.close() while it waited for its tab throws "Object has been destroyed" if
+ *  closed again (measured on Electron 45). */
+const closePage = (page: OpenedPage) => { if (!page.isDestroyed()) page.close(); };
 /** A new tab a page opened: the browser hosting it, and the address it was opened on. */
 export type OpenedTab = { browserId: string; url: string };
 
@@ -860,6 +863,9 @@ export class BrowserPaneHost {
     // profile is never shown under this one: it goes, and the address loads afresh here.
     const opened = this.claimed.get(id);
     this.claimed.delete(id);
+    // Gone before its pane got here (window.close() in its <head>, a renderer slow to mount the pane):
+    // a WebContentsView cannot be made of it, and its tab closes as when its page closes later.
+    if (opened?.page.isDestroyed()) { this.closeTabSoon(id); return; }
     if (opened && opened.partition !== partition) opened.page.close();
     const hosted = opened?.partition === partition ? opened : undefined;
     const handle = this.opts.createView(id, this.hooks(id), partition, hosted && { page: hosted.page, url: hosted.url });
@@ -907,7 +913,7 @@ export class BrowserPaneHost {
         const url = normalizeAddress(target);
         if (!opener || !url || !originAllowed(url, opener.allowlist) || !this.opts.openTab) { page.close(); return; }
         const name = `${id}:${++this.openedCount}`;
-        const expires = setTimeout(() => { if (this.opened.delete(name)) page.close(); }, UNCLAIMED_TAB_MS);
+        const expires = setTimeout(() => { if (this.opened.delete(name)) closePage(page); }, UNCLAIMED_TAB_MS);
         this.opened.set(name, { page, partition: opener.partition, opener: id, url, focus: focused && !background, expires });
         this.opts.openTab({ id, url, background, focus: focused, page: name });
       },
@@ -916,10 +922,14 @@ export class BrowserPaneHost {
       pageClosed: () => {
         if (!this.views.has(id)) return;
         this.destroy(id);
-        // A turn later, so a window that is closing has time to be gone.
-        setImmediate(() => { if (!this.opts.windowGone?.()) this.opts.closeTab?.(id); });
+        this.closeTabSoon(id);
       },
     };
+  }
+
+  /** A turn later, so a window that is closing has time to be gone. */
+  private closeTabSoon(id: string): void {
+    setImmediate(() => { if (!this.opts.windowGone?.()) this.opts.closeTab?.(id); });
   }
 
   /**
@@ -1173,7 +1183,8 @@ export class BrowserPaneHost {
   destroy(id: string): void {
     this.discarded.delete(id);
     this.openedBy.delete(id);
-    this.claimed.get(id)?.page.close();
+    const claimed = this.claimed.get(id);
+    if (claimed) closePage(claimed.page);
     this.claimed.delete(id);
     const v = this.views.get(id); if (!v) return;
     this.views.delete(id);
@@ -1187,9 +1198,9 @@ export class BrowserPaneHost {
   /** Window teardown: the views must never outlive the window they composite into. */
   destroyAll(): void {
     this.discarded.clear();
-    for (const { page, expires } of this.opened.values()) { clearTimeout(expires); page.close(); }
+    for (const { page, expires } of this.opened.values()) { clearTimeout(expires); closePage(page); }
     this.opened.clear();
-    for (const { page } of this.claimed.values()) page.close();
+    for (const { page } of this.claimed.values()) closePage(page);
     this.claimed.clear();
     for (const id of [...this.views.keys()]) this.destroy(id);
   }
