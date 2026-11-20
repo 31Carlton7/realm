@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { platformCapabilities, type DictationCleanResult } from "@realm/contracts";
+import { platformCapabilities, type DictationCleanResult, type GitInfo } from "@realm/contracts";
 import { searchSettings, visibleSettingsGroups } from "../panes/settings/settings-index";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -58,10 +58,12 @@ function downloadingHelper() {
   return { helper, life, emit: (e: HelperEvent) => act(() => emit(e)), ready: (r: HelperStart) => act(async () => { ready(r); await new Promise((res) => setTimeout(res, 0)); }) };
 }
 
-async function mount(cleanUp = false) {
+/** `gitInfo` is the session's working tree (cwd /tmp in the fakes); a dirty one earns the box a hint. */
+async function mount(cleanUp = false, gitInfo: GitInfo | null = null) {
   const api = fakeApi({
     sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", model: "claude-opus-5-5" })],
     items: { s1: [item("i9", "s1", { kind: "session", refId: "se1", title: "s" })] },
+    gitInfo: { "/tmp": gitInfo },
   });
   if (cleanUp) api.data.settings[VOICE_PREFS_KEY] = { cleanUp: true };
   const store = createAppStore(api);
@@ -135,6 +137,26 @@ describe("dictating into the prompter", () => {
     expect(dictating()).toBeNull();
     expect(box().readOnly).toBe(false);
     expect(box().selectionStart).toBe("Fix the login test".length);
+  });
+
+  it("hides the suggested prompt while it listens, before the first word, and gives it back when nothing was heard", async () => {
+    const { store } = await mount(false, { branch: "main", additions: 0, deletions: 0, dirty: 3, ahead: 0, behind: 0 });
+    const hint = () => document.querySelector(".composer-hint")?.textContent ?? null;
+    await waitFor(() => expect(hint()).toContain("Review my changes."));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dictate" })); await new Promise((res) => setTimeout(res, 0)); });
+    // THE MUTANT: the hint keyed on the draft alone, which stays empty until the words land.
+    expect(hint()).toBeNull();
+    expect(box().getAttribute("aria-describedby")).toBeNull();
+    heard("the login");
+    expect(hint()).toBeNull();
+    expect(box().value).toBe("the login");
+    // The box is read-only while it listens, so ⇥ has no suggestion to type into the draft under the words.
+    fireEvent.keyDown(box(), { key: "Tab" });
+    expect(store.getState().drafts["se1"] ?? "").toBe("");
+
+    await finished("");
+    expect(store.getState().drafts["se1"] ?? "").toBe("");
+    expect(hint()).toContain("Review my changes.");
   });
 
   it("puts spaces where the words would otherwise run into a word already there", async () => {

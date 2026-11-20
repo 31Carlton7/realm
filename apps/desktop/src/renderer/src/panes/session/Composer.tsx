@@ -682,10 +682,6 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
     onDraftChange(`${before}${lead}${elementChipToken(chip.label)}${tail}${after}`);
   };
 
-  /** The hint replaces the placeholder, so it lives and dies with the placeholder: an empty draft
-   *  only. A single narrowed const rather than a boolean, so the ⇥ handler and the markup below both
-   *  get the string itself out of the one check. */
-  const hint = promptHint && draft === "" ? promptHint : null;
   const hintId = `prompt-hint-${session.id}`;
 
   // The greeting is picked once per session (and re-picked only if the space is renamed or the name
@@ -842,6 +838,11 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
      the draft itself is untouched until they land. Each word is a piece of its own, so a new one eases
      in and a final one takes the typed ink; once they land, the ones that were not final yet settle. */
   const dictating = dictate.live ? placeDictation(draft, dictate.live.at, dictate.live.words) : null;
+  /** The hint replaces the placeholder, so it lives and dies with the placeholder: an empty draft
+   *  only, and not while dictating, when the box shows the words heard rather than the draft, which
+   *  stays empty until they land. A single narrowed const rather than a boolean, so the ⇥ handler and
+   *  the markup below both get the string itself out of the one check. */
+  const hint = promptHint && draft === "" && !dictate.live ? promptHint : null;
   const dictatedAt = dictate.live ? Math.min(dictate.live.at, draft.length) : 0;
   type Painted = Segment & { heard?: { settled: number }; settling?: true };
   const landed = dictate.landed?.draft === draft ? dictate.landed : null;
