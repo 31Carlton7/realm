@@ -41,7 +41,6 @@ import path from "node:path";
 import readline from "node:readline";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 import { cdp, desktopRoot, launchLiveApp, sleep, spawnLiveElectron, until } from "./lib/live-app.mjs";
-import { noCalendar } from "./quick-chat-panel/no-calendar.mjs";
 
 const OUT_DIR = process.env.LIVE_OUT_DIR ?? path.resolve(process.cwd(), ".verify/quick-chat-panel");
 const SOURCES = path.join(desktopRoot, "scripts/quick-chat-panel");
@@ -63,10 +62,9 @@ fs.mkdirSync(OUT_DIR, { recursive: true });
 const scriptFile = path.join(OUT_DIR, "fake-script.json");
 fs.writeFileSync(scriptFile, js([{ on: "what is this panel", emit: [{ kind: "text", text: REPLY }] }]));
 
-const calendar = noCalendar();
 const app = await launchLiveApp({
   name: "quick-chat-panel", inspect: true,
-  env: { ...calendar.env, REALM_FAKE_STANDS_IN: "claude,codex", REALM_HTML_MENUS: "1", REALM_FAKE_SCRIPT: scriptFile, REALM_QUIET_REAL_KEY: "1", REALM_QUIET_GLOBAL_SHORTCUT: ACCELERATOR },
+  env: { REALM_FAKE_STANDS_IN: "claude,codex", REALM_HTML_MENUS: "1", REALM_FAKE_SCRIPT: scriptFile, REALM_QUIET_REAL_KEY: "1", REALM_QUIET_GLOBAL_SHORTCUT: ACCELERATOR },
 });
 const watchdog = setTimeout(() => { console.error("FAIL watchdog: the check ran for five minutes"); process.exit(9); }, 300_000);
 
@@ -420,6 +418,5 @@ try {
   api?.close();
   clearTimeout(watchdog);
   await app.stop();
-  calendar.remove();
 }
 process.exit(process.exitCode ?? 0);
