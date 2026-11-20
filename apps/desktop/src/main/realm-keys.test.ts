@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { GlobalKeysEvent, GlobalKeysState } from "@realm/contracts";
@@ -135,6 +136,13 @@ describe("RealmKeys", () => {
     keys.setDoubleTap(true);
     says('{"t":"doubleTap"}');
     expect(doubleTaps).toHaveBeenCalledTimes(1);
+  });
+
+  it("is wired in main to the quick chat panel: a double-tap opens it, or puts it away", () => {
+    // Read as text: importing main would start an Electron app.
+    const main = readFileSync(join(__dirname, "index.ts"), "utf8");
+    expect(main).toContain("onDoubleTap: () => openQuickChat(),");
+    expect(main).toMatch(/function openQuickChat\(\): void \{\s*quickChatPanel\.toggle\(\);\s*\}/);
   });
 
   it("tells a watching page about the held key, and nobody when no page watches", () => {

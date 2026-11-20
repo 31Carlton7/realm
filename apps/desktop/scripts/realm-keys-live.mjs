@@ -2,7 +2,7 @@
  * Live checks for the key helper (native/RealmKeys.swift) and what main and Settings do with it.
  *
  *   node apps/desktop/scripts/realm-keys-live.mjs taps       the helper alone, on real event taps
- *   node apps/desktop/scripts/realm-keys-live.mjs app        the built app: a double-tap opens the quick chat
+ *   node apps/desktop/scripts/realm-keys-live.mjs app        the built app: a double-tap opens the quick chat panel
  *   node apps/desktop/scripts/realm-keys-live.mjs settings   captures of Settings ▸ Keys ▸ From anywhere
  *
  * Whether a session tap delivers an event, whether returning nil keeps it from the next tap, and
@@ -268,7 +268,8 @@ async function shoot(app, file, selector, closest = null) {
 }
 
 const keysState = (page) => page.eval(`window.realm.keys.state()`);
-const quickChatOpen = (page) => page.eval(`!!document.querySelector('.quick-chat')`);
+/** The quick chat panel is the one window of Realm's that cannot be resized. Quiet mode keeps it off the screen. */
+const panelVisible = (app) => app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => !w.isResizable())?.isVisible() === true`);
 const tryRow = (page) => page.eval(`[...document.querySelectorAll('.keys-try-key')].map((el) => el.textContent)`);
 
 async function appPart() {
@@ -293,21 +294,25 @@ async function appPart() {
     let standDown = watchdog(proofTool.child);
     const installed = await proofTool.tapsOf(helpersRunning()[0].pid);
     check("the app's helper holds no active tap: nothing has registered a chord", JSON.stringify(installed) === JSON.stringify([{ options: "listenOnly", keys: true, pointer: true }]), installed);
-    check("before any tap, no quick chat is open", !(await quickChatOpen(app.page)));
+    check("before any tap, the quick chat panel is not open", !(await panelVisible(app)));
     await proofTool.run("two taps 500 ms apart");
     await sleep(600);
-    check("two taps 500 ms apart open nothing", !(await quickChatOpen(app.page)));
+    check("two taps 500 ms apart open nothing", !(await panelVisible(app)));
     await proofTool.run("two taps 120 ms apart");
-    const opened = await until(() => quickChatOpen(app.page), 5000, "the quick chat").then(() => true, () => false);
-    check("a double-tap of Command opens the quick chat", opened);
-    check("main brought its window forward for it (quiet mode's record of focus; nothing is raised on screen)", await app.main.eval(`require("electron").BrowserWindow.getAllWindows()[0].isFocused()`));
-    // The quick chat alone: the prompter behind it names this Mac, which carries its owner's name.
-    await shoot(app, path.join(out, "app-quick-chat-after-double-tap.png"), ".quick-chat");
+    // The first open makes the panel's window and waits on its page.
+    const opened = await until(() => panelVisible(app), 15_000, "the quick chat panel").then(() => true, () => false);
+    check("a double-tap of Command opens the quick chat panel", opened);
     await proofTool.end();
     standDown();
 
-    await app.page.eval(`document.querySelector('.quick-chat [aria-label="Close quick chat"]').click(); true`);
-    await until(async () => !(await quickChatOpen(app.page)), 5000, "the quick chat to close");
+    await restartHelper();
+    proofTool = await startProof();
+    standDown = watchdog(proofTool.child);
+    await proofTool.run("two taps 120 ms apart");
+    const putAway = await until(async () => !(await panelVisible(app)), 5000, "the panel to be put away").then(() => true, () => false);
+    check("a second double-tap puts the panel away", putAway);
+    await proofTool.end();
+    standDown();
 
     await restartHelper();
     await openKeysSettings(app);
@@ -321,7 +326,7 @@ async function appPart() {
     const shown = await tryRow(app.page);
     check("with the setting off, Settings' Try it still shows the double-tap", shown[0] === "⌘⌘Seen", shown);
     await sleep(600);
-    check("with the setting off, the double-tap opens nothing", !(await quickChatOpen(app.page)));
+    check("with the setting off, the double-tap opens nothing", !(await panelVisible(app)));
     await proofTool.end();
     standDown();
 

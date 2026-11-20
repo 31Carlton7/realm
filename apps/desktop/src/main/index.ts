@@ -2075,19 +2075,12 @@ function realmKeysPath(): string | null {
 }
 
 /**
- * Opens the quick chat from any app: what a double-tap of Command does. Realm comes forward and the
- * window in front opens its in-window Quick Chat. This is the one place that decides where the quick
- * chat opens from outside Realm.
+ * Opens the quick chat from any app: what a double-tap of Command does. The panel opens over the app
+ * in front, and a double-tap with it open puts it away, as its chord does. This is the one place that
+ * decides where the quick chat opens from outside Realm.
  */
-async function openQuickChat(): Promise<void> {
-  let win = BrowserWindow.getFocusedWindow() ?? windows.primary();
-  if (win && !win.isDestroyed()) bringForward(win);
-  else { await reattach(); win = windows.primary(); }
-  if (!win || win.isDestroyed()) return;
-  const contents = win.webContents;
-  // A window that reattach just made has no renderer listening yet.
-  if (contents.isLoading()) contents.once("did-finish-load", () => contents.send("app:command", "session.quickChat"));
-  else contents.send("app:command", "session.quickChat");
+function openQuickChat(): void {
+  quickChatPanel.toggle();
 }
 
 /** The Settings pages showing what the keyboard sends (Keys ▸ From anywhere ▸ Try it). */
@@ -2098,7 +2091,7 @@ const realmKeys = new RealmKeys({
     const bin = realmKeysPath();
     return bin ? spawn(bin, swallow ? ["--swallow"] : [], { stdio: ["pipe", "pipe", "pipe"] }) : null;
   },
-  onDoubleTap: () => void openQuickChat(),
+  onDoubleTap: () => openQuickChat(),
   onWatched: (event) => tellKeysWatchers("keys:event", event),
   onState: (state) => tellKeysWatchers("keys:state", state),
 });
