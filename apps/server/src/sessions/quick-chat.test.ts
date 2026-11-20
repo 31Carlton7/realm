@@ -114,6 +114,26 @@ describe("quick chat engines", () => {
     c.close();
   });
 
+  it("still deletes the quick chat when no spare can be made", async () => {
+    const { c, start } = await boot();
+    const first = await start();
+    app.sessions.create = () => { throw new Error("no environment"); };
+    expect((await c.call("sessions.delete", { id: first.id })).result).toEqual({ ok: true });
+    expect((await c.call("sessions.get", { id: first.id })).error).toBeTruthy();
+    c.close();
+  });
+
+  it("starts no spare when a quick chat saved to a space is deleted", async () => {
+    const { fake, c, sp, start, say } = await boot();
+    const first = await start();
+    await say(first.id);
+    await c.call("sessions.keep", { id: first.id, spaceId: sp.id });
+    await c.call("sessions.delete", { id: first.id });
+    expect((await c.call("settings.get", { key: QUICK_CHAT_SPARE_SETTING })).result.value ?? null).toBeNull();
+    expect(fake.starts).toHaveLength(1);
+    c.close();
+  });
+
   it("deletes a spare a stopped server left behind", async () => {
     const home = tempDir("realm-");
     app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) } });

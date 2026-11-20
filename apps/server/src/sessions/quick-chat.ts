@@ -65,7 +65,16 @@ export class QuickChatEngines {
     const spaceId = this.open.get(id);
     if (spaceId === undefined) return;
     this.open.delete(id);
-    await this.warm(spaceId);
+    try {
+      await this.warm(spaceId);
+    } catch (e) {
+      console.error(`[quick-chat] could not make a spare session: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /** A quick chat was saved to a space: it is that space's session now, and deleting it starts no spare. */
+  kept(id: string): void {
+    this.open.delete(id);
   }
 
   /** Delete a spare left by a server that stopped while it waited. */
