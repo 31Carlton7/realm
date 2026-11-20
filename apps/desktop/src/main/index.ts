@@ -22,12 +22,13 @@ import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
-import { BROWSER_KEEP_HIDDEN_DEFAULT, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, MEETINGS_OPEN_KEY, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, isHoldKey, isLinksOpenIn, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETINGS_OPEN_KEY, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { startBackdropState } from "./backdrop-state";
 import { MeetingWatch, meetingWatchPath, startMeetingWatchHelper } from "./meeting-watch";
+import { RealmKeys } from "./realm-keys";
 import { readFileRange, readTextFile } from "./read-text";
 import {
   addBackgrounds, backgroundImageUrl, backgroundLoopFile, listBackgrounds, removeBackground, setBackgroundPoster, updateBackground, type FirstFrame, type Reencode,
@@ -2059,6 +2060,68 @@ ipcMain.on("links:open-in", (_e, pref: unknown) => { if (isLinksOpenIn(pref)) li
 /** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
  *  a turn already running rather than at the next status change. */
 ipcMain.handle("power:prevent-sleep", (_e, on: unknown) => { sleepGuard.setPreference(on === true); });
+
+/** The key helper (native/RealmKeys.swift): beside the source in a dev build or a live check, in
+ *  Resources once packaged. A live check never starts the real one, whose tap would answer the keys of
+ *  whoever is at the Mac; it names a stand-in with REALM_KEYS_BIN, which a packaged Realm ignores. */
+function realmKeysPath(): string | null {
+  if (process.platform !== "darwin") return null;
+  if (!app.isPackaged && process.env.REALM_KEYS_BIN) return process.env.REALM_KEYS_BIN;
+  if (quiet) return null;
+  const dev = join(__dirname, "../../native/bin/realmkeys");
+  if (existsSync(dev)) return dev;
+  const packaged = join(process.resourcesPath, "realmkeys");
+  return existsSync(packaged) ? packaged : null;
+}
+
+/**
+ * Opens the quick chat from any app: what a double-tap of Command does. The panel opens over the app
+ * in front, and a double-tap with it open puts it away, as its chord does. This is the one place that
+ * decides where the quick chat opens from outside Realm.
+ */
+function openQuickChat(): void {
+  quickChatPanel.toggle();
+}
+
+/** The Settings pages showing what the keyboard sends (Keys ▸ From anywhere ▸ Try it). */
+const keysWatchers = new Set<WebContents>();
+const tellKeysWatchers = (channel: string, value: unknown) => { for (const contents of keysWatchers) if (!contents.isDestroyed()) contents.send(channel, value); };
+const realmKeys = new RealmKeys({
+  start: (swallow) => {
+    const bin = realmKeysPath();
+    return bin ? spawn(bin, swallow ? ["--swallow"] : [], { stdio: ["pipe", "pipe", "pipe"] }) : null;
+  },
+  onDoubleTap: () => openQuickChat(),
+  onWatched: (event) => tellKeysWatchers("keys:event", event),
+  onState: (state) => tellKeysWatchers("keys:state", state),
+});
+app.on("will-quit", () => realmKeys.stop());
+
+/** The two settings, read from the server when main (re)connects, as the sleep preference is: a
+ *  launch with no window still answers a double-tap. */
+async function readKeysPreferences() {
+  try {
+    const [doubleTap, hold] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
+    if (isHoldKey(hold?.value)) realmKeys.setHoldKey(hold.value);
+    realmKeys.setDoubleTap(typeof doubleTap?.value === "boolean" ? doubleTap.value : KEYS_DOUBLE_TAP_DEFAULT);
+  } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
+}
+ipcMain.handle("keys:state", () => realmKeys.state);
+ipcMain.handle("keys:set-double-tap", (_e, on: unknown) => { realmKeys.setDoubleTap(on === true); });
+ipcMain.handle("keys:set-hold", (_e, key: unknown) => { if (isHoldKey(key)) realmKeys.setHoldKey(key); });
+ipcMain.on("keys:watch", (e, on: unknown) => {
+  const contents = e.sender;
+  if (on !== true) keysWatchers.delete(contents);
+  else {
+    if (!keysWatchers.has(contents)) {
+      keysWatchers.add(contents);
+      contents.once("destroyed", () => { keysWatchers.delete(contents); realmKeys.setWatchers(keysWatchers.size); });
+    }
+    // Said again when the window comes back to the front, perhaps from System Settings with a grant.
+    realmKeys.recheck();
+  }
+  realmKeys.setWatchers(keysWatchers.size);
+});
 /** Settings ▸ General ▸ Open files in, and the transcript's path menu: the editors this Mac has, and
  *  opening a path that exists in one of them. `existingPath` is the gate Reveal in Finder uses, and it
  *  is the right one here for the same reason it is loose there: an editor is handed the path as a
@@ -2523,7 +2586,7 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       endpoint: () => serverEndpoint() ?? info,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readMeetingsPreference(); void readPairedPhones(); void readQuickChatPanelSettings(); presence.reset(); void profileDirectory.refresh(); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readMeetingsPreference(); void readKeysPreferences(); void readPairedPhones(); void readQuickChatPanelSettings(); presence.reset(); void profileDirectory.refresh(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
       onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); sleepGuard.setWaiting(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },

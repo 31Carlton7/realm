@@ -101,6 +101,9 @@ describe("probeTcc (Plan 12 W6 — TCC honesty)", () => {
       expect(isTccPermissionId(r.id)).toBe(true);
       expect(TCC_SETTINGS_URLS[r.id]).toMatch(/^x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_/);
     }
+    // A pane with no row: the key helper's line in Settings ▸ Keys opens it.
+    expect(isTccPermissionId("inputMonitoring")).toBe(true);
+    expect(TCC_SETTINGS_URLS.inputMonitoring).toBe("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent");
     expect(isTccPermissionId("https://evil.example")).toBe(false);
     expect(isTccPermissionId("")).toBe(false);
     expect(isTccPermissionId(null)).toBe(false);

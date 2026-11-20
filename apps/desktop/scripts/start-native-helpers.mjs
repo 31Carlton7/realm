@@ -26,6 +26,8 @@ const STARTS = {
   // Reads who holds the microphone from Core Audio's properties, which needs no permission, and quits
   // when stdin closes. The calendar mode is left alone: it would read the runner's calendar access.
   meetingwatch: { args: ["calls"], input: "", exits: [0] },
+  // Its mode that makes no event tap: it reads nothing here and quits when stdin closes.
+  realmkeys: { args: ["decide"], input: "", exits: [0] },
 };
 
 const dir = process.argv[2];
