@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { capabilities } from "../../platform";
 import { rpc } from "../../rpc/client";
 import { useApp } from "../../state/store";
-import { QuickChatPanelSettings } from "./QuickChatPanelSettings";
-import { GlobalKeysSection } from "./GlobalKeysSection";
+import { QuickChatHideRow, QuickChatShortcutRow } from "./QuickChatPanelSettings";
+import { GlobalKeysRows } from "./GlobalKeysSection";
 import {
   commandEntries, describeRules, filterEntries, groupEntries, type CommandEntry, type RuleView,
 } from "./keybindings-model";
@@ -60,9 +60,18 @@ export function KeybindingsPanel() {
         </>
       )}
 
-      {/* Ahead of the list: the one key here that is recorded on this page and works outside Realm. */}
-      {capabilities().quickChatPanel && <QuickChatPanelSettings />}
-      {capabilities().accessibility && <GlobalKeysSection />}
+      {/* Ahead of the list: the keys here that work outside Realm. One group read top to bottom: how the
+          quick chat is opened from another app, then who can see it once it is open. */}
+      {(capabilities().quickChatPanel || capabilities().accessibility) && (
+        <div className="field">
+          <span>From anywhere</span>
+          <ul className="settings-list">
+            {capabilities().quickChatPanel && <QuickChatShortcutRow />}
+            {capabilities().accessibility && <GlobalKeysRows />}
+            {capabilities().quickChatPanel && <QuickChatHideRow />}
+          </ul>
+        </div>
+      )}
 
       <div className="field" data-setting="keys">
         <span>Shortcuts</span>

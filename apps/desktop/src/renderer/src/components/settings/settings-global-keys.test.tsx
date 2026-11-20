@@ -17,7 +17,7 @@ vi.mock("../../rpc/client", () => ({
   }),
 }));
 
-import { GlobalKeysSection } from "./GlobalKeysSection";
+import { GlobalKeysRows } from "./GlobalKeysSection";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
 
@@ -42,7 +42,7 @@ async function mount(api = fakeApi()) {
   calls.length = 0;
   const store = createAppStore(api);
   await store.getState().boot();
-  const view = render(<StoreContext.Provider value={store}><GlobalKeysSection /></StoreContext.Provider>);
+  const view = render(<StoreContext.Provider value={store}><ul><GlobalKeysRows /></ul></StoreContext.Provider>);
   await waitFor(() => expect(calls.filter((c) => c.method === "settings.get")).toHaveLength(2));
   return view;
 }

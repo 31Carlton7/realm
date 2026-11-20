@@ -82,6 +82,8 @@ export class RealmKeys {
   constructor(private readonly deps: RealmKeysDeps) {}
 
   get state(): GlobalKeysState { return this.current; }
+  /** The double-tap setting, whether or not macOS lets the helper see it. */
+  get doubleTapOn(): boolean { return this.doubleTap; }
 
   setDoubleTap(on: boolean): void { this.doubleTap = on; this.sync(); }
   setHoldKey(key: HoldKey): void { this.hold = key; this.sync(); }

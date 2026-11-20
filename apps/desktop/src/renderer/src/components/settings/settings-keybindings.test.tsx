@@ -47,6 +47,15 @@ describe("the keybindings panel", () => {
     expect(document.querySelector('[data-setting="quick-chat-hide"]')).not.toBeNull();
   });
 
+  it("keeps the keys that work from another app in one group: how the quick chat opens, then who can see it", async () => {
+    await mount();
+    const group = document.querySelector('[data-setting="quick-chat-shortcut"]')!.closest(".field")!;
+    expect(group.querySelector(":scope > span")).toHaveTextContent("From anywhere");
+    expect([...group.querySelectorAll("[data-setting]")].map((r) => r.getAttribute("data-setting")))
+      .toEqual(["quick-chat-shortcut", "double-tap-command", "assistant-hold-key", "keys-try", "quick-chat-hide"]);
+    expect([...document.querySelectorAll(".settings-panel > .field > span")].map((s) => s.textContent)).not.toContain("Quick chat");
+  });
+
   it.each(["linux", "win32"])("draws neither of them on %s, where there is no panel", async (platform) => {
     (window as any).realm = { platform, capabilities: platformCapabilities(platform) };
     await mount();
