@@ -40,11 +40,10 @@ struct TeammateAvatar: View {
     var body: some View {
         let mark = min(side, 88)
         let unread = teammate.unread == true
-        // A Menu rather than a context menu: in a List row, a context menu is the whole row's, so every
-        // mark in the row would lift the row and offer the first teammate's actions.
-        Menu {
-            // Named, since the menu opens over the mark it came from.
-            Section(teammate.name) { TeammateMenu(teammate: teammate, archiving: $archiving) }
+        // Realm's menu rather than a context menu: in a List row, a context menu is the whole row's, so
+        // every mark in the row would lift the row and offer the first teammate's actions.
+        RealmMenu(teammate.name, primaryAction: { Task { await model.openTeammate(teammate) } }) {
+            TeammateMenu(teammate: teammate, archiving: $archiving, head: teammate.name)
         } label: {
             VStack(spacing: 6) {
                 TeammateMark(icon: teammate.icon, size: mark, lead: teammate.lead)
@@ -63,16 +62,11 @@ struct TeammateAvatar: View {
             .padding(.vertical, 4)
             .frame(width: mark + 24)
             .contentShape(.rect)
-        } primaryAction: {
-            Task { await model.openTeammate(teammate) }
         }
-        .buttonStyle(.plain)
         .sensoryFeedback(.selection, trigger: teammate.lead)
         .modifier(ConfirmArchive(teammate: teammate, shown: $archiving))
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(TeammateWords.spoken(teammate))
         .accessibilityHint("Opens its chat")
-        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("avatar-\(teammate.handle)")
     }
 }
@@ -282,13 +276,27 @@ struct TeammateLink: View {
     }
 }
 
-/// A teammate's actions, held on its row or its mark: its chat, Edit, the Lead, and Archive, which asks first.
+/// A teammate's actions, held on its row or its mark: its chat, Edit, the Lead, and Archive, which asks
+/// first. On a mark, headed by its name, since Realm's menu stands beside the mark rather than lifting it.
 private struct TeammateMenu: View {
     let teammate: Teammate
     @Binding var archiving: Bool
+    var head: String?
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        if let head {
+            Section(head: head) { actions }
+        } else {
+            Section { actions }
+        }
+        Section {
+            Button("Archive", systemImage: "archivebox", role: .destructive) { archiving = true }
+                .disabled(!model.isConnected)
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
         Button("Open chat", systemImage: "bubble.left.and.text.bubble.right") {
             Task { await model.openTeammate(teammate) }
         }
@@ -298,9 +306,6 @@ private struct TeammateMenu: View {
             Task { await model.toggleLead(teammate) }
         }
         .disabled(!model.isConnected)
-        Divider()
-        Button("Archive", systemImage: "archivebox", role: .destructive) { archiving = true }
-            .disabled(!model.isConnected)
     }
 }
 
