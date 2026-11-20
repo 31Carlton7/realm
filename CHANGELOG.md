@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.20.2 - 2026-11-20
+
+An agent's click no longer pulls your keyboard into the tab it opens.
+
+### Fixed
+
+- When an agent clicks a link that opens a new tab, the tab no longer takes the keyboard or the focused pane. Before, if the page the agent clicked in was the one you had last clicked or typed in, its new tab took the keyboard, and it could take the focused pane too. A tab you open yourself with a click still takes the keyboard, and one opened behind with a ⌘-click or a middle-click still leaves it where it was. (#564, fixes #561)
+
 ## v2.20.1 - 2026-11-20
 
 A tab whose page closes itself now closes, and the "update ready" question no longer holds Realm up.
