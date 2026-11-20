@@ -105,12 +105,11 @@ export const liveApi = (): Api => ({
   getSession: (id) => rpc().call("sessions.get", { id }),
   /* The wire's `itemId` is nullable because `unlisted` exists; a plain create never asks for one, so
      the non-null it always returns is asserted here rather than at four call sites that cannot get
-     null. `createUnlistedSession` is the one that can, and it does not read `itemId` at all. */
+     null. `startQuickChat` is the one that can, and it returns no `itemId` at all. */
   createSession: async (input) => {
     const { session, itemId } = await rpc().call("sessions.create", input);
     return { session, itemId: itemId! };
   },
-  createUnlistedSession: (input) => rpc().call("sessions.create", { ...input, unlisted: true }),
   startQuickChat: (spaceId) => rpc().call("sessions.startQuickChat", { spaceId }),
   deleteSession: async (id) => { await rpc().call("sessions.delete", { id }); },
   forkSession: (checkpointId, agentKind) => rpc().call("sessions.fork", { checkpointId, ...(agentKind ? { agentKind } : {}) }),

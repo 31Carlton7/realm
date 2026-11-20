@@ -324,11 +324,9 @@ export type Api = TeammatesApi & {
   sessionsDigest(spaceId: string): Promise<{ sessionId: string; lastReply: string | null }[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
-  /** A session with NO item row, and so in no list anywhere — the quick chat's shape. Its own method
-   *  rather than a flag on `createSession`, because the two differ in what they RETURN: everything
-   *  else gets an item and goes on to place it, and this has none to place. */
-  createUnlistedSession(input: CreateSessionInput): Promise<{ session: Session }>;
-  /** A new quick chat's session, on the Quick chat model setting's engine and model. */
+  /** A new quick chat's session: NO item row, and so in no list anywhere, on the engine and model the
+   *  Quick chat model setting names. Its own method rather than a flag on `createSession`, because the
+   *  two differ in what they RETURN: everything else gets an item and goes on to place it. */
   startQuickChat(spaceId: string): Promise<{ session: Session }>;
   /** `sessions.delete` — the row, its transcript and its pty. The one route for a session with no
    *  item to delete through. */

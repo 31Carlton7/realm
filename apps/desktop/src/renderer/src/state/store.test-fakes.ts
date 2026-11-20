@@ -1207,12 +1207,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { session: s, itemId: it.id };
     },
     /** Mirrors the server: no item row at all, so the session appears in no list anywhere. */
-    createUnlistedSession: async (input) => {
-      calls.push(`createUnlistedSession:${input.agentKind}`);
-      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, title: input.title ?? "Fake agent session" });
-      data.sessions.push(s);
-      return { session: s };
-    },
     startQuickChat: async (spaceId) => {
       calls.push(`startQuickChat:${spaceId}`);
       const s = session(`se${++n}`, spaceId, { agentKind: "claude", model: "claude-haiku-5-5", title: "Fake agent session" });

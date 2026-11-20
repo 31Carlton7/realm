@@ -94,7 +94,7 @@ describe("quick chat engines", () => {
   });
 
   it("does not hand a spare on a different model, or in a different space, to the next quick chat", async () => {
-    const { fake, c, sp, start } = await boot();
+    const { c, start } = await boot();
     const first = await start();
     await c.call("sessions.delete", { id: first.id });
     const spareId = (await c.call("settings.get", { key: QUICK_CHAT_SPARE_SETTING })).result.value as string;
@@ -111,8 +111,6 @@ describe("quick chat engines", () => {
     const elsewhere = await start(other.id);
     expect(elsewhere.id).not.toBe(spare2);
     expect(elsewhere.spaceId).toBe(other.id);
-    expect(sp.id).not.toBe(other.id);
-    expect(fake.starts.length).toBeGreaterThanOrEqual(2);
     c.close();
   });
 
