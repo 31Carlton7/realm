@@ -282,10 +282,10 @@ describe("RealmKeys, when the helper stops unasked", () => {
     const { keys, helpers } = started();
     helpers[0]!.emit("exit", 1);
     keys.setDoubleTap(false);
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
     expect(helpers).toHaveLength(1);
     expect(keys.state).toBe("off");
-    // Nothing was restarted, so a helper wanted later is still owed its one restart.
+    // Nothing was restarted, so a helper wanted a moment later is still owed its one restart.
     keys.setDoubleTap(true);
     helpers[1]!.emit("exit", 1);
     vi.advanceTimersByTime(RESTART_AFTER_MS);
