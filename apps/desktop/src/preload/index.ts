@@ -83,6 +83,12 @@ contextBridge.exposeInMainWorld("realm", {
       return () => ipcRenderer.removeListener("links:open-tab", handler);
     },
     claimTab: (page: string, browserId: string): void => ipcRenderer.send("links:claim-tab", page, browserId),
+    /** A browser pane's page closed itself (`window.close()`): its tab closes, as in Chrome. */
+    onCloseTab: (cb: (m: { browserId: string }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string }) => cb(m);
+      ipcRenderer.on("links:close-tab", handler);
+      return () => ipcRenderer.removeListener("links:close-tab", handler);
+    },
   },
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
   power: {

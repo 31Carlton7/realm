@@ -87,6 +87,8 @@ interface Window {
       onOpenTab?(cb: (m: { browserId: string; url: string; background: boolean; focus: boolean; page: string }) => void): () => void;
       /** The new tab's browser, for the page Chromium made (`onOpenTab`'s `page`). */
       claimTab?(page: string, browserId: string): void;
+      /** A browser pane's page closed itself: its tab closes. */
+      onCloseTab?(cb: (m: { browserId: string }) => void): () => void;
     };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };

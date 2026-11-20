@@ -290,6 +290,9 @@ export function electronViewFactory(
       "page-title-updated", "did-fail-load", "did-fail-provisional-load", "dom-ready",
     ] as const;
     for (const ev of stateEvents) wc.on(ev as Parameters<typeof wc.on>[0], () => hooks.emitState());
+    // Gone without `destroy` asking: the page called window.close().
+    let destroying = false;
+    wc.once("destroyed", () => { if (!destroying) hooks.pageClosed(); });
     wc.on("found-in-page", (_e, r) => hooks.found({ activeMatchOrdinal: r.activeMatchOrdinal, matches: r.matches, finalUpdate: r.finalUpdate }));
     // ⌘F with the page holding the keyboard. That keydown goes to this view's renderer, never to the
     // window's, so this is the only place it can be heard; taken from the page so a site's own ⌘F
@@ -370,6 +373,7 @@ export function electronViewFactory(
         // listener runs — destroying again throws "Object has been destroyed" (user-hit crash,
         // 2026-08-31). The guard makes teardown idempotent from either direction.
         if (wc.isDestroyed()) return;
+        destroying = true;
         if (!win.isDestroyed()) win.contentView.removeChildView(view);
         wc.close();
       },
@@ -468,6 +472,9 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
     sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
     openTab: ({ id, url, background, focus, page }) => send("links:open-tab", { browserId: id, url, background, focus, page }),
+    // A turn later: a window closing tears its views down before its "closed" runs `destroyAll`, and
+    // their tabs must stay in the layout it saves.
+    closeTab: (id) => setImmediate(() => send("links:close-tab", { browserId: id })),
     // The keyboard is in the VIEW when this fires, and focusing an input inside the window's own page
     // does not move it — typing would go on landing in the site. Handing focus to the window's
     // webContents first is what lets the find field the pane focuses actually receive the keys.
