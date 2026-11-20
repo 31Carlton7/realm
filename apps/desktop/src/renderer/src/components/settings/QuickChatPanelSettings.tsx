@@ -70,7 +70,7 @@ export function QuickChatPanelSettings() {
             {recording
               ? <span className="settings-row-detail">{refused ? `${refused} needs ⌘, ⌃ or ⌥ with it. ` : ""}Press the shortcut. Delete clears it, Escape cancels.</span>
               : chord !== null && shortcut?.registered === false
-                ? <span className="settings-row-detail" role="alert">macOS did not give Realm {displayKeyChord(chord)}, so it opens nothing. Another app may hold it. Record a different one.</span>
+                ? <span className="settings-row-detail" role="alert">macOS did not give Realm {displayKeyChord(chord)}, so it opens nothing. Record a different one.</span>
                 : chord === null && shortcut !== null
                   ? <span className="settings-row-detail">No shortcut</span>
                   : null}

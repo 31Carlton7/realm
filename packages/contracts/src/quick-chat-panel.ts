@@ -20,8 +20,7 @@ export function quickChatShortcutFrom(stored: unknown): string | null {
   return typeof stored === "string" && acceleratorForChord(stored) !== null ? stored : QUICK_CHAT_SHORTCUT_DEFAULT;
 }
 
-/** What the main process has done with the shortcut. `registered` is false when the system refused
- *  it, which is what another app holding the same chord looks like. */
+/** What the main process has done with the shortcut. `registered` is false when the system refused it. */
 export type QuickChatShortcutState = { chord: string | null; registered: boolean };
 
 const ACCELERATOR_KEYS: Readonly<Record<string, string>> = {

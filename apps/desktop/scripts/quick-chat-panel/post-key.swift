@@ -1,7 +1,10 @@
 // post-key: press one key at the session level, as a keyboard would, for the quick chat panel's
 // live check (../quick-chat-panel-live.mjs). One JSON line.
 //
-//   post-key <keyCode> [command] [control] [option] [shift]
+//   post-key <keyCode> [command] [control] [option] [shift] [session]
+//
+// Posted where a keyboard's events enter, so the system's own hot keys see it; `session` posts it
+// one stage later, past them.
 //
 // The check presses F19, which does nothing in an app that receives it by mistake, alone to see which
 // page has the keyboard and with all four modifiers as the panel's chord. It asks for no permission:
@@ -20,7 +23,7 @@ let source = CGEventSource(stateID: .privateState)
 for down in [true, false] {
   guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else { print("{\"error\":\"no event\"}"); exit(2) }
   event.flags = flags
-  event.post(tap: .cgSessionEventTap)
+  event.post(tap: args.contains("session") ? .cgSessionEventTap : .cghidEventTap)
   usleep(30_000)
 }
 print("{\"pressed\":\(code)}")

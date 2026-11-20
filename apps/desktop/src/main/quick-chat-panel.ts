@@ -117,7 +117,9 @@ export class QuickChatPanel<W extends PanelWindow> {
 /**
  * The system-wide chord that toggles the panel, through Electron's `globalShortcut`.
  *
- * `registered: false` is what Settings reports as "not available": the system refused the chord.
+ * `registered: false` is what Settings reports: the system refused the chord. Another app holding the
+ * same chord is not that case on macOS: measured on 27.3, a second process registering a chord
+ * this one held was told yes as well.
  */
 export class QuickChatShortcut {
   private state: QuickChatShortcutState = { chord: null, registered: false };

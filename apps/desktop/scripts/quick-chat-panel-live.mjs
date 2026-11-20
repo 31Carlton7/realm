@@ -15,8 +15,9 @@
  *   place     the panel comes back where it was left
  *   capture   eight capture paths with "Hide the quick chat from screen sharing" on, and off as the
  *             control: a path counts only where the control read
- *   chord     the chord registered with the system, pressed, and what registering says when another
- *             process already holds it
+ *   chord     the chord registered with the system and given back, and what registering says when
+ *             another process already holds it. A person pressing it is not something this can do:
+ *             a posted key event did not set the system's hot key off
  *
  * What the person at the Mac can notice while it runs, all printed with their durations:
  *   - the keyboard is away from their app while the panel is key and while the stand-in is the front
@@ -24,8 +25,8 @@
  *   - the panel, shrunk to a 96 pt square in the bottom-right corner, is at 5% opacity while the
  *     capture paths run (about seven seconds), because at quiet mode's 1/255 no path can read even
  *     an unprotected window;
- *   - F19 is pressed a handful of times, alone and as ⌘⌃⌥⇧F19. That chord is the one registered, and
- *     it is given back before the check ends.
+ *   - F19 is posted a handful of times, alone and once as ⌘⌃⌥⇧F19. That chord is the one registered,
+ *     and it is given back before the check ends.
  * No app is made full screen, no permission is asked for (each helper checks and stops), and the
  * Dock is never touched. Not measured here, because they need the screen: the panel over a
  * full-screen app, in Mission Control, inside Realm as a regular Dock app, and a real meeting share.
@@ -381,30 +382,26 @@ try {
   await close();
   await main(`panel.destroy(); return true;`);
 
-  /* ── chord: pressed for real, and held by another process ────────────────────────────────── */
-  const chordPress = pressKey(F19, "command", "control", "option", "shift");
-  const opened = await until(panelVisible, 15_000, "the chord to open the panel").then(() => true, () => false);
-  row("chord", "⌘⌃⌥⇧F19 pressed through the system opens the panel", { posted: chordPress, open: opened }, opened);
-  if (opened) {
-    pressKey(F19, "command", "control", "option", "shift");
-    const shut = await until(async () => !(await panelVisible()), 10_000, "the chord to close the panel").then(() => true, () => false);
-    row("chord", "pressed again, it puts the panel away", { open: !shut }, shut);
-  }
+  /* ── chord: given back, and held by another process ─────────────────────────────────────── */
+  await open();
   await attachPanel();
+  // Not a person's press: an event posted with the four modifier flags, which the system's hot keys
+  // may not take for the chord. Whatever it does is written down, and judged as nothing.
+  const synthetic = pressKey(F19, "command", "control", "option", "shift");
+  await sleep(800);
+  row("chord", "a posted ⌘⌃⌥⇧F19 (no person pressed it): did the panel close", { posted: synthetic, closed: !(await panelVisible()) });
+  if (!(await panelVisible())) await open();
   await panelPage.eval(`window.realm.quickChatPanel.setShortcut(null)`);
   row("chord", "cleared in Settings: given back to the system", { isRegistered: await main(`return globalShortcut.isRegistered(${js(ACCELERATOR)});`) }, (await main(`return globalShortcut.isRegistered(${js(ACCELERATOR)});`)) === false);
   const holderChild = spawnLiveElectron([path.join(SOURCES, "holder.cjs")], { env: { ...process.env, REALM_QUIET_GLOBAL_SHORTCUT: ACCELERATOR }, stdio: ["pipe", "pipe", "ignore"] });
   holder = lines(holderChild);
   const held = await holder.next();
   const second = await panelPage.eval(`window.realm.quickChatPanel.setShortcut(${js(CHORD)})`);
-  pressKey(F19, "command", "control", "option", "shift");
-  await sleep(600);
-  const heard = { holder: (await holder.tell("presses")).presses, panelOpened: await panelVisible() };
-  row("chord", "registering it while another process holds it", { holderRegistered: held.registered, realmToldRegistered: second.registered, onePress: heard });
-  if (heard.panelOpened) await close();
+  row("chord", "registering it while another process holds it", { holderRegistered: held.registered, realmToldRegistered: second.registered });
   await holder.tell("quit").catch(() => {});
   holder = null;
   await panelPage.eval(`window.realm.quickChatPanel.setShortcut(null)`);
+  await close();
   row("chord", "nothing left registered at the end", { isRegistered: await main(`return globalShortcut.isRegistered(${js(ACCELERATOR)});`) }, (await main(`return globalShortcut.isRegistered(${js(ACCELERATOR)});`)) === false);
 } catch (err) {
   process.exitCode = 1;

@@ -47,7 +47,7 @@ describe("the quick chat shortcut row", () => {
 
   it("says so in words when the system refused the chord", async () => {
     mount({ chord: "ctrl+alt+space", registered: false });
-    expect(await screen.findByRole("alert")).toHaveTextContent("macOS did not give Realm ⌃⌥Space, so it opens nothing. Another app may hold it.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("macOS did not give Realm ⌃⌥Space, so it opens nothing. Record a different one.");
   });
 
   it("records the next chord pressed, registers it with main, and keeps it", async () => {
