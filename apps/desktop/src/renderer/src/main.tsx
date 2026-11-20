@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { QUICK_CHAT_SURFACE, QuickChatPanelApp } from "./QuickChatPanelApp";
 import "@xterm/xterm/css/xterm.css";
 // BUI foundation first (Tailwind layers + tokens); styles.css is unlayered and so wins conflicts.
 import "./theme/tokens.css";
@@ -14,7 +15,9 @@ applyPlatform();
 // Fire and forget: the cards render on their circular-corner fallback until the painter is ready,
 // and stay there if it never loads. Nothing waits on a corner shape.
 void enableSquircles();
-createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
+// The quick chat panel's window loads this same bundle and draws the Quick Chat alone.
+const Root = window.realm?.surface === QUICK_CHAT_SURFACE ? QuickChatPanelApp : App;
+createRoot(document.getElementById("root")!).render(<React.StrictMode><Root /></React.StrictMode>);
 // KaTeX, highlight.js, Settings, code review and the rest are not in the boot chunk; they arrive
 // once the window is idle, so opening one rarely waits.
 preloadRichLibs();

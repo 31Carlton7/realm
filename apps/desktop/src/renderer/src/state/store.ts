@@ -972,6 +972,13 @@ export const SETTING_DOCUMENTS_VIEW = "ui.documentsView";
  *  `@realm/view`, because the server reads the session id from it to leave the quick chat out of
  *  Realm Mobile's Needs you, as the sidebar does. */
 export const SETTING_QUICK_CHAT = QUICK_CHAT_SETTING;
+/** Whether this page is the quick chat panel's (main/quick-chat-panel.ts) rather than a Realm window's. */
+const inQuickChatPanel = (): boolean => window.realm?.surface === "quick-chat";
+/** The session a stored `SETTING_QUICK_CHAT` names, or null. */
+const quickChatIdOf = (raw: unknown): string | null => {
+  const id = raw && typeof raw === "object" ? (raw as { sessionId?: unknown }).sessionId : null;
+  return typeof id === "string" ? id : null;
+};
 /** Which sub-agent each lead's Agents tab was showing, by lead session id — so a tab restored after a
  *  relaunch opens where it was left. Capped at `AGENTS_SHOWN_MAX` leads, the newest kept. */
 export const SETTING_AGENTS_SHOWN = "ui.agentsShown";
@@ -2677,6 +2684,11 @@ export type AppState = TeammatesSlice & {
   /** Where the window sits, from a drag. Clamped by the window itself, which is the only thing that
    *  knows how big it is. */
   setQuickChatPos(pos: { x: number; y: number }): void;
+  /** Another page opened or deleted the quick chat: take it as the setting has it now. */
+  syncQuickChat(): Promise<void>;
+  /** The quick chat panel was opened (main/quick-chat-panel.ts): wear the look as it is set now, show
+   *  the chat there is, and make one when there is none. Only the panel's own page calls this. */
+  showQuickChatPanel(): Promise<void>;
   /** Show files in the media viewer, replacing whatever it was showing. Loads the owner session's
    *  transcript when it is not held yet, so the exchange can be drawn as it arrives. */
   openViewer(input: OpenViewerInput): void;
@@ -3685,7 +3697,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // The position is kept even with no chat: closing removes the conversation, not the corner the
       // user put the window in.
       // A saved chat is its space's session by now, so a relaunch does not bring the window back.
-      await api.setSetting(SETTING_QUICK_CHAT, { sessionId: qc && !qc.keptIn ? qc.sessionId : null, pos });
+      // `panel` marks a chat the panel is showing: a window leaves it there (`restoreQuickChat`).
+      const live = qc && !qc.keptIn ? qc : null;
+      await api.setSetting(SETTING_QUICK_CHAT, { sessionId: live?.sessionId ?? null, pos, ...(live && inQuickChatPanel() ? { panel: true } : {}) });
+      window.realm?.quickChatPanel?.chatChanged();
     };
     const scheduleQuickChatPersist = () => {
       if (quickTimer) clearTimeout(quickTimer);
@@ -3698,19 +3713,55 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * its row — the space it ran in was deleted, the session was deleted from elsewhere — and a
      * window opened onto a session that is gone is a window with a prompter that cannot send.
      */
-    const restoreQuickChat = async (raw: unknown) => {
-      const v = raw && typeof raw === "object" ? raw as { sessionId?: unknown; pos?: unknown } : null;
+    const restoreQuickChat = async (raw: unknown, asked = false) => {
+      const v = raw && typeof raw === "object" ? raw as { sessionId?: unknown; pos?: unknown; panel?: unknown } : null;
       const pos = v?.pos && typeof v.pos === "object"
         && typeof (v.pos as { x?: unknown }).x === "number" && typeof (v.pos as { y?: unknown }).y === "number"
         ? v.pos as { x: number; y: number } : null;
       set({ quickChatPos: pos });
-      const id = typeof v?.sessionId === "string" ? v.sessionId : null;
+      const id = quickChatIdOf(raw);
       if (!id) return;
+      // A chat the panel is showing stays in the panel: a window puts its card up for it only when
+      // asked to (`openQuickChat`), not because it was launched.
+      if (v?.panel === true && !asked && !inQuickChatPanel()) return;
       const session = await api.getSession(id).catch(() => null);
       if (!session) { set({ quickChat: null }); await persistQuickChat(); return; }
       set({ sessions: { ...get().sessions, [session.id]: session }, sessionStatus: { ...get().sessionStatus, [session.id]: session.status },
         sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id, keptIn: null } });
       await get().openSession(session.id);
+    };
+    /** Everything this page holds about the quick chat's session, let go. The session itself is left
+     *  alone: `closeQuickChat` deletes it, and a page told another one did (`followQuickChat`) has
+     *  nothing left to delete. */
+    const forgetQuickChat = (id: string) => {
+      set({ quickChat: null });
+      dropTranscript(id);
+      const { [id]: _s, ...sessions } = get().sessions;
+      const { [id]: _st, ...sessionStatus } = get().sessionStatus;
+      const { [id]: _sp, ...sessionSpace } = get().sessionSpace;
+      const { [id]: _d, ...drafts } = get().drafts;
+      const { [id]: _a, ...pendingAttachments } = get().pendingAttachments;
+      set({ sessions, sessionStatus, sessionSpace, drafts, pendingAttachments });
+    };
+    /**
+     * The quick chat as the setting has it now, after another page opened or deleted it. There is one
+     * quick chat, shown in the panel, in a window's card, or both. A chat this page shows that is no
+     * longer the one is dropped. The panel then shows the new one; a window puts up no card it was
+     * not asked for.
+     */
+    const followQuickChat = async (raw: unknown) => {
+      const id = quickChatIdOf(raw);
+      const mine = get().quickChat?.sessionId ?? null;
+      if (mine === id) return;
+      if (mine) forgetQuickChat(mine);
+      if (id && inQuickChatPanel()) await restoreQuickChat(raw);
+    };
+    /** The space a chat made in the panel runs in: the one the app was last in, else the first. The
+     *  current space is derived from the profile and its last space, so those are what is set. */
+    const aimQuickChatPanel = (saved: unknown) => {
+      const spaces = get().spaces;
+      const space = spaces.find((sp) => sp.id === saved) ?? spaces[0];
+      if (space) set({ activeProfileId: space.profileId, lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: space.id } });
     };
     /** `refreshSessions` REBUILDS each refreshed space's slice of `sessions`, and a profile switch
      *  empties it, so the quick chat's row — which may belong to another profile's space entirely —
@@ -4888,6 +4939,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         /* Which profile this window shows. The bound one first — a window opened for a profile is that
            profile's — then the one it was last on, then (a home last run with rooms) the profile of the
            space it was in, then the first profile that has any space, then the first at all. */
+        /* The quick chat panel's page stops here. It wears the look read above and holds the chat, and
+           it shows no space, so it enters no profile's view, restores no layout and claims nothing a
+           window would. It runs again each time the panel opens (`showQuickChatPanel`), which is how
+           a theme changed in a window since reaches it. */
+        if (inQuickChatPanel()) {
+          aimQuickChatPanel(saved);
+          set({ caret: parseCaretPrefs(await api.getSetting(CARET_KEY).catch(() => null), { editorBlink: null }) });
+          await followQuickChat(quick);
+          set({ booted: true });
+          return;
+        }
         const savedSpace = typeof saved === "string" ? spaces.find((sp) => sp.id === saved) : undefined;
         const known = (id: unknown): id is string => typeof id === "string" && profiles.some((p) => p.id === id);
         // A window brought back after a relaunch lands where it was, ahead of everything else.
@@ -7630,6 +7692,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async openQuickChat() {
         if (get().quickChat) return;
+        // There may be one already, made in the panel or in another window: this page shows that one.
+        await restoreQuickChat(await api.getSetting(SETTING_QUICK_CHAT), true);
+        if (get().quickChat) { if (!inQuickChatPanel()) await persistQuickChat(); return; }
         const sid = get().activeSpaceId; if (!sid) return;
         const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
         /* `unlisted`: no item row, so no sidebar entry, no pinned tile, no palette hit, no Library
@@ -7649,15 +7714,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!qc) return;
         // Cleared FIRST so the window goes at once. The delete is a round trip, and a window that sat
         // there waiting for it would look like a close that had not worked.
-        set({ quickChat: null });
-        if (qc.keptIn) { await persistQuickChat(); return; }
-        dropTranscript(qc.sessionId);
-        const { [qc.sessionId]: _s, ...sessions } = get().sessions;
-        const { [qc.sessionId]: _st, ...sessionStatus } = get().sessionStatus;
-        const { [qc.sessionId]: _sp, ...sessionSpace } = get().sessionSpace;
-        const { [qc.sessionId]: _d, ...drafts } = get().drafts;
-        const { [qc.sessionId]: _a, ...pendingAttachments } = get().pendingAttachments;
-        set({ sessions, sessionStatus, sessionSpace, drafts, pendingAttachments });
+        if (qc.keptIn) { set({ quickChat: null }); await persistQuickChat(); return; }
+        forgetQuickChat(qc.sessionId);
         await persistQuickChat();
         // There is no item to delete THROUGH — an unlisted session has none — so this is the route.
         await api.deleteSession(qc.sessionId);
@@ -7678,6 +7736,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().revealSession(qc.sessionId, qc.keptIn);
       },
       setQuickChatPos(pos) { set({ quickChatPos: pos }); scheduleQuickChatPersist(); },
+      async syncQuickChat() { await followQuickChat(await api.getSetting(SETTING_QUICK_CHAT)); },
+      async showQuickChatPanel() {
+        await get().boot();
+        if (!get().quickChat) await get().openQuickChat();
+      },
       openViewer(input) {
         const files = input.files.filter((f) => f.path !== "");
         if (files.length === 0) return;

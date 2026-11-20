@@ -1,0 +1,153 @@
+import { acceleratorForChord, type QuickChatShortcutState } from "@realm/contracts";
+import { restoredBounds, type SavedWindow } from "./window-state";
+
+/**
+ * The quick chat panel: the Quick Chat in a small window of its own, over whatever app is in front.
+ *
+ * It is not one of Realm's windows (window-registry.ts). It shows no space, has no browser pane and
+ * is never restored, so it is made here and kept out of that registry; it opens with no Realm window
+ * open, and opening it brings none forward.
+ *
+ * How it opens was measured on macOS 27.3 with Electron 45.3.0 (spike K0, 2026-11-20): a
+ * `type: "panel"` window shown with `showInactive()` and then given the keyboard with `focus()`
+ * left the front app as it was, and a page in the app behind heard no `blur` and no
+ * `visibilitychange`. `hide()` gives the keyboard back.
+ *
+ * Electron-free, so the rules below are held by a unit test rather than by a live run.
+ */
+
+/** The in-window card's size (QuickChat.tsx), so the same chat reads the same in both places. */
+export const QUICK_CHAT_PANEL_SIZE = { width: 380, height: 520 } as const;
+
+/** What the panel's renderer is told it is (`window.realm.surface`). */
+export const QUICK_CHAT_SURFACE = "quick-chat";
+
+/**
+ * The options that gave a panel which takes typing without changing the front app. The title is
+ * empty because a window kept out of a capture is still listed by name to the app capturing.
+ */
+export const QUICK_CHAT_PANEL_OPTIONS = {
+  frame: false, show: false, focusable: true, skipTaskbar: true, title: "",
+  resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
+  ...QUICK_CHAT_PANEL_SIZE,
+} as const;
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+/**
+ * Where the panel opens: where it was dragged to while enough of that is still on a display,
+ * otherwise centred a fifth of the way down the display the pointer is on, which is the one the
+ * person is working on.
+ */
+export function quickChatPanelPlace(saved: SavedWindow | null, displays: Rect[], current: Rect): { x: number; y: number } {
+  const kept = restoredBounds(saved && { ...saved, ...QUICK_CHAT_PANEL_SIZE }, displays,
+    { ...QUICK_CHAT_PANEL_SIZE, minWidth: QUICK_CHAT_PANEL_SIZE.width, minHeight: QUICK_CHAT_PANEL_SIZE.height });
+  if (!kept.center) return { x: kept.x, y: kept.y };
+  return {
+    x: Math.round(current.x + (current.width - QUICK_CHAT_PANEL_SIZE.width) / 2),
+    y: Math.round(current.y + Math.max(0, current.height - QUICK_CHAT_PANEL_SIZE.height) / 5),
+  };
+}
+
+export type PanelWindow = {
+  isDestroyed(): boolean;
+  isVisible(): boolean;
+  showInactive(): void;
+  focus(): void;
+  hide(): void;
+  setContentProtection(on: boolean): void;
+  webContents: { focus(): void; send(channel: string): void };
+};
+
+export class QuickChatPanel<W extends PanelWindow> {
+  private made: { win: W; ready: Promise<unknown> } | null = null;
+  private wanted = false;
+  private hiddenFromSharing = true;
+
+  /** `create` makes the window, hidden, and says when its page has loaded. Null while it cannot be
+   *  made (no server to connect its page to). */
+  constructor(private readonly create: () => { win: W; ready: Promise<unknown> } | null) {}
+
+  /** The window, once it has been made and until it is destroyed. */
+  window(): W | null {
+    return this.made && !this.made.win.isDestroyed() ? this.made.win : null;
+  }
+
+  isOpen(): boolean {
+    return this.wanted && this.window() !== null;
+  }
+
+  /** Open it, or put it away. */
+  toggle(): void {
+    if (this.isOpen()) this.close();
+    else this.open();
+  }
+
+  /** The window is made on the first open and kept, so the next one does not wait on a page load. */
+  open(): void {
+    if (!this.window()) this.made = this.create();
+    const made = this.made;
+    if (!made) return;
+    this.wanted = true;
+    void made.ready.then(() => {
+      const win = this.window();
+      if (!this.wanted || win !== made.win) return;
+      win.setContentProtection(this.hiddenFromSharing);
+      win.showInactive();
+      win.focus();
+      win.webContents.focus();
+      win.webContents.send("quick-chat-panel:shown");
+    }, () => { this.wanted = false; });
+  }
+
+  close(): void {
+    this.wanted = false;
+    const win = this.window();
+    if (win?.isVisible()) win.hide();
+  }
+
+  /** Whether the panel is left out of screen shares and recordings. Applied at once to a panel that
+   *  exists, and to each one made after. */
+  setHiddenFromSharing(on: boolean): void {
+    this.hiddenFromSharing = on;
+    this.window()?.setContentProtection(on);
+  }
+}
+
+/**
+ * The system-wide chord that toggles the panel, through Electron's `globalShortcut`.
+ *
+ * `registered: false` is what Settings reports as "not available": the system refused the chord.
+ */
+export class QuickChatShortcut {
+  private state: QuickChatShortcutState = { chord: null, registered: false };
+  private held: string | null = null;
+
+  constructor(private readonly deps: {
+    register: (accelerator: string, press: () => void) => boolean;
+    unregister: (accelerator: string) => void;
+    press: () => void;
+    platform?: string;
+  }) {}
+
+  current(): QuickChatShortcutState {
+    return this.state;
+  }
+
+  /** Replace the chord. `null`, or a chord that cannot be a system-wide key, leaves none registered. */
+  set(chord: string | null): QuickChatShortcutState {
+    this.release();
+    const accelerator = chord === null ? null : acceleratorForChord(chord, this.deps.platform);
+    if (accelerator === null) return (this.state = { chord: null, registered: false });
+    let registered = false;
+    try { registered = this.deps.register(accelerator, this.deps.press); } catch { /* an accelerator Electron cannot parse */ }
+    if (registered) this.held = accelerator;
+    return (this.state = { chord, registered });
+  }
+
+  /** Give the chord back to the system. */
+  release(): void {
+    if (this.held !== null) this.deps.unregister(this.held);
+    this.held = null;
+  }
+}

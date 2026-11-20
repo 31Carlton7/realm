@@ -286,7 +286,7 @@ export function overlayScrollbars(doc: Document): boolean {
   return reserved === 0;
 }
 
-function ScrollbarStyleBridge() {
+export function ScrollbarStyleBridge() {
   useEffect(() => {
     // jsdom lays nothing out, so every probe there reads as an overlay; only a real Mac window asks.
     if (window.realm?.platform !== "darwin") return;
@@ -303,13 +303,13 @@ function ScrollbarStyleBridge() {
 }
 
 /** A held button's highlight follows the pointer (press-tracking.ts). */
-function PressTrackingBridge() {
+export function PressTrackingBridge() {
   useEffect(() => installPressTracking(document), []);
   return null;
 }
 
 /** Every control's `title` as the app's own tooltip (tooltips.ts), kept clear of the browser views. */
-function TooltipBridge() {
+export function TooltipBridge() {
   const store = useAppStore();
   useEffect(() => installTooltips(document, { avoid: () => store.getState().browserRects }), [store]);
   return null;
@@ -318,7 +318,7 @@ function TooltipBridge() {
 /** The app's caret over every field (caret.ts), in the shape and motion Settings ▸ Appearance ▸ Cursor
  *  chose. Subscribed rather than rendered: the layer is the DOM's, and a new preference reaches it
  *  without re-rendering anything. */
-function CaretBridge() {
+export function CaretBridge() {
   const store = useAppStore();
   useEffect(() => {
     const layer = installCaret(document, store.getState().caret);
@@ -329,7 +329,7 @@ function CaretBridge() {
 }
 
 /** The app's scrollers give at their ends (rubber-band.ts), under Reduce motion too, as AppKit's do. */
-function RubberBandBridge() {
+export function RubberBandBridge() {
   useEffect(() => installRubberBand(document, { onPhase: window.realm?.onScrollPhase }), []);
   return null;
 }
@@ -431,6 +431,18 @@ export function ConnectionBanner() {
       )}
     </div>
   );
+}
+
+/** What a page showing a session has to hear to keep it current: its events, its status, and the
+ *  queue behind a running turn. Applied in every window and in the quick chat panel, since a
+ *  session's pane may be open in any of them and the payloads are small. */
+export function subscribeSessionEvents(store: StoreApi<AppState>): () => void {
+  const offs = [
+    rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev)),
+    rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status)),
+    rpc().on("session.queue", ({ sessionId, queued, move, turn }) => store.getState().applySessionQueue(sessionId, queued, move, turn ?? null)),
+  ];
+  return () => { for (const off of offs) off(); };
 }
 
 /** Renders whichever modal sheet the store says is open. */
@@ -775,11 +787,7 @@ export function App() {
     const offSim = rpc().on("simulator.status", (p) => store.getState().applySimulatorState(p));
     const offGoal = rpc().on("goal.changed", (p) => store.getState().applyGoalChanged(p));
     const offMimg = rpc().on("machineImage.progress", (p) => store.getState().applyMachineImageProgress(p));
-    const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
-    const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
-    // The queue behind a running turn. Applied in every window for the reason the statuses are: the
-    // session's pane may be open in any of them, and the payload is a handful of short strings.
-    const offQ = rpc().on("session.queue", ({ sessionId, queued, move, turn }) => store.getState().applySessionQueue(sessionId, queued, move, turn ?? null));
+    const offE = subscribeSessionEvents(store);
     // A turn saved or unsaved — from this window's track, another's, or the Library — is the same set in
     // every window, which is also how a Library list open in one hears about a bookmark pressed in another.
     const offSaved = rpc().on("session.saved", ({ sessionId, seqs }) => store.getState().applySavedTurns(sessionId, seqs));
@@ -879,7 +887,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offTeamAccess(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offMT(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offTeamAccess(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offMT(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();
