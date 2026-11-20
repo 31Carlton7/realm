@@ -16,6 +16,7 @@
  * themselves at 18 s and are killed from here at 20. Neither asks for a permission: without
  * Accessibility for whatever started this script, they say so and nothing is posted.
  * `settings` starts no tap at all: the app is given a stand-in helper that only prints.
+ * `app` and `settings` give the app a stand-in calendar helper too, so neither reads a real calendar.
  *
  * REBUILD FIRST for `app` and `settings` (`pnpm build`): they boot apps/desktop/out, not the sources.
  * LIVE_OUT names the folder the results and captures go to.
@@ -37,6 +38,16 @@ const helperName = `realmkeys-live-${tag}`;
 const helper = path.join(tools, helperName);
 const proof = path.join(tools, "realm-keys-proof");
 const F18 = 79, F19 = 80, FN = 63, SHIFT = 56, RIGHT_OPTION = 61;
+
+/**
+ * What the app is given as its calendar helper, so no run reads the calendar of whoever is at the
+ * Mac: it answers that access was never asked for, then waits for its stdin to close.
+ */
+function calendarStandIn() {
+  const file = path.join(tools, "meetingwatch-stand-in.sh");
+  fs.writeFileSync(file, `#!/bin/bash\necho '{"access":"notDetermined"}'\ncat > /dev/null\n`, { mode: 0o755 });
+  return file;
+}
 
 const results = [];
 const check = (name, ok, detail) => {
@@ -265,7 +276,7 @@ async function appPart() {
   // What the app starts as its helper: the real one, acting only on this run's events.
   const wrapper = path.join(tools, "realmkeys-wrapper.sh");
   fs.writeFileSync(wrapper, `#!/bin/bash\nexec "${helper}" --only-tagged ${tag} --exit-after 18\n`, { mode: 0o755 });
-  const app = await launchLiveApp({ name: "realm-keys", inspect: true, env: { REALM_KEYS_BIN: wrapper } });
+  const app = await launchLiveApp({ name: "realm-keys", inspect: true, env: { REALM_KEYS_BIN: wrapper, REALM_MEETINGWATCH_BIN: calendarStandIn() } });
   let stopped = false;
   try {
     await throughOnboarding(app.page);
@@ -311,7 +322,6 @@ async function appPart() {
     check("with the setting off, Settings' Try it still shows the double-tap", shown[0] === "⌘⌘Seen", shown);
     await sleep(600);
     check("with the setting off, the double-tap opens nothing", !(await quickChatOpen(app.page)));
-    await shoot(app, path.join(out, "app-settings-try-it-after-double-tap.png"), '[data-setting="double-tap-command"]', ".field");
     await proofTool.end();
     standDown();
 
@@ -341,6 +351,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const state = fs.readFileSync(path.join(__dirname, "state"), "utf8").trim();
 if (state === "denied") process.exit(2);
+if (state === "needsInputMonitoring") process.exit(3);
 console.log(JSON.stringify({ ready: true, active: state === "active" }));
 const say = path.join(__dirname, "say");
 fs.writeFileSync(say, "");
@@ -373,7 +384,7 @@ async function settingsPart() {
   const standIn = path.join(tools, "realmkeys-stand-in.cjs");
   fs.writeFileSync(standIn, STAND_IN, { mode: 0o755 });
   fs.writeFileSync(path.join(tools, "state"), "active");
-  const app = await launchLiveApp({ name: "realm-keys-settings", inspect: true, env: { REALM_KEYS_BIN: standIn } });
+  const app = await launchLiveApp({ name: "realm-keys-settings", inspect: true, env: { REALM_KEYS_BIN: standIn, REALM_MEETINGWATCH_BIN: calendarStandIn() } });
   try {
     await throughOnboarding(app.page);
     const api = rpc(app.ports.server, await daemonToken(app.home));
@@ -385,6 +396,7 @@ async function settingsPart() {
 
     const states = [
       { name: "denied", state: "denied", say: [] },
+      { name: "needs-input-monitoring", state: "needsInputMonitoring", say: [] },
       { name: "listening", state: "listening", say: [] },
       { name: "active", state: "active", say: [] },
       { name: "active-seen", state: "active", say: ['{"t":"doubleTap"}', '{"t":"hold","down":true}'] },
