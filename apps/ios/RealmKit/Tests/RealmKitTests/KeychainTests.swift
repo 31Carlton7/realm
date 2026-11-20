@@ -24,7 +24,7 @@ struct KeychainTests {
         let error = KeychainError(status: errSecMissingEntitlement)
         #expect(error.localizedDescription == "The keychain refused to open an item Realm saved.")
         #expect(!error.localizedDescription.contains("KeychainError error"))
-        #expect(!error.localizedDescription.contains("couldn't be completed"))
+        #expect(!error.localizedDescription.contains("be completed"))
         #expect(error.detail == "Keychain status -34018")
     }
 }

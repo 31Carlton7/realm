@@ -39,7 +39,7 @@ struct KeychainLaunchTests {
         }
         for text in [message, detail ?? ""] {
             #expect(!text.contains("KeychainError error"))
-            #expect(!text.contains("couldn't be completed"))
+            #expect(!text.contains("be completed"))
             #expect(!text.contains("\u{2014}"))
         }
     }
