@@ -3981,6 +3981,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * row nobody is tracking simply stays, which is the safe direction.
      */
     const delegatedChildren = new Map<string, { doneRow?: string }>();
+    /** A page's new tab, by its item, and the tab it was opened from — which comes back on screen when
+     *  the new one closes in front (`closeFromLayout`). `showing` is the tab its strip showed at the
+     *  last write; the link goes once its strip shows any other tab, since then the person has moved on. */
+    const openers = new Map<string, { opener: string; showing: string | null }>();
+    const forgetOpenersPast = (layout: Layout) => {
+      for (const [tab, link] of openers) {
+        const showing = findLeafOfItem(layout, tab)?.itemId ?? null;
+        if (showing === tab || (showing !== null && showing === link.showing)) link.showing = showing;
+        else openers.delete(tab);
+      }
+    };
     /**
      * The ONE way the view is written. It is brought to its one shape here (`normalizeView`: the main
      * panes, the one panel beside them, each tab in its session's run and leaving with its session),
@@ -4007,6 +4018,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // write hands it on, to the pane of the session whose tab it was in (the panel closing), or to
       // the pane beside the one that left the split — else to the first pane.
       const focusedLeafId = keep && findLeaf(shaped.layout, keep) ? keep : landing(get().layout, keep, shaped.layout);
+      forgetOpenersPast(shaped.layout);
       return { view: shaped, layout: shaped.layout, paneHistory: reconcileNav(history, shaped.layout), ...extra, focusedLeafId, peek };
     };
     /** Where the keyboard lands when the leaf it was in went with a write: the pane of the session whose
@@ -5646,7 +5658,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const layout = get().layout;
         const opener = get().items.find((i) => i.kind === "browser" && i.refId === browserId);
         const leaf = layout && opener ? findLeafOfItem(layout, opener.id) : null;
-        await openBrowserTab(leaf?.id ?? null, url, { background: opts.background, quiet: !opts.focus, onCreated: opts.onCreated });
+        const itemId = await openBrowserTab(leaf?.id ?? null, url, { background: opts.background, quiet: !opts.focus, onCreated: opts.onCreated });
+        const showing = itemId && get().layout ? findLeafOfItem(get().layout!, itemId)?.itemId ?? null : null;
+        if (itemId && opener && showing) openers.set(itemId, { opener: opener.id, showing });
       },
       peekOwner() {
         const layout = get().layout; if (!layout) return null;
@@ -5769,6 +5783,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (closing?.kind === "browser") api.destroyBrowserView(closing.refId);
         // A turn's review is a look, not a setting: closing its pane ends it, so the next way in shows the checkout as it is.
         if (closing?.kind === "diff" && get().diffTurns[closing.refId]) get().closeTurnDiff(closing.refId);
+        const opener = openers.get(itemId)?.opener;
+        openers.delete(itemId);
         const view = viewNow();
         if (!findLeafOfItem(view.layout, itemId)) {
           // Only a tab of a side pane kept off screen: it leaves that, and the screen is untouched.
@@ -5783,7 +5799,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           await persist();
           return;
         }
-        set(writeLayout(layoutClose(view.layout, itemId)));
+        set(writeLayout(layoutClose(view.layout, itemId, opener)));
         await persist();
         // Closing the last pane lands in a fresh prompter, never the empty-state placeholder.
         // Deliberately scoped to this path: a prune also empties the view while taking deleted items
