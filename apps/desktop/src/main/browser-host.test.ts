@@ -646,7 +646,7 @@ describe("BrowserPaneHost", () => {
       made.host.create("b1", "https://example.com/opener", allowlist, P);
       made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
       const opener = made.views.get("b1")!;
-      const page = { close: vi.fn() };
+      const page = livePage();
       opener.getHooks().adoptInPlace(url, page, focused);
       return { ...made, opener, page, front: made.views.get("b1")! };
     };
@@ -714,7 +714,7 @@ describe("BrowserPaneHost", () => {
       // It is off screen, so only its timers can ask. THE MUTANT: let it, and a page that opens a window
       // on a timer piles up pages behind the pane without end, or drags the pane off the page in front.
       const { host, opener, front } = openedInPlace();
-      const again = { close: vi.fn() };
+      const again = livePage();
       opener.getHooks().adoptInPlace("https://example.com/y", again, false);
       expect(again.close).toHaveBeenCalled();
       opener.getHooks().openInPlace("https://example.com/z");
@@ -746,7 +746,7 @@ describe("BrowserPaneHost", () => {
       // A hidden view holding the keyboard swallows the keys.
       const made = makeHost();
       made.host.create("b1", "https://example.com/opener", null, P);
-      made.views.get("b1")!.getHooks().adoptInPlace("https://example.com/x", { close: vi.fn() }, true);
+      made.views.get("b1")!.getHooks().adoptInPlace("https://example.com/x", livePage(), true);
       const front = made.views.get("b1")!;
       expect(focuses(front)).toBe(0);
       made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
@@ -830,7 +830,7 @@ describe("BrowserPaneHost", () => {
       // THE MUTANT: drop the last one behind instead of the one that went, and Back shows a page that
       // is gone while the live one is lost.
       const { host, views, opener, front } = openedInPlace();
-      front.getHooks().adoptInPlace("https://example.com/y", { close: vi.fn() }, false);
+      front.getHooks().adoptInPlace("https://example.com/y", livePage(), false);
       const third = views.get("b1")!;
       opener.getHooks().pageClosed();
       expect(third.calls).not.toContain("destroy");
@@ -845,7 +845,7 @@ describe("BrowserPaneHost", () => {
       // Back destroys the page in front, and its close arrives after. THE MUTANT: act on a close from
       // a page the browser no longer has, and that late close uncovers the next opener or closes the tab.
       const { host, views, opener, front, closedTabs } = openedInPlace();
-      front.getHooks().adoptInPlace("https://example.com/y", { close: vi.fn() }, false);
+      front.getHooks().adoptInPlace("https://example.com/y", livePage(), false);
       const third = views.get("b1")!;
       host.navAction("b1", "back");
       expect(front.calls).toContain("reclaim");
@@ -871,7 +871,7 @@ describe("BrowserPaneHost", () => {
       made.host.create("b1", "https://example.com/opener", null, P);
       const opener = made.views.get("b1")!;
       opener.nav.muted = true;
-      opener.getHooks().adoptInPlace("https://example.com/x", { close: vi.fn() }, false);
+      opener.getHooks().adoptInPlace("https://example.com/x", livePage(), false);
       made.views.get("b1")!.getHooks().pageClosed();
       expect(opener.calls).toContain("reclaim");
       expect(opener.nav.muted).toBe(true);
@@ -887,7 +887,7 @@ describe("BrowserPaneHost", () => {
       const opener = made.views.get("b1")!;
       opener.nav.pid = 11; opener.nav.title = "Opener";
       now = 2_000;
-      opener.getHooks().adoptInPlace("https://example.com/x", { close: vi.fn() }, false);
+      opener.getHooks().adoptInPlace("https://example.com/x", livePage(), false);
       const front = made.views.get("b1")!;
       front.nav.pid = 12; front.nav.title = "Child";
       made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
@@ -906,7 +906,7 @@ describe("BrowserPaneHost", () => {
       host.create("b1", "https://example.com/0", null, P);
       const chain = [views.get("b1")!];
       for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
-        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() }, false);
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), false);
         chain.push(views.get("b1")!);
       }
       expect(alive(chain[0]!)).toBe(false);
@@ -920,7 +920,7 @@ describe("BrowserPaneHost", () => {
       host.create("b1", "https://example.com/0", null, P);
       const chain = [views.get("b1")!];
       for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
-        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() }, false);
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), false);
         chain.push(views.get("b1")!);
       }
       for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");
@@ -938,7 +938,7 @@ describe("BrowserPaneHost", () => {
       host.create("b1", "https://example.com/0", ["https://example.com"], P);
       const chain = [views.get("b1")!];
       for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
-        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() }, false);
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), false);
         chain.push(views.get("b1")!);
       }
       for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");
@@ -982,7 +982,7 @@ describe("BrowserPaneHost", () => {
         made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
         const chain = [made.views.get("b1")!];
         for (let i = 1; i <= pages; i++) {
-          chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, { close: vi.fn() }, true);
+          chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), true);
           chain.push(made.views.get("b1")!);
         }
         chain.at(-1)!.nav.keyboard = true;
@@ -1026,6 +1026,75 @@ describe("BrowserPaneHost", () => {
         expect(chain.every((v) => !alive(v))).toBe(true);
         expect(states.length).toBe(sent);
         expect(closedTabs).toEqual([]);
+      });
+    });
+
+    describe("a page waiting behind that has already gone", () => {
+      /** Its page is gone: destroying it again throws, as a webContents that is gone does. */
+      const gone = (v: ReturnType<typeof fakeView>) => {
+        v.handle.destroy = () => { v.calls.push("destroy"); throw new TypeError("Object has been destroyed"); };
+      };
+      const destroys = (v: ReturnType<typeof fakeView>) => v.calls.filter((c) => c === "destroy").length;
+      /** b1 with two pages shown in place, so two wait behind the one in front. */
+      const twoBehind = () => {
+        const made = openedInPlace();
+        made.front.getHooks().adoptInPlace("https://example.com/y", livePage(), false);
+        return { ...made, middle: made.front, front: made.views.get("b1")! };
+      };
+
+      for (const teardown of ["destroy", "destroyAll"] as const) {
+        it(`is not destroyed again by ${teardown} once it closed itself`, () => {
+          // THE MUTANT: keep a page that closed itself behind, and the browser's teardown destroys it again.
+          const { host, opener, middle, front } = twoBehind();
+          gone(opener);
+          opener.getHooks().pageClosed();
+          if (teardown === "destroy") host.destroy("b1"); else host.destroyAll();
+          expect(destroys(opener)).toBe(0);
+          expect([middle, front].every((v) => !alive(v))).toBe(true);
+          expect(host.has("b1")).toBe(false);
+        });
+
+        it(`leaves ${teardown} destroying the rest when one went with its window`, () => {
+          // THE MUTANT: destroy the pages behind unguarded, and the first that throws leaves the rest
+          // of the browser's pages running.
+          const { host, opener, middle, front } = twoBehind();
+          gone(opener);
+          expect(() => (teardown === "destroy" ? host.destroy("b1") : host.destroyAll())).not.toThrow();
+          expect([opener, middle, front].every((v) => destroys(v) === 1)).toBe(true);
+          expect(host.has("b1")).toBe(false);
+        });
+      }
+
+      it("leaves a discard destroying the rest of the browser's pages", async () => {
+        // THE MUTANT: destroy the pages behind unguarded, and the discard throws with the page in
+        // front still running.
+        const { host, opener, middle, front } = twoBehind();
+        gone(opener);
+        host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, false);
+        await expect(host.discard("b1")).resolves.toBe(true);
+        expect([opener, middle, front].every((v) => destroys(v) === 1)).toBe(true);
+        expect(host.isDiscarded("b1")).toBe(true);
+      });
+
+      it("leaves the oldest closed past PARKED_OPENERS, and the next page shown", () => {
+        // THE MUTANT: destroy the oldest unguarded, and the window that pushed it out is never shown.
+        const { host, views, states } = makeHost();
+        host.create("b1", "https://example.com/0", null, P);
+        host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+        const chain = [views.get("b1")!];
+        for (let i = 1; i <= PARKED_OPENERS; i++) {
+          chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), false);
+          chain.push(views.get("b1")!);
+        }
+        chain[0]!.nav.url = "https://example.com/0";
+        gone(chain[0]!);
+        expect(() => chain.at(-1)!.getHooks().adoptInPlace("https://example.com/last", livePage(), false)).not.toThrow();
+        expect(destroys(chain[0]!)).toBe(1);
+        const last = views.get("b1")!;
+        expect(chain).not.toContain(last);
+        expect(last.calls).toContain("visible:true");
+        for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");
+        expect(states.at(-1)).toMatchObject({ id: "b1", canGoBack: true });
       });
     });
   });

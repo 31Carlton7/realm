@@ -694,6 +694,9 @@ export type OpenedPage = { close(): void; isDestroyed(): boolean };
 /** A page that called window.close() while it waited for its tab throws "Object has been destroyed" if
  *  closed again (measured on Electron 45). */
 const closePage = (page: OpenedPage) => { if (!page.isDestroyed()) page.close(); };
+/** A browser's page that went with its window or closed itself may throw if destroyed again (`destroy`).
+ *  It is still asked rather than skipped, so its popups go with it. */
+const destroyPage = (handle: ViewHandle) => { try { handle.destroy(); } catch { /* already gone */ } };
 /** A new tab a page opened: the browser hosting it, and the address it was opened on. */
 export type OpenedTab = { browserId: string; url: string };
 
@@ -1022,7 +1025,7 @@ export class BrowserPaneHost {
     if (v.behind.length > PARKED_OPENERS) {
       const oldest = v.behind.shift()!.handle;
       v.closedBehind.push(oldest.getURL());
-      oldest.destroy();
+      destroyPage(oldest);
     }
     v.handle = this.makeView(id, v.partition, { page, url });
     v.focusWhenShown = focused;
@@ -1061,7 +1064,7 @@ export class BrowserPaneHost {
     const parked = v.behind.pop()!;
     v.handle = parked.handle;
     v.handle.setAudioMuted(parked.muted);
-    try { front.destroy(); } catch { /* already gone with its window */ }
+    destroyPage(front);
     v.handle.reclaim();
     this.show(id);
   }
@@ -1089,10 +1092,10 @@ export class BrowserPaneHost {
     this.discarded.set(id, { url: v.handle.getURL(), scroll, allowlist: v.allowlist, partition: v.partition, device: v.device, host: v.host });
     this.views.delete(id);
     this.retained.delete(id);
-    for (const parked of v.behind) parked.handle.destroy();
+    for (const parked of v.behind) destroyPage(parked.handle);
     // No state is sent: the pane keeps showing what it showed, and asking to show it again is what
     // brings it back (`setBounds`). A state saying "not ready" would stop it from ever asking.
-    try { v.handle.destroy(); } catch { /* already gone with its window */ }
+    destroyPage(v.handle);
     return true;
   }
 
@@ -1341,9 +1344,8 @@ export class BrowserPaneHost {
     // Tolerate a view the window already tore down: on BrowserWindow "closed", Electron has destroyed
     // the children before this runs, and a second destroy throws "Object has been destroyed". The row
     // must be forgotten either way (user-hit crash, 2026-08-31).
-    for (const handle of [...v.behind.map((parked) => parked.handle), v.handle]) {
-      try { handle.destroy(); } catch { /* already gone with its window */ }
-    }
+    for (const parked of v.behind) destroyPage(parked.handle);
+    destroyPage(v.handle);
   }
 
   /** Window teardown: the views must never outlive the window they composite into. */
