@@ -6155,7 +6155,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .composer-actions .composer-dictate:is(:hover, :active, [data-press-tracking]) { transition-duration: 0s, 0s, var(--dur-base); }
 .composer-actions .composer-dictate[aria-pressed="true"] { width: 48px; background: var(--rl-danger-fill); color: var(--rl-danger-contrast); }
 .composer-actions .composer-dictate[aria-pressed="true"]:hover { background: var(--rl-danger-fill-hover); color: var(--rl-danger-contrast); }
-.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-danger-press); }
+.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-danger-press); color: var(--rl-danger-contrast); }
 .dictate-live { display: flex; align-items: center; gap: 2px; justify-self: end; padding-right: 8px; pointer-events: none; }
 .dictate-bar { width: 2px; height: 14px; border-radius: 1px; background: currentColor;
   scale: 1 calc(.2 + var(--mic-level, 0) * .8); transition: scale var(--dur-drag) linear; }

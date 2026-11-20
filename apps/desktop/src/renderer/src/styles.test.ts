@@ -6010,6 +6010,9 @@ describe("dictation in the prompter", () => {
     expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:hover').join(" ")).toContain("background: var(--rl-danger-fill-hover)");
     expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled)').join(" "))
       .toContain("background: var(--rl-danger-press)");
+    // The icon button's pressed rule darkens its ink; on the red the bars and the square stay white.
+    expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled)').join(" "))
+      .toContain("color: var(--rl-danger-contrast)");
     expect(bodiesFor(".dictate-bar").join(" ")).toContain("scale: 1 calc(.2 + var(--mic-level, 0) * .8)");
     // The stop is a filled square in the pill's ink, as a recorder's is, not an outline.
     expect(bodiesFor(".dictate-stop").join(" ")).toContain("background: currentColor");
