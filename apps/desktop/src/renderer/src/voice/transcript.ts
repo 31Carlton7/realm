@@ -73,6 +73,8 @@ export class MeetingTranscript {
   private outgoing: Int16Array[] = [];
   private outgoingSize = 0;
   private stopped: Promise<void> | null = null;
+  private settle: (() => void) | null = null;
+  private ready = false;
   private finished = false;
 
   constructor(private readonly deps: { helper: TranscriptHelper; audio: VoiceAudio; events: TranscriptEvents; systemAudio: boolean }) {}
@@ -83,6 +85,8 @@ export class MeetingTranscript {
       this.fail("Realm is not allowed to use the microphone. Turn it on in System Settings ▸ Privacy & Security ▸ Microphone.");
       return;
     }
+    // Main drops a finish sent before the helper is started, so nothing would say "stopped".
+    if (this.stopped) { this.teardown(); return; }
     this.offs.push(helper.onEvent((e) => this.onHelper(e)));
     const ready = await helper.start();
     if (this.finished) return;
@@ -90,6 +94,8 @@ export class MeetingTranscript {
       this.fail(ready.t === "unavailable" ? ready.reason : "This Mac has no speech recognition for its language.");
       return;
     }
+    this.ready = true;
+    if (this.stopped) return;
     try {
       await audio.start((_level, samples) => this.onFrame(samples), () => events.problem("The microphone went away. The other side is still being transcribed."));
     } catch (e) {
@@ -100,11 +106,11 @@ export class MeetingTranscript {
     if (this.deps.systemAudio) helper.systemAudio();
   }
 
-  /** Stop listening, and resolve once the helper has handed over the last lines. */
+  /** Stop listening, and resolve once the helper has handed over the last lines, or has gone. */
   stop(): Promise<void> {
     if (this.finished) return Promise.resolve();
     this.stopped ??= new Promise<void>((resolve) => {
-      this.offs.push(this.deps.helper.onEvent((e) => { if (e.t === "stopped") { this.teardown(); resolve(); } }));
+      this.settle = resolve;
       this.flush();
       this.deps.audio.stop();
       this.deps.helper.finish();
@@ -136,6 +142,8 @@ export class MeetingTranscript {
     else if (e.t === "partial") events.partial(e.source, e.text);
     else if (e.t === "tap") events.systemAudio(e.state, e.message);
     else if (e.t === "error") events.problem(e.message);
+    // An error with no source after ready is main's word that the helper exited.
+    if (e.t === "stopped" || (e.t === "error" && !e.source && this.ready)) this.teardown();
   }
 
   private fail(message: string): void {
@@ -149,5 +157,7 @@ export class MeetingTranscript {
     this.offs = [];
     this.deps.audio.stop();
     this.deps.helper.stop();
+    this.settle?.();
+    this.settle = null;
   }
 }

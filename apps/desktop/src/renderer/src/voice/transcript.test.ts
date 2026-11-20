@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { VoiceAudio } from "./audio-io";
 import { MeetingTranscript, type TranscriptEvent, type TranscriptHelper, type TranscriptLine, type TranscriptSource, type TranscriptStart } from "./transcript";
 
-function fakes(opts: { grant?: string; ready?: TranscriptStart; systemAudio?: boolean } = {}) {
+function fakes(opts: { grant?: string; ready?: TranscriptStart | Promise<TranscriptStart>; systemAudio?: boolean } = {}) {
   const sent: { source: TranscriptSource; samples: number }[] = [];
   const calls: string[] = [];
   const listeners = new Set<(e: TranscriptEvent) => void>();
@@ -18,7 +18,7 @@ function fakes(opts: { grant?: string; ready?: TranscriptStart; systemAudio?: bo
     onEvent: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
   };
   const audio = {
-    start: async (cb: typeof frame) => { frame = cb; },
+    start: async (cb: typeof frame) => { calls.push("mic started"); frame = cb; },
     stop: () => calls.push("mic stopped"),
   } as unknown as VoiceAudio;
   const seen = { lines: [] as TranscriptLine[], partials: [] as string[], systemAudio: [] as string[], problems: [] as string[] };
@@ -89,12 +89,76 @@ describe("MeetingTranscript", () => {
     f.frames(1);
     const stopping = f.t.stop();
     expect(f.sent).toHaveLength(1);
-    expect(f.calls).toEqual(["systemAudio", "mic stopped", "finish"]);
+    expect(f.calls).toEqual(["mic started", "systemAudio", "mic stopped", "finish"]);
     f.emit({ t: "line", source: "me", text: "Bye.", start: 0, end: 500, at: 1_000 });
     f.emit({ t: "stopped" });
     await stopping;
     expect(f.seen.lines.map((l) => l.text)).toEqual(["Bye."]);
     expect(f.calls.at(-1)).toBe("stop");
+  });
+
+  it("stops when the helper exits before it says \"stopped\"", async () => {
+    const f = fakes();
+    await f.t.start();
+    const stopping = f.t.stop();
+    // THE MUTANT: only "stopped" ends a stop, and this await never returns.
+    f.emit({ t: "error", message: "The speech helper stopped." });
+    await stopping;
+    expect(f.seen.problems).toEqual(["The speech helper stopped."]);
+    expect(f.calls.at(-1)).toBe("stop");
+    f.emit({ t: "line", source: "me", text: "Late.", start: 0, end: 500, at: 1_000 });
+    expect(f.seen.lines).toEqual([]);
+  });
+
+  it("stops when stop comes before the helper is ready, and it has no recogniser", async () => {
+    let ready!: (r: TranscriptStart) => void;
+    const f = fakes({ ready: new Promise((r) => { ready = r; }) });
+    const starting = f.t.start();
+    await new Promise((r) => setTimeout(r, 0));
+    const stopping = f.t.stop();
+    ready({ t: "ready", stt: "none", startedAt: 1_000, systemAudio: "not decided" });
+    await starting;
+    // THE MUTANT: the teardown a failed start does leaves the stop unresolved.
+    await stopping;
+    expect(f.calls).not.toContain("mic started");
+    expect(f.calls.at(-1)).toBe("stop");
+  });
+
+  it("stops when stop comes before the helper is asked to start", async () => {
+    const f = fakes();
+    const starting = f.t.start();
+    const stopping = f.t.stop();
+    await starting;
+    // THE MUTANT: start goes on to the helper, which never heard the finish and never says "stopped".
+    await stopping;
+    expect(f.calls).not.toContain("mic started");
+    expect(f.calls.at(-1)).toBe("stop");
+  });
+
+  it("does not open the microphone when stop came while the helper was starting", async () => {
+    let ready!: (r: TranscriptStart) => void;
+    const f = fakes({ ready: new Promise((r) => { ready = r; }) });
+    const starting = f.t.start();
+    await new Promise((r) => setTimeout(r, 0));
+    void f.t.stop();
+    ready({ t: "ready", stt: "analyzer", startedAt: 1_000, systemAudio: "granted" });
+    await starting;
+    // THE MUTANT: start carries on past a stop, and the microphone opens after it.
+    expect(f.calls).not.toContain("mic started");
+    expect(f.calls).not.toContain("systemAudio");
+  });
+
+  it("goes on through an error the helper sends before it is ready", async () => {
+    let ready!: (r: TranscriptStart) => void;
+    const f = fakes({ ready: new Promise((r) => { ready = r; }) });
+    const starting = f.t.start();
+    await new Promise((r) => setTimeout(r, 0));
+    f.emit({ t: "error", message: "The speech model for en_US could not be installed: offline" });
+    ready({ t: "ready", stt: "analyzer", startedAt: 1_000, systemAudio: "not decided" });
+    await starting;
+    // THE MUTANT: any error with no source is taken for the helper exiting.
+    expect(f.calls).toContain("mic started");
+    expect(f.seen.problems).toHaveLength(1);
   });
 
   it("does not start without the microphone, or without a recogniser", async () => {
