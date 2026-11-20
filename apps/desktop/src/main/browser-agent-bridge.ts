@@ -49,7 +49,7 @@ export function createBridgeCore(handleOp: HandleOp, sendRaw: (json: string) => 
       try { msg = JSON.parse(raw); } catch { return; }
       const m = msg as {
         id?: string; ok?: boolean; result?: unknown; error?: { code?: string; message?: string };
-        event?: string; payload?: { callId?: string; op?: string; params?: Record<string, unknown> };
+        event?: string; payload?: { callId?: string; op?: string; params?: Record<string, unknown>; deadline?: number };
       };
       if (typeof m.id === "string" && m.ok !== undefined) {
         const p = pending.get(m.id);
@@ -60,7 +60,14 @@ export function createBridgeCore(handleOp: HandleOp, sendRaw: (json: string) => 
       }
       if (m.event !== undefined && m.event !== "browserHost.op") { onEvent?.(m.event, m.payload); return; }
       if (m.event !== "browserHost.op" || !m.payload?.callId) return;
-      const { callId, op, params } = m.payload;
+      const { callId, op, params, deadline } = m.payload;
+      // Main can read an op long after it was sent: a modal alert stops its JavaScript, and the ops
+      // queue on the socket until it is answered (#562). The server has failed those back to their
+      // agents, who may have retried, so running a stale click or navigation now would do it twice.
+      if (typeof deadline === "number" && Date.now() > deadline) {
+        notify("browserHost.result", { callId, ok: false, error: `browser host op "${String(op)}" arrived after the server stopped waiting for it` });
+        return;
+      }
       try {
         const result = await handleOp(String(op ?? ""), params ?? {});
         notify("browserHost.result", { callId, ok: true, result });

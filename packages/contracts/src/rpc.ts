@@ -2452,8 +2452,9 @@ export const Events = {
   "limits.changed":   z.object({ limits: z.array(PlanLimitsSchema) }),
   /** One browser CDP operation for the registered browser host (Plan 11 W3). Sent TARGETED to the one
    *  client that called `browserHost.register`, never broadcast — see that method's doc comment. The
-   *  host answers with a `browserHost.result` call carrying the same `callId`. */
-  "browserHost.op":   z.object({ callId: z.string(), op: z.string(), params: z.record(z.unknown()) }),
+   *  host answers with a `browserHost.result` call carrying the same `callId`. `deadline` (epoch ms) is
+   *  when the server stops waiting for that answer: an op the host reads after it is never run. */
+  "browserHost.op":   z.object({ callId: z.string(), op: z.string(), params: z.record(z.unknown()), deadline: z.number().optional() }),
   /** A parent session's `browser_agent_run` created a delegated browser-agent session (Plan 11 W5).
    *  The row + item already exist (`items.changed` was broadcast too); this tells the renderer to
    *  bring the child session INTO the layout — the whole point of a delegated agent being a real

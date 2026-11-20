@@ -332,7 +332,8 @@ export class BrowserHostBridge {
         if (this.pending.delete(callId)) reject(new OpTimeout(`browser host op "${op}" timed out after ${timeoutMs / 1000}s`));
       }, timeoutMs);
       this.pending.set(callId, { resolve, reject, timer });
-      if (!this.d.rpc.sendTo(host, "browserHost.op", { callId, op, params })) {
+      const deadline = (this.d.now ?? Date.now)() + timeoutMs;
+      if (!this.d.rpc.sendTo(host, "browserHost.op", { callId, op, params, deadline })) {
         this.pending.delete(callId);
         clearTimeout(timer);
         reject(new Error("Realm stopped running — open Realm on this Mac, then try again"));
