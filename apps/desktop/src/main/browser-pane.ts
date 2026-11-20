@@ -191,7 +191,7 @@ export function electronViewFactory(
         const keyboard = { openerFocused: wc.isFocused(), personPressed: activation.personPressed(Date.now()) };
         return hostedTab<WebContents>(webPreferences, answer, keyboard,
           (page, focused) => hooks.openTab(details.url, action === "background-tab", page, focused),
-          (page) => hooks.adoptInPlace(details.url, page, keyboard.openerFocused && keyboard.personPressed));
+          (page, focused) => hooks.adoptInPlace(details.url, page, focused));
       }
       if (action === "in-place" || tab) {
         if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }

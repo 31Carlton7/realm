@@ -455,11 +455,13 @@ export type WindowKeyboard = { openerFocused: boolean; personPressed: boolean };
  * the tabs a press may open is closed as soon as it is made.
  *
  * A tab takes the keyboard only if the opener had it and the person pressed for it: the agent's click
- * may land in the page the person is typing in.
+ * may land in the page the person is typing in. A page shown in place takes it whenever the opener had
+ * it, the agent's input or not: it covers the opener in the same pane, and the keys the person was
+ * typing there belong with the page they now see, as when main navigated the opener itself.
  */
 export function hostedTab<Page extends { close(): void }>(
   webPreferences: Record<string, unknown>, answer: () => TabAnswer, keyboard: WindowKeyboard,
-  adopt: (page: Page, focused: boolean) => void, inPlace: (page: Page) => void,
+  adopt: (page: Page, focused: boolean) => void, inPlace: (page: Page, focused: boolean) => void,
 ) {
   return {
     action: "allow" as const,
@@ -472,7 +474,7 @@ export function hostedTab<Page extends { close(): void }>(
       if (!page) throw new Error("Chromium made no page for this tab");
       const as = answer();
       if (as === "tab") adopt(page, keyboard.openerFocused && keyboard.personPressed);
-      else if (as === "in-place") inPlace(page);
+      else if (as === "in-place") inPlace(page, keyboard.openerFocused);
       else page.close();
       return page;
     },
@@ -672,7 +674,8 @@ export type ViewHooks = {
    *  typing in, and its tab must not take the keys they type. */
   openTab(url: string, background: boolean, page: OpenedPage, focused: boolean): void;
   /** …and for one nobody pressed for (`hostedTab`): `page` is shown in this view's place, and this
-   *  view's page waits behind it, still running, for Back. */
+   *  view's page waits behind it, still running, for Back. `focused` is whether the page that asked
+   *  had the keyboard, whoever's input it was. */
   adoptInPlace(url: string, page: OpenedPage, focused: boolean): void;
   /** `found-in-page`: the view's answer to the last find. */
   found(result: FindResult): void;

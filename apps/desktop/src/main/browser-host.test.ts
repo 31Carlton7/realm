@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  ACTIVATION_MS, AGENT_GRACE_MS, PARKED_OPENERS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, sendAsAgent, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
+  ACTIVATION_MS, AGENT_GRACE_MS, PARKED_OPENERS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, sendAsAgent, type TabAnswer, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks, type WindowKeyboard,
@@ -335,10 +335,10 @@ describe("hostedTab", () => {
     const adopt = vi.fn();
     const inPlace = vi.fn();
     const page = livePage();
-    expect(hostedTab({ partition: P }, () => "in-place", PERSON, adopt, inPlace).createWindow({ webContents: page })).toBe(page);
+    expect(hostedTab({ partition: P }, () => "in-place", { openerFocused: false, personPressed: true }, adopt, inPlace).createWindow({ webContents: page })).toBe(page);
     expect(adopt).not.toHaveBeenCalled();
     expect(page.close).not.toHaveBeenCalled();
-    expect(inPlace).toHaveBeenCalledWith(page);
+    expect(inPlace).toHaveBeenCalledWith(page, false);
   });
 
   it("refuses a window past the press's tabs: closed, no tab, and the pane stays on its page", () => {
@@ -350,6 +350,42 @@ describe("hostedTab", () => {
     expect(page.close).toHaveBeenCalled();
     expect(adopt).not.toHaveBeenCalled();
     expect(inPlace).not.toHaveBeenCalled();
+  });
+
+  describe("the keyboard", () => {
+    const opened = (as: TabAnswer, keyboard: WindowKeyboard) => {
+      const adopt = vi.fn();
+      const inPlace = vi.fn();
+      hostedTab({ partition: P }, () => as, keyboard, adopt, inPlace).createWindow({ webContents: { close: vi.fn() } });
+      return [...adopt.mock.calls, ...inPlace.mock.calls][0]![1] as boolean;
+    };
+    /** The agent's CDP input in flight on the opener, as `personPressed` reads it then. */
+    const duringAgentInput = () => {
+      const activation = new UserActivation();
+      let personPressed = true;
+      void activation.asAgent(async () => { personPressed = activation.personPressed(0); });
+      return personPressed;
+    };
+
+    it("a page shown in place takes it when the opener had it and nobody pressed", () => {
+      // #557's keys-on row. THE MUTANT: never focus the page shown in place.
+      expect(opened("in-place", { openerFocused: true, personPressed: true })).toBe(true);
+    });
+
+    it("a page shown in place leaves it where it is when the opener did not have it", () => {
+      // #557's keys-off row: a timer's window must not take the keys typed into the prompter.
+      // THE MUTANT: always focus the page shown in place.
+      expect(opened("in-place", { openerFocused: false, personPressed: true })).toBe(false);
+    });
+
+    it("a page shown in place during the agent's input still takes it from the opener, which it covers", () => {
+      // The opener held the person's keyboard and is now hidden behind the new page in the same pane:
+      // left there, their keys would go to a page they can't see. THE MUTANT: give the page shown in
+      // place the tab's rule (#564's `personPressed` too).
+      const personPressed = duringAgentInput();
+      expect(personPressed).toBe(false);
+      expect(opened("in-place", { openerFocused: true, personPressed })).toBe(true);
+    });
   });
 
   it("outlives the page that opened it, as a tab does, in the pane's profile", () => {
