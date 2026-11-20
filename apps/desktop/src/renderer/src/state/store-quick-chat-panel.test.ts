@@ -20,7 +20,7 @@ function home(overrides: FakeData = {}) {
     win: async <T>(fn: (s: ReturnType<typeof win.getState>) => Promise<T>) => { as(undefined); return fn(win.getState()); },
     panelState: () => panel.getState(), winState: () => win.getState(),
     stored: () => api.data.settings[SETTING_QUICK_CHAT] as { sessionId: string | null; panel?: boolean } | undefined,
-    made: () => api.calls.filter((c) => c.startsWith("createUnlistedSession:")).length,
+    made: () => api.calls.filter((c) => c.startsWith("startQuickChat:")).length,
     deleted: () => api.calls.filter((c) => c.startsWith("deleteSession:")).length,
   };
 }

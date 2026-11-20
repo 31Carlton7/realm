@@ -23,7 +23,7 @@ function mount(overrides: FakeData = {}) {
   return { hide, shown: () => act(async () => { shown(); }), changed: () => act(async () => { changed(); }) };
 }
 
-const made = () => api.calls.filter((c) => c.startsWith("createUnlistedSession:")).length;
+const made = () => api.calls.filter((c) => c.startsWith("startQuickChat:")).length;
 const deleted = () => api.calls.filter((c) => c.startsWith("deleteSession:")).length;
 
 afterEach(() => { cleanup(); delete (window as any).realm; delete document.documentElement.dataset.surface; });
