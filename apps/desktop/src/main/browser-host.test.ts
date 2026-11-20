@@ -805,11 +805,12 @@ describe("BrowserPaneHost", () => {
       expect(host.has("b1")).toBe(false);
     });
 
-    it("drops an opener that closes itself from behind the page in front, and nothing else", async () => {
+    it("drops and destroys an opener that closes itself from behind the page in front, and nothing else", async () => {
       // A page waiting behind is a page too, and may call window.close() from a timer. THE MUTANTS:
       // take its close for the front page's, and the pane uncovers or its tab closes; keep it behind,
       // and Back shows a page that is gone; send no state, and the pane's Back stays lit for nothing;
-      // drop it without destroying it, and the popups it opened outlive the tab.
+      // drop it without destroying it, and it is the one page that leaves without being torn down.
+      // Its popups close either way: Electron closes a window.open window with its opener.
       const { host, opener, front, states, closedTabs } = openedInPlace();
       front.nav.title = "Child";
       opener.nav.pid = 11; front.nav.pid = 12;
@@ -1045,9 +1046,10 @@ describe("BrowserPaneHost", () => {
       };
 
       for (const teardown of ["destroy", "destroyAll"] as const) {
-        it(`is not destroyed again by ${teardown} once it closed itself`, () => {
+        it(`is destroyed once when it closes itself, and not again by ${teardown}`, () => {
           // THE MUTANTS: keep a page that closed itself behind, and the browser's teardown destroys it
-          // again; drop it without destroying it, and the popups it opened outlive the tab.
+          // again; drop it without destroying it, and it is the one page that leaves without being
+          // torn down.
           const { host, opener, middle, front } = twoBehind();
           gone(opener);
           opener.getHooks().pageClosed();

@@ -695,7 +695,7 @@ export type OpenedPage = { close(): void; isDestroyed(): boolean };
  *  closed again (measured on Electron 45). */
 const closePage = (page: OpenedPage) => { if (!page.isDestroyed()) page.close(); };
 /** A browser's page that went with its window or closed itself may throw if destroyed again (`destroy`).
- *  It is still asked rather than skipped, so its popups go with it. */
+ *  It is still asked rather than skipped, so it is torn down as every other page is. */
 const destroyPage = (handle: ViewHandle) => { try { handle.destroy(); } catch { /* already gone */ } };
 /** A new tab a page opened: the browser hosting it, and the address it was opened on. */
 export type OpenedTab = { browserId: string; url: string };
@@ -1036,8 +1036,9 @@ export class BrowserPaneHost {
    * One of a browser's pages closed itself. The page in front, with an opener behind it, is the usual
    * end of a window opened in place (post back, then `window.close()`): the opener is shown again, as
    * Back would. With nothing behind it, the browser's tab closes, as in Chrome. An opener waiting
-   * behind leaves the stack and is destroyed, which closes its popups. A page the browser no longer
-   * has was closed by Realm.
+   * behind leaves the stack and is destroyed, as every page that leaves is; its popups have already
+   * closed with it, as Electron closes a `window.open` window with its opener. A page the browser no
+   * longer has was closed by Realm.
    */
   private pageClosed(id: string, page: ViewHandle | null): void {
     const v = this.views.get(id);
