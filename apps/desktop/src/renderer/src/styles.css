@@ -8736,9 +8736,9 @@ select { appearance: none; padding-right: 22px;
   .env-actions { grid-column: 1; grid-row: auto; flex-wrap: wrap; }
   .settings-row, .engines-head { flex-wrap: wrap; } /* .settings-source-row and .scope-confirm already wrap */
   .settings-row > .settings-row-main { flex-basis: 100%; }
-  /* The rail's fieldset again: `min-inline-size: 0` beats the UA's `min-content`, so the strip can be
+  /* A fieldset, as the rail is: `min-inline-size: 0` beats the UA's `min-content`, so the strip can be
      held to its row and scroll there. Without it the strip stays as wide as its tabs, runs past the
-     column and scrolls nothing. It keeps its own width wherever that fits. */
+     column and scrolls nothing. Where its tabs fit it keeps its own width. */
   .settings-tabs { min-inline-size: 0; max-inline-size: 100%; overflow-x: auto; scrollbar-width: none; }
   .settings-tabs .settings-tab { flex: none; white-space: nowrap; }
 }
