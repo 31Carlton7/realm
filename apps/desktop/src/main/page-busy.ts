@@ -35,24 +35,46 @@ export const PAGE_BUSY = `(() => {
 /** Keys that are not input on their own. */
 const BARE_MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn"]);
 
-/** Views typed into since their page last navigated: what was typed may be nowhere the page shows it as
- *  changed (a React form keeps `defaultValue` in step with `value`), and it is the person's either way. */
-export class TypedSince {
-  private readonly typed = new Set<string>();
+/** What `TypedSince` hears from a page: its webContents' keyboard and navigation. */
+type TypingPage = {
+  on(event: "before-input-event", listener: (event: unknown, input: { type: string; key: string }) => void): unknown;
+  on(event: "did-navigate", listener: () => void): unknown;
+};
 
-  /** `before-input-event`: any key but a bare modifier is input. */
-  input(id: string, e: { type: string; key: string }): void {
-    if (e.type === "keyDown" && !BARE_MODIFIERS.has(e.key)) this.typed.add(id);
+/** Pages typed into since they last navigated: what was typed may be nowhere the page shows it as
+ *  changed (a React form keeps `defaultValue` in step with `value`), and it is the person's either way.
+ *  Kept per page rather than per browser: a page shown in place of its opener (`adoptInPlace`) leaves
+ *  the opener running behind it, where it can navigate, and the opener comes back with its own mark. */
+export class TypedSince<Page extends TypingPage> {
+  private readonly shown = new Map<string, Page>();
+  private readonly typed = new WeakSet<Page>();
+  private readonly heard = new WeakSet<Page>();
+
+  /** The page browser `id` shows now. */
+  show(id: string, page: Page): void {
+    this.shown.set(id, page);
+    if (this.heard.has(page)) return;
+    this.heard.add(page);
+    // Any key but a bare modifier is input.
+    page.on("before-input-event", (_e, input) => {
+      if (input.type === "keyDown" && !BARE_MODIFIERS.has(input.key)) this.typed.add(page);
+    });
+    // A new document. An in-page step — a single-page checkout moving on — is not one, and keeps what
+    // was typed into it.
+    page.on("did-navigate", () => this.typed.delete(page));
   }
 
-  /** `did-navigate`: a new document. An in-page step — a single-page checkout moving on — is not one,
-   *  and keeps what was typed into it. */
-  navigated(id: string): void { this.typed.delete(id); }
-
   /** An agent typed into it, by whatever route — `Input.insertText` sends no key event at all. */
-  mark(id: string): void { this.typed.add(id); }
+  mark(id: string): void {
+    const page = this.shown.get(id);
+    if (page) this.typed.add(page);
+  }
 
-  has(id: string): boolean { return this.typed.has(id); }
+  has(id: string): boolean {
+    const page = this.shown.get(id);
+    return !!page && this.typed.has(page);
+  }
 
-  forget(id: string): void { this.typed.delete(id); }
+  /** Browser `id` shows no page. */
+  forget(id: string): void { this.shown.delete(id); }
 }
