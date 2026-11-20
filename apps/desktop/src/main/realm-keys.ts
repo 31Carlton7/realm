@@ -12,6 +12,14 @@ export const CHORD_KEY_CODES = {
 } as const;
 export type ChordKey = keyof typeof CHORD_KEY_CODES;
 
+/** What the helper exits with when macOS lets it make no tap (RealmKeys.swift's `tapPlan`). */
+const REFUSALS: Record<number, GlobalKeysState> = { 2: "denied", 3: "needsInputMonitoring" };
+
+/** A helper that stopped unasked is started again this long after. */
+export const RESTART_AFTER_MS = 1000;
+/** One that stops again within this long of that start is left stopped: it cannot run. */
+export const RESTART_GIVES_UP_WITHIN_MS = 10_000;
+
 /** The double-tap's timings, as measured on Nov 20 (RealmKeys.swift states the rule they belong to). */
 export const DOUBLE_TAP_MAX_HOLD_SECONDS = 0.25;
 export const DOUBLE_TAP_MAX_GAP_SECONDS = 0.3;
@@ -55,8 +63,10 @@ export type RealmKeysDeps = {
  * first is registered or the last given back: an active tap holds every key in every app until the
  * helper answers, which is not worth paying for a double-tap alone.
  *
- * A helper that stopped is not restarted by its own exit: one that macOS refused would only be
- * refused again. The next change of what is needed, or `recheck`, starts it.
+ * A helper macOS refused is not started again by its own exit: it would only be refused again. The
+ * next change of what is needed, or `recheck`, starts it. One that stopped any other way is started
+ * again once, a second later, so a crash does not end the double-tap with nothing on screen; if that
+ * one stops too within ten seconds, it stays stopped.
  */
 export class RealmKeys {
   private child: ChildProcessWithoutNullStreams | null = null;
@@ -65,6 +75,8 @@ export class RealmKeys {
   private doubleTap = false;
   private hold: HoldKey = HOLD_KEY_DEFAULT;
   private watchers = 0;
+  /** When a helper was last started because the one before it stopped unasked. */
+  private restartedAt: number | null = null;
   private readonly chords = new Map<number, () => void>();
 
   constructor(private readonly deps: RealmKeysDeps) {}
@@ -98,8 +110,10 @@ export class RealmKeys {
 
   stop(): void { this.end(); this.set("off"); }
 
+  private needed(): boolean { return this.doubleTap || this.watchers > 0 || this.chords.size > 0; }
+
   private sync(): void {
-    if (!this.doubleTap && this.watchers === 0 && this.chords.size === 0) { this.stop(); return; }
+    if (!this.needed()) { this.stop(); return; }
     if (this.child && this.childSwallows !== this.chords.size > 0) this.end();
     if (!this.child) this.begin();
     this.child?.stdin.write(`${JSON.stringify({
@@ -142,8 +156,16 @@ export class RealmKeys {
     child.on("exit", (code) => {
       if (this.child !== child) return;
       this.child = null;
-      // 2 is the helper's "macOS grants neither Accessibility nor Input Monitoring".
-      this.set(code === 2 ? "denied" : "missing");
+      const refusal = code === null ? undefined : REFUSALS[code];
+      if (refusal) { this.set(refusal); return; }
+      this.set("missing");
+      if (this.restartedAt !== null && Date.now() - this.restartedAt < RESTART_GIVES_UP_WITHIN_MS) return;
+      setTimeout(() => {
+        // Something started one since, or nothing needs one any more.
+        if (this.child || !this.needed()) return;
+        this.restartedAt = Date.now();
+        this.sync();
+      }, RESTART_AFTER_MS);
     });
   }
 

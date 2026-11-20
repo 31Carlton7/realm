@@ -34,7 +34,7 @@
  * macOS only reveals these grants by asking" spent its first half saying the chip out loud.
  */
 
-export type TccPermissionId = "filesAndFolders" | "automation" | "screenRecording" | "camera" | "microphone" | "accessibility" | "fullDisk";
+export type TccPermissionId = "filesAndFolders" | "automation" | "screenRecording" | "camera" | "microphone" | "accessibility" | "inputMonitoring" | "fullDisk";
 
 /** `unknown` = no prompt-free probe exists (or it could not answer): "Can't be checked until used". */
 export type TccState = "granted" | "denied" | "unknown";
@@ -55,6 +55,9 @@ export const FULL_DISK_PROBE_PATH = "/Library/Application Support/com.apple.TCC/
  * Deep-link targets in System Settings. The renderer names a ROW ID, never a URL — the main
  * process builds the URL from this closed table, so no IPC payload can steer `openExternal`
  * anywhere else.
+ *
+ * Input Monitoring has a pane and no row: nothing here can read that grant without a helper, and the
+ * one place that learns of it (Settings ▸ Keys ▸ From anywhere) offers the pane itself.
  */
 export const TCC_SETTINGS_URLS: Record<TccPermissionId, string> = {
   filesAndFolders: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders",
@@ -63,6 +66,7 @@ export const TCC_SETTINGS_URLS: Record<TccPermissionId, string> = {
   camera: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
   microphone: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+  inputMonitoring: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
   fullDisk: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
 };
 

@@ -27,9 +27,11 @@ export const HOLD_KEY_LABEL: Record<HoldKey, string> = { fn: "Fn", rightOption: 
  *  - `active`: it sees the keys, and macOS would let it keep a chord from the app in front (Accessibility).
  *  - `listening`: it sees the keys, and macOS would not let it keep any back (Input Monitoring only).
  *  - `denied`: macOS lets Realm see no keys outside its own windows. No tap was made, and nothing asked.
+ *  - `needsInputMonitoring`: Accessibility is granted and Input Monitoring is not, and no chord is
+ *    registered. The one tap macOS would allow could hold every key, so none was made, and nothing asked.
  *  - `missing`: there is no helper to run (not a Mac, or not built), or it stopped unasked.
  */
-export type GlobalKeysState = "off" | "starting" | "active" | "listening" | "denied" | "missing";
+export type GlobalKeysState = "off" | "starting" | "active" | "listening" | "denied" | "needsInputMonitoring" | "missing";
 
 /** What Settings' "Try it" row is told while it is on screen. */
 export type GlobalKeysEvent = { t: "doubleTap" } | { t: "hold"; down: boolean };

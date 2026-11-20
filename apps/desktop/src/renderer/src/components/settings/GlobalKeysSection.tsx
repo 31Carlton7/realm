@@ -16,8 +16,8 @@ const DOUBLE_TAP_LIT_MS = 1200;
  * so "Try it" can show a double-tap and the held key arriving: a keyboard that handles Fn itself
  * sends the Mac nothing, and pressing it here is the only way to find out.
  *
- * The line about Accessibility appears only when macOS is holding something back, and its button
- * opens the pane. Realm never raises that prompt itself.
+ * The line about Accessibility or Input Monitoring appears only when macOS is holding something
+ * back, and its button opens that pane. Realm never raises either prompt itself.
  */
 export function GlobalKeysSection() {
   const run = useApp((s) => s.run);
@@ -82,14 +82,17 @@ export function GlobalKeysSection() {
   });
 
   const holdName = HOLD_KEY_LABEL[hold];
-  const blind = state === "denied" || state === "missing";
+  const blind = state === "denied" || state === "needsInputMonitoring" || state === "missing";
   return (
     <div className="field">
       <span>From anywhere</span>
       <ul className="settings-list">
         <li className="settings-row" data-setting="double-tap-command"
           title="Tap either Command key twice, quickly, in any app. A tap that turns into a shortcut, a click or a scroll does not count.">
-          <div className="settings-row-main"><span className="settings-row-name">Double-tap Command opens the quick chat</span></div>
+          <div className="settings-row-main">
+            <span className="settings-row-name">Double-tap Command opens the quick chat</span>
+            <span className="settings-row-desc">macOS uses the same keys for Siri when Siri is on. One of the two can be changed.</span>
+          </div>
           <input type="checkbox" role="switch" className="switch" aria-label="Double-tap Command opens the quick chat"
             checked={doubleTap} onChange={(e) => changeDoubleTap(e.target.checked)} />
         </li>
@@ -116,6 +119,15 @@ export function GlobalKeysSection() {
               </span>
             </div>
             <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane("accessibility"))}>Open System Settings</button>
+          </li>
+        )}
+        {state === "needsInputMonitoring" && (
+          <li className="settings-row" data-setting="keys-access">
+            <div className="settings-row-main">
+              <span className="settings-row-name">Realm needs Input Monitoring</span>
+              <span className="settings-row-desc">Without it Realm cannot see Command tapped in another app, so the double-tap does nothing.</span>
+            </div>
+            <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane("inputMonitoring"))}>Open System Settings</button>
           </li>
         )}
         <li className="settings-row" data-setting="keys-try">

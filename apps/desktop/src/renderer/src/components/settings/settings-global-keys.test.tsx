@@ -151,6 +151,31 @@ describe("Settings ▸ Keys ▸ From anywhere", () => {
     await waitFor(() => expect(openTccPane).toHaveBeenCalledWith("accessibility"));
   });
 
+  it("says on the double-tap's row that macOS uses the same keys for Siri", async () => {
+    bridge("active");
+    await mount();
+    expect(row("double-tap-command")).toHaveTextContent("macOS uses the same keys for Siri when Siri is on. One of the two can be changed.");
+  });
+
+  it("with Accessibility and no Input Monitoring, names Input Monitoring, opens its pane and offers nothing to try", async () => {
+    const { becomes } = bridge("needsInputMonitoring");
+    const api = fakeApi();
+    const openTccPane = vi.spyOn(api, "openTccPane");
+    await mount(api);
+    await waitFor(() => expect(row("keys-access")).not.toBeNull());
+    expect(row("keys-access")).toHaveTextContent("Realm needs Input Monitoring");
+    expect(row("keys-access")).toHaveTextContent("the double-tap does nothing");
+    expect(row("keys-access")).not.toHaveTextContent("Accessibility");
+    expect(row("keys-try")).toHaveTextContent("Realm is not seeing keys right now.");
+    expect(row("keys-try").querySelector(".keys-try")).toBeNull();
+    fireEvent.click(within(row("keys-access")).getByRole("button", { name: "Open System Settings" }));
+    await waitFor(() => expect(openTccPane).toHaveBeenCalledWith("inputMonitoring"));
+
+    becomes("active");
+    expect(row("keys-access")).toBeNull();
+    expect(tryKey("⌘⌘")).toBeInTheDocument();
+  });
+
   it("with no access at all, says neither works and offers nothing to try", async () => {
     const { becomes } = bridge("denied");
     await mount();

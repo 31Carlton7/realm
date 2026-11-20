@@ -1,11 +1,11 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { GlobalKeysEvent, GlobalKeysState } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
-import { CHORD_KEY_CODES, parseKeysLine, RealmKeys } from "./realm-keys";
+import { CHORD_KEY_CODES, parseKeysLine, RealmKeys, RESTART_AFTER_MS, RESTART_GIVES_UP_WITHIN_MS } from "./realm-keys";
 
 describe("the RealmKeys helper's lines", () => {
   it("reads ready, a double-tap, a chord's key code and the held key, and nothing else", () => {
@@ -173,6 +173,19 @@ describe("RealmKeys", () => {
     expect(keys.state).toBe("starting");
   });
 
+  it("reports Accessibility without Input Monitoring as its own state, and recheck starts the helper again from it", () => {
+    const { keys, helpers, states } = setup();
+    keys.setDoubleTap(true);
+    helpers[0]!.emit("exit", 3);
+    expect(keys.state).toBe("needsInputMonitoring");
+    expect(states).toEqual(["starting", "needsInputMonitoring"]);
+    expect(helpers).toHaveLength(1);
+
+    keys.recheck();
+    expect(helpers).toHaveLength(2);
+    expect(keys.state).toBe("starting");
+  });
+
   it("recheck restarts a helper that is only listening, and leaves one that swallows alone", () => {
     const { keys, helpers, says } = setup();
     keys.setDoubleTap(true);
@@ -209,6 +222,90 @@ describe("RealmKeys", () => {
     helpers[0]!.emit("error", new Error("spawn ENOENT"));
     expect(keys.state).toBe("missing");
     warn.mockRestore();
+  });
+});
+
+describe("RealmKeys, when the helper stops unasked", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const started = () => {
+    vi.useFakeTimers();
+    const all = setup();
+    all.keys.setDoubleTap(true);
+    all.says('{"ready":true,"active":true}');
+    return all;
+  };
+
+  it("starts it again once, a second later, with the same config", () => {
+    const { keys, helpers, starts, lastConfig } = started();
+    helpers[0]!.emit("exit", 1);
+    expect(keys.state).toBe("missing");
+    vi.advanceTimersByTime(RESTART_AFTER_MS - 1);
+    expect(helpers).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(helpers).toHaveLength(2);
+    expect(starts).toEqual([false, false]);
+    expect(keys.state).toBe("starting");
+    expect(lastConfig()).toMatchObject({ doubleTap: true, chords: [] });
+    // A helper ended by a signal has no exit code, and is started again the same way.
+    vi.advanceTimersByTime(RESTART_GIVES_UP_WITHIN_MS);
+    helpers[1]!.emit("exit", null);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(3);
+  });
+
+  it("does not start again a helper macOS refused", () => {
+    for (const code of [2, 3]) {
+      const { keys, helpers } = started();
+      helpers[0]!.emit("exit", code);
+      vi.advanceTimersByTime(60_000);
+      expect(helpers).toHaveLength(1);
+      expect(keys.state).not.toBe("missing");
+    }
+  });
+
+  it("does not start a second one beside a helper that replaced it", () => {
+    const { keys, helpers } = started();
+    helpers[0]!.emit("exit", 1);
+    keys.recheck();
+    expect(helpers).toHaveLength(2);
+    const written = helpers[1]!.written.length;
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(2);
+    expect(helpers[1]!.written).toHaveLength(written);
+    // The replacement was not a restart, so when it stops it is still owed one.
+    helpers[1]!.emit("exit", 1);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(3);
+  });
+
+  it("does not start it again once nothing needs it", () => {
+    const { keys, helpers } = started();
+    helpers[0]!.emit("exit", 1);
+    keys.setDoubleTap(false);
+    vi.advanceTimersByTime(60_000);
+    expect(helpers).toHaveLength(1);
+    expect(keys.state).toBe("off");
+    // Nothing was restarted, so a helper wanted later is still owed its one restart.
+    keys.setDoubleTap(true);
+    helpers[1]!.emit("exit", 1);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(3);
+  });
+
+  it("does not loop: a restarted helper that stops inside ten seconds stays stopped", () => {
+    const { keys, helpers } = started();
+    helpers[0]!.emit("exit", 1);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(2);
+    vi.advanceTimersByTime(RESTART_GIVES_UP_WITHIN_MS - 1);
+    helpers[1]!.emit("exit", 1);
+    vi.advanceTimersByTime(60_000);
+    expect(helpers).toHaveLength(2);
+    expect(keys.state).toBe("missing");
+
+    // A change of what is needed still starts one, as it did before.
+    keys.setWatchers(1);
+    expect(helpers).toHaveLength(3);
   });
 });
 
@@ -417,6 +514,53 @@ describe.runIf(swiftc)("what the helper decides", () => {
         { swallow: false, out: [{ t: "hold", down: false }] },
         { swallow: false, out: [] },
       ]);
+    });
+  });
+
+  describe("which taps it makes", () => {
+    const keyAndPointer = { options: "listenOnly", keys: true, pointer: true };
+    const activeKeys = { options: "default", keys: true, pointer: false };
+    const pointerOnly = { options: "listenOnly", keys: false, pointer: true };
+    const plan = () => execFileSync(bin, ["plan"], { encoding: "utf8" }).trim().split("\n").map((l) => JSON.parse(l));
+    const planFor = (accessibility: boolean, inputMonitoring: boolean, swallow: boolean) => {
+      const { taps, exit } = plan().find((p) => p.accessibility === accessibility && p.inputMonitoring === inputMonitoring && p.swallow === swallow);
+      return { taps, exit };
+    };
+
+    it("answers for every case of the two grants and --swallow", () => {
+      expect(plan()).toHaveLength(8);
+    });
+
+    it("with neither grant makes no tap and exits 2, asked to swallow or not", () => {
+      expect(planFor(false, false, false)).toEqual({ taps: [], exit: 2 });
+      expect(planFor(false, false, true)).toEqual({ taps: [], exit: 2 });
+    });
+
+    it("with Input Monitoring alone makes one listen-only tap, asked to swallow or not", () => {
+      expect(planFor(false, true, false)).toEqual({ taps: [keyAndPointer] });
+      expect(planFor(false, true, true)).toEqual({ taps: [keyAndPointer] });
+    });
+
+    it("with both grants makes one listen-only tap until asked to swallow", () => {
+      expect(planFor(true, true, false)).toEqual({ taps: [keyAndPointer] });
+    });
+
+    it("with both grants and --swallow makes an active key tap and keeps the pointer on a listen-only one", () => {
+      expect(planFor(true, true, true)).toEqual({ taps: [activeKeys, pointerOnly] });
+    });
+
+    it("with Accessibility alone and no --swallow makes no tap and exits 3", () => {
+      expect(planFor(true, false, false)).toEqual({ taps: [], exit: 3 });
+    });
+
+    it("with Accessibility alone and --swallow makes an active tap on keys only", () => {
+      expect(planFor(true, false, true)).toEqual({ taps: [activeKeys] });
+    });
+
+    it("never makes an active tap without --swallow", () => {
+      const without = plan().filter((p) => !p.swallow);
+      expect(without).toHaveLength(4);
+      expect(without.flatMap((p) => p.taps).filter((t: { options: string }) => t.options !== "listenOnly")).toEqual([]);
     });
   });
 

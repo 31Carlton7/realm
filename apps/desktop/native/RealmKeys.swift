@@ -20,13 +20,15 @@
 // reported but reach the app in front. With neither, no tap is made and the helper exits 2.
 //
 // An active tap holds every key until its callback returns, so a helper that is slow to be scheduled
-// stalls typing in every app. The key tap is therefore listen-only unless main started the helper
-// with --swallow, which it does only while a chord is registered. The one exception: with
-// Accessibility and no Input Monitoring, a listen-only tap could raise the Input Monitoring prompt,
-// so the tap is active there whatever main asked.
+// stalls typing in every app. Without --swallow, which main passes only while a chord is registered,
+// the helper never makes one. With Accessibility and no Input Monitoring that leaves it no tap to
+// make, since a listen-only tap could raise the Input Monitoring prompt: it exits 3, and Settings
+// names Input Monitoring. `tapPlan` is the whole choice, and `realmkeys plan` prints it.
 //
 // Clicks and scrolls end a double-tap (Command-click, Command-scroll). Beside an active key tap they
 // are watched by a second, listen-only one, so the active one never sits in the path of the pointer.
+// With Accessibility and no Input Monitoring there is no listen access to watch them with, so
+// --swallow gets the key tap alone there, and a click between two taps no longer resets the double-tap.
 //
 // THE TAP CALLBACK MUST NOT DO I/O (ScrollPhase.swift says what happens when it does): it decides
 // under a lock and appends to a buffer; a writer thread prints.
@@ -37,6 +39,8 @@
 //
 //   realmkeys            the tap. Exits when stdin closes (parent gone).
 //   realmkeys --swallow  the tap, able to swallow a registered chord.
+//   realmkeys plan       no tap, and no permission read: prints the taps the helper would make, or
+//                        the code it would exit with, for each case of the two grants and --swallow.
 //   realmkeys decide     no tap: reads the same config lines plus events, and prints what the tap
 //                        would do with each as {"swallow":…,"out":[…]}. Events, times in seconds:
 //                          flags <t> <keycode> <flags>     down <t> <keycode> <flags> [repeat]
@@ -221,7 +225,54 @@ struct Decider {
   }
 }
 
+struct TapSpec {
+  let active: Bool
+  let keys: Bool
+  let pointer: Bool
+}
+
+enum TapPlan {
+  case taps([TapSpec])
+  /// macOS grants neither Accessibility nor Input Monitoring.
+  case denied
+  /// Accessibility without Input Monitoring, and nothing to swallow: the only tap macOS would allow
+  /// is an active one.
+  case needsListenAccess
+
+  var exitCode: Int32? {
+    switch self { case .taps: return nil; case .denied: return 2; case .needsListenAccess: return 3 }
+  }
+}
+
+/// Which taps to make. `canSwallow` is Accessibility, `canListen` is Input Monitoring, and `swallow`
+/// is main asking for a helper that can keep a chord back.
+func tapPlan(canSwallow: Bool, canListen: Bool, swallow: Bool) -> TapPlan {
+  if canListen {
+    guard canSwallow, swallow else { return .taps([TapSpec(active: false, keys: true, pointer: true)]) }
+    return .taps([TapSpec(active: true, keys: true, pointer: false), TapSpec(active: false, keys: false, pointer: true)])
+  }
+  guard canSwallow else { return .denied }
+  return swallow ? .taps([TapSpec(active: true, keys: true, pointer: false)]) : .needsListenAccess
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
+
+if arguments.first == "plan" {
+  for canSwallow in [false, true] {
+    for canListen in [false, true] {
+      for swallow in [false, true] {
+        let plan = tapPlan(canSwallow: canSwallow, canListen: canListen, swallow: swallow)
+        var taps: [String] = []
+        if case let .taps(specs) = plan {
+          taps = specs.map { "{\"options\":\"\($0.active ? "default" : "listenOnly")\",\"keys\":\($0.keys),\"pointer\":\($0.pointer)}" }
+        }
+        let exits = plan.exitCode.map { ",\"exit\":\($0)" } ?? ""
+        print("{\"accessibility\":\(canSwallow),\"inputMonitoring\":\(canListen),\"swallow\":\(swallow),\"taps\":[\(taps.joined(separator: ","))]\(exits)}")
+      }
+    }
+  }
+  exit(0)
+}
 
 if arguments.first == "decide" {
   var decider = Decider()
@@ -339,9 +390,11 @@ func install(_ eventMask: CGEventMask, options: CGEventTapOptions) {
 // Check-only calls: none of these asks.
 let canSwallow = AXIsProcessTrusted() && CGPreflightPostEventAccess()
 let canListen = CGPreflightListenEventAccess()
-guard canSwallow || canListen else {
-  FileHandle.standardError.write("realmkeys: neither Accessibility nor Input Monitoring is granted; no tap was made\n".data(using: .utf8)!)
-  exit(2)
+let plan = tapPlan(canSwallow: canSwallow, canListen: canListen, swallow: arguments.contains("--swallow"))
+if let code = plan.exitCode {
+  let why = code == 2 ? "neither Accessibility nor Input Monitoring is granted" : "Input Monitoring is not granted, and no chord needs an active tap"
+  FileHandle.standardError.write("realmkeys: \(why); no tap was made\n".data(using: .utf8)!)
+  exit(code)
 }
 
 // Watch stdin: config lines from main, and when the parent closes it, quit.
@@ -354,13 +407,10 @@ if let seconds = argument(after: "--exit-after").flatMap({ Double($0) }) {
   DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { exit(0) }
 }
 
-if canListen && !(canSwallow && arguments.contains("--swallow")) {
-  install(keyMask | pointerMask, options: .listenOnly)
-} else if canListen {
-  install(keyMask, options: .defaultTap)
-  install(pointerMask, options: .listenOnly)
-} else {
-  install(keyMask | pointerMask, options: .defaultTap)
+if case let .taps(specs) = plan {
+  for spec in specs {
+    install((spec.keys ? keyMask : 0) | (spec.pointer ? pointerMask : 0), options: spec.active ? .defaultTap : .listenOnly)
+  }
 }
 // What macOS allows, not which tap is installed: Settings reads it to say whether a chord could be kept back.
 print("{\"ready\":true,\"active\":\(canSwallow)}")
