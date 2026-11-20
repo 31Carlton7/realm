@@ -66,13 +66,19 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.invoke("app-pick:capture", rect, ground, name),
   },
   /** Settings ▸ General ▸ Links: tells main where a clicked link opens, and hears the links main
-   *  sends back to open in a Realm Browser tab. */
+   *  sends back to open in a Realm Browser tab — a browser pane's new tabs among them. */
   links: {
     setOpenIn: (pref: string): void => ipcRenderer.send("links:open-in", pref),
     onOpenInRealm: (cb: (url: string) => void): (() => void) => {
       const handler = (_e: IpcRendererEvent, url: string) => cb(url);
       ipcRenderer.on("links:open-in-realm", handler);
       return () => ipcRenderer.removeListener("links:open-in-realm", handler);
+    },
+    /** A browser pane's page asked for a new tab (a target=_blank link, a ⌘- or middle-click). */
+    onOpenTab: (cb: (m: { browserId: string; url: string; background: boolean }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string; url: string; background: boolean }) => cb(m);
+      ipcRenderer.on("links:open-tab", handler);
+      return () => ipcRenderer.removeListener("links:open-tab", handler);
     },
   },
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */

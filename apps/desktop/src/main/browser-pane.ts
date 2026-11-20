@@ -140,9 +140,10 @@ export function electronViewFactory(
         ])
       : Promise.resolve();
 
-    /* Guard 1: a page's request for a new window (`windowOpenAction`). A link is navigated in place,
-       allowlist-checked inside the host's navigate, as it always was. A popup — a sign-in, mostly — is
-       a real window, because the page that opened it is waiting for it to post back and close.
+    /* Guard 1: a page's request for a new window (`windowOpenAction`). A link meant for a tab opens a
+       new tab beside this one and any other link is navigated in place, both allowlist-checked by the
+       host. A popup — a sign-in, mostly — is a real window, because the page that opened it is waiting
+       for it to post back and close.
 
        Every popup is this pane's and nobody else's: Chromium makes it in its opener's session (which
        is what lets the two script each other), so it signs in to the pane's profile; it gets the same
@@ -153,8 +154,12 @@ export function electronViewFactory(
     const popups = new Set<BrowserWindow>();
     const openWindow = (opener: WebContents) => (details: HandlerDetails): WindowOpenHandlerResponse => {
       const action = windowOpenAction(details, popups.size);
-      if (action === "in-place") {
-        if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }
+      if (action === "in-place" || action === "foreground-tab" || action === "background-tab") {
+        if (opener === wc) {
+          if (action === "in-place") hooks.openInPlace(details.url);
+          else hooks.openTab(details.url, action === "background-tab");
+          return { action: "deny" };
+        }
         // A link in a popup opens in the popup: the page behind it is waiting on the popup, not on this.
         const url = normalizeAddress(details.url);
         if (url && hooks.allowNavigate(url)) opener.loadURL(url).catch(() => { /* the popup's own page reports it */ });
@@ -429,6 +434,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
     sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
+    openTab: ({ id, url, background }) => send("links:open-tab", { browserId: id, url, background }),
     // The keyboard is in the VIEW when this fires, and focusing an input inside the window's own page
     // does not move it — typing would go on landing in the site. Handing focus to the window's
     // webContents first is what lets the find field the pane focuses actually receive the keys.

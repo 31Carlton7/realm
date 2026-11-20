@@ -803,6 +803,11 @@ export function App() {
       const st = store.getState();
       st.run(() => st.openLinkInBrowser(url));
     });
+    // A browser pane's page asked for a new tab (main/browser-pane.ts): beside that page.
+    const offTab = window.realm?.links?.onOpenTab?.(({ browserId, url, background }) => {
+      const st = store.getState();
+      st.run(() => st.openPageTab(browserId, url, { background }));
+    });
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
@@ -863,7 +868,7 @@ export function App() {
       window.removeEventListener("dragover", swallowDrop);
       offEggs();
       window.removeEventListener("drop", swallowDrop);
-      offOS?.(); offLink?.();
+      offOS?.(); offLink?.(); offTab?.();
     };
   }, [store]);
   return (

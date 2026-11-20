@@ -83,6 +83,8 @@ interface Window {
     links?: {
       setOpenIn(pref: import("@realm/contracts").LinksOpenIn): void;
       onOpenInRealm(cb: (url: string) => void): () => void;
+      /** A browser pane's page asked for a new tab: beside it, and behind it when `background`. */
+      onOpenTab?(cb: (m: { browserId: string; url: string; background: boolean }) => void): () => void;
     };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };

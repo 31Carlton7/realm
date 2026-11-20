@@ -3046,6 +3046,10 @@ export type AppState = TeammatesSlice & {
   /** A web link in a Realm Browser tab: a new tab in the side pane of the session in view, the way
    *  ⌘T opens one, already on `url` — and with no session on screen, a browser beside the focus. */
   openLinkInBrowser(url: string): Promise<void>;
+  /** A new tab a browser pane's page asked for (a target=_blank link, a ⌘- or middle-click): a tab
+   *  beside that page's, as `openLinkInBrowser` makes one — behind it, keyboard untouched, when
+   *  `background`. */
+  openPageTab(browserId: string, url: string, opts: { background: boolean }): Promise<void>;
   /** Which editor the transcript's path menu offers — an id, "realm" for none, null for the first
    *  installed one (see `resolveEditor`). */
   openFilesIn: OpenFilesIn | null;
@@ -4284,11 +4288,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  panel is showing that session's tabs (or nothing), or that session is the one the keyboard is
      *  working for — and otherwise waits in the strip, so two agents opening pages side by side do not
      *  pull the panel back and forth under the person reading it. */
-    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean; show?: boolean } = {}): Promise<boolean> => {
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean; show?: boolean; front?: boolean } = {}): Promise<boolean> => {
       const view = viewNow();
       const panel = findPanel(view.layout);
       const showingOwner = panel?.itemId ? tabOwner(panel, panel.itemId) : undefined;
-      const front = !!opts.focus || !!opts.show || !panel || showingOwner === owner || servedSession() === owner;
+      const front = opts.front ?? (!!opts.focus || !!opts.show || !panel || showingOwner === owner || servedSession() === owner);
       const layout = layoutOpenInSidePane(view.layout, owner, itemId, { front });
       if (!layout) return false;
       const leaf = findLeafOfItem(layout, itemId)!;
@@ -4306,8 +4310,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return true;
     };
     /** `newTab`'s browser, and a link's: a tab in the side pane of the session the ask is about, on
-     *  `url` (blank without one). Answers the browser's item, or null when it never reached the screen. */
-    const openBrowserTab = async (leafId: string | null, url?: string): Promise<string | null> => {
+     *  `url` (blank without one). Answers the browser's item, or null when it never reached the screen.
+     *  `background` puts it behind the tab showing and leaves the keyboard where it is. */
+    const openBrowserTab = async (leafId: string | null, url?: string, opts: { background?: boolean } = {}): Promise<string | null> => {
       // For the session the ask came from — read before the awaits, since the click or the key was
       // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
       // in, or in the panel the session whose tab is showing, else the first session on screen.
@@ -4319,7 +4324,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (!inProfile(sid)) return null;
       // A tab of that session's run — and with no session on screen, an ordinary browser beside the
       // focused pane.
-      if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
+      if (opts.background) {
+        if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { front: false }))) await get().openItemBesideQuiet(itemId);
+      } else if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
       return itemId;
     };
     /** Bring the side panel back if it was put away: a person just asked to look at something in it
@@ -5627,6 +5634,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async openLinkInBrowser(url) {
         await openBrowserTab(null, url);
+      },
+      async openPageTab(browserId, url, opts) {
+        const layout = get().layout;
+        const opener = get().items.find((i) => i.kind === "browser" && i.refId === browserId);
+        const leaf = layout && opener ? findLeafOfItem(layout, opener.id) : null;
+        await openBrowserTab(leaf?.id ?? null, url, opts);
       },
       peekOwner() {
         const layout = get().layout; if (!layout) return null;

@@ -349,15 +349,18 @@ export const POPUP_LIMIT = 3;
  * write into it or send it somewhere, and only a window it holds can be either; navigating the pane to
  * `about:blank` would wipe the page that asked.
  *
- * Everything else is a link (`target=_blank`, a ⌘-click) and goes **in-place**, as it always has: a
- * link opened in a new tab keeps no opener (`noopener` is implied), so nothing is waiting on it.
+ * A request for a tab — a `target=_blank` link or form, a plain `window.open(url)`, a ⌘- or
+ * middle-click — is a **tab**: a new Realm Browser tab beside this one, in front for `foreground-tab`
+ * and behind it for `background-tab`, as any browser does. Navigating the pane in place instead (what
+ * these did before) threw away the page that was clicked on. A tab keeps no opener (`noopener` is
+ * implied), so nothing is waiting on it. Anything else (`default`, `current-tab`) goes **in-place**.
  *
  * Deliberately not sniffed from the address: the sign-in SDKs that use a popup give it a size, and a
  * link to an authorize URL is a redirect flow, which finishes in place.
  */
-export function windowOpenAction(request: WindowRequest, popupsOpen: number): "popup" | "in-place" | "refuse" {
+export function windowOpenAction(request: WindowRequest, popupsOpen: number): "popup" | "foreground-tab" | "background-tab" | "in-place" | "refuse" {
   const wantsWindow = request.disposition === "new-window" || request.url === "about:blank" || request.url === "";
-  if (!wantsWindow) return "in-place";
+  if (!wantsWindow) return request.disposition === "foreground-tab" || request.disposition === "background-tab" ? request.disposition : "in-place";
   return popupsOpen < POPUP_LIMIT ? "popup" : "refuse";
 }
 
@@ -536,9 +539,11 @@ export type ViewHooks = {
   emitState(): void;
   /** `will-navigate` / `will-redirect` consult — false means preventDefault. */
   allowNavigate(url: string): boolean;
-  /** `setWindowOpenHandler` funnel for a request `windowOpenAction` calls a link (`target=_blank`, a
-   *  ⌘-click): DENIED as a window and offered back as an in-place navigation of the same view. */
+  /** `setWindowOpenHandler` funnel for a request `windowOpenAction` sends in place: DENIED as a window
+   *  and offered back as a navigation of the same view. */
   openInPlace(url: string): void;
+  /** …and for one it calls a tab: DENIED as a window and opened as a new tab beside this view's. */
+  openTab(url: string, background: boolean): void;
   /** `found-in-page`: the view's answer to the last find. */
   found(result: FindResult): void;
   /** ⌘F with the page holding the keyboard (`isFindShortcut`) — the pane opens its find strip. */
@@ -645,6 +650,8 @@ export class BrowserPaneHost {
     sendFound?: (m: FindResult & { id: string }) => void;
     /** ⌘F was pressed in this view's page. */
     requestFind?: (id: string) => void;
+    /** This view's page asked for a new tab on `url` (`windowOpenAction`). */
+    openTab?: (m: { id: string; url: string; background: boolean }) => void;
     /** Emulate a device on this view's page, or (null) stop. Over CDP, so best-effort: a view with
      *  DevTools already attached simply shows the page at the narrowed width instead. */
     emulate?: (id: string, metrics: DeviceMetrics | null) => void;
@@ -729,6 +736,10 @@ export class BrowserPaneHost {
       emitState: () => this.emitState(id),
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
       openInPlace: (target) => this.navigate(id, target),
+      openTab: (target, background) => {
+        const url = normalizeAddress(target);
+        if (url && originAllowed(url, this.views.get(id)?.allowlist ?? null)) this.opts.openTab?.({ id, url, background });
+      },
       found: (result) => this.opts.sendFound?.({ id, ...result }),
       findShortcut: () => this.opts.requestFind?.(id),
     };

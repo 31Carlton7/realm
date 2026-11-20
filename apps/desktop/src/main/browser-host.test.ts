@@ -85,10 +85,16 @@ describe("windowOpenAction", () => {
     expect(windowOpenAction({ url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x", disposition: "new-window" }, 0)).toBe("popup");
   });
 
-  it("a link to a new tab stays in place, as it always has — a target=_blank link keeps no opener", () => {
-    // The mutant that makes everything a window turns every target=_blank link into a popup.
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "foreground-tab" }, 0)).toBe("in-place");
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "background-tab" }, 0)).toBe("in-place"); // ⌘-click
+  it("a link meant for a new tab is a new tab: in front for a click, behind for a ⌘- or middle-click", () => {
+    // The owner's bug (#537): target=_blank, window.open(url), noopener and a form's target=_blank all
+    // replaced the page that was clicked on. THE MUTANT: answer "in-place" for either tab.
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "foreground-tab" }, 0)).toBe("foreground-tab");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "background-tab" }, 0)).toBe("background-tab");
+  });
+
+  it("anything else that is not a window stays in place", () => {
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "default" }, 0)).toBe("in-place");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "current-tab" }, 0)).toBe("in-place");
     expect(windowOpenAction({ url: "https://example.com/docs", disposition: "other" }, 0)).toBe("in-place");
   });
 
@@ -104,7 +110,7 @@ describe("windowOpenAction", () => {
     expect(windowOpenAction(signIn, POPUP_LIMIT - 1)).toBe("popup");
     expect(windowOpenAction(signIn, POPUP_LIMIT)).toBe("refuse"); // the `<=` mutant opens one more
     expect(windowOpenAction({ url: "about:blank", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("refuse");
-    expect(windowOpenAction({ url: "https://example.com/", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("in-place");
+    expect(windowOpenAction({ url: "https://example.com/", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("foreground-tab");
   });
 });
 
@@ -216,16 +222,17 @@ function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReas
   const found: (FindResult & { id: string })[] = [];
   const findRequests: string[] = [];
   const emulations: { id: string; metrics: DeviceMetrics | null }[] = [];
+  const tabs: { id: string; url: string; background: boolean }[] = [];
   const factory = vi.fn((id: string, hooks: ViewHooks, _partition: string) => {
     const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle;
   });
   const host = new BrowserPaneHost({
     createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor,
     sendFound: (m) => found.push(m), requestFind: (id) => findRequests.push(id),
-    emulate: (id, metrics) => emulations.push({ id, metrics }),
+    emulate: (id, metrics) => emulations.push({ id, metrics }), openTab: (m) => tabs.push(m),
     ...(o.guard ? { guard: o.guard } : {}), ...(o.now ? { now: o.now } : {}),
   });
-  return { host, views, states, factory, found, findRequests, emulations };
+  return { host, views, states, factory, found, findRequests, emulations, tabs };
 }
 
 const alive = (v: ReturnType<typeof fakeView>) => !v.calls.includes("destroy");
@@ -333,6 +340,21 @@ describe("BrowserPaneHost", () => {
     expect(views.get("b1")!.calls).toContain("load:https://example.com/popup");
     hooks.openInPlace("https://evil.com/popup");
     expect(views.get("b1")!.calls).not.toContain("load:https://evil.com/popup");
+  });
+
+  it("a link meant for a new tab is handed to the window as a tab of this pane's, allowlist included", () => {
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", ["https://example.com"], P);
+    const hooks = views.get("b1")!.getHooks();
+    hooks.openTab("https://example.com/docs", false);
+    hooks.openTab("https://example.com/later", true);
+    hooks.openTab("https://evil.com/docs", false);
+    expect(tabs).toEqual([
+      { id: "b1", url: "https://example.com/docs", background: false },
+      { id: "b1", url: "https://example.com/later", background: true },
+    ]);
+    // The page that was clicked on stays where it was.
+    expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
   });
 
   it("says which popups a view's page has open, and none for a view it does not have", () => {
