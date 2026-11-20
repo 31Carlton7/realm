@@ -6157,8 +6157,13 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .composer-actions .composer-dictate[aria-pressed="true"]:hover { background: var(--rl-danger-fill-hover); color: var(--rl-danger-contrast); }
 .composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-danger-press); color: var(--rl-danger-contrast); }
 .dictate-live { display: flex; align-items: center; gap: 2px; justify-self: end; padding-right: 8px; pointer-events: none; }
-.dictate-bar { width: 2px; height: 14px; border-radius: 1px; background: currentColor;
-  scale: 1 calc(.2 + var(--mic-level, 0) * .8); transition: scale var(--dur-drag) linear; }
+/* In a silent room each bar rests at a height of its own, so a quiet stretch still reads as a meter
+   that is listening, never as a row of dots that has stopped. Still, not looped: the pill and its stop
+   square are what say it is on. */
+.dictate-bar { --bar-rest: .3; width: 2px; height: 14px; border-radius: 1px; background: currentColor;
+  scale: 1 calc(var(--bar-rest) + var(--mic-level, 0) * (1 - var(--bar-rest))); transition: scale var(--dur-drag) linear; }
+.dictate-bar:nth-child(2) { --bar-rest: .5; }
+.dictate-bar:nth-child(3) { --bar-rest: .4; }
 .dictate-stop { width: 9px; height: 9px; margin: 0 1.5px 0 5.5px; border-radius: 2px; background: currentColor; }
 @media (prefers-reduced-motion: reduce) {
   .composer-actions .composer-dictate, .composer-dictate > *, .dictate-bar { transition: none; }

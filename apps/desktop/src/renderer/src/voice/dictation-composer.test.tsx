@@ -197,12 +197,12 @@ describe("dictating into the prompter", () => {
     await helper.ready({ t: "ready", stt: "analyzer" });
     helper.emit({ t: "partial", turn: 1, text: "run the build" });
     helper.emit({ t: "final", turn: 1, text: "run the build" });
-    expect(screen.getByRole("button", { name: "Stop dictating" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Stop dictation" }).getAttribute("aria-pressed")).toBe("true");
     expect(dictating()).toBe("run the build");
     helper.emit({ t: "partial", turn: 2, text: "and the tests" });
     expect(dictating()).toBe("run the build and the tests");
     expect(store.getState().drafts["se1"] ?? "").toBe("");
-    fireEvent.click(screen.getByRole("button", { name: "Stop dictating" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
     helper.emit({ t: "final", turn: 2, text: "and the tests" });
     await act(async () => { await new Promise((res) => setTimeout(res, 0)); });
     expect(store.getState().drafts["se1"]).toBe("run the build and the tests");

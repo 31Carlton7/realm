@@ -6013,7 +6013,12 @@ describe("dictation in the prompter", () => {
     // The icon button's pressed rule darkens its ink; on the red the bars and the square stay white.
     expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled)').join(" "))
       .toContain("color: var(--rl-danger-contrast)");
-    expect(bodiesFor(".dictate-bar").join(" ")).toContain("scale: 1 calc(.2 + var(--mic-level, 0) * .8)");
+    expect(bodiesFor(".dictate-bar").join(" ")).toContain("scale: 1 calc(var(--bar-rest) + var(--mic-level, 0) * (1 - var(--bar-rest)))");
+    // At rest the bars stand at different heights, so a silent stretch reads as listening, not stopped.
+    const rests = [".dictate-bar", ".dictate-bar:nth-child(2)", ".dictate-bar:nth-child(3)"]
+      .map((sel) => /--bar-rest: ([\d.]+)/.exec(bodiesFor(sel).join(" "))?.[1]);
+    expect(new Set(rests).size).toBe(3);
+    expect(Math.min(...rests.map(Number))).toBeGreaterThanOrEqual(.3);
     // The stop is a filled square in the pill's ink, as a recorder's is, not an outline.
     expect(bodiesFor(".dictate-stop").join(" ")).toContain("background: currentColor");
     // Idle shows the mic alone; listening shows the bars and the stop alone.
