@@ -261,6 +261,20 @@ export function FullScreenBridge() {
 }
 
 /**
+ * The quick chat is one chat wherever it is shown, and main says when another page opened or deleted
+ * it (`quick-chat:changed`). A window follows what was stored, so its card comes down for a chat the
+ * panel deleted rather than staying up on a session that is gone.
+ */
+export function QuickChatBridge() {
+  const store = useAppStore();
+  useEffect(() => window.realm?.quickChatPanel?.onChatChanged(() => {
+    const st = store.getState();
+    st.run(() => st.syncQuickChat());
+  }), [store]);
+  return null;
+}
+
+/**
  * Whether the system draws OVERLAY scrollbars — macOS's "show scroll bars: when scrolling", which is
  * also what "automatically" resolves to on a Mac with only a trackpad. Stamped on `:root` as
  * `data-overlay-scrollbars`, and the stylesheet's own scrollbar treatment stands down under it but for
@@ -908,6 +922,7 @@ export function App() {
       <TooltipBridge />
       <CaretBridge />
       <WhatsNewBridge />
+      <QuickChatBridge />
       {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
           column (components/page-nav.tsx). */}
       <PageNavProvider>
