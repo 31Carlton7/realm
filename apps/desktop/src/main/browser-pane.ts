@@ -99,7 +99,7 @@ export function electronViewFactory(
   onView?: (id: string, wc: WebContents | null, view?: WebContentsView) => void,
   installPasskeysFor?: PasskeyInstaller,
 ): ViewFactory {
-  return (id, hooks, partition, page) => {
+  return (id, hooks, partition, opened) => {
     applyBrowserUserAgent(partition);
     const webPreferences = {
       partition,
@@ -115,7 +115,7 @@ export function electronViewFactory(
     };
     // A new tab's page is the one Chromium made for it (`hostedTab`), with these same preferences,
     // already on its way to the page it was opened on.
-    const adopted = page as WebContents | undefined;
+    const adopted = opened?.page as WebContents | undefined;
     const view = new WebContentsView(adopted ? { webContents: adopted } : { webPreferences });
     view.setBackgroundColor("#ffffffff"); // opaque — the window behind is transparent on macOS
     view.setVisible(false); // hidden until the renderer's first bounds sync places it
@@ -134,7 +134,7 @@ export function electronViewFactory(
 
     // The URL the pane was ASKED for, which is what every reader of this view's state wants to hear
     // about — `about:blank` below is Realm's own bootstrap and belongs to nobody's address bar.
-    let wanted: string | null = null;
+    let wanted: string | null = opened?.url ?? null;
     const ready = installPasskeysFor && !adopted
       ? Promise.race([
           installPasskeys(id, wc, installPasskeysFor),
@@ -311,6 +311,7 @@ export function electronViewFactory(
     return {
       setBounds: (r) => view.setBounds(r),
       setVisible: (v) => view.setVisible(v),
+      focus: () => wc.focus(),
       loadURL,
       goBack: () => wc.navigationHistory.goBack(),
       goForward: () => wc.navigationHistory.goForward(),

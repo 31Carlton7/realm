@@ -327,6 +327,7 @@ function fakeView() {
   const handle: ViewHandle = {
     setBounds: (r) => calls.push(`bounds:${r.x},${r.y},${r.width},${r.height}`),
     setVisible: (v) => calls.push(`visible:${v}`),
+    focus: () => calls.push("focus"),
     loadURL: (url) => { calls.push(`load:${url}`); nav.url = url; nav.loading = true; hooks?.emitState(); },
     goBack: () => calls.push("back"), goForward: () => calls.push("forward"),
     reload: () => calls.push("reload"), stop: () => calls.push("stop"),
@@ -484,7 +485,9 @@ describe("BrowserPaneHost", () => {
     expect(tabs).toEqual([{ id: "b1", url: "https://example.com/echo", background: true, focus: true, page: expect.any(String) }]);
     host.claimTab(tabs[0]!.page, "b2");
     host.create("b2", "https://example.com/echo", ["https://example.com"], P);
-    expect(factory).toHaveBeenLastCalledWith("b2", expect.anything(), P, page);
+    // …named by the address it was opened on, which the bar shows until the page commits: an empty one
+    // reads as a blank tab, and the pane puts the keyboard in its address field.
+    expect(factory).toHaveBeenLastCalledWith("b2", expect.anything(), P, { page, url: "https://example.com/echo" });
     expect(views.get("b2")!.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
     expect(page.close).not.toHaveBeenCalled();
     // The page that was clicked on stays where it was.
@@ -543,6 +546,33 @@ describe("BrowserPaneHost", () => {
     host.create("b1", "", null, P);
     views.get("b1")!.getHooks().openTab("https://example.com/a", false, { close: vi.fn() }, false);
     expect(tabs[0]).toMatchObject({ focus: false });
+  });
+
+  it("gives a new tab's page the keyboard the person's page had, once, when its pane first shows it", () => {
+    // A person clicked a target=_blank link: the keys they type next are the new page's, as in any
+    // browser. THE MUTANT: never focus the view, and they go on landing in the page now behind it.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, { close: vi.fn() }, true);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/a", null, P);
+    const focuses = () => views.get("b2")!.calls.filter((c) => c === "focus").length;
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, false);
+    expect(focuses()).toBe(0); // not on screen yet: a hidden view holding the keyboard swallows it
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    expect(focuses()).toBe(1); // the next frame's sync must not take it back from wherever it went
+  });
+
+  it("leaves the keyboard alone when the page that opened the tab did not have it", () => {
+    // An agent's click. THE MUTANT: focus every hosted page, and the prompter's draft stops taking keys.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, { close: vi.fn() }, false);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/a", null, P);
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    expect(views.get("b2")!.calls).not.toContain("focus");
   });
 
   it("tells whoever asks for the page next which tabs it opened, once, waiting for one still being made", async () => {
