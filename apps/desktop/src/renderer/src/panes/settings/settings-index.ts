@@ -166,6 +166,10 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "terminal-cursor-style", tab: "appearance", section: "Cursor", label: TERMINALS_CURSOR_STYLE_COPY.label, terms: "terminals caret block bar line underline shape" },
   { id: "terminal-cursor-blink", tab: "appearance", section: "Cursor", label: TERMINALS_CURSOR_BLINK_COPY.label, terms: "terminals caret" },
 
+  // Keys: what Realm answers from any app, on a Mac.
+  { id: "double-tap-command", tab: "keys", section: "From anywhere", label: "Double-tap Command opens the quick chat", terms: "global hotkey shortcut cmd popup anywhere", available: () => capabilities().accessibility },
+  { id: "assistant-hold-key", tab: "keys", section: "From anywhere", label: "Hold for assistant shortcuts", terms: "fn globe right option command modifier meeting hotkey", available: () => capabilities().accessibility },
+  { id: "keys-try", tab: "keys", section: "From anywhere", label: "Try it", terms: "test keyboard fn double-tap", available: () => capabilities().accessibility },
   // Keys: every command a chord can be bound to, under the group the page lists it in.
   { id: "keys", tab: "keys", label: "Shortcuts", terms: "keyboard keybindings hotkeys chord" },
   ...KEY_COMMANDS.map((c): SettingEntry => ({ id: `key:${c.id}`, tab: "keys", section: c.group, label: c.label, terms: "shortcut keyboard" })),

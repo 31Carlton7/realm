@@ -100,6 +100,15 @@ interface Window {
       openCalendarSettings(): Promise<void>;
       onCalendarAccess(cb: (access: import("@realm/contracts").CalendarAccess | null) => void): () => void;
     };
+    /** Settings ▸ Keys ▸ From anywhere: the keys Realm answers from any app. */
+    keys?: {
+      state(): Promise<import("@realm/contracts").GlobalKeysState>;
+      setDoubleTap(on: boolean): Promise<void>;
+      setHold(key: import("@realm/contracts").HoldKey): Promise<void>;
+      watch(on: boolean): void;
+      onEvent(cb: (event: import("@realm/contracts").GlobalKeysEvent) => void): () => void;
+      onState(cb: (state: import("@realm/contracts").GlobalKeysState) => void): () => void;
+    };
     /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every
      *  late bridge: jsdom has none, and a renderer without it simply lists no apps. */
     apps?: {

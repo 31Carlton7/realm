@@ -2,7 +2,9 @@ import { KEY_COMMANDS, type KeybindingsFile } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { rpc } from "../../rpc/client";
+import { capabilities } from "../../platform";
 import { useApp } from "../../state/store";
+import { GlobalKeysSection } from "./GlobalKeysSection";
 import {
   commandEntries, describeRules, filterEntries, groupEntries, type CommandEntry, type RuleView,
 } from "./keybindings-model";
@@ -56,6 +58,8 @@ export function KeybindingsPanel() {
           <p className="settings-hint" data-tone="danger">{file.error}</p>
         </>
       )}
+
+      {capabilities().accessibility && <GlobalKeysSection />}
 
       <div className="field" data-setting="keys">
         <span>Shortcuts</span>

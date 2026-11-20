@@ -72,6 +72,7 @@ export * from "./motion";
 export * from "./backgrounds";
 export * from "./power";
 export * from "./meetings";
+export * from "./global-keys";
 export * from "./security-codes";
 export * from "./editors";
 export * from "./link-open";

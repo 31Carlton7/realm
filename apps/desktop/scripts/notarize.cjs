@@ -24,7 +24,7 @@ const BUNDLE_ID = "co.charmtechnologies.realm";
  *  (signing.test.ts holds the two together). axhelper is the one whose requests macOS attributes to
  *  Realm for Accessibility and Screen Recording; all of them run in Realm's tree. */
 const HELPERS = ["scrollphase", "axhelper", "phonescreen", "deviceowner", "policystamp", "realmkeychain", "realmvoice", "backdropstate",
-  "meetingwatch"];
+  "meetingwatch", "realmkeys"];
 
 /** Pure: the fields `codesign -dv --verbose=2` and `codesign -d -r-` print that decide grant binding. */
 function parseCodesign(details, requirement) {

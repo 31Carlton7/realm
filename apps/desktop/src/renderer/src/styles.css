@@ -1180,7 +1180,7 @@ input.sb-space-name { flex: 1; }
    moment it costs legibility it has stopped being the cleaner thing to do.
    It is the app's one drawing of a key: the permission and question cards' chords and footer keys
    wear the same chip, because a key is the same kind of thing in a card as in a menu. */
-.menu-kbd, .permission-num, .permission-option-kbd, .permission-hints kbd, .question-hints kbd {
+.menu-kbd, .permission-num, .permission-option-kbd, .permission-hints kbd, .question-hints kbd, .keys-try kbd {
   padding: 1px 5px; border-radius: var(--r-chip);
   background: var(--hover-2); color: var(--rl-text-dim); font: 11px var(--font-ui); letter-spacing: .02em; }
 .menu-kbd { flex: none; margin-left: auto; }
@@ -8165,6 +8165,12 @@ select { appearance: none; padding-right: 22px;
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .settings-panel { min-width: 0; }
+/* Keys ▸ From anywhere ▸ Try it: a key and whether Realm has seen it. The key is lit while it is held
+   (a double-tap, which is never held, for a moment), and the word beside it says the same. */
+.keys-try { flex: none; display: flex; gap: 16px; font-size: 13px; color: var(--rl-text-dim); }
+.keys-try-key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.keys-try-key[data-lit] { color: var(--rl-text-bright); }
+.keys-try-key[data-lit] kbd { background: var(--rl-active); color: var(--rl-text-bright); }
 /* The two kinds of prose here: a NOTE is a disclosure the panel exists to make (always visible, dim,
    set off by a left tick); a HINT is auxiliary fine print (faint). */
 .settings-note { margin: 0; padding: 6px 10px; border-left: 2px solid var(--rl-line-strong); font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
