@@ -22,7 +22,8 @@
  *   - the keyboard is away from their app while the panel is key and while the stand-in is the front
  *     app (a few seconds in all; nothing they type is read);
  *   - the panel, shrunk to a 96 pt square in the bottom-right corner, is at 5% opacity while the
- *     capture paths run, because at quiet mode's 1/255 no path can read even an unprotected window;
+ *     capture paths run (about seven seconds), because at quiet mode's 1/255 no path can read even
+ *     an unprotected window;
  *   - F19 is pressed a handful of times, alone and as ⌘⌃⌥⇧F19. That chord is the one registered, and
  *     it is given back before the check ends.
  * No app is made full screen, no permission is asked for (each helper checks and stops), and the
@@ -137,6 +138,8 @@ let standin = null;
 let holder = null;
 const before = front();
 try {
+  // Behind the lock screen nothing can take the keyboard and no app is in front, so no row here would mean anything.
+  if (before.front?.bundle === "com.apple.loginwindow") throw new Error("the screen is locked: unlock the Mac and run this again");
   api = rpc(app.ports.server, await daemonToken(app.home));
   await api.ready;
   const profile = (await api.call("profiles.list", {}))[0];
@@ -148,6 +151,21 @@ try {
   const shortcut = await app.page.eval(`window.realm.quickChatPanel.setShortcut(${js(CHORD)})`);
   row("chord", "Settings records ⌘⌃⌥⇧F19 and main registers it", { ...shortcut, isRegistered: await main(`return globalShortcut.isRegistered(${js(ACCELERATOR)});`) },
     shortcut.registered === true && (await main(`return globalThis.__quickChatChord.accelerator;`)) === ACCELERATOR);
+
+  // Settings ▸ Keys as it stands now, laid over the page colour (the capture keeps the pane's alpha).
+  await main(`windows[0].webContents.send("app:command", "settings.open"); return true;`);
+  const keysTab = await until(() => app.page.eval(`(() => { const row = [...document.querySelectorAll("button, a, [role=tab]")].find((b) => b.textContent.trim() === "Keys"); if (!row) return false; row.click(); return true; })()`), 15_000, "Settings' Keys page").catch(() => false);
+  const rowsBox = keysTab && await until(() => app.page.eval(`(() => { const r = document.querySelector('[data-setting="quick-chat-shortcut"]')?.closest(".field")?.getBoundingClientRect(); return r ? { x: r.x - 16, y: r.y - 12, width: r.width + 32, height: r.height + 24 } : null; })()`), 10_000, "the quick chat rows").catch(() => null);
+  if (rowsBox) {
+    await sleep(300);
+    const { data } = await app.page.send("Page.captureScreenshot", { format: "png", clip: { ...rowsBox, scale: 2 } });
+    const flat = await app.page.eval(`(async () => { const img = new Image(); img.src = "data:image/png;base64,${data}"; await img.decode();
+      const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; const g = cv.getContext("2d");
+      g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--page").trim() || "#111"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0);
+      return cv.toDataURL("image/png").split(",")[1]; })()`);
+    fs.writeFileSync(path.join(OUT_DIR, "settings-keys-quick-chat.png"), Buffer.from(flat, "base64"));
+  }
+  row("picture", "Settings ▸ Keys, the quick chat rows", rowsBox ? "settings-keys-quick-chat.png" : "not captured", rowsBox ? true : undefined);
 
   /* ── open: with a Realm window ───────────────────────────────────────────────────────────── */
   row("open", "front app before", frontApp());
@@ -305,7 +323,7 @@ try {
     await panelPage.eval(`window.realm.quickChatPanel.setHideFromSharing(${hidden})`);
     await until(async () => (await panelState()).protected === hidden, 5_000, `content protection ${hidden}`);
     const colours = {};
-    for (const colour of ["#ff0000", "#0000ff"]) {
+    for (const [pass, colour] of [["red", "#ff0000"], ["blue", "#0000ff"], ["red again", "#ff0000"]]) {
       await panelPage.eval(`document.getElementById("capture-cover").style.background = ${js(colour)}`);
       await sleep(150);
       const t = Date.now();
@@ -324,23 +342,28 @@ try {
       await main(`panel.setOpacity(1 / 255); return true;`);
       raisedMs += Date.now() - t;
       for (const f of fs.readdirSync(tmp)) fs.rmSync(path.join(tmp, f));
-      colours[colour] = seen;
+      colours[pass] = seen;
     }
     capture[hidden] = colours;
   }
+  /* A path reads the panel when its colour moves from red to blue. The third pass, red again, is
+     what tells the panel moving it from the screen behind moving it: if red and red again differ,
+     something else in that corner changed while the check ran, and the path is not judged. */
+  const between = (a, b) => Math.max(...[0, 1, 2].map((c) => Math.abs(a.rgba[c] - b.rgba[c])));
   const reads = (hidden, label) => {
-    const red = capture[hidden]["#ff0000"][label], blue = capture[hidden]["#0000ff"][label];
-    if (red.error || blue.error) return { reads: false, error: red.error ?? blue.error };
-    if ((red.rgba[3] ?? 255) === 0 && (blue.rgba[3] ?? 255) === 0) return { reads: false, diff: 0, note: "a fully transparent image" };
-    const diff = Math.max(...[0, 1, 2].map((c) => Math.abs(red.rgba[c] - blue.rgba[c])));
-    return { reads: diff >= 3, diff };
+    const [red, blue, again] = ["red", "blue", "red again"].map((pass) => capture[hidden][pass][label]);
+    const error = red.error ?? blue.error ?? again.error;
+    if (error) return { reads: false, error };
+    if ([red, blue, again].every((c) => (c.rgba[3] ?? 255) === 0)) return { reads: false, diff: 0, note: "a fully transparent image" };
+    const diff = between(red, blue), drift = between(red, again);
+    return drift >= 3 ? { reads: null, diff, drift, note: "the screen behind changed during the check" } : { reads: diff >= 3, diff, drift };
   };
   row("capture", "the panel was at 5% opacity, 96 pt, bottom-right, for", `${raisedMs} ms`);
   for (const label of ["screencapture -l, the window", "screencapture -D 1, display", ...LABELS.map((l) => l[1])]) {
     const control = reads(false, label), hidden = reads(true, label);
-    row("capture", label, { settingOff: control, settingOn: hidden }, control.reads ? !hidden.reads : undefined);
+    row("capture", label, { settingOff: control, settingOn: hidden }, control.reads === true && hidden.reads !== null ? !hidden.reads : undefined);
   }
-  row("capture", "still listed to capturing apps with the setting on", capture.true["#ff0000"].listed);
+  row("capture", "still listed to capturing apps with the setting on", capture.true.red.listed);
   row("capture", "the window's title, as listed", js((await panelState()).title), (await panelState()).title === "");
   await close();
   await main(`panel.destroy(); return true;`);
