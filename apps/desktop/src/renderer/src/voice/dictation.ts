@@ -9,6 +9,15 @@ const QUICK_END_MS = 1_000;
  *  about three seconds of retrying, short enough that the person is not left talking to nothing. */
 const QUICK_ENDS = 3;
 
+/**
+ * `text` without a full stop the recogniser adds on its own after a long pause, to a sentence it
+ * has already ended and settled (#551).
+ */
+function withoutStrayStop(text: string, settled: number): string {
+  const kept = text.slice(0, settled);
+  return /[.!?]$/.test(kept) && /^\s*[.!?]+$/.test(text.slice(settled)) ? kept : text;
+}
+
 export type DictationEvents = {
   /** Everything heard so far, as the recogniser has it now. Its first `settled` characters are final. */
   partial(text: string, settled: number): void;
@@ -41,6 +50,8 @@ export class Dictation {
   private kept = "";
   /** The kept words and the last partial: what was heard, should the helper break before a final. */
   private heard = "";
+  /** How much of this utterance the recogniser has settled, as of its last partial. */
+  private settled = 0;
   private listenedAt = 0;
   private quickEnds = 0;
   private listening = false;
@@ -103,6 +114,7 @@ export class Dictation {
 
   private listen(): void {
     this.turn += 1;
+    this.settled = 0;
     this.listenedAt = this.now();
     this.deps.helper.command({ t: "listen", turn: this.turn });
   }
@@ -126,11 +138,12 @@ export class Dictation {
     if (e.t === "error") { this.fail(e.message, this.heard); return; }
     if (e.t === "fetching") { this.deps.events.fetching(e.progress ?? null); return; }
     if ((e.t !== "partial" && e.t !== "final") || e.turn !== this.turn) return;
-    const words = this.withKept(e.text);
+    if (e.t === "partial") this.settled = Math.min(e.settled ?? 0, e.text.length);
+    const text = withoutStrayStop(e.text, this.settled);
+    const words = this.withKept(text);
     this.heard = words;
     if (e.t === "partial") {
-      const settled = Math.min(e.settled ?? 0, e.text.length);
-      this.deps.events.partial(words, settled ? words.length - e.text.length + settled : this.kept.length);
+      this.deps.events.partial(words, this.settled ? words.length - text.length + this.settled : this.kept.length);
       return;
     }
     if (this.ending) { this.finish(words); return; }
