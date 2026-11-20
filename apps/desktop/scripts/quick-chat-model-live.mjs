@@ -63,7 +63,7 @@ function rpc(port, token, onEvent) {
 }
 
 // The fake agent stays registered in both modes: it is also what keeps the built server's titler and
-// recap off the account (billed-calls.ts), so the measure's only billed calls are its three turns.
+// recap off the account (billed-calls.ts), so the measure's only billed calls are its turns.
 const requests = [];
 const wire = WIRE ? await standInApi(path.join(OUT, "wire-requests.jsonl"), BILLED ? "https://api.anthropic.com" : null) : null;
 const app = await launchLiveApp({ name: "quick-chat-model", env: wire?.env ?? {} });
@@ -110,6 +110,8 @@ try {
     for (const label of RUNS) {
       const id = await openQuickChat();
       const row = await api.call("sessions.get", { id });
+      // A billed turn goes to Claude or nowhere: a Claude probe that failed hands the chat to the next engine.
+      if (row.agentKind !== "claude") throw new Error(`${label}: the quick chat is on ${row.agentKind}, not Claude; nothing sent`);
       const t0 = Date.now();
       await api.call("sessions.send", { id, text: "Reply with the single word: ready" });
       const mine = (type) => events.find((e) => e.at >= t0 && e.event === "session.event" && e.payload.sessionId === id && type(e.payload.event.type));
@@ -117,7 +119,8 @@ try {
       await until(async () => (await api.call("sessions.get", { id })).status === "idle", 90_000, `${label}: turn settled`);
       const init = mine((t) => t === "init");
       const thinking = mine((t) => t === "thinking");
-      const asked = requests.find((r) => r.at >= t0 && r.url.startsWith("/v1/messages") && r.stream);
+      // The turn's own request: the CLI's title for the chat goes out beside it, asking for JSON.
+      const asked = requests.find((r) => r.at >= t0 && r.url.startsWith("/v1/messages") && r.stream && !r.outputConfig?.format);
       const since = (e) => (e ? e.at - t0 : null);
       const run = { label, sessionId: id, model: row.model, effort: row.effort, ranModel: init?.payload.event.payload.model ?? null,
         tools: init?.payload.event.payload.tools.length ?? null,

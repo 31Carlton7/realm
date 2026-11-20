@@ -653,6 +653,8 @@ export class ClaudeAdapter implements AgentAdapter {
     const streamPercent = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 100; };
     const streamMillis = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 1000; };
 
+    /** The plan reads the stream's limit events asked for, one after another (see `rate_limit_event`). */
+    let planReads: Promise<void> = Promise.resolve();
     /**
      * Ask the CLI for the whole plan picture — every rate-limit window, plus the subscription tier.
      *
@@ -674,7 +676,6 @@ export class ClaudeAdapter implements AgentAdapter {
      * the whole of Realm's exposure to it: every failure mode — renamed, removed, throwing — lands in
      * the catch and leaves the last stream-reported window standing on its own.
      */
-    let planReads: Promise<void> = Promise.resolve();
     const readPlanLimits = async (): Promise<SessionEventPayload<"rate_limit"> | null> => {
       const ask = (q as { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> } | undefined)
         ?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;

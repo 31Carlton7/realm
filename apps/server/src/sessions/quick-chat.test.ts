@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { MODEL_EFFORTS_KEY } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type StartOptions } from "@realm/adapters";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
-import { MODEL_EFFORTS_KEY } from "@realm/contracts";
 import { QUICK_CHAT_SPARE_SETTING } from "./quick-chat";
 
 let app: App;
