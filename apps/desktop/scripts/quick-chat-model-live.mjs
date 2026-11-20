@@ -96,7 +96,7 @@ try {
       const row = await api.call("sessions.get", { id });
       const t0 = Date.now();
       await api.call("sessions.send", { id, text: "Reply with the single word: ready" });
-      const first = await until(() => events.find((e) => e.at >= t0 && e.event === "session.event" && e.payload.sessionId === id
+      const first = await until(async () => events.find((e) => e.at >= t0 && e.event === "session.event" && e.payload.sessionId === id
         && (e.payload.event.type === "assistant_delta" || e.payload.event.type === "assistant_text")), 90_000, `${label}: first token`);
       await until(async () => (await api.call("sessions.get", { id })).status === "idle", 90_000, `${label}: turn settled`);
       const init = events.find((e) => e.event === "session.event" && e.payload.sessionId === id && e.payload.event.type === "init");
