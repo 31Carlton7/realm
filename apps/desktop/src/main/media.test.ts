@@ -6,9 +6,11 @@ import { tempDir } from "@realm/test-utils";
 
 /* `media.ts` imports `net` and `protocol` for the scheme; neither is touched by anything under
    test here, and pulling in the real electron module in node would fail at import. */
-vi.mock("electron", () => ({ net: {}, protocol: {}, nativeImage: { createFromPath: () => ({ isEmpty: () => true }) } }));
+const handlers = new Map<string, (request: Request) => Promise<Response>>();
+vi.mock("electron", () => ({ net: {}, protocol: { handle: (scheme: string, fn: (request: Request) => Promise<Response>) => handlers.set(scheme, fn) }, nativeImage: { createFromPath: () => ({ isEmpty: () => true }) } }));
 
-const { servablePath, serveFile, spaceImagePath, statMedia } = await import("./media");
+const { handleMediaProtocol, servablePath, serveFile, spaceImagePath, statMedia } = await import("./media");
+const { spaceImageUrl } = await import("@realm/contracts");
 
 let home: string;
 beforeEach(async () => { home = tempDir("realm-media-test-"); });
@@ -121,6 +123,17 @@ describe("spaceImagePath", () => {
     await put("space/.env", "SECRET=1");
     await expect(spaceImagePath(join(home, "space"), "clip.mp4")).resolves.toBeNull();
     await expect(spaceImagePath(join(home, "space"), ".env")).resolves.toBeNull();
+  });
+
+  it("is what realm-media:// answers a space picture with", async () => {
+    await put("space/img/pic.png", "PNG");
+    await put("outside.png");
+    handleMediaProtocol(home);
+    const fetchMedia = (url: string) => handlers.get("realm-media")!(new Request(url));
+    const shown = await fetchMedia(spaceImageUrl(join(home, "space"), "img/pic.png"));
+    expect(shown.status).toBe(200);
+    expect(await shown.text()).toBe("PNG");
+    expect((await fetchMedia(spaceImageUrl(join(home, "space"), "../outside.png"))).status).toBe(404);
   });
 
   it("refuses a relative space folder and a missing picture", async () => {
