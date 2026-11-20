@@ -194,6 +194,27 @@ describe("Dictation", () => {
     expect(f.seen.done).toEqual([]);
   });
 
+  it("drops the second full stop the recogniser adds after a long pause (#551)", async () => {
+    const f = fakes();
+    await f.d.start();
+    // The helper's own wire, from fed speech and then a minute of silence.
+    f.emit({ t: "partial", turn: 1, text: "Fix the login test and then run the build", settled: 0 });
+    f.emit({ t: "partial", turn: 1, text: "Fix the login test and then run the build.", settled: 0 });
+    f.emit({ t: "partial", turn: 1, text: "Fix the login test and then run the build.", settled: 42 });
+    f.frames(0.001, 17_000);
+    f.emit({ t: "partial", turn: 1, text: "Fix the login test and then run the build..", settled: 42 });
+    expect(f.seen.partials.at(-1)).toBe("Fix the login test and then run the build.");
+    expect(f.seen.settled.at(-1)).toBe(42);
+    // Speech after it replaces the stray stop, and its sentence keeps a stop of its own.
+    f.emit({ t: "partial", turn: 1, text: "Fix the login test and then run the build. Then open a pull request.", settled: 42 });
+    expect(f.seen.partials.at(-1)).toBe("Fix the login test and then run the build. Then open a pull request.");
+    f.emit({ t: "partial", turn: 1, text: "Fix the login test and then run the build. Then open a pull request..", settled: 68 });
+    expect(f.seen.partials.at(-1)).toBe("Fix the login test and then run the build. Then open a pull request.");
+    f.d.stop();
+    f.emit({ t: "final", turn: 1, text: "Fix the login test and then run the build. Then open a pull request.." });
+    expect(f.seen.done).toEqual(["Fix the login test and then run the build. Then open a pull request."]);
+  });
+
   it("passes on how much of what was heard is final, and the microphone's level", async () => {
     const f = fakes();
     await f.d.start();
