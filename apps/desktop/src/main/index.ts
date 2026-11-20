@@ -22,11 +22,12 @@ import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
-import { BROWSER_KEEP_HIDDEN_DEFAULT, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, MEETINGS_OPEN_KEY, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { startBackdropState } from "./backdrop-state";
+import { MeetingWatch, meetingWatchPath, startMeetingWatchHelper } from "./meeting-watch";
 import { readFileRange, readTextFile } from "./read-text";
 import {
   addBackgrounds, backgroundImageUrl, backgroundLoopFile, listBackgrounds, removeBackground, setBackgroundPoster, updateBackground, type FirstFrame, type Reencode,
@@ -51,7 +52,7 @@ import { ComputerUseHost } from "./computer-use-host";
 import { ComputerDrivingIndicator } from "./computer-driving";
 import { ComputerAccess, isComputerAccessId, type ComputerAccessStatus, type ComputerGrantHistory } from "./computer-access";
 import {
-  MAC_CAPABILITIES, MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
+  MAC_CAPABILITIES, MAC_FALLBACK_DIRS, MAC_SETTINGS_URLS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, UPDATER_CACHE_DIR_NAME, pruneInstalledDownload, scheduleUpdateChecks, updaterDecision } from "./updater";
@@ -349,6 +350,16 @@ async function readSleepPreference() {
   try {
     const stored = await bridgeClient?.call("settings.get", { key: POWER_PREVENT_SLEEP_KEY });
     sleepGuard.setPreference((stored as { value?: unknown } | null)?.value === true);
+  } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
+}
+
+/** Settings ▸ General ▸ Meetings' switch, read when main (re)connects for the reason the sleep
+ *  preference is. On unless turned off; Linux and Windows have no helper to start. */
+async function readMeetingsPreference() {
+  if (!platformCapabilities(process.platform).meetings) return;
+  try {
+    const stored = await bridgeClient?.call("settings.get", { key: MEETINGS_OPEN_KEY });
+    meetingWatch.setOpensMeetings((stored as { value?: unknown } | null)?.value !== false);
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
 
@@ -1498,6 +1509,49 @@ ipcMain.on("voice:audio", (e, pcm: unknown) => { if (pcm instanceof Uint8Array) 
 ipcMain.on("voice:stop", (e) => voice.stop(e.sender));
 app.on("will-quit", () => voice.stop());
 
+// ── Meetings ─────────────────────────────────────────────────────────────────────────────────────
+// Knowing when a meeting or a call starts (meeting-watch.ts). With Settings ▸ General ▸ Meetings on,
+// a meeting's link is opened by the system at its start, with a notification two minutes before.
+// Nothing listens for calls yet.
+const saidMeetingsFile = () => join(app.getPath("userData"), "meetings-said.json");
+// Held so the click still lands: a notification nothing refers to can be collected before it.
+let meetingNotification: Notification | null = null;
+const meetingWatch = new MeetingWatch({
+  startHelper: (mode, onLine) => {
+    const bin = meetingWatchPath(app.getAppPath(), process.resourcesPath);
+    return bin ? startMeetingWatchHelper(bin, mode, onLine) : null;
+  },
+  now: () => Date.now(),
+  at: (time, run) => {
+    const timer = setTimeout(run, Math.max(0, time - Date.now()));
+    return { cancel: () => clearTimeout(timer) };
+  },
+  openLink: (link) => void shell.openExternal(link),
+  notify: (meeting, onClick) => {
+    meetingNotification = new Notification({ title: meeting.title || "Meeting", body: "Starts in 2 minutes" });
+    meetingNotification.on("click", onClick);
+    meetingNotification.show();
+  },
+  loadSaid: () => {
+    try { return JSON.parse(readFileSync(saidMeetingsFile(), "utf8")) as string[]; } catch { return []; }
+  },
+  saveSaid: (keys) => {
+    try { writeFileSync(saidMeetingsFile(), JSON.stringify(keys)); } catch { /* said again after a relaunch at worst */ }
+  },
+  onCalendarAccess: (access) => {
+    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send("realm:calendar-access", access);
+  },
+  ownBundleId: () => readComputerBundleId() ?? "co.charmtechnologies.realm",
+});
+/** The renderer's half of the Meetings switch, as `power:prevent-sleep` is the sleep preference's. */
+ipcMain.handle("meetings:open-when-starts", (_e, on: unknown) => { meetingWatch.setOpensMeetings(on === true); });
+/** Read again each time it is asked for, so a grant changed in System Settings shows on the page. */
+ipcMain.handle("meetings:calendar-access", () => { meetingWatch.checkCalendar(); return meetingWatch.access; });
+/** The one place Realm asks macOS for the calendar on its own account: the button in Settings. */
+ipcMain.handle("meetings:ask-for-calendar", () => { meetingWatch.askForCalendar(); });
+ipcMain.handle("meetings:open-calendar-settings", () => { void shell.openExternal(MAC_SETTINGS_URLS.calendars); });
+app.on("will-quit", () => meetingWatch.stop());
+
 /** A real iPhone's picture, live. macOS reaches a connected iPhone's screen as a camera, so this raises
  *  the camera prompt — on purpose, and only from a click on the pane's Show live. Answers the status
  *  after it: the server's bridge notices a grant by itself within two seconds. */
@@ -2361,6 +2415,7 @@ app.whenReady().then(async () => {
     powerMonitor.on("lock-screen", () => presence.setLocked(true));
     powerMonitor.on("unlock-screen", () => presence.setLocked(false));
     powerMonitor.on("resume", () => presence.check());
+    powerMonitor.on("resume", () => meetingWatch.wake());
     setInterval(() => presence.check(), PRESENCE_POLL_MS);
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
@@ -2382,7 +2437,7 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       endpoint: () => serverEndpoint() ?? info,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readMeetingsPreference(); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
       onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); sleepGuard.setWaiting(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
