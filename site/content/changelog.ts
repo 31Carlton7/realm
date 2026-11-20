@@ -21,6 +21,25 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-20-5",
+    title: "Realm v2.20.5",
+    date: "2026-11-20",
+    version: "v2.20.5",
+    area: "Release",
+    summary:
+      "An error inside Realm no longer stops every window behind an error box, and Realm carries on. In the browser pane, two cases where a page closes itself are fixed: its tab is now removed from the space, and popup windows it opened close with it.",
+    short: "Errors inside Realm no longer stop every window",
+    body: [
+      { kind: "p", text: "An error inside Realm no longer stops every window behind an error box." },
+      { kind: "h", text: "Fixed" },
+      { kind: "ul", items: [
+        "When something went wrong inside Realm itself, macOS put up an error box titled \"A JavaScript error occurred in the main process\", and every window waited until someone pressed OK. Realm no longer shows that box, and carries on. (#581, fixes #567)",
+        "In the browser pane, when a page waiting behind a window it opened in the same tab closes itself, the popup windows it had opened now close with it. Before, they stayed open. (#580)",
+        "In the browser pane, a tab whose page closes itself is now removed from the space, the way pressing its × removes it. Before, it left the tab bar but was kept in the space, one more for every tab that closed itself. (#583, fixes #572)",
+      ] },
+    ],
+  },
+  {
     slug: "v2-20-4",
     title: "Realm v2.20.4",
     date: "2026-11-20",
