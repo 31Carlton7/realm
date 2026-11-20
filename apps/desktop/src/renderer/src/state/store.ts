@@ -2667,7 +2667,8 @@ export type AppState = TeammatesSlice & {
    *  there is one quick chat, and a button that stacked windows would be a way to lose one. */
   openQuickChat(): Promise<void>;
   /** Close it, which DELETES the session — the window is the only place it was ever shown, so
-   *  leaving the row behind would be leaving litter nobody asked to keep. */
+   *  leaving the row behind would be leaving litter nobody asked to keep. One that was saved to a
+   *  space is that space's session and is left alone. */
   closeQuickChat(): Promise<void>;
   /** Save the quick chat to a space (`sessions.keep`). The window stays up. */
   keepQuickChat(spaceId: string): Promise<void>;
@@ -7666,7 +7667,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!qc) return;
         const { session } = await api.keepSession(qc.sessionId, spaceId);
         mergeSession(session);
-        set({ sessionSpace: { ...get().sessionSpace, [session.id]: spaceId }, quickChat: { sessionId: session.id, keptIn: spaceId } });
+        set({ quickChat: { sessionId: session.id, keptIn: spaceId } });
         if (inProfile(spaceId)) await loadSpaceItems(spaceId);
         await persistQuickChat();
       },

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { allItems, sessionEvent } from "@realm/contracts";
 import { reduceAll } from "../panes/session/transcript-model";
 import { QuickChat } from "./QuickChat";
+import { useSidebarState } from "./sidebar/use-sidebar-model";
 import { StoreContext, createAppStore, useAppStore } from "../state/store";
 import { appCommands } from "../keys/commands";
 import { fakeApi, space, type FakeData } from "../state/store.test-fakes";
@@ -236,6 +237,17 @@ describe("the quick chat", () => {
       await next.getState().boot();
       expect(next.getState().quickChat).toBeNull();
       expect(next.getState().items.some((i) => i.refId === sessionId)).toBe(true);
+    });
+
+    it("is hidden from the sidebar's lists only until it is saved", async () => {
+      let quickChatId: string | null | undefined;
+      function SidebarProbe() { quickChatId = useSidebarState().quickChatId; return null; }
+      const { store, sessionId } = await answeredChat();
+      render(<StoreContext.Provider value={store}><SidebarProbe /></StoreContext.Provider>);
+      expect(quickChatId).toBe(sessionId);
+      fireEvent.click(await within(chat()).findByRole("button", { name: "Save to Versed" }));
+      await within(chat()).findByText("Saved to Versed");
+      expect(quickChatId).toBeNull();
     });
 
     it("⌘Return saves it to the first space and opens it in a pane", async () => {

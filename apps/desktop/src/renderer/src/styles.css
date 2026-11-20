@@ -2603,7 +2603,6 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The armed delete, in the row's own width. It states its target rather than turning the trash red
    and hoping — "Delete this chat?" is the sentence design.md asks for before a destructive step. */
 .quick-chat-confirm { flex: none; color: var(--rl-danger); font-size: 12px; white-space: nowrap; }
-/* Closing a chat with an answer in it: Save, then Delete, where the trash was. */
 .quick-chat-closing { flex: none; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .quick-chat-closing > .btn-quiet { white-space: nowrap; }
 /* The Save row, under the prompter and on the window's own ground. The names are the part of

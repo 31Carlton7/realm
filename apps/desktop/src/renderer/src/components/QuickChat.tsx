@@ -161,14 +161,14 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
             ever shown, so a close that promised to keep it would be promising what it does not do
             (design.md: name the consequence, and distinguish removing from a layout from deleting
             the object). It arms first once there is something to lose, and not before: a confirm on
-            an empty chat guards nothing. */}
+            an empty chat guards nothing. A saved chat is the exception: closing it deletes nothing,
+            so it gets the ×. */}
         {keptIn ? (
           <button type="button" className="icon-btn" aria-label="Close quick chat" title="Close"
             onClick={() => run(() => closeQuickChat())}>
             <Icon name="close" size={14} />
           </button>
         ) : confirming && answered && firstSpace ? (
-          /* Closing a chat with an answer in it offers the way to keep it first, beside the delete. */
           <span className="quick-chat-closing" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setConfirming(false); }}>
             <button type="button" className="btn-quiet" autoFocus
               onClick={() => run(async () => { await keepQuickChat(firstSpace.id); await closeQuickChat(); })}>
@@ -208,7 +208,7 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
         ) : (
           <p className="quick-chat-empty">
             A chat that floats over your work and takes no pane.
-            <span>Drag the bar to move it. Closing it deletes the conversation.</span>
+            <span>Drag the bar to move it. Closing it deletes the conversation unless you save it to a space.</span>
           </p>
         )}
         {/* The pane's own glow, over the reading area alone — one layer now, wash and stroke
