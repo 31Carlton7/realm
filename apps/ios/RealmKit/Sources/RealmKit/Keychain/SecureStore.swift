@@ -9,12 +9,17 @@ public protocol SecureStore: Sendable {
     func delete(_ account: String) throws
 }
 
-public struct KeychainError: Error, Equatable, Sendable {
+public struct KeychainError: LocalizedError, Equatable, Sendable {
     public let status: OSStatus
 
     public init(status: OSStatus) {
         self.status = status
     }
+
+    public var errorDescription: String? { "The keychain refused to open an item Realm saved." }
+
+    /// The status the keychain returned, small enough to show under a message.
+    public var detail: String { "Keychain status \(status)" }
 }
 
 /// Generic-password items, readable after the first unlock and never leaving this device (no backup,

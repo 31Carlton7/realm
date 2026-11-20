@@ -79,11 +79,18 @@ struct PairView: View {
                     Step(number: 2, text: "In Settings\u{00A0}▸ Devices, choose Pair\u{00A0}an\u{00A0}iPhone.")
                     Step(number: 3, text: "Scan the code it shows.")
                 }
-                if case .failed(let message) = model.pairing {
+                if case .failed(let message, let detail) = model.pairing {
                     Label {
-                        Text(message)
-                            .foregroundStyle(Palette.ink)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(message)
+                                .foregroundStyle(Palette.ink)
+                            if let detail {
+                                Text(detail)
+                                    .font(.footnote)
+                                    .foregroundStyle(Palette.ink3)
+                            }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(Tone.failed.agentColor)

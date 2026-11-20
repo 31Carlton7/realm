@@ -44,7 +44,8 @@ enum PairingStatus: Equatable {
     case idle
     case working(String)
     case confirmOnMac(String)
-    case failed(String)
+    /// What happened and what to do, with an optional quiet detail for diagnosis.
+    case failed(String, detail: String? = nil)
 
     var isBusy: Bool {
         switch self {
@@ -304,13 +305,7 @@ final class AppModel {
         launched = true
         UNUserNotificationCenter.current().setNotificationCategories(NotificationKinds.categories)
         Task { await activities.endLeftovers() }
-        do {
-            identity = try vault.loadOrCreateIdentity()
-        } catch {
-            pairing = .failed("This iPhone's keys could not be read from the keychain. \(error.localizedDescription)")
-            return
-        }
-        guard restorePairedMac() else { return }
+        guard restoreIdentity(), restorePairedMac() else { return }
         // Never waited on: the system can be slow to answer, and nothing at launch depends on it.
         Task { await refreshNotificationStatus() }
         if let link = LaunchOptions.pairLink {
@@ -330,6 +325,18 @@ final class AppModel {
         }
     }
 
+    /// Loads this phone's keys, making them on first launch.
+    func restoreIdentity() -> Bool {
+        do {
+            identity = try vault.loadOrCreateIdentity()
+            return true
+        } catch {
+            pairing = .failed("Realm couldn't read this iPhone's keys from the keychain. Install the latest Realm from TestFlight, then open it again.",
+                              detail: keychainDetail(error))
+            return false
+        }
+    }
+
     /// Shows the Mac this phone was last paired with. A keychain that cannot be read says so, rather than
     /// asking to pair as if there had never been a Mac.
     func restorePairedMac() -> Bool {
@@ -337,9 +344,16 @@ final class AppModel {
             if let mac = try vault.pairedMacs().last { adopt(mac) }
             return true
         } catch {
-            pairing = .failed("The Mac this iPhone is paired with could not be read from the keychain. \(error.localizedDescription)")
+            pairing = .failed("Realm couldn't read this iPhone's pairing from the keychain. Install the latest Realm from TestFlight, then open it again.",
+                              detail: keychainDetail(error))
             return false
         }
+    }
+
+    /// The keychain's status for a failed read, logged in full and shown in brief.
+    private func keychainDetail(_ error: Error) -> String? {
+        log.error("Keychain read failed: \(String(describing: error), privacy: .public)")
+        return (error as? KeychainError)?.detail
     }
 
     /// Takes a Mac as the one this phone shows, with whatever was kept of it.

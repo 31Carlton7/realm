@@ -1,4 +1,5 @@
 @testable import RealmKit
+import Security
 import Testing
 
 @Suite("The shared keychain group")
@@ -17,5 +18,13 @@ struct KeychainTests {
         #expect(KeychainStore.sharedAccessGroup("$(AppIdentifierPrefix)co.charmtechnologies.realm.ios.shared") == nil)
         #expect(KeychainStore.sharedAccessGroup("") == nil)
         #expect(KeychainStore.sharedAccessGroup(nil) == nil)
+    }
+
+    @Test func aRefusedReadIsDescribedInPlainWords() {
+        let error = KeychainError(status: errSecMissingEntitlement)
+        #expect(error.localizedDescription == "The keychain refused to open an item Realm saved.")
+        #expect(!error.localizedDescription.contains("KeychainError error"))
+        #expect(!error.localizedDescription.contains("couldn't be completed"))
+        #expect(error.detail == "Keychain status -34018")
     }
 }
