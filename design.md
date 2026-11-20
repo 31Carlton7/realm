@@ -673,10 +673,11 @@ A card that draws on its own edge is the exception: the documents grid's card, w
 lift, the Library's tile, with its shadow and the picture it clips, and a saved turn, with its
 shadow. On screen that circle traced a tighter corner than the painted fill, so a hovered card
 showed two contours and its well followed neither (the owner, 11-19: "Fix the corners here too"),
-and a saved turn cast its shadow from the circle rather than the edge it painted. Their box states the card's curve itself
-(`corner-shape: squircle` at the card rung), which draws on the worklet's curve. A well inside one
-takes the card's corner less the card's padding, and a control in the well's corner takes the well's
-corner less its gap, on the same curve. `styles.test.ts` holds every file card to this.
+and a saved turn cast its shadow from the circle rather than the edge it painted. Their box states
+the card's curve itself (`corner-shape: squircle` at the card rung), which draws on the worklet's
+curve. A well inside one takes the card's corner less the card's padding, and a control in the
+well's corner takes the well's corner less its gap, on the same curve. `styles.test.ts` holds every
+file card to this.
 
 `corner-shape: squircle` was inert in Electron 37's Chromium 138 and draws from 139, but the
 signature curve is the paint worklet's, so a surface that declares it must also be listed in the
