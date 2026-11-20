@@ -21,6 +21,23 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-20-3",
+    title: "Realm v2.20.3",
+    date: "2026-11-20",
+    version: "v2.20.3",
+    area: "Release",
+    summary:
+      "When a page opened in a new tab closes itself straight away, Realm now closes the tab too. Before, if Realm was slow to show the page, the tab could stay open over a blank pane.",
+    short: "Self-closing pages no longer leave a blank tab",
+    body: [
+      { kind: "p", text: "A new tab whose page closes itself straight away no longer stays behind as a blank tab." },
+      { kind: "h", text: "Fixed" },
+      { kind: "ul", items: [
+        "A page opened in a new tab that closes itself straight away could leave its tab open over a blank pane when Realm was slow to show it. The tab now closes, the way it does when a page closes itself a moment later. (#570, fixes #569)",
+      ] },
+    ],
+  },
+  {
     slug: "v2-20-2",
     title: "Realm v2.20.2",
     date: "2026-11-20",
