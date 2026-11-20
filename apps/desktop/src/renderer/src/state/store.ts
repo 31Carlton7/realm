@@ -3044,12 +3044,13 @@ export type AppState = TeammatesSlice & {
   linksOpenIn: LinksOpenIn;
   setLinksOpenIn(pref: LinksOpenIn): Promise<void>;
   /** A web link in a Realm Browser tab: a new tab in the side pane of the session in view, the way
-   *  ⌘T opens one, already on `url` — and with no session on screen, a browser beside the focus. */
-  openLinkInBrowser(url: string): Promise<void>;
+   *  ⌘T opens one, already on `url` — and with no session on screen, a browser beside the focus.
+   *  `background` (a middle-click) puts it behind the tab showing. */
+  openLinkInBrowser(url: string, opts?: { background?: boolean }): Promise<void>;
   /** A new tab a browser pane's page asked for (a target=_blank link, a ⌘- or middle-click): a tab
    *  beside that page's, as `openLinkInBrowser` makes one — behind it, keyboard untouched, when
-   *  `background`. */
-  openPageTab(browserId: string, url: string, opts: { background: boolean }): Promise<void>;
+   *  `background`. `onCreated` is how main learns which browser hosts the page Chromium already made. */
+  openPageTab(browserId: string, url: string, opts: { background: boolean; onCreated?: (browserId: string) => void }): Promise<void>;
   /** Which editor the transcript's path menu offers — an id, "realm" for none, null for the first
    *  installed one (see `resolveEditor`). */
   openFilesIn: OpenFilesIn | null;
@@ -4311,15 +4312,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** `newTab`'s browser, and a link's: a tab in the side pane of the session the ask is about, on
      *  `url` (blank without one). Answers the browser's item, or null when it never reached the screen.
-     *  `background` puts it behind the tab showing and leaves the keyboard where it is. */
-    const openBrowserTab = async (leafId: string | null, url?: string, opts: { background?: boolean } = {}): Promise<string | null> => {
+     *  `background` puts it behind the tab showing and leaves the keyboard where it is. `onCreated` hears
+     *  the browser's id before the tab is placed, which is before its pane can mount. */
+    const openBrowserTab = async (leafId: string | null, url?: string, opts: { background?: boolean; onCreated?: (browserId: string) => void } = {}): Promise<string | null> => {
       // For the session the ask came from — read before the awaits, since the click or the key was
       // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
       // in, or in the panel the session whose tab is showing, else the first session on screen.
       const owner = leafId ? sessionAt(leafId) ?? get().peekOwner() : get().peekOwner();
       const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
       const sid = ownerItem?.spaceId ?? get().activeSpaceId; if (!sid) return null;
-      const { itemId } = await api.createBrowser(sid, url);
+      const { browserId, itemId } = await api.createBrowser(sid, url);
+      opts.onCreated?.(browserId);
       await loadSpaceItems(sid);
       if (!inProfile(sid)) return null;
       // A tab of that session's run — and with no session on screen, an ordinary browser beside the
@@ -5632,8 +5635,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const itemId = await openBrowserTab(leafId);
         if (itemId && opts.full) await zoomItemPane(itemId);
       },
-      async openLinkInBrowser(url) {
-        await openBrowserTab(null, url);
+      async openLinkInBrowser(url, opts) {
+        await openBrowserTab(null, url, opts);
       },
       async openPageTab(browserId, url, opts) {
         const layout = get().layout;

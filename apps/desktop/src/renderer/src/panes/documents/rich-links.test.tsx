@@ -11,7 +11,7 @@ async function linkIn(text: string) {
 }
 
 describe("a link in the Markdown editor", () => {
-  it("opens on a middle-click the way a ⌘-click opens it", async () => {
+  it("opens on a middle-click, from the click, for main to route as one", async () => {
     // TipTap's link click handler only answers the main button, so a middle-click did nothing (#537).
     // THE MUTANT: check for button 0 or 2, and the middle button falls through again.
     const open = vi.spyOn(window, "open").mockReturnValue(null);

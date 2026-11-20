@@ -1,7 +1,7 @@
 import { WebContentsView, app, nativeImage, screen, session, type BrowserWindow, type HandlerDetails, type WebContents, type WindowOpenHandlerResponse } from "electron";
 import { FAVICON_MAX_BYTES, type BrowserLoadError, type PaneHealth } from "@realm/contracts";
 import {
-  BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
+  BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, UserActivation, browserUserAgent, createFaviconResolver, hostedTab, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
   shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type ViewFactory,
 } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
@@ -46,9 +46,9 @@ export const PASSKEY_INSTALL_TIMEOUT_MS = 5_000;
  * not — on a document-less view they never return at all (measured, Electron 37). One in-process
  * navigation to the emptiest document there is gives them something to attach to.
  */
-async function installPasskeys(id: string, wc: WebContents, install: PasskeyInstaller): Promise<void> {
+async function installPasskeys(id: string, wc: WebContents, install: PasskeyInstaller, blank = true): Promise<void> {
   try {
-    await wc.loadURL("about:blank");
+    if (blank) await wc.loadURL("about:blank");
     if (wc.isDestroyed()) return;
     if (!wc.debugger.isAttached()) wc.debugger.attach("1.3");
     await install(id, {
@@ -99,22 +99,24 @@ export function electronViewFactory(
   onView?: (id: string, wc: WebContents | null, view?: WebContentsView) => void,
   installPasskeysFor?: PasskeyInstaller,
 ): ViewFactory {
-  return (id, hooks, partition) => {
+  return (id, hooks, partition, page) => {
     applyBrowserUserAgent(partition);
-    const view = new WebContentsView({
-      webPreferences: {
-        partition,
-        // Untrusted web content: full Chromium sandbox, no node, no preload, isolated world.
-        sandbox: true, contextIsolation: true, nodeIntegration: false,
-        // A browser pane keeps working while its space is off screen, and Chromium's default
-        // undoes that: measured on Electron 37, a `setVisible(false)` WebContentsView drops a 50ms
-        // interval to ~1Hz and reports `document.visibilityState === "hidden"`, which pages take as
-        // their own cue to stop polling, stall SSE and pause media. With this off, the hidden view
-        // ticks at full rate and still reads as visible to the page. The cost is CPU for pages
-        // nobody is looking at, which is what RETAINED_VIEW_LIMIT exists to bound.
-        backgroundThrottling: false,
-      },
-    });
+    const webPreferences = {
+      partition,
+      // Untrusted web content: full Chromium sandbox, no node, no preload, isolated world.
+      sandbox: true, contextIsolation: true, nodeIntegration: false,
+      // A browser pane keeps working while its space is off screen, and Chromium's default
+      // undoes that: measured on Electron 37, a `setVisible(false)` WebContentsView drops a 50ms
+      // interval to ~1Hz and reports `document.visibilityState === "hidden"`, which pages take as
+      // their own cue to stop polling, stall SSE and pause media. With this off, the hidden view
+      // ticks at full rate and still reads as visible to the page. The cost is CPU for pages
+      // nobody is looking at, which is what RETAINED_VIEW_LIMIT exists to bound.
+      backgroundThrottling: false,
+    };
+    // A new tab's page is the one Chromium made for it (`hostedTab`), with these same preferences,
+    // already on its way to the page it was opened on.
+    const adopted = page as WebContents | undefined;
+    const view = new WebContentsView(adopted ? { webContents: adopted } : { webPreferences });
     view.setBackgroundColor("#ffffffff"); // opaque — the window behind is transparent on macOS
     view.setVisible(false); // hidden until the renderer's first bounds sync places it
     win.contentView.addChildView(view);
@@ -133,16 +135,19 @@ export function electronViewFactory(
     // The URL the pane was ASKED for, which is what every reader of this view's state wants to hear
     // about — `about:blank` below is Realm's own bootstrap and belongs to nobody's address bar.
     let wanted: string | null = null;
-    const ready = installPasskeysFor
+    const ready = installPasskeysFor && !adopted
       ? Promise.race([
           installPasskeys(id, wc, installPasskeysFor),
           new Promise<void>((r) => setTimeout(r, PASSKEY_INSTALL_TIMEOUT_MS).unref?.()),
         ])
       : Promise.resolve();
+    // A new tab's first page is already loading, so there is no blank page to install ahead of it:
+    // the install goes in once that page has a document, and covers every page after it.
+    if (installPasskeysFor && adopted) wc.once("dom-ready", () => { void installPasskeys(id, wc, installPasskeysFor, false); });
 
-    /* Guard 1: a page's request for a new window (`windowOpenAction`). A link meant for a tab opens a
-       new tab beside this one and any other link is navigated in place, both allowlist-checked by the
-       host. A popup — a sign-in, mostly — is a real window, because the page that opened it is waiting
+    /* Guard 1: a page's request for a new window (`windowOpenAction`). A link meant for a tab, pressed
+       for, is a new tab beside this one hosting the page Chromium made for it (`hostedTab`); any other
+       link is navigated in place; both allowlist-checked. A popup — a sign-in, mostly — is a real window, because the page that opened it is waiting
        for it to post back and close.
 
        Every popup is this pane's and nobody else's: Chromium makes it in its opener's session (which
@@ -152,14 +157,19 @@ export function electronViewFactory(
        not get is the pane's saved passwords and passkeys: those are installed per pane and answer for
        the pane's page, never for another. */
     const popups = new Set<BrowserWindow>();
+    // Whether the person pressed something in the page just now: only that lets it open a tab.
+    const activation = new UserActivation();
+    wc.on("input-event", (_e, input) => activation.note(input.type, Date.now()));
     const openWindow = (opener: WebContents) => (details: HandlerDetails): WindowOpenHandlerResponse => {
-      const action = windowOpenAction(details, popups.size);
+      // A popup's own links stay in the popup whatever pressed them (below), so only the pane's page
+      // spends its activation.
+      const action = windowOpenAction(details, popups.size, opener !== wc || activation.consume(Date.now()));
+      if ((action === "foreground-tab" || action === "background-tab") && opener === wc) {
+        if (!hooks.allowNavigate(details.url)) return { action: "deny" };
+        return hostedTab<WebContents>(webPreferences, (tab) => hooks.openTab(details.url, action === "background-tab", tab));
+      }
       if (action === "in-place" || action === "foreground-tab" || action === "background-tab") {
-        if (opener === wc) {
-          if (action === "in-place") hooks.openInPlace(details.url);
-          else hooks.openTab(details.url, action === "background-tab");
-          return { action: "deny" };
-        }
+        if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }
         // A link in a popup opens in the popup: the page behind it is waiting on the popup, not on this.
         const url = normalizeAddress(details.url);
         if (url && hooks.allowNavigate(url)) opener.loadURL(url).catch(() => { /* the popup's own page reports it */ });
@@ -216,7 +226,7 @@ export function electronViewFactory(
        address bar still named as the page. Once the first real page commits, the bootstrap entry goes.
        A first page that FAILS commits an entry as well — its error page's — so that counts too.
        Registered ahead of the state events below, so the state they send already has no Back. */
-    let bootstrapEntry = !!installPasskeysFor;
+    let bootstrapEntry = !!installPasskeysFor && !adopted;
     const dropBootstrapEntry = (url: string) => {
       if (!bootstrapEntry || url === "about:blank") return;
       bootstrapEntry = false;
@@ -434,7 +444,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
     sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
-    openTab: ({ id, url, background }) => send("links:open-tab", { browserId: id, url, background }),
+    openTab: ({ id, url, background, page }) => send("links:open-tab", { browserId: id, url, background, page }),
     // The keyboard is in the VIEW when this fires, and focusing an input inside the window's own page
     // does not move it — typing would go on landing in the site. Handing focus to the window's
     // webContents first is what lets the find field the pane focuses actually receive the keys.

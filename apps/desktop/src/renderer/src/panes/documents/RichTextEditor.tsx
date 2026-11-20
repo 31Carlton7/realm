@@ -43,8 +43,9 @@ export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = fa
     editorProps: {
       attributes: { class: "documents-rich-surface", "aria-label": "Rich text editor" },
       handleDOMEvents: {
-        // A middle-click opens a link the way a ⌘-click does, with `window.open` from the click, which
-        // main routes by its disposition (main/link-open.ts). TipTap's link handler only hears button 0.
+        // A middle-click opens a link with `window.open` from the click, which main routes as a
+        // middle-click (main/link-open.ts): where "Links open in" says, behind the tab showing. TipTap's
+        // link handler only hears button 0.
         auxclick: (view, event) => {
           if (event.button !== 1) return false;
           const link = event.target instanceof Element ? event.target.closest("a") : null;

@@ -301,6 +301,18 @@ describe("a link opened in a Realm Browser tab", () => {
     expect(store.getState().focusedLeafId).toBe(side(store).id);
     expect(allItems(store.getState().layout!)).toContain("i-lead");
   });
+
+  it("middle-clicked, waits behind the tab showing, and the keyboard stays in the session", async () => {
+    // A middle-click follows the setting like a plain click and, landing in Realm, opens behind (#537).
+    // THE MUTANT: drop `background` on the way to the tab, and it comes to the front with the keyboard.
+    const { store } = await mount();
+    const lead = findLeafOfItem(store.getState().layout!, "i-lead")!.id;
+    store.getState().focusLeaf(lead);
+    await store.getState().openLinkInBrowser("http://localhost:4173/later", { background: true });
+    const id = newest(store);
+    expect(side(store)).toMatchObject({ itemId: "i-br", tabs: ["i-br", id] });
+    expect(store.getState().focusedLeafId).toBe(lead);
+  });
 });
 
 describe("a new tab a browser pane's page asked for", () => {
@@ -320,6 +332,19 @@ describe("a new tab a browser pane's page asked for", () => {
     expect(side(store)).toMatchObject({ itemId: "i-br", tabs: ["i-br", "i-other"] });
     return { api, store };
   }
+
+  it("names its browser before the tab is placed, so main can hand it the page Chromium made", async () => {
+    // The pane that mounts for the tab asks main for its view; main must already know which page that
+    // view hosts, or it loads the address fresh and the POST body and window.opener are gone.
+    // THE MUTANT: report the browser after placing the tab.
+    const { store } = await strip();
+    let stripWhenNamed: string[] | null = null;
+    let named: string | null = null;
+    await store.getState().openPageTab("br", "https://example.com/echo", { background: false, onCreated: (browserId) => { named = browserId; stripWhenNamed = side(store).tabs!; } });
+    const id = newest(store);
+    expect(named).toBe(store.getState().items.find((i) => i.id === id)!.refId);
+    expect(stripWhenNamed).toEqual(["i-br", "i-other"]);
+  });
 
   it("goes beside the page that asked, on the link, in front and with the keyboard", async () => {
     // THE MUTANT: place it after the session's last tab — the new page lands at the end of the strip.

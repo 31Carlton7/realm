@@ -69,17 +69,19 @@ contextBridge.exposeInMainWorld("realm", {
    *  sends back to open in a Realm Browser tab — a browser pane's new tabs among them. */
   links: {
     setOpenIn: (pref: string): void => ipcRenderer.send("links:open-in", pref),
-    onOpenInRealm: (cb: (url: string) => void): (() => void) => {
-      const handler = (_e: IpcRendererEvent, url: string) => cb(url);
+    onOpenInRealm: (cb: (url: string, opts: { background: boolean }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, url: string, opts?: { background: boolean }) => cb(url, { background: !!opts?.background });
       ipcRenderer.on("links:open-in-realm", handler);
       return () => ipcRenderer.removeListener("links:open-in-realm", handler);
     },
-    /** A browser pane's page asked for a new tab (a target=_blank link, a ⌘- or middle-click). */
-    onOpenTab: (cb: (m: { browserId: string; url: string; background: boolean }) => void): (() => void) => {
-      const handler = (_e: IpcRendererEvent, m: { browserId: string; url: string; background: boolean }) => cb(m);
+    /** A browser pane's page asked for a new tab (a target=_blank link, a ⌘- or middle-click). `page`
+     *  names the page Chromium already made for it, which `claimTab` gives to the new tab's browser. */
+    onOpenTab: (cb: (m: { browserId: string; url: string; background: boolean; page: string }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string; url: string; background: boolean; page: string }) => cb(m);
       ipcRenderer.on("links:open-tab", handler);
       return () => ipcRenderer.removeListener("links:open-tab", handler);
     },
+    claimTab: (page: string, browserId: string): void => ipcRenderer.send("links:claim-tab", page, browserId),
   },
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
   power: {

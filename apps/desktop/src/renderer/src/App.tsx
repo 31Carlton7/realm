@@ -797,16 +797,18 @@ export function App() {
         st.run(() => st.revealSession(sessionId, spaceId));
       });
     });
-    // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, or the
-    // link's right-click menu): main routed it here, and the tab goes beside the session in view.
-    const offLink = window.realm?.links?.onOpenInRealm((url) => {
+    // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, a
+    // middle-click, or the link's right-click menu): main routed it here, and the tab goes beside the
+    // session in view — behind the tab showing for a middle-click.
+    const offLink = window.realm?.links?.onOpenInRealm((url, opts) => {
       const st = store.getState();
-      st.run(() => st.openLinkInBrowser(url));
+      st.run(() => st.openLinkInBrowser(url, opts));
     });
-    // A browser pane's page asked for a new tab (main/browser-pane.ts): beside that page.
-    const offTab = window.realm?.links?.onOpenTab?.(({ browserId, url, background }) => {
+    // A browser pane's page asked for a new tab (main/browser-pane.ts): beside that page, showing the
+    // page Chromium made for it.
+    const offTab = window.realm?.links?.onOpenTab?.(({ browserId, url, background, page }) => {
       const st = store.getState();
-      st.run(() => st.openPageTab(browserId, url, { background }));
+      st.run(() => st.openPageTab(browserId, url, { background, onCreated: (id) => window.realm?.links?.claimTab?.(page, id) }));
     });
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
