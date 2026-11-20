@@ -59,6 +59,37 @@ describe("QuickChatPanel", () => {
     expect(w.calls).toEqual(["protect true", "showInactive", "focus", "page focus", "send quick-chat-panel:shown"]);
   });
 
+  it("can be made ahead of the first open, hidden, and that open shows the window already made", async () => {
+    const w = fakeWindow();
+    let made = 0;
+    const panel = new QuickChatPanel(() => { made++; return { win: w.win, ready: Promise.resolve() }; });
+    panel.prepare();
+    await settled();
+    expect(made).toBe(1);
+    expect(panel.isOpen()).toBe(false);
+    expect(w.calls).toEqual([]);
+    panel.prepare();
+    panel.open(); await settled();
+    expect(made).toBe(1);
+    expect(w.calls).toEqual(["protect true", "showInactive", "focus", "page focus", "send quick-chat-panel:shown"]);
+  });
+
+  it("makes nothing ahead of time off macOS", () => {
+    let made = 0;
+    new QuickChatPanel(() => { made++; return { win: fakeWindow().win, ready: Promise.resolve() }; }, "linux").prepare();
+    expect(made).toBe(0);
+  });
+
+  it("lets go of a window made ahead whose page failed, so the first open makes a new one", async () => {
+    const first = fakeWindow(), second = fakeWindow();
+    const windows = [first, second];
+    const panel = new QuickChatPanel(() => ({ win: windows.shift()!.win, ready: windows.length === 1 ? Promise.reject(new Error("load")) : Promise.resolve() }));
+    panel.prepare(); await settled();
+    expect(first.calls).toEqual(["destroy"]);
+    panel.open(); await settled();
+    expect(second.calls).toContain("showInactive");
+  });
+
   it("is put away by the same call that opened it", async () => {
     const w = fakeWindow();
     const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));

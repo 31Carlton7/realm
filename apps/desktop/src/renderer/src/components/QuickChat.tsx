@@ -153,10 +153,12 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
           conversation — so what it carries is the agent it will ask and the way out. */}
       <header className="quick-chat-bar" data-dragging={drag.dragging || undefined} onPointerDown={drag.onPointerDown}>
         <Icon name={AGENT_META[kind].icon} size={14} colored className="quick-chat-mark" />
-        {/* "Quick chat" until the conversation has named itself. The session's own title is "New
-            session" until the agent writes one, and a window whose bar says "New session" is a
-            window telling you the one thing you already knew. */}
-        <span className="quick-chat-title">{said ? session.title : "Quick chat"}</span>
+        {/* "Quick chat" until it is saved, and then the name it has in that space. The session's own
+            title is "New session" until the agent writes one, and a window whose bar says "New
+            session" is a window telling you the one thing you already knew. The name the first
+            message gives it reaches this page only when it is saved: an unsaved chat has no row for
+            the server to tell anyone about, and its question is under the bar already. */}
+        <span className="quick-chat-title">{keptIn ? session.title : "Quick chat"}</span>
         {/* The trash, not a ×. Closing DELETES — this window is the only place the conversation was
             ever shown, so a close that promised to keep it would be promising what it does not do
             (design.md: name the consequence, and distinguish removing from a layout from deleting

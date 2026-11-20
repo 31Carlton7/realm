@@ -2596,10 +2596,14 @@ button.panel-title:hover { background: var(--rl-hover); }
    the window is the card: it has the place, the corner, the shadow and the entrance, so the card
    fills it and gives those up. The place is set inline by the card's own drag (QuickChat.tsx), which
    is why it is overridden rather than restated. In Plain the card is the surface it always was; in
-   Glass its ground thins and the window's material, which is macOS's own, shows through it. */
+   Glass its ground thins and the window's material, which is macOS's own, shows through it.
+   It thins to the panes' reading point and no further, 84% and the light face's 92% (tokens.css):
+   whatever app is behind it is the desktop a pane is measured against, and at 62% the dark face's
+   body ink came to 4.0:1 over a white window and its hints to 1.1:1. */
 :root[data-surface="quick-chat"] .quick-chat { inset: 0 !important; width: auto !important; height: auto !important;
   border-radius: 0; box-shadow: none; animation: none; }
-:root[data-surface="quick-chat"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 62%, transparent); }
+:root[data-surface="quick-chat"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 84%, transparent); }
+:root[data-surface="quick-chat"][data-mode="light"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 92%, transparent); }
 /* The bar moves the window there, through the system, so a drag never reaches the card's own. */
 :root[data-surface="quick-chat"] .quick-chat-bar { -webkit-app-region: drag; }
 :root[data-surface="quick-chat"] .quick-chat-bar button { -webkit-app-region: no-drag; }

@@ -85,7 +85,18 @@ export class QuickChatPanel<W extends PanelWindow> {
     else this.open();
   }
 
-  /** The window is made on the first open and kept, so the next one does not wait on a page load. */
+  /** Make the window now, hidden, so the first open does not wait on a page load: made on the key
+   *  press, the first open measured 151 to 347 ms to the panel on screen against 3 to 11 ms for the
+   *  next (the built app, 2026-11-20). Nothing is shown and no chat is started until it opens. */
+  prepare(): void {
+    if (!platformCapabilities(this.platform).quickChatPanel || this.window()) return;
+    const made = this.create();
+    this.made = made;
+    if (made) void made.ready.catch(() => this.forget(made));
+  }
+
+  /** The window is made on the first open, unless `prepare` made it already, and kept, so the next
+   *  one does not wait on a page load. */
   open(): void {
     if (!platformCapabilities(this.platform).quickChatPanel) return;
     if (!this.window()) this.made = this.create();
@@ -100,13 +111,15 @@ export class QuickChatPanel<W extends PanelWindow> {
       win.focus();
       win.webContents.focus();
       win.webContents.send("quick-chat-panel:shown");
-    }, () => {
-      // A page that failed to load is not kept: the next open makes a new window, and loads again.
-      if (this.made !== made) return;
-      this.wanted = false;
-      this.made = null;
-      if (!made.win.isDestroyed()) made.win.destroy();
-    });
+    }, () => this.forget(made));
+  }
+
+  /** A page that failed to load is not kept: the next open makes a new window, and loads again. */
+  private forget(made: { win: W; ready: Promise<unknown> }): void {
+    if (this.made !== made) return;
+    this.wanted = false;
+    this.made = null;
+    if (!made.win.isDestroyed()) made.win.destroy();
   }
 
   close(): void {

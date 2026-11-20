@@ -213,6 +213,17 @@ describe("the quick chat", () => {
       expect(within(chat()).queryByText(/Still works in/)).toBeNull();
     });
 
+    it("says Quick chat in its bar until it is saved, and then the session's name in that space", async () => {
+      const { store, sessionId } = await answeredChat();
+      const bar = () => chat().querySelector(".quick-chat-title")!.textContent;
+      await within(chat()).findByText("Save to");
+      expect(bar()).toBe("Quick chat");
+      fireEvent.click(within(chat()).getByRole("button", { name: "Save to Versed" }));
+      await within(chat()).findByText("Saved to Versed");
+      expect(bar()).toBe(store.getState().sessions[sessionId]!.title);
+      expect(bar()).toBe("Fake agent session");
+    });
+
     it("Other lists every space, and one saved away from where it ran says whose folder it works in", async () => {
       const { store, sessionId } = await answeredChat();
       fireEvent.click(await within(chat()).findByRole("button", { name: "Other…" }));

@@ -82,10 +82,10 @@ export function QuickChatPanelSettings() {
           </button>
         </li>
         <li className="settings-row" data-setting="quick-chat-hide"
-          title="macOS leaves a window marked this way out of what it captures. Measured on macOS 27 for screenshots and for screen capture through ScreenCaptureKit. The window is still listed, without a name, to an app that captures the screen. A share seen from the other side of a meeting was not checked.">
+          title="Measured on macOS 27: screenshots and screen recordings of the display, and captures of the window alone, leave it out. The window is still listed, without a name, to an app that captures the screen. What the other side of a call sees was not checked.">
           <div className="settings-row-main">
             <span className="settings-row-name">Hide the quick chat from screen sharing</span>
-            <span className="settings-row-detail">Left out of screenshots, recordings and shares that macOS captures. Check your meeting app before you rely on it</span>
+            <span className="settings-row-detail">Left out of screenshots and screen recordings on this Mac. Not yet checked from the other side of a call.</span>
           </div>
           <input type="checkbox" role="switch" className="switch" aria-label="Hide the quick chat from screen sharing"
             checked={hidden} onChange={(e) => toggleHidden(e.target.checked)} />
