@@ -583,6 +583,7 @@ export function isFindShortcut(input: KeyInput, platform: string): boolean {
 export type ViewHandle = {
   setBounds(r: ViewRect): void;
   setVisible(visible: boolean): void;
+  focus(): void;
   loadURL(url: string): void;
   goBack(): void; goForward(): void; reload(): void; stop(): void;
   canGoBack(): boolean; canGoForward(): boolean;
@@ -638,8 +639,8 @@ export type OpenedPage = { close(): void };
 export type OpenedTab = { browserId: string; url: string };
 
 /** `partition` is the Electron session the view's cookies, site data and cache live in — its
- *  profile's own (Plan 27 Phase 2). `page`, when given, is the view's page, already loading. */
-export type ViewFactory = (id: string, hooks: ViewHooks, partition: string, page?: OpenedPage) => ViewHandle;
+ *  profile's own (Plan 27 Phase 2). `opened`, when given, is the view's page, already loading `url`. */
+export type ViewFactory = (id: string, hooks: ViewHooks, partition: string, opened?: { page: OpenedPage; url: string }) => ViewHandle;
 
 /** How long a page made for a new tab waits for the renderer to name the tab's browser (`claimTab`). */
 export const UNCLAIMED_TAB_MS = 30_000;
@@ -722,6 +723,9 @@ export class BrowserPaneHost {
     /** Brought back from a discard and not yet painted: kept hidden until its page is ready, so the
      *  pane never shows a blank white view where the page was. */
     reviving: boolean;
+    /** A tab a person's click opened in front: its page takes the keyboard the first time it is on
+     *  screen. A ⌘- or middle-click's tab waits behind and never asks for it. */
+    focusWhenShown: boolean;
   }>();
   /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
    *  delete moves an id to the back. Views with a mounted pane are absent, never evictable. */
@@ -729,9 +733,9 @@ export class BrowserPaneHost {
   /** Views given up for memory (`discard`), by browser id, until a pane, an op or an agent wants them. */
   private discarded = new Map<string, Discarded>();
   /** Pages made for new tabs, by the name `openTab` gave them, until a browser claims one. */
-  private opened = new Map<string, { page: OpenedPage; partition: string; opener: string; url: string; expires: ReturnType<typeof setTimeout> }>();
+  private opened = new Map<string, { page: OpenedPage; partition: string; opener: string; url: string; focus: boolean; expires: ReturnType<typeof setTimeout> }>();
   /** …and claimed ones, by browser id, until that browser's view is made or it closes unseen. */
-  private claimed = new Map<string, { page: OpenedPage; partition: string }>();
+  private claimed = new Map<string, { page: OpenedPage; partition: string; url: string; focus: boolean }>();
   /** The tabs each browser's page opened, by its id, until an agent driving it is told (`takeOpenedTabs`). */
   private openedBy = new Map<string, OpenedTab[]>();
   /** Who is waiting on a claim (`takeOpenedTabs`). */
@@ -829,11 +833,11 @@ export class BrowserPaneHost {
     const opened = this.claimed.get(id);
     this.claimed.delete(id);
     if (opened && opened.partition !== partition) opened.page.close();
-    const page = opened?.partition === partition ? opened.page : undefined;
-    const handle = this.opts.createView(id, this.hooks(id), partition, page);
-    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false });
+    const hosted = opened?.partition === partition ? opened : undefined;
+    const handle = this.opts.createView(id, this.hooks(id), partition, hosted && { page: hosted.page, url: hosted.url });
+    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false, focusWhenShown: !!hosted?.focus });
     const normalized = normalizeAddress(url);
-    if (!page && normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
+    if (!hosted && normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
     this.emitState(id);
   }
 
@@ -843,7 +847,7 @@ export class BrowserPaneHost {
     if (!opened) return;
     this.opened.delete(page);
     clearTimeout(opened.expires);
-    this.claimed.set(browserId, { page: opened.page, partition: opened.partition });
+    this.claimed.set(browserId, { page: opened.page, partition: opened.partition, url: opened.url, focus: opened.focus });
     this.openedBy.set(opened.opener, [...(this.openedBy.get(opened.opener) ?? []), { browserId, url: opened.url }]);
     for (const wake of [...this.claimWaiters]) wake();
   }
@@ -876,7 +880,7 @@ export class BrowserPaneHost {
         if (!opener || !url || !originAllowed(url, opener.allowlist) || !this.opts.openTab) { page.close(); return; }
         const name = `${id}:${++this.openedCount}`;
         const expires = setTimeout(() => { if (this.opened.delete(name)) page.close(); }, UNCLAIMED_TAB_MS);
-        this.opened.set(name, { page, partition: opener.partition, opener: id, url, expires });
+        this.opened.set(name, { page, partition: opener.partition, opener: id, url, focus: focused && !background, expires });
         this.opts.openTab({ id, url, background, focus: focused, page: name });
       },
       found: (result) => this.opts.sendFound?.({ id, ...result }),
@@ -912,7 +916,7 @@ export class BrowserPaneHost {
     const url = normalizeAddress(d.url);
     const loads = Boolean(url && originAllowed(url, d.allowlist));
     // Hidden until painted only when there is a page coming to paint.
-    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: loads });
+    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: loads, focusWhenShown: false });
     if (loads) {
       if (d.scroll && (d.scroll.x !== 0 || d.scroll.y !== 0)) handle.scrollAfterLoad(d.scroll.x, d.scroll.y);
       handle.loadURL(url!);
@@ -1043,7 +1047,9 @@ export class BrowserPaneHost {
     v.host = toViewBounds(rect, dpr, this.opts.scaleFactor());
     this.place(id);
     if (v.reviving && v.handle.isReady()) v.reviving = false;
-    v.handle.setVisible(visible && !v.reviving);
+    const onScreen = visible && !v.reviving;
+    v.handle.setVisible(onScreen);
+    if (onScreen && v.focusWhenShown) { v.focusWhenShown = false; v.handle.focus(); }
     v.visible = visible;
     // The idle clock follows the pane, not the view (`shown`).
     if (shown) { v.shown = true; v.hiddenSince = null; }
