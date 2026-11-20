@@ -22,6 +22,7 @@ describe("what Linux and Windows are not offered", () => {
     expect(visibleSettingsGroups().flatMap((g) => g.tabs.map((t) => t.id))).toEqual(expect.arrayContaining(["permissions", "computer-use"]));
     expect(sideToolOffered("simulator")).toBe(true);
     expect(canQuickLook() && canShare() && canChooseAppIcon()).toBe(true);
+    expect(searchSettings("quick chat").map((e) => e.id)).toEqual(expect.arrayContaining(["quick-chat-shortcut", "quick-chat-hide"]));
   });
 
   it.each(["linux", "win32"])("on %s, drops the Computer pages, the simulator, Quick Look, Share and the Dock icon", (platform) => {
@@ -38,6 +39,8 @@ describe("what Linux and Windows are not offered", () => {
     expect(searchSettings("simulator").filter((e) => e.tab === "ram")).toEqual([]);
     expect(searchSettings("idle engine").map((e) => e.id)).toContain("ram-engine-idle");
     expect(searchSettings("app icon").map((e) => e.id)).not.toContain("app-icon");
+    // The quick chat keeps its model row, and loses the two rows about the panel it has no panel for.
+    expect(searchSettings("quick chat").map((e) => e.id).filter((id) => id.startsWith("quick-chat-"))).toEqual(["quick-chat-model"]);
     expect(sideToolOffered("simulator")).toBe(false);
     expect(sideToolOffered("terminal")).toBe(true);
     expect(canQuickLook()).toBe(false);

@@ -54,9 +54,11 @@ const dialog = { showMessageBox: vi.fn(), showMessageBoxSync: vi.fn(), showOpenD
 const systemPreferences = { askForMediaAccess: vi.fn(async () => true) };
 class FakeMenu { popup = vi.fn(); }
 const webContents = { getFocusedWebContents: (): unknown => "the real one" };
+const registered: string[] = [];
+const globalShortcut = { register: (accelerator: string, _press?: () => void) => { registered.push(accelerator); return true; } };
 
-vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents }));
-const { installQuietWindows, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
+vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents, globalShortcut }));
+const { installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
 
 describe("quietWindowsOn", () => {
   it("is on only for an unpackaged app asked for it", () => {
@@ -96,6 +98,37 @@ describe("installQuietWindows", () => {
     expect(w.calls).toEqual(expect.arrayContaining(["opacity 1", "shadow false", "focusable false", "ignore mouse true", "on top true screen-saver", "all spaces true"]));
     expect(w.calls.indexOf("opacity 1")).toBeLessThan(w.calls.indexOf("showInactive"));
     w.close();
+  });
+
+  it("takes no key from the system, except the one a check names", () => {
+    expect(globalShortcut.register("Control+Alt+Space", () => {})).toBe(true);
+    expect(registered).toEqual([]);
+    expect(quietWindowsLog).toContainEqual({ what: "global shortcut", detail: "Control+Alt+Space" });
+    vi.stubEnv("REALM_QUIET_GLOBAL_SHORTCUT", "Control+Alt+Shift+F19");
+    globalShortcut.register("Control+Alt+Shift+F19", () => {});
+    globalShortcut.register("Control+Alt+Space", () => {});
+    vi.unstubAllEnvs();
+    expect(registered).toEqual(["Control+Alt+Shift+F19"]);
+  });
+
+  it("lets a marked window really take the keyboard, only while the check asks", () => {
+    const w = new FakeWindow();
+    quietKeyable(w as never);
+    w.show();
+    w.focus();
+    expect(w.calls).not.toContain("focus");
+    expect(w.calls).not.toContain("focusable true");
+    vi.stubEnv("REALM_QUIET_REAL_KEY", "1");
+    const plain = new FakeWindow();
+    plain.show();
+    plain.focus();
+    w.show();
+    w.focus();
+    vi.unstubAllEnvs();
+    expect(plain.calls).not.toContain("focus");
+    expect(w.calls).toEqual(expect.arrayContaining(["focusable true", "focus", "opacity 1", "ignore mouse true"]));
+    w.close();
+    plain.close();
   });
 
   it("makes the window shown or focused last the key one, as AppKit would", () => {

@@ -45,6 +45,9 @@ export type PlatformCapabilities = {
   /** Knowing when a meeting or a call starts: EventKit and Core Audio's list of processes
    *  (native/MeetingWatch.swift). */
   meetings: boolean;
+  /** The quick chat panel and its system-wide key (desktop main/quick-chat-panel.ts). How the panel
+   *  opens over another app, and what a screen capture leaves out, were measured on macOS only. */
+  quickChatPanel: boolean;
   /** What the OS calls the app that "Show in …" opens. */
   fileManager: string;
   /** What copy calls the machine itself: "on your Mac", "on your computer". */
@@ -92,6 +95,7 @@ export function platformCapabilities(platform: string, macosVersion?: string): P
     executionSandbox: mac,
     dictation: mac && (macosVersion === undefined || macosAtLeast(macosVersion, DICTATION_MACOS)),
     meetings: mac,
+    quickChatPanel: mac,
     fileManager: mac ? "Finder" : os === "windows" ? "File Explorer" : "Files",
     machine: mac ? "Mac" : "computer",
   };
