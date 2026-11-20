@@ -332,19 +332,21 @@ async function appPart() {
 /* ── Settings captures ────────────────────────────────────────────────────────────────────── */
 
 /** A helper that taps nothing: it reports the state its folder names and repeats what `say` is given. */
-const STAND_IN = `#!/bin/bash
-dir="$(dirname "$0")"
-state="$(cat "$dir/state")"
-[ "$state" = denied ] && exit 2
-if [ "$state" = active ]; then echo '{"ready":true,"active":true}'; else echo '{"ready":true,"active":false}'; fi
-: > "$dir/say"
-exec 3< "$dir/say"
-while :; do
-  while read -r -u 3 line; do echo "$line"; done
-  read -r -t 0.2 config
-  code=$?
-  [ $code -eq 0 ] || [ $code -gt 128 ] || exit 0
-done
+const STAND_IN = `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const state = fs.readFileSync(path.join(__dirname, "state"), "utf8").trim();
+if (state === "denied") process.exit(2);
+console.log(JSON.stringify({ ready: true, active: state === "active" }));
+const say = path.join(__dirname, "say");
+fs.writeFileSync(say, "");
+let said = 0;
+setInterval(() => {
+  const all = fs.readFileSync(say, "utf8");
+  process.stdout.write(all.slice(said));
+  said = all.length;
+}, 150);
+process.stdin.on("end", () => process.exit(0)).resume();
 `;
 
 function rpc(port, token) {
@@ -364,7 +366,7 @@ function rpc(port, token) {
 }
 
 async function settingsPart() {
-  const standIn = path.join(tools, "realmkeys-stand-in.sh");
+  const standIn = path.join(tools, "realmkeys-stand-in.cjs");
   fs.writeFileSync(standIn, STAND_IN, { mode: 0o755 });
   fs.writeFileSync(path.join(tools, "state"), "active");
   const app = await launchLiveApp({ name: "realm-keys-settings", inspect: true, env: { REALM_KEYS_BIN: standIn } });

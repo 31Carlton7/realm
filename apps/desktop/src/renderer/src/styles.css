@@ -8166,11 +8166,14 @@ select { appearance: none; padding-right: 22px;
 
 .settings-panel { min-width: 0; }
 /* Keys ▸ From anywhere ▸ Try it: a key and whether Realm has seen it. The key is lit while it is held
-   (a double-tap, which is never held, for a moment), and the word beside it says the same. */
+   (a double-tap, which is never held, for a moment), and the word beside it says the same.
+   The chip's fill is a tint of its own ink: on a settings card the menus' `--hover-2` is the card's
+   colour on the light face, and the key read as bare text there. */
 .keys-try { flex: none; display: flex; gap: 16px; font-size: 13px; color: var(--rl-text-dim); }
 .keys-try-key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.keys-try kbd { background: color-mix(in srgb, currentColor 12%, transparent); }
 .keys-try-key[data-lit] { color: var(--rl-text-bright); }
-.keys-try-key[data-lit] kbd { background: var(--rl-active); color: var(--rl-text-bright); }
+.keys-try-key[data-lit] kbd { background: color-mix(in srgb, currentColor 24%, transparent); color: var(--rl-text-bright); }
 /* The two kinds of prose here: a NOTE is a disclosure the panel exists to make (always visible, dim,
    set off by a left tick); a HINT is auxiliary fine print (faint). */
 .settings-note { margin: 0; padding: 6px 10px; border-left: 2px solid var(--rl-line-strong); font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
