@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserLoadError, type BrowserSnapshotResult, type PaneHealth } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
@@ -400,6 +400,22 @@ describe("createBridgeCore", () => {
     expect(sent[1]).toMatchObject({ method: "browserHost.result", params: { callId: "c1", ok: true, result: { got: "snapshot" } } });
     await core.onMessage(JSON.stringify({ event: "browserHost.op", payload: { callId: "c2", op: "boom", params: {} } }));
     expect(sent[2]).toMatchObject({ method: "browserHost.result", params: { callId: "c2", ok: false, error: "no view" } });
+  });
+
+  // Mutant: run every op whatever its deadline. Main stopped behind a modal alert (#562) reads a
+  // backlog of ops when it wakes, each of which the server had already failed back to its agent.
+  it("never runs an op the server has stopped waiting for", async () => {
+    const ran: string[] = [];
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    const core = createBridgeCore(async (op) => { ran.push(op); return {}; }, (json) => sent.push(JSON.parse(json)));
+    const deadline = Date.now();
+    vi.useFakeTimers({ now: deadline + 1 });
+    try {
+      await core.onMessage(JSON.stringify({ event: "browserHost.op", payload: { callId: "late", op: "navigate", params: {}, deadline } }));
+      await core.onMessage(JSON.stringify({ event: "browserHost.op", payload: { callId: "due", op: "snapshot", params: {}, deadline: deadline + 60_000 } }));
+    } finally { vi.useRealTimers(); }
+    expect(ran).toEqual(["snapshot"]);
+    expect(sent.map((m) => m.params)).toMatchObject([{ callId: "late", ok: false }, { callId: "due", ok: true }]);
   });
 
   it("ignores RPC responses, other events, and garbage without replying", async () => {
