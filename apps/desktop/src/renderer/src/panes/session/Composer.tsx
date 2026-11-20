@@ -46,6 +46,10 @@ const NO_GREETINGS: readonly string[] = [];
 const NO_FAST_SUPPORT: Record<string, boolean> = {};
 const NO_EFFORT_SUPPORT: Record<string, string[]> = {};
 const NO_ICONS: Readonly<Record<string, string | null>> = {};
+/** The listening pill's bars. Each shows the mic's level as it was a few frames ago (a frame is about
+ *  21ms) at a height of its own, so a syllable runs across them instead of lifting all four as one. */
+const MIC_BARS = [{ lag: 4, gain: 0.6 }, { lag: 0, gain: 1 }, { lag: 2, gain: 0.8 }, { lag: 6, gain: 0.65 }] as const;
+const MIC_HISTORY = 7;
 /** "Messages", "Messages and Mail", "Messages, Mail and Notes". */
 const listNames = (names: readonly string[]): string =>
   names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
@@ -807,25 +811,32 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    *  text renders. A range, not a point: toggling a bullet over three selected lines must leave those
    *  three lines selected, or the next ⌘⇧8 would undo only the line the caret collapsed onto. */
   const pendingSel = useRef<{ start: number; end: number } | null>(null);
-  /** The ring inside the mic that follows the voice: its level is written straight onto it each
-   *  frame, never through state, so a frame of audio re-renders nothing. */
-  const micRing = useRef<HTMLSpanElement>(null);
-  const micShown = useRef(0);
+  /** The bars in the listening pill: their levels are written straight onto it each frame, never
+   *  through state, so a frame of audio re-renders nothing. */
+  const micMeter = useRef<HTMLSpanElement>(null);
+  /** The level shown on each of the last few frames, newest first. */
+  const micHistory = useRef<number[]>([]);
   const dictate = useDictation({
     port: dictation, draft, onDraftChange,
     caret: () => { const at = ta.current?.selectionEnd ?? draft.length; return chipAround(chips, at)?.end ?? at; },
     select: (at) => { pendingSel.current = { start: at, end: at }; },
     level: (rms) => {
-      // Under Reduce motion the ring holds still at its listening size.
-      if (!micRing.current || prefersReducedMotion()) return;
-      micShown.current = nextMicLevel(micShown.current, rms);
-      micRing.current.style.setProperty("--mic-level", micShown.current.toFixed(3));
+      const meter = micMeter.current;
+      if (!meter) return;
+      const history = micHistory.current;
+      history.unshift(nextMicLevel(history[0] ?? 0, rms));
+      history.length = Math.min(history.length, MIC_HISTORY);
+      // Under Reduce motion every bar shows the level now, so nothing runs across them.
+      const still = prefersReducedMotion();
+      MIC_BARS.forEach((bar, i) => {
+        (meter.children[i] as HTMLElement).style.setProperty("--mic-level", ((still ? history[0]! : history[bar.lag] ?? 0) * bar.gain).toFixed(3));
+      });
     },
   });
   useEffect(() => {
     if (dictate.live) return;
-    micShown.current = 0;
-    micRing.current?.style.removeProperty("--mic-level");
+    micHistory.current = [];
+    MIC_BARS.forEach((_, i) => (micMeter.current?.children[i] as HTMLElement | undefined)?.style.removeProperty("--mic-level"));
   }, [dictate.live]);
   /* While dictating, the words heard so far sit at the caret in the box, drawn as not yet typed, and
      the draft itself is untouched until they land. Each word is a piece of its own, so a new one eases
@@ -1563,12 +1574,15 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
               switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />
             {dictation && (
               <button type="button" className="icon-btn composer-attach composer-dictate" aria-pressed={dictate.live !== null}
-                aria-label={dictate.live ? "Stop dictating" : "Dictate"} title={dictate.live ? "Stop dictating (Esc)" : "Dictate"}
+                aria-label={dictate.live ? "Stop dictation" : "Dictate"} title={dictate.live ? "Stop dictation (Esc)" : "Dictate"}
                 disabled={dictate.live?.cleaning}
                 onMouseDown={(e) => e.preventDefault() /* the box keeps its focus and its caret */}
                 onClick={() => (dictate.live ? dictate.stop() : dictate.start())}>
-                <span ref={micRing} className="composer-dictate-ring" aria-hidden="true" />
-                <Icon name="mic" size={16} />
+                <Icon name="mic" size={16} className="dictate-mic" />
+                <span ref={micMeter} className="dictate-live" aria-hidden="true">
+                  {MIC_BARS.map((_, i) => <span key={i} className="dictate-bar" />)}
+                  <span className="dictate-stop" />
+                </span>
               </button>
             )}
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,

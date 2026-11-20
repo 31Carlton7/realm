@@ -120,7 +120,7 @@ describe("dictating into the prompter", () => {
     const { store } = await mount();
     typeAt("Fix  please", 4);
     fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
-    expect(screen.getByRole("button", { name: "Stop dictating" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Stop dictation" }).getAttribute("aria-pressed")).toBe("true");
     heard("the login");
     expect(box().value).toBe("Fix the login please");
     expect(dictating()).toBe("the login");
@@ -158,7 +158,7 @@ describe("dictating into the prompter", () => {
     expect(model()).toBe("Getting this Mac's speech model…42%");
     await download.ready({ t: "ready", stt: "analyzer" });
     expect(model()).toBeNull();
-    expect(screen.getByRole("button", { name: "Stop dictating" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Stop dictation" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("stops on Esc while the speech model is still coming, and lands nothing", async () => {
@@ -185,7 +185,7 @@ describe("dictating into the prompter", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
     fireEvent.keyDown(box(), { key: "Escape" });
     expect(mic.stops).toBe(1);
-    fireEvent.click(screen.getByRole("button", { name: "Stop dictating" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
     expect(mic.stops).toBe(2);
   });
 
@@ -197,12 +197,12 @@ describe("dictating into the prompter", () => {
     await helper.ready({ t: "ready", stt: "analyzer" });
     helper.emit({ t: "partial", turn: 1, text: "run the build" });
     helper.emit({ t: "final", turn: 1, text: "run the build" });
-    expect(screen.getByRole("button", { name: "Stop dictating" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Stop dictation" }).getAttribute("aria-pressed")).toBe("true");
     expect(dictating()).toBe("run the build");
     helper.emit({ t: "partial", turn: 2, text: "and the tests" });
     expect(dictating()).toBe("run the build and the tests");
     expect(store.getState().drafts["se1"] ?? "").toBe("");
-    fireEvent.click(screen.getByRole("button", { name: "Stop dictating" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
     helper.emit({ t: "final", turn: 2, text: "and the tests" });
     await act(async () => { await new Promise((res) => setTimeout(res, 0)); });
     expect(store.getState().drafts["se1"]).toBe("run the build and the tests");
@@ -407,26 +407,46 @@ describe("dictating into the prompter", () => {
     expect(box().selectionStart).toBe("Fix the login test".length);
   });
 
-  it("swells the mic's ring with the voice, and holds it still under Reduce motion", async () => {
+  it("runs the voice across the pill's bars, and shows them the level alone under Reduce motion", async () => {
     await mount();
     fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
-    const ring = () => document.querySelector<HTMLElement>(".composer-dictate .composer-dictate-ring")!;
+    const bars = () => [...document.querySelectorAll<HTMLElement>(".composer-dictate .dictate-bar")].map((b) => b.style.getPropertyValue("--mic-level"));
+    expect(bars()).toHaveLength(4);
     act(() => mic.events!.level(0.2));
-    expect(ring().style.getPropertyValue("--mic-level")).toBe("1.000");
+    // THE MUTANTS: every bar at one lag or one gain, which is a single meter drawn four times.
+    expect(bars()).toEqual(["0.000", "1.000", "0.000", "0.000"]);
+    act(() => mic.events!.level(0.2));
+    act(() => mic.events!.level(0.2));
+    expect(bars()).toEqual(["0.000", "1.000", "0.800", "0.000"]);
     act(() => mic.events!.level(0));
-    expect(Number(ring().style.getPropertyValue("--mic-level"))).toBeLessThan(1);
+    expect(Number(bars()[1])).toBeLessThan(1);
     await finished("");
-    expect(ring().style.getPropertyValue("--mic-level")).toBe("");
+    expect(bars()).toEqual(["", "", "", ""]);
 
     vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q }) as MediaQueryList);
     try {
       fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
-      // THE MUTANT: the level written whatever the preference, so the ring keeps moving.
+      // THE MUTANT: the lag kept under Reduce motion, so the level still runs across the bars.
       act(() => mic.events!.level(0.2));
-      expect(ring().style.getPropertyValue("--mic-level")).toBe("");
+      expect(bars()).toEqual(["0.600", "1.000", "0.800", "0.650"]);
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("is one button throughout, pressed and named as the stop while it listens", async () => {
+    await mount();
+    const button = screen.getByRole("button", { name: "Dictate" });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+    // THE MUTANT: a second control swapped in for the pill, which loses the keyboard's place on it.
+    expect(screen.getByRole("button", { name: "Stop dictation" })).toBe(button);
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.getAttribute("title")).toBe("Stop dictation (Esc)");
+    expect(button.querySelectorAll(".dictate-bar")).toHaveLength(4);
+    expect(button.querySelector(".dictate-live")!.getAttribute("aria-hidden")).toBe("true");
+    fireEvent.click(button);
+    expect(mic.stops).toBe(1);
   });
 
   it("offers the mic and nothing that opens a conversation", async () => {

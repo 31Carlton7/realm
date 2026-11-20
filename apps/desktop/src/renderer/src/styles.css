@@ -6142,18 +6142,31 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 @container (max-width: 464px) { .composer-mode-label[data-mode="plan"] { display: none; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
-/* Listening: the mic in the accent, over a tinted disc that swells with the voice (`--mic-level`,
-   0–1, written each frame) inside the button's own box, never past it. At rest in a silent room it
-   is the disc at its smallest, which already says the mic is open. Under Reduce motion nothing
-   writes the level and the disc stands at its full size. */
-.composer-dictate { position: relative; }
-.composer-dictate > svg { position: relative; }
-.composer-dictate-ring { position: absolute; inset: 2px; border-radius: 999px; background: var(--accent-tint);
-  opacity: 0; scale: .7; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-fade), scale var(--dur-drag) linear; }
-.composer-dictate[aria-pressed="true"], .composer-dictate[aria-pressed="true"]:hover { background: none; color: var(--rl-accent); }
-.composer-dictate[aria-pressed="true"] .composer-dictate-ring { opacity: 1; scale: calc(.7 + var(--mic-level, 0) * .3); }
+/* Listening, the mic button itself becomes the recorder: it grows on the spring into a red pill (the
+   destructive fill, white on it) holding four level bars and a stop square, and a press anywhere on
+   it stops. Its right edge stays put against send, so the stop square lands where the mic was and the
+   model chip beside it is the one thing that moves, 20px left on the same spring; the "+" group never
+   moves. The height and the corner are the icon button's, so the pill stays on the control rung.
+   Each bar's level (`--mic-level`, 0-1) is written onto it each frame; the stop square and the bars
+   come in on the icon swap. Under Reduce motion the width and the swap cut, and the bars follow the
+   level alone. The hovered and pressed states keep the width on the spring: a press is what starts it. */
+.composer-actions .composer-dictate { width: 28px;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, width var(--dur-base) var(--spring-smooth); }
+.composer-actions .composer-dictate:is(:hover, :active, [data-press-tracking]) { transition-duration: 0s, 0s, var(--dur-base); }
+.composer-actions .composer-dictate[aria-pressed="true"] { width: 48px; background: var(--rl-danger-fill); color: var(--rl-danger-contrast); }
+.composer-actions .composer-dictate[aria-pressed="true"]:hover { background: var(--rl-danger-fill-hover); color: var(--rl-danger-contrast); }
+.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-danger-press); color: var(--rl-danger-contrast); }
+.dictate-live { display: flex; align-items: center; gap: 2px; justify-self: end; padding-right: 8px; pointer-events: none; }
+/* In a silent room each bar rests at a height of its own, so a quiet stretch still reads as a meter
+   that is listening, never as a row of dots that has stopped. Still, not looped: the pill and its stop
+   square are what say it is on. */
+.dictate-bar { --bar-rest: .3; width: 2px; height: 14px; border-radius: 1px; background: currentColor;
+  scale: 1 calc(var(--bar-rest) + var(--mic-level, 0) * (1 - var(--bar-rest))); transition: scale var(--dur-drag) linear; }
+.dictate-bar:nth-child(2) { --bar-rest: .5; }
+.dictate-bar:nth-child(3) { --bar-rest: .4; }
+.dictate-stop { width: 9px; height: 9px; margin: 0 1.5px 0 5.5px; border-radius: 2px; background: currentColor; }
 @media (prefers-reduced-motion: reduce) {
-  .composer-dictate[aria-pressed="true"] .composer-dictate-ring { scale: 1; }
+  .composer-actions .composer-dictate, .composer-dictate > *, .dictate-bar { transition: none; }
 }
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
    §6 forbids animating during an active drag, so this is a static swap — no transition here, and the
@@ -7657,12 +7670,13 @@ select { appearance: none; padding-right: 22px;
    it read as one glyph turning over rather than two crossing past each other, and the control keeps
    ONE glyph box and ONE accessible name throughout: a swap is a change of state, not of control. */
 .icon-swap { display: grid; place-items: center; }
-.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .msg-action .copy-icon, .msg-action .copied-icon, .composer-send svg, .chip-sigil > .chip-mark { grid-area: 1 / 1;
+.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .msg-action .copy-icon, .msg-action .copied-icon, .composer-send svg, .chip-sigil > .chip-mark, .composer-dictate > * { grid-area: 1 / 1;
   transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
 .icon-swap:not([data-on]) .swap-on, .icon-swap[data-on] .swap-off,
 .tool-copy:not([data-copied]) .copied-icon, .tool-copy[data-copied] .copy-icon,
 .msg-action:not([data-copied]) .copied-icon, .msg-action[data-copied] .copy-icon,
-.composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon {
+.composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon,
+.composer-dictate[aria-pressed="true"] .dictate-mic, .composer-dictate[aria-pressed="false"] .dictate-live {
   opacity: 0; transform: scale(.25); filter: blur(4px); }
 
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
