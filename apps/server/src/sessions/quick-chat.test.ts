@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { MODEL_EFFORTS_KEY } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type StartOptions } from "@realm/adapters";
 import { createApp, type App } from "../app";
@@ -111,6 +112,33 @@ describe("quick chat engines", () => {
     const elsewhere = await start(other.id);
     expect(elsewhere.id).not.toBe(spare2);
     expect(elsewhere.spaceId).toBe(other.id);
+    c.close();
+  });
+
+  it("starts a quick chat on the lowest level its model takes, which its picker can raise", async () => {
+    const claude = new CountingFake({ script: [] });
+    app = await createApp({ home: tempDir("realm-"), port: 0, adapters: { claude } });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    await c.call("settings.set", { key: "quickChatModel", value: { agentKind: "claude", model: "claude-haiku-5-5" } });
+    // The levels Claude Code said this model takes, lowest first: the first one, not a fixed "low".
+    await c.call("settings.set", { key: MODEL_EFFORTS_KEY, value: { "claude:claude-haiku-5-5": ["medium", "high", "max"] } });
+    const chat = (await c.call("sessions.startQuickChat", { spaceId: sp.id })).result.session;
+    expect(chat.effort).toBe("medium");
+    expect((await c.call("sessions.setOptions", { id: chat.id, effort: "max" })).result.effort).toBe("max");
+    // Any other session keeps the default level.
+    const plain = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude", model: "claude-haiku-5-5" })).result.session;
+    expect(plain.effort).toBeNull();
+
+    // A spare on the old lowest level is not the one the next quick chat starts on.
+    await c.call("sessions.delete", { id: chat.id });
+    const spareId = (await c.call("settings.get", { key: QUICK_CHAT_SPARE_SETTING })).result.value as string;
+    expect(claude.starts.at(-1)?.effort).toBe("medium");
+    await c.call("settings.set", { key: MODEL_EFFORTS_KEY, value: { "claude:claude-haiku-5-5": ["low", "medium"] } });
+    const next = (await c.call("sessions.startQuickChat", { spaceId: sp.id })).result.session;
+    expect(next.id).not.toBe(spareId);
+    expect(next.effort).toBe("low");
     c.close();
   });
 
