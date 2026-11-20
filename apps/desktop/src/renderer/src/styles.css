@@ -2619,6 +2619,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .quick-chat-saved { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .quick-chat-saved > svg { flex: none; }
+.quick-chat-save[data-kept] > [aria-hidden] { margin-left: 4px; }
 .quick-chat-save[data-kept] > .btn-quiet { flex: none; }
 /* Where its files still land, when that is not the space it was saved to. It is the row's one
    sentence that must be read, so it takes the secondary ink and the room that is left. */

@@ -221,7 +221,7 @@ describe("the quick chat", () => {
       fireEvent.click(within(picker).getByRole("menuitem", { name: "Garden" }));
       await within(chat()).findByText("Saved to Garden");
       expect(store.getState().sessions[sessionId]!.spaceId).toBe("s5");
-      expect(within(chat()).getByText("It keeps working in Versed's folder.")).toBeInTheDocument();
+      expect(within(chat()).getByText("It keeps working in the Versed folder.")).toBeInTheDocument();
     });
 
     it("a saved chat closes without deleting, and is listed like any other session", async () => {

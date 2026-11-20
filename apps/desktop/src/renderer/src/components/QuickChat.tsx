@@ -278,7 +278,7 @@ function SaveRow({ spaces, saveSpaces, keptIn, ranIn, onKeep, onOpen }: {
   const nameOf = (id: string) => spaces.find((sp) => sp.id === id)?.name ?? "";
   /* A chat that has run keeps its folder when its space changes (`sessions.moveToSpace`), so saved
      anywhere but where it ran it goes on working in the first space's folder. */
-  const folderNote = `It keeps working in ${nameOf(ranIn)}'s folder.`;
+  const folderNote = `It keeps working in the ${nameOf(ranIn)} folder.`;
 
   if (keptIn) {
     return (
