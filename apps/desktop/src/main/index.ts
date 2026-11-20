@@ -81,6 +81,7 @@ import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
 import { registerFileActions } from "./file-actions";
+import { registerPdfExport } from "./print-pdf";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
 import { titleBarOverlay, windowChrome } from "./window-chrome";
@@ -2070,6 +2071,8 @@ ipcMain.handle("files:reveal", async (_e, path: unknown, base?: unknown): Promis
 ipcMain.handle("files:resolve", (_e, path: unknown, base?: unknown): Promise<string | null> => existingPath(path, base));
 /** Quick Look, Share and drag-out (file-actions.ts), behind the same existence gate as Reveal. */
 registerFileActions({ gate: existingPath });
+/** Download as PDF for the text files the documents pane opens (print-pdf.ts). */
+registerPdfExport();
 /** The Dock icon chosen in Settings ▸ App (app-icon.ts). Only macOS has a Dock to put it on. */
 const appIcons = new AppIconStore(app.getPath("userData"));
 const dock = process.platform === "darwin" && app.dock

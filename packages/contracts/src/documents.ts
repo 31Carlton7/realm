@@ -116,6 +116,11 @@ export function documentKindFor(path: string): DocumentKind {
   return "unsupported";
 }
 
+/** The kinds Download as PDF prints: the text the documents pane draws, as prose, a table or code. A
+ *  guide (`html`) is left out because it is drawn by its own scripts, and the print window runs none. */
+const PDF_KINDS: ReadonlySet<DocumentKind> = new Set<DocumentKind>(["doc", "slides", "latex", "sheet", "code"]);
+export const printsAsPdf = (path: string): boolean => PDF_KINDS.has(documentKindFor(path));
+
 /**
  * Second pass, once the text exists: a `.md` whose YAML front-matter sets `marp: true` is a deck, not
  * a document. Only ever promotes `doc` → `slides`; every other kind is returned untouched, so this is

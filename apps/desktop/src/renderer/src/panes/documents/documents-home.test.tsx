@@ -259,6 +259,26 @@ describe("the documents home", () => {
     expect(api.calls.filter((c) => c.startsWith("removeLibraryFiles:"))).toHaveLength(2);
   });
 
+  /* THE mutants: the row missing for a text file, offered for a PDF it cannot typeset, or sent with a
+     path other than the card's. */
+  it("offers Download as PDF after Reveal for a text file, where the bridge has it", async () => {
+    const savePdf = vi.fn(async () => null);
+    vi.stubGlobal("realm", { files: { savePdf } });
+    const scan: LibraryEntry = { id: "f1", sessionId: null, spaceId: null, kind: "added", path: "/realm-home/library/p1/scan.pdf", name: "scan.pdf",
+      ext: "pdf", ts: 90, sessionTitle: null, agentKind: null };
+    await mount({ artifacts: [art("a1", "lead", "notes/plan.md", 100), scan], addedProfiles: { f1: "p1" } });
+    expect(await namesIn("Library")).toEqual(["scan.pdf"]);
+    const labels = (menu: HTMLElement) => within(menu).getAllByRole("menuitem").map((b) => b.querySelector(".menu-label")!.textContent);
+    fireEvent.contextMenu(rowFor("plan.md"));
+    expect(labels(await screen.findByRole("menu", { name: "plan.md" }))).toEqual(["Open", "Reveal in Finder", "Download as PDF…", "Copy path"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Download as PDF/ }));
+    expect(savePdf).toHaveBeenCalledWith(`${ROOT}/notes/plan.md`);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.contextMenu(rowFor("scan.pdf"));
+    expect(labels(await screen.findByRole("menu", { name: "scan.pdf" }))).not.toContain("Download as PDF…");
+    vi.unstubAllGlobals();
+  });
+
   it("in a pane of its own, lists no session and offers nothing to add a file to", async () => {
     await mount({ owned: false, artifacts: [art("a1", "lead", "notes/plan.md", 100)] });
     expect(await namesIn("Library")).toEqual(["plan.md"]);

@@ -6,3 +6,7 @@ declare const __REALM_SIGNED_BUILD__: boolean;
 /** Baked in by electron.vite.config.ts: this build's version and its section of CHANGELOG.md, read
  *  when the app was built (main/whats-new.ts). */
 declare const __REALM_WHATS_NEW__: import("./whats-new").WhatsNewBuild;
+/** Vite's asset queries, for the PDF export's stylesheets and fonts (print-document.ts): `?raw` is a
+ *  file's text and `?inline` a data: URL of its bytes. */
+declare module "*?raw" { const text: string; export default text; }
+declare module "*?inline" { const url: string; export default url; }

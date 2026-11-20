@@ -183,6 +183,9 @@ contextBridge.exposeInMainWorld("realm", {
     finderIcon: (): Promise<string | null> => ipcRenderer.invoke("files:finder-icon"),
     /** Copy it where the user points; the saved path, or null when they cancelled. */
     saveCopy: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-copy", path),
+    /** Typeset a text file the documents pane opens as a PDF, and save it where the user points; the
+     *  saved path, or null when nothing was saved (main/print-pdf.ts). */
+    savePdf: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-pdf", path),
     /** macOS's Quick Look panel for the file — what Space does in the Finder (main/file-actions.ts). */
     quickLook: (path: string, base?: string): Promise<void> => ipcRenderer.invoke("files:quick-look", path, base),
     /** Hand a PDF to Preview — which prints it, fills its forms and signs it, none of which Realm's own

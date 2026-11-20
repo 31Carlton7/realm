@@ -1,4 +1,5 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { printsAsPdf } from "@realm/contracts";
 import type { MenuItem } from "./Menu";
 import { canQuickLook, canShare, quickLook, shareFile } from "./file-actions";
 import { capabilities } from "../platform";
@@ -26,9 +27,18 @@ export function fileMenuItems({ path, onOpen, shareFrom, onRemove }: {
     ...(canQuickLook() ? [{ label: "Quick Look", kbd: "Space", onSelect: () => quickLook(path) } as MenuItem] : []),
     ...(canShare() ? [{ label: "Share…", onSelect: () => shareFile(path, shareFrom()) } as MenuItem] : []),
     { label: `Reveal in ${capabilities().fileManager}`, onSelect: () => { void window.realm?.files?.reveal?.(path); } },
+    ...downloadPdfItems(path),
     { label: "Copy path", onSelect: () => { void navigator.clipboard?.writeText?.(path); } },
     ...(onRemove ? [{ kind: "separator" } as MenuItem, removeFromLibraryItem(onRemove)] : []),
   ];
+}
+
+/** Download as PDF, for a file the documents pane draws as text (main/print-pdf.ts). Only where the
+ *  bridge has it. */
+export function downloadPdfItems(path: string): MenuItem[] {
+  const savePdf = window.realm?.files?.savePdf;
+  if (typeof savePdf !== "function" || !printsAsPdf(path)) return [];
+  return [{ label: "Download as PDF…", onSelect: () => { void savePdf(path); } }];
 }
 
 export const removeFromLibraryItem = (onSelect: () => void): MenuItem =>
