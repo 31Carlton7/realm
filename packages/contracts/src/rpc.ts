@@ -2286,6 +2286,11 @@ export const Methods = {
    *  list; the origin space drops it via items.changed the same way sessions.delete does. Moving to the
    *  space a session is already in is a no-op, even once it has run. */
   "sessions.moveToSpace": { params: z.object({ id: IdSchema, spaceId: IdSchema }), result: SessionSchema },
+  /** Keep a quick chat: the `unlisted` session gets its item in `spaceId`, moving there first
+   *  (`sessions.moveToSpace`, with everything that carries) when it ran somewhere else. From then on
+   *  it is an ordinary session of that space. Keeping one that already has an item moves it and makes
+   *  no second item. */
+  "sessions.keep": { params: z.object({ id: IdSchema, spaceId: IdSchema }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
   /** What moving this session would carry and leave behind, and where it can go (the Move sheet). */
   "sessions.moveOptions": { params: z.object({ id: IdSchema }), result: MoveOptionsSchema },
   /**

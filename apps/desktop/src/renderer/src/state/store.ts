@@ -476,6 +476,8 @@ export type Api = TeammatesApi & {
   setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
   /** `sessions.moveToSpace` — same guard as setAgent/setEnvironment: rejected once the session has any event. */
   moveSessionToSpace(id: string, spaceId: string): Promise<Session>;
+  /** `sessions.keep`: list an unlisted session (the quick chat) in a space, moving it there first. */
+  keepSession(id: string, spaceId: string): Promise<{ session: Session; itemId: string }>;
   /** `sessions.moveOptions`: what moving a started session would carry and leave, for the Move sheet. */
   sessionMoveOptions(id: string): Promise<MoveOptions>;
   /** `sessions.move`: a started session to another checkout or a new worktree. */
@@ -1739,7 +1741,12 @@ export type AppState = TeammatesSlice & {
    * It still RUNS somewhere — an agent needs a working directory — so the row carries the space it
    * was made in. That is a fact about where its commands land, not about which list it appears in.
    */
-  quickChat: { sessionId: string } | null;
+  quickChat: {
+    sessionId: string;
+    /** The space it was saved to, once it has been: from then on it is that space's session, which
+     *  this window happens to still be showing, and closing the window deletes nothing. */
+    keptIn: string | null;
+  } | null;
   /** The media viewer, when a file is open in it — see `state/viewer.ts`. Transient: a file is looked
    *  at, not kept, so it is never written into the saved view and a profile switch takes it away. */
   viewer: ViewerState | null;
@@ -2661,8 +2668,13 @@ export type AppState = TeammatesSlice & {
    *  there is one quick chat, and a button that stacked windows would be a way to lose one. */
   openQuickChat(): Promise<void>;
   /** Close it, which DELETES the session — the window is the only place it was ever shown, so
-   *  leaving the row behind would be leaving litter nobody asked to keep. */
+   *  leaving the row behind would be leaving litter nobody asked to keep. One that was saved to a
+   *  space is that space's session and is left alone. */
   closeQuickChat(): Promise<void>;
+  /** Save the quick chat to a space (`sessions.keep`). The window stays up. */
+  keepQuickChat(spaceId: string): Promise<void>;
+  /** Put the window away and bring the saved chat forward as the session it now is. */
+  openKeptQuickChat(): Promise<void>;
   /** Where the window sits, from a drag. Clamped by the window itself, which is the only thing that
    *  knows how big it is. */
   setQuickChatPos(pos: { x: number; y: number }): void;
@@ -3675,7 +3687,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const qc = get().quickChat; const pos = get().quickChatPos;
       // The position is kept even with no chat: closing removes the conversation, not the corner the
       // user put the window in.
-      await api.setSetting(SETTING_QUICK_CHAT, { sessionId: qc?.sessionId ?? null, pos });
+      // A saved chat is its space's session by now, so a relaunch does not bring the window back.
+      await api.setSetting(SETTING_QUICK_CHAT, { sessionId: qc && !qc.keptIn ? qc.sessionId : null, pos });
     };
     const scheduleQuickChatPersist = () => {
       if (quickTimer) clearTimeout(quickTimer);
@@ -3699,7 +3712,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const session = await api.getSession(id).catch(() => null);
       if (!session) { set({ quickChat: null }); await persistQuickChat(); return; }
       set({ sessions: { ...get().sessions, [session.id]: session }, sessionStatus: { ...get().sessionStatus, [session.id]: session.status },
-        sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id } });
+        sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id, keptIn: null } });
       await get().openSession(session.id);
     };
     /** `refreshSessions` REBUILDS each refreshed space's slice of `sessions`, and a profile switch
@@ -7629,7 +7642,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Unconditional, unlike every other create: the quick chat outlives the active space, so its
         // row has to be in `sessions` whichever space is current (see `keepQuickChatSession`).
         set({ sessions: { ...get().sessions, [session.id]: session }, sessionStatus: { ...get().sessionStatus, [session.id]: session.status },
-          sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id } });
+          sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id, keptIn: null } });
         await get().openSession(session.id);
         await persistQuickChat();
       },
@@ -7639,6 +7652,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Cleared FIRST so the window goes at once. The delete is a round trip, and a window that sat
         // there waiting for it would look like a close that had not worked.
         set({ quickChat: null });
+        if (qc.keptIn) { await persistQuickChat(); return; }
         dropTranscript(qc.sessionId);
         const { [qc.sessionId]: _s, ...sessions } = get().sessions;
         const { [qc.sessionId]: _st, ...sessionStatus } = get().sessionStatus;
@@ -7649,6 +7663,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await persistQuickChat();
         // There is no item to delete THROUGH — an unlisted session has none — so this is the route.
         await api.deleteSession(qc.sessionId);
+      },
+      async keepQuickChat(spaceId) {
+        const qc = get().quickChat;
+        if (!qc) return;
+        const { session } = await api.keepSession(qc.sessionId, spaceId);
+        mergeSession(session);
+        set({ quickChat: { sessionId: session.id, keptIn: spaceId } });
+        if (inProfile(spaceId)) await loadSpaceItems(spaceId);
+        await persistQuickChat();
+      },
+      async openKeptQuickChat() {
+        const qc = get().quickChat;
+        if (!qc?.keptIn) return;
+        await get().closeQuickChat();
+        await get().revealSession(qc.sessionId, qc.keptIn);
       },
       setQuickChatPos(pos) { set({ quickChatPos: pos }); scheduleQuickChatPersist(); },
       openViewer(input) {
