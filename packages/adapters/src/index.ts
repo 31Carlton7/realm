@@ -7,6 +7,7 @@ export { bundledClaude, claudeExecutable, probeClaude, probeClaudeBinary } from 
 export { generateSvgIcon } from "./claude/generate-svg-icon";
 export { generateSessionTitle } from "./claude/generate-session-title";
 export { cleanDictation, DICTATION_MODEL, type CleanedDictation } from "./claude/clean-dictation";
+export { ClaudeLiveAnswers, LIVE_ANSWER_WARM_MS, liveAnswerPrompt, type LiveAnswerModel, type LiveAnswerRequest } from "./claude/live-answer";
 export { cleanSummary, SUMMARY_MAX } from "./claude/generate-session-summary";
 export { cleanHint, HINT_MAX } from "./claude/generate-prompt-hint";
 export { generateSessionRecap, splitRecap, type Recap, type RecapInput } from "./claude/generate-session-recap";

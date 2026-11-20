@@ -101,6 +101,7 @@ import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { QuickChatEngines } from "./sessions/quick-chat";
+import { LiveAnswers } from "./meetings/live-answers";
 import { TabContextReader } from "./sessions/tab-context";
 import { RECAP_AFTER_IDLE_MS, SessionSummaryService } from "./sessions/summary";
 import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
@@ -108,7 +109,7 @@ import { ToolResultFiles } from "./mcp/tool-results";
 import { AccountsService, type AccountsDeps } from "./accounts/service";
 import { AccountsStore } from "./store/accounts";
 import { PlanLimitsService } from "./limits/service";
-import type { MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
+import type { LiveAnswerModel, MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
 import { UserCommandsService } from "./commands/service";
 import { ScriptService } from "./scripts/service";
@@ -842,6 +843,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  A billed call, but one the person asks for by turning the switch on and talking, so `main.ts`
    *  passes it even with the scripted agent on; a test passes a fake, or none. */
   dictationCleanup?: DictationCleanup;
+  /** A meeting's live answers. Unset, `meeting.answer` says they are not available. */
+  liveAnswers?: LiveAnswerModel;
   /** One call answering BOTH of a settle's model-written fields — the summary and the prompter's
    *  hint. Omitted on any build that must not make a billed call: without it the panes show the
    *  derived line and the prompter keeps its deterministic ladder. */
@@ -1888,9 +1891,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let access: Access | null = null;
   const owner = opts.owner ?? "app";
   const quickChats = new QuickChatEngines({ sessions, settings, registered: Object.keys(adapterRegistry) as AgentKind[], ...(opts.quickChat?.warmMs ? { warmMs: opts.quickChat.warmMs } : {}) });
+  const liveAnswers = new LiveAnswers({ model: () => quickChats.model(), engine: opts.liveAnswers ?? null });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, liveAnswers, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
@@ -2045,6 +2049,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     await layaShadow.close();
     await laya.close();
     await quickChats.stop();
+    liveAnswers.close();
     await sessions.closeAll();
     // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
     // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.

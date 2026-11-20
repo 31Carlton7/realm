@@ -59,6 +59,7 @@ import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
 import type { QuickChatEngines } from "../sessions/quick-chat";
+import type { LiveAnswers } from "../meetings/live-answers";
 import type { NotificationsService } from "../notifications/service";
 import type { UsageService } from "../usage/service";
 import type { GraphifyService } from "../graphify/service";
@@ -106,7 +107,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; quickChats: QuickChatEngines; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; tabContext: TabContextReader; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService; dictation: DictationCleaner;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; quickChats: QuickChatEngines; liveAnswers: LiveAnswers; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; tabContext: TabContextReader; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService; dictation: DictationCleaner;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -332,6 +333,15 @@ export function registerMethods(d: Deps): void {
   reg("accounts.remove", async (p) => { await d.accounts.remove(p.id); return { ok: true as const }; });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("dictation.clean", (p) => d.dictation.clean(p.text));
+  // Raw `rpc.register`, like `browserHost.register`: the answer streams to the asking socket alone, so
+  // no other window, phone or CLI ever receives the words.
+  rpc.register("meeting.answer", Methods["meeting.answer"].params, async (p, ctx) => {
+    const client = ctx.client;
+    if (!client || ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only Realm's own app can ask for a live answer");
+    return d.liveAnswers.ask(p, (e) => { if (!rpc.sendTo(client, "meeting.answer", e) && e.t !== "cancelled") d.liveAnswers.cancel(); });
+  });
+  reg("meeting.cancelAnswer", () => { d.liveAnswers.cancel(); return { ok: true as const }; });
+  reg("meeting.prepareAnswers", () => { d.liveAnswers.prepare(); return { ok: true as const }; });
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
     // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output
