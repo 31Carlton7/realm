@@ -1,5 +1,36 @@
 # Changelog
 
+## v2.19.0 - 2026-11-19
+
+A space gets a page of its own, and Documents gets a grid.
+
+### New
+
+- **The space's name opens its page.** Click the name at the head of the sidebar, or focus it and press Enter or Space, and the space's page opens on the section you last chose. The ··· menu, the right-click menu and Rename work as before. (#508)
+- **A space's page is headed by the space.** The page opens with the space's icon in a tile of its colour beside its name, with the section you are on named underneath. Name, Icon, Color and Profile sit together in one card, with Delete in its own card below. Fields and buttons are larger and see-through over the pane, and the Worktrees list shows three checkouts with "Show all" for the rest. (#510)
+- **Queued messages keep their model.** A message you queue runs on the model, effort and fast mode the picker showed when you queued it, even if you change the picker before its turn. Each row says what it will run on when that differs from the picker or the running turn, and the picker goes back once the turn ends. (#509)
+- **Documents in a grid.** The Documents home has a List / Grid switch, and Realm remembers your choice. In Grid each file is a card with a preview: pictures and video show their thumbnail, PDFs their first page, Markdown the top of the page rendered, and code, text and CSV their first lines. A card opens, drags and previews with Space just as its row does, and the arrow keys move across the grid. (#515, #514)
+
+### Improved
+
+- **Glass pickers frost what is behind them.** The model, mention, slash and skill pickers and the selection bar now blur the words under them instead of leaving them sharp. (#503)
+- **Glass fits every surface.** The prompter, the pickers, the selection bar, the selected segment of every segmented control and the knob of every switch each get a lens drawn for their own box, with a light rim on two sides, closer to macOS 26. (#505)
+- **Dark Glass takes the picture's light.** Over a picture, dark Glass stays as bright as what is behind it and keeps its colour, dimming only as far as its words need to stay readable. Over a dark picture it no longer turns navy or near black, and over a bright one its words keep their contrast. This reaches the prompter and the model, effort and account pickers. (#516)
+- **Glass inside the model picker.** With Glass on, the lit row, the effort track and the account row and its menu are see-through tints instead of grey blocks. (#507)
+- **The account list grows out of its row.** In the model picker, the account list opens upward from its row, in Plain and in Glass. Reduce motion turns the animation off. (#507)
+- **The prompter names its mode.** In Plan and Ask mode, a quiet word beside the permission chip says so ("Plan", "Ask mode"), and clicking it goes back to Build. An active goal shows "Goal". Build shows nothing. The coloured ring around the whole prompter is gone, and the card keeps a soft wash of the mode's colour. (#502)
+- **The Plain model picker takes the picture.** In Plain over a picture, the model picker shows the picture through it, blurred and dimmed, instead of a grey panel. With no picture, or with Reduce Transparency on, it keeps its solid surface. The account switcher's well and hovered row are tints in both looks, and the hovered row stands clearly above the rest. (#517)
+- **Glass under Low power.** Realm's own Low power no longer turns Glass off. When the Mac's Reduce Transparency or Low Power Mode is holding Glass back, Settings ▸ Appearance ▸ Controls says which one and where to change it in System Settings. (#503)
+- **Document cards on one curve.** On the Documents grid and in the Library, a file card, the preview well inside it and the button in the well's corner now share one curve, so a hovered card shows a single clean edge. (#531)
+
+### Fixed
+
+- On a Retina screen, the dark Glass model picker no longer shows the transcript through it. (#505)
+- Going back to a space opens the screen you left it on, the same chat with its side pane and any page that was up over it, instead of the space's newest session. Each window remembers its own, and it holds after a relaunch. If that session has since been deleted or archived, the space opens on its Overview. (#512, fixes #511)
+- Text scrolling under a bar no longer shows twice, sharp with a blurred copy on top. The edge of Settings and the other pages, the transcript under its bar and the lines above the prompter now blur once, with Glass on or off. The blur above the prompter comes in only as far as the chat runs past it, so the last line is no longer smudged when you stop a few pixels short of the end. (#506, #523)
+- The prompter has its squircle edge back, in Plain and in Glass, and the strip under it and the band above it now sit on the prompter's curve instead of meeting it with square corners. (#504)
+- The chosen segment of every segmented control now follows its track's curve, so the two corners run parallel, and under Glass the rim follows the same curve. Segmented controls also grow with the text size instead of cutting off their labels at large sizes. (#525, #527)
+
 ## v2.18.0 - 2026-11-18
 
 Realm lets the picture through.
