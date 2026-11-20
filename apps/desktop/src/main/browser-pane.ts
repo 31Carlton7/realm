@@ -157,16 +157,29 @@ export function electronViewFactory(
        not get is the pane's saved passwords and passkeys: those are installed per pane and answer for
        the pane's page, never for another. */
     const popups = new Set<BrowserWindow>();
+    /* Whether a person pressed something for the window Chromium just made. Chromium knows (its
+       `user_gesture`) and passes it to Electron's internal "-add-new-contents" event, which runs just
+       before `createWindow` and keeps it to itself (lib/browser/api/web-contents.ts), so it is read
+       here off that event, ahead of Electron's own listener. That catches a press in a cross-site
+       frame too, which the page's input events never show main. An Electron that changes the event
+       leaves `gesture` null, and the main frame's input decides alone. */
+    let gesture: boolean | null = null;
+    wc.prependListener("-add-new-contents", (_e: unknown, _page: unknown, _disposition: unknown, userGesture: unknown) => {
+      gesture = typeof userGesture === "boolean" ? userGesture : null;
+    });
     const activation = new UserActivation();
     wc.on("input-event", (_e, input) => activation.note(input.type, Date.now()));
+    const pressed = () => {
+      const was = gesture ?? activation.consume(Date.now());
+      gesture = null;
+      return was;
+    };
     const openWindow = (opener: WebContents) => (details: HandlerDetails): WindowOpenHandlerResponse => {
-      // A popup's own links stay in the popup whatever pressed them (below), so only the pane's page
-      // spends its activation.
-      const action = windowOpenAction(details, popups.size, opener !== wc || activation.consume(Date.now()));
+      const action = windowOpenAction(details, popups.size);
       const tab = action === "foreground-tab" || action === "background-tab";
       if (tab && opener === wc) {
         if (!hooks.allowNavigate(details.url)) return { action: "deny" };
-        return hostedTab<WebContents>(webPreferences, (page) => hooks.openTab(details.url, action === "background-tab", page));
+        return hostedTab<WebContents>(webPreferences, pressed, (page) => hooks.openTab(details.url, action === "background-tab", page));
       }
       if (action === "in-place" || tab) {
         if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }

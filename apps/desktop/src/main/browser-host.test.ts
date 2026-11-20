@@ -82,45 +82,35 @@ describe("windowOpenAction", () => {
   it("a window.open with features is a popup — the sign-in shape every SDK uses", () => {
     // Chromium reports `window.open(url, "auth", "width=500,height=600")` as a new window. The mutant
     // that drops that clause sends every sign-in back into the pane.
-    expect(windowOpenAction({ url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x", disposition: "new-window" }, 0, true)).toBe("popup");
+    expect(windowOpenAction({ url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x", disposition: "new-window" }, 0)).toBe("popup");
   });
 
   it("a link meant for a new tab is a new tab: in front for a click, behind for a ⌘- or middle-click", () => {
     // The owner's bug (#537): target=_blank, window.open(url), noopener and a form's target=_blank all
     // replaced the page that was clicked on. THE MUTANT: answer "in-place" for either tab.
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "foreground-tab" }, 0, true)).toBe("foreground-tab");
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "background-tab" }, 0, true)).toBe("background-tab");
-  });
-
-  it("a tab the page asks for with no click is refused, as Chrome's popup blocker refuses it", () => {
-    // Measured on 2.19.0 (#539): a window.open(url) as a page loads, or from its timer, reaches the
-    // handler as a foreground tab with no click behind it. Main navigated the pane away to it; #539
-    // opened a tab for each. THE MUTANT: ignore `activated`, and a page spawns tabs on its own.
-    expect(windowOpenAction({ url: "https://example.com/ad", disposition: "foreground-tab" }, 0, false)).toBe("refuse");
-    expect(windowOpenAction({ url: "https://example.com/ad", disposition: "background-tab" }, 0, false)).toBe("refuse");
-    // A popup is a sign-in's, and is bounded by POPUP_LIMIT as before.
-    expect(windowOpenAction({ url: "https://accounts.google.com/", disposition: "new-window" }, 0, false)).toBe("popup");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "foreground-tab" }, 0)).toBe("foreground-tab");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "background-tab" }, 0)).toBe("background-tab");
   });
 
   it("anything else that is not a window stays in place", () => {
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "default" }, 0, true)).toBe("in-place");
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "current-tab" }, 0, true)).toBe("in-place");
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "other" }, 0, true)).toBe("in-place");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "default" }, 0)).toBe("in-place");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "current-tab" }, 0)).toBe("in-place");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "other" }, 0)).toBe("in-place");
   });
 
   it("an empty window is a popup whatever its disposition: the page means to script it, and the pane must not go blank", () => {
     // `window.open()` arrives as a foreground tab on about:blank. In place, it navigated the pane to a
     // blank page — the mutant that drops the clause brings that back.
-    expect(windowOpenAction({ url: "about:blank", disposition: "foreground-tab" }, 0, true)).toBe("popup");
-    expect(windowOpenAction({ url: "", disposition: "foreground-tab" }, 0, true)).toBe("popup");
+    expect(windowOpenAction({ url: "about:blank", disposition: "foreground-tab" }, 0)).toBe("popup");
+    expect(windowOpenAction({ url: "", disposition: "foreground-tab" }, 0)).toBe("popup");
   });
 
   it("refuses a popup past the limit — Electron has no popup blocker — and still lets links through", () => {
     const signIn = { url: "https://accounts.google.com/", disposition: "new-window" };
-    expect(windowOpenAction(signIn, POPUP_LIMIT - 1, true)).toBe("popup");
-    expect(windowOpenAction(signIn, POPUP_LIMIT, true)).toBe("refuse"); // the `<=` mutant opens one more
-    expect(windowOpenAction({ url: "about:blank", disposition: "foreground-tab" }, POPUP_LIMIT, true)).toBe("refuse");
-    expect(windowOpenAction({ url: "https://example.com/", disposition: "foreground-tab" }, POPUP_LIMIT, true)).toBe("foreground-tab");
+    expect(windowOpenAction(signIn, POPUP_LIMIT - 1)).toBe("popup");
+    expect(windowOpenAction(signIn, POPUP_LIMIT)).toBe("refuse"); // the `<=` mutant opens one more
+    expect(windowOpenAction({ url: "about:blank", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("refuse");
+    expect(windowOpenAction({ url: "https://example.com/", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("foreground-tab");
   });
 });
 
@@ -157,17 +147,29 @@ describe("hostedTab", () => {
     // if the popup were blocked, and the window.opener link and a POST form's body were gone.
     // THE MUTANT: answer "deny".
     const adopt = vi.fn();
-    const r = hostedTab({ partition: P }, adopt);
+    const r = hostedTab({ partition: P }, () => true, adopt);
     expect(r.action).toBe("allow");
-    const page = { id: 7 };
+    const page = { close: vi.fn() };
     // THE MUTANT: make a page of our own here, and Electron throws — the window it made is not hosted.
     expect(r.createWindow({ webContents: page })).toBe(page);
     expect(adopt).toHaveBeenCalledWith(page);
+    expect(page.close).not.toHaveBeenCalled();
+  });
+
+  it("closes the window a page opened with nobody pressing anything, and makes no tab of it", () => {
+    // Measured on 2.19.0 (#539): a window.open(url) as a page loads, or from its timer, reaches the
+    // handler as a foreground tab like a click's. Main navigated the pane away to it; #539 opened a tab
+    // for each. THE MUTANT: ignore `pressed`, and a page spawns tabs on its own.
+    const adopt = vi.fn();
+    const page = { close: vi.fn() };
+    hostedTab({ partition: P }, () => false, adopt).createWindow({ webContents: page });
+    expect(adopt).not.toHaveBeenCalled();
+    expect(page.close).toHaveBeenCalled();
   });
 
   it("outlives the page that opened it, as a tab does, in the pane's profile", () => {
     // THE MUTANT: drop outlivesOpener, and closing the page that opened a tab closes the tab too.
-    const r = hostedTab({ partition: P, sandbox: true }, () => {});
+    const r = hostedTab({ partition: P, sandbox: true }, () => true, () => {});
     expect(r.outlivesOpener).toBe(true);
     expect(r.overrideBrowserWindowOptions).toEqual({ webPreferences: { partition: P, sandbox: true } });
   });

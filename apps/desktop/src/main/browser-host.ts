@@ -351,20 +351,17 @@ export const POPUP_LIMIT = 3;
  *
  * A request for a tab — a `target=_blank` link or form, a plain `window.open(url)`, a ⌘- or
  * middle-click — is a **tab**: a new Realm Browser tab beside this one, in front for `foreground-tab`
- * and behind it for `background-tab`, as any browser does (`hostedTab`). Navigating the pane in place
- * instead (what these did before) threw away the page that was clicked on. Only `activated` — the
- * person pressed something in the page a moment ago (`UserActivation`) — makes one: Chromium reports
- * a `window.open(url)` from a page's load or timer as a foreground tab too, and that is **refused**, as
- * Chrome's popup blocker refuses it. Anything else (`default`, `current-tab`) goes **in-place**.
+ * and behind it for `background-tab`, as any browser does (`hostedTab`, which also refuses one nobody
+ * pressed for). Navigating the pane in place instead (what these did before) threw away the page that
+ * was clicked on. Anything else (`default`, `current-tab`) goes **in-place**.
  *
  * Deliberately not sniffed from the address: the sign-in SDKs that use a popup give it a size, and a
  * link to an authorize URL is a redirect flow, which finishes in place.
  */
-export function windowOpenAction(request: WindowRequest, popupsOpen: number, activated: boolean): "popup" | "foreground-tab" | "background-tab" | "in-place" | "refuse" {
+export function windowOpenAction(request: WindowRequest, popupsOpen: number): "popup" | "foreground-tab" | "background-tab" | "in-place" | "refuse" {
   const wantsWindow = request.disposition === "new-window" || request.url === "about:blank" || request.url === "";
   if (wantsWindow) return popupsOpen < POPUP_LIMIT ? "popup" : "refuse";
-  if (request.disposition !== "foreground-tab" && request.disposition !== "background-tab") return "in-place";
-  return activated ? request.disposition : "refuse";
+  return request.disposition === "foreground-tab" || request.disposition === "background-tab" ? request.disposition : "in-place";
 }
 
 /** How long a press lets the page open a tab: Chromium's transient user activation lifespan. */
@@ -373,9 +370,9 @@ export const ACTIVATION_MS = 5_000;
 const ACTIVATING_INPUT = new Set(["mouseDown", "rawKeyDown", "keyDown", "touchEnd"]);
 
 /**
- * Whether the person just pressed something in a page, for `windowOpenAction`. Electron hands the
- * window-open handler no user-gesture bit, so this keeps Chromium's rule from the page's own input:
- * a press activates the page for `ACTIVATION_MS`, and opening a tab spends it — one press, one tab.
+ * Whether the person just pressed something in a page, kept from the page's own input by Chromium's
+ * rule: a press activates the page for `ACTIVATION_MS`, and opening a tab spends it — one press, one
+ * tab. Only the main frame's input reaches main, so a press in a cross-site frame is not seen here.
  */
 export class UserActivation {
   private at = Number.NEGATIVE_INFINITY;
@@ -393,8 +390,12 @@ export class UserActivation {
  * a form's POST body goes with its navigation — and hand the web contents it made to `adopt` to be the
  * tab's page instead of a window. A tab outlives the page that opened it. `webPreferences` are the
  * pane's own, its profile's partition among them.
+ *
+ * Unless nobody `pressed` anything for it: Electron has no popup blocker, and a page's
+ * `window.open(url)` from its load or a timer arrives as a foreground tab like a click's. That window
+ * is closed as soon as it is made, and no tab comes of it.
  */
-export function hostedTab<Page>(webPreferences: Record<string, unknown>, adopt: (page: Page) => void) {
+export function hostedTab<Page extends { close(): void }>(webPreferences: Record<string, unknown>, pressed: () => boolean, adopt: (page: Page) => void) {
   return {
     action: "allow" as const,
     outlivesOpener: true,
@@ -404,7 +405,8 @@ export function hostedTab<Page>(webPreferences: Record<string, unknown>, adopt: 
     createWindow: (options: object): Page => {
       const page = (options as { webContents?: Page }).webContents;
       if (!page) throw new Error("Chromium made no page for this tab");
-      adopt(page);
+      if (pressed()) adopt(page);
+      else page.close();
       return page;
     },
   };
