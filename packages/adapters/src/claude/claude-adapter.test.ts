@@ -865,6 +865,19 @@ describe("ClaudeAdapter", () => {
       expect("fastMode" in captureOptions[0]!).toBe(false);
     });
 
+    it("keeps no session file when the start asks for none, and says nothing about it otherwise", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      for (const persistSession of [false, undefined]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], ...(persistSession === false ? { persistSession } : {}) });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      expect(captureOptions[0]!.persistSession).toBe(false);
+      expect("persistSession" in captureOptions[1]!).toBe(false);
+    });
+
     it("leaves the option off the start entirely when it was not asked for", async () => {
       // `fastMode: false` and an absent key mean the same thing to the SDK, but sending the key
       // writes the flag layer and would override a user's own Claude Code setting with a default.

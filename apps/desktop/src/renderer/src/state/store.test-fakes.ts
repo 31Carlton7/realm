@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { type CalendarAccess, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { MoveOptions, PendingMove, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, EditorTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { MoveOptions, PendingMove, GuideProgress, Lecture, MeetingNotesFile, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, EditorTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -188,6 +188,7 @@ export type FakeData = {
   eggsUnlocked?: string[];
   /** Plan 22: lectures per space, Plynn's meetings folder, and guide progress by `documentsId:path`. */
   lectures?: Record<string, Lecture[]>;
+  meetingNotes?: Record<string, MeetingNotesFile[]>;
   plynn?: { available: boolean; folder: string; meetings: PlynnMeeting[] };
   guideProgress?: Record<string, GuideProgress>;
   /** Plan 17 W1: document workspace rows, and an in-memory filesystem per workspace. */
@@ -640,6 +641,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     refuseUnlock: overrides.refuseUnlock ?? false,
     passkeys: overrides.passkeys ?? [],
     lectures: overrides.lectures ?? {},
+    meetingNotes: overrides.meetingNotes ?? {},
     plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
     guideProgress: overrides.guideProgress ?? {},
     usageSummary: overrides.usageSummary ?? emptyUsageSummary(),
@@ -871,6 +873,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { ...r, path };
     },
     listLectures: async (spaceId) => { calls.push(`listLectures:${spaceId}`); return data.lectures[spaceId] ?? []; },
+    listMeetingNotes: async (spaceId) => data.meetingNotes[spaceId] ?? [],
     plynnList: async () => { calls.push("plynnList"); return data.plynn; },
     plynnImport: async (spaceId, files) => {
       calls.push(`plynnImport:${spaceId}:${files.length}`);

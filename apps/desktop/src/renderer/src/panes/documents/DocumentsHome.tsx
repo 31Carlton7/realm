@@ -1,7 +1,8 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
-import { chordsForCommand, displayKeyChord, type DocumentKind, type LibraryEntry } from "@realm/contracts";
+import { chordsForCommand, displayKeyChord, type DocumentKind, type LibraryEntry, type MeetingNotesFile } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { rpc } from "../../rpc/client";
 import { FileMark } from "../../components/file-icon";
 import { breakableName, useSeen } from "../../components/FileCard";
 import { useThumbnail } from "../../components/use-thumbnail";
@@ -17,7 +18,7 @@ import { canReveal, revealPath, showInLabel } from "./shown-file";
 import { capabilities } from "../../platform";
 import { previewSourceOf, useCardPreview } from "./card-preview";
 import {
-  checkoutFileOf, folderName, homeFilesOf, identityOf, libraryDetail, matchRun, paneTabOf, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
+  checkoutFileOf, folderName, homeFilesOf, identityOf, libraryDetail, matchRun, meetingFileOf, paneTabOf, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
 } from "./home-model";
 
 /** Rows a section shows before folding the rest: enough to read the shape of a session's work in a
@@ -32,18 +33,19 @@ const CARD_GAP = 12;
 const SESSION_LIMIT = 100;
 const LIBRARY_LIMIT = 60;
 
-type Lists = { forQuery: string; session: LibraryEntry[] | null; library: LibraryEntry[]; checkout: string[] | null };
+type Lists = { forQuery: string; session: LibraryEntry[] | null; meetings: MeetingNotesFile[]; library: LibraryEntry[]; checkout: string[] | null };
 
 /**
  * The documents pane before a file is open, and whenever its Files tab is: what this session has
- * made and been given, what the Library holds, and a search over both and the checkout — the one
- * place a file is found, opened, made, or added to the next message.
+ * made and been given, the space's meetings, what the Library holds, and a search over them and the
+ * checkout — the one place a file is found, opened, made, or added to the next message.
  *
  * It replaces "Nothing open yet" over a void, and a ⌘P palette that found a file in one place and
  * then opened a pane somewhere else. Every list here is a real record: the session's files and the
  * Library's are the artifacts index (a file the agent wrote or edited, a file attached to a message),
- * and the checkout's are `project.files`, which is git's own list. Nothing is folded, guessed or kept
- * on the side.
+ * and the checkout's are `project.files`, which is git's own list. A meeting's notes are written by
+ * Realm when the meeting ends, by no session, so the index never holds them: they are read from the
+ * space's `meetings/` folder. Nothing is folded, guessed or kept on the side.
  */
 export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onNewKind, onNewFile, onBrowse, taken }: {
   spaceId: string;
@@ -63,6 +65,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
 }) {
   const libraryArtifacts = useApp((s) => s.libraryArtifacts);
   const searchProjectFiles = useApp((s) => s.searchProjectFiles);
+  const listMeetingNotes = useApp((s) => s.listMeetingNotes);
   const profileId = useApp((s) => s.spaces.find((x) => x.id === spaceId)?.profileId ?? null);
   /* What the session has DONE, as two numbers: re-reading on them is what makes a file the agent just
      wrote appear without a watcher, because the transcript growing is the same event as the agent
@@ -102,6 +105,9 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
      can never land on top of the answer for the one on screen. */
   const generation = useRef(0);
   const q = query.trim();
+  // A meeting that ends while the home is up is listed when its file is written, and again when final.
+  const [meetingsSaved, setMeetingsSaved] = useState(0);
+  useEffect(() => rpc().on("meetings.notesProgress", (p) => { if (p.spaceId === spaceId) setMeetingsSaved((n) => n + 1); }), [spaceId]);
 
   useEffect(() => {
     const gen = ++generation.current;
@@ -109,15 +115,16 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
     const t = setTimeout(() => {
       void Promise.all([
         sessionId ? libraryArtifacts({ sessionId, perFile: true, query: q, limit: SESSION_LIMIT }) : null,
+        listMeetingNotes(spaceId).catch(() => []),
         libraryArtifacts({ profileId, perFile: true, query: q, limit: LIBRARY_LIMIT }),
         q && root ? searchProjectFiles(q, root).catch(() => null) : null,
-      ]).then(([session, library, checkout]) => {
+      ]).then(([session, meetings, library, checkout]) => {
         if (generation.current !== gen) return;
-        setLists({ forQuery: q, session: session?.entries ?? null, library: library.entries, checkout: checkout?.hits.map((h) => h.path) ?? null });
+        setLists({ forQuery: q, session: session?.entries ?? null, meetings, library: library.entries, checkout: checkout?.hits.map((h) => h.path) ?? null });
       }).catch(() => { /* the lists keep what they last showed; the next beat asks again */ });
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [sessionId, profileId, root, q, beat, status, libraryRevision, libraryArtifacts, searchProjectFiles]);
+  }, [sessionId, spaceId, profileId, root, q, beat, status, libraryRevision, meetingsSaved, libraryArtifacts, searchProjectFiles, listMeetingNotes]);
 
   // ⌘P: the keyboard in the search, with what was typed last selected so the next word replaces it.
   useEffect(() => {
@@ -126,17 +133,20 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
     search.current?.select();
   }, [searchAsk]);
 
-  /* The three lists, each one minus what a list above it already shows: a file is one file on this
-     page, listed where it says the most — the session's own before the Library's, the Library's
-     before the checkout's. */
+  /* The four lists, each one minus what a list above it already shows: a file is one file on this
+     page, listed where it says the most — the session's own, then the space's meetings, then the
+     Library's, then the checkout's. */
   const sections = useMemo(() => {
     if (!lists) return null;
     const session = lists.session ? homeFilesOf(lists.session, root, (e, place) => sessionDetail(e, place, e.path)) : null;
     const shown = new Set((session ?? []).map(identityOf));
+    const named = root ? lists.meetings.map((note) => meetingFileOf(note, root)).filter((f) => !lists.forQuery || matchRun(f.name, lists.forQuery)) : [];
+    const meetings = withoutShown(named, shown);
+    for (const f of meetings) shown.add(identityOf(f));
     const library = withoutShown(homeFilesOf(lists.library, root, libraryDetail), shown);
     for (const f of library) shown.add(identityOf(f));
     const checkout = lists.checkout && root ? withoutShown(lists.checkout.map((rel) => checkoutFileOf(rel, root)), shown) : null;
-    return { session, library, checkout };
+    return { session, meetings, library, checkout };
   }, [lists, root]);
 
   const attached = useMemo(() => new Set((pending ?? []).map((a) => a.path)), [pending]);
@@ -159,7 +169,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   const open = (f: HomeFile) => {
     if (opensHere(f)) { onOpen(paneTabOf(f)!); return; }
     if (!f.abs) return;
-    const shown = [...(sections?.session ?? []), ...(sections?.library ?? []), ...(sections?.checkout ?? [])]
+    const shown = [...(sections?.session ?? []), ...(sections?.meetings ?? []), ...(sections?.library ?? []), ...(sections?.checkout ?? [])]
       .filter((x) => x.abs && !opensHere(x));
     openViewer({
       files: shown.map((x) => ({ path: x.abs!, name: x.name, from: x.from, inPane: inPane(x) })),
@@ -168,13 +178,13 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   };
 
   const searching = lists !== null && lists.forQuery !== "";
-  const names = new Set([...(sections?.session ?? []), ...(sections?.library ?? []), ...(sections?.checkout ?? [])].map((f) => f.name.toLowerCase()));
+  const names = new Set([...(sections?.session ?? []), ...(sections?.meetings ?? []), ...(sections?.library ?? []), ...(sections?.checkout ?? [])].map((f) => f.name.toLowerCase()));
   /* A query that is a file name nothing here has is an offer to make it: ⌘P, "notes.md", Return.
      Only a name this pane would make — `planNewFile` refuses a path, a kind it cannot write, a name
      the folder already has. */
   const creatable = searching && !names.has(lists.forQuery.toLowerCase()) ? planNewFile(lists.forQuery) : null;
   const chord = chordsForCommand(keybindings, "palette.files")[0];
-  const nothing = sections !== null && !searching && (sections.session ?? []).length === 0 && sections.library.length === 0;
+  const nothing = sections !== null && !searching && (sections.session ?? []).length === 0 && sections.meetings.length === 0 && sections.library.length === 0;
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     const rows = [...(scroller.current?.querySelectorAll<HTMLButtonElement>(".docs-home-open, .docs-card") ?? [])];
@@ -308,6 +318,9 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
                 )}
               </Section>
             )}
+            {sections.meetings.length > 0 && (
+              <Section title="Meetings">{rowsOf("meetings", sections.meetings)}</Section>
+            )}
             {(!searching || sections.library.length > 0) && (
               <Section title="Library" action={
                 <button type="button" className="btn-quiet" onClick={() => openDestinationPage("library-page")}>Open the Library</button>
@@ -332,7 +345,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
                   </button>
                 </li>
               </ul>
-            ) : sections.library.length === 0 && (sections.session ?? []).length === 0 && (sections.checkout ?? []).length === 0 && (
+            ) : sections.library.length === 0 && (sections.session ?? []).length === 0 && sections.meetings.length === 0 && (sections.checkout ?? []).length === 0 && (
               <p className="docs-home-note docs-home-none">No file matches “{lists!.forQuery}”.</p>
             ))}
           </>

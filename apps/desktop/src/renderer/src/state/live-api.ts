@@ -76,6 +76,7 @@ export const liveApi = (): Api => ({
   writeGuideStorage: (documentsId, path, storage) => rpc().call("documents.progressStorage", { documentsId, path, storage }),
   startLecture: (spaceId, title) => rpc().call("lectures.start", { spaceId, title }),
   listLectures: async (spaceId) => (await rpc().call("lectures.list", { spaceId })).lectures,
+  listMeetingNotes: async (spaceId) => (await rpc().call("meetings.list", { spaceId })).notes,
   plynnList: () => rpc().call("plynn.list", {}),
   plynnImport: (spaceId, files) => rpc().call("plynn.import", { spaceId, files }),
   updateItem: (input) => rpc().call("items.update", input),

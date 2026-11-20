@@ -78,6 +78,10 @@ export type StartOptions = {
    *  whose enabled skill set is empty. */
   skills?: SkillsInjection;
   resume?: string | null;
+  /** `false` asks the agent to keep no session file of its own for this conversation, where it has a
+   *  switch for that. Claude does (`persistSession`); every other engine keeps what it always keeps.
+   *  A meeting's summary turn sets it, so the transcript it reads is not left under `~/.claude`. */
+  persistSession?: boolean;
   env?: Record<string, string>;
   /**
    * Last look at the argv before it becomes a process. Realm's execution sandbox passes one of these

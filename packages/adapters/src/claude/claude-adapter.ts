@@ -510,6 +510,7 @@ export class ClaudeAdapter implements AgentAdapter {
         ? { resumeSessionAt: opts.resumeAt, resumeDropsTurn: opts.resumeDropsTurn }
         : {}),
       systemPrompt: opts.systemContext ? { type: "preset", preset: "claude_code", append: opts.systemContext } : undefined,
+      ...(opts.persistSession === false ? { persistSession: false } : {}),
       // A RECORD keyed by name, not an array: `sdk.d.ts` `mcpServers?: Record<string, McpServerConfig>`.
       // Some documentation shows an array; disk wins.
       mcpServers: claudeMcpServers(opts.mcpServers) as Options["mcpServers"],

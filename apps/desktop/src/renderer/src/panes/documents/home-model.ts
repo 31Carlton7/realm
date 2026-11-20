@@ -104,6 +104,12 @@ export function checkoutFileOf(rel: string, root: string): HomeFile {
   };
 }
 
+/** One meeting's notes, from the space's `meetings/` folder. Its section's head already says where
+ *  it is, so the row says when it was written instead. */
+export function meetingFileOf(note: { path: string; modifiedAt: number }, root: string): HomeFile {
+  return { ...checkoutFileOf(note.path, root), key: `meeting:${note.path}`, detail: "", ts: note.modifiedAt };
+}
+
 /**
  * Kinds the pane draws from text it reads itself — a document, a deck, source, LaTeX — and so the ones
  * it can draw for a file OUTSIDE its root. The rest it shows through a frame the preview server feeds
