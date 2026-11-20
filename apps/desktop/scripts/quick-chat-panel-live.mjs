@@ -139,7 +139,10 @@ let holder = null;
 const before = front();
 try {
   // Behind the lock screen nothing can take the keyboard and no app is in front, so no row here would mean anything.
-  if (before.front?.bundle === "com.apple.loginwindow") throw new Error("the screen is locked: unlock the Mac and run this again");
+  // LIVE_BEHIND_LOCK=1 runs anyway, for the rows that need neither: the chat, the place, the pictures.
+  const locked = before.front?.bundle === "com.apple.loginwindow";
+  if (locked && process.env.LIVE_BEHIND_LOCK !== "1") throw new Error("the screen is locked: unlock the Mac and run this again");
+  if (locked) row("open", "THE SCREEN IS LOCKED: rows about the front app, the keyboard and the display are not measurements", "LIVE_BEHIND_LOCK=1");
   api = rpc(app.ports.server, await daemonToken(app.home));
   await api.ready;
   const profile = (await api.call("profiles.list", {}))[0];
@@ -152,9 +155,19 @@ try {
   row("chord", "Settings records ⌘⌃⌥⇧F19 and main registers it", { ...shortcut, isRegistered: await main(`return globalShortcut.isRegistered(${js(ACCELERATOR)});`) },
     shortcut.registered === true && (await main(`return globalThis.__quickChatChord.accelerator;`)) === ACCELERATOR);
 
-  // Settings ▸ Keys as it stands now, laid over the page colour (the capture keeps the pane's alpha).
-  await main(`windows[0].webContents.send("app:command", "settings.open"); return true;`);
-  const keysTab = await until(() => app.page.eval(`(() => { const row = [...document.querySelectorAll("button, a, [role=tab]")].find((b) => b.textContent.trim() === "Keys"); if (!row) return false; row.click(); return true; })()`), 15_000, "Settings' Keys page").catch(() => false);
+  // Settings ▸ Keys as it stands now, reached as a person does (⌘K, Open settings), laid over the page
+  // colour because the capture keeps the pane's alpha.
+  await app.page.send("Input.dispatchKeyEvent", { type: "keyDown", key: "k", code: "KeyK", windowsVirtualKeyCode: 75, modifiers: 4 });
+  await app.page.send("Input.dispatchKeyEvent", { type: "keyUp", key: "k", code: "KeyK", windowsVirtualKeyCode: 75, modifiers: 4 });
+  const keysTab = await (async () => {
+    await until(() => app.page.eval(`!!document.querySelector(".palette input")`), 5_000, "the palette");
+    await app.page.eval(`(() => { const input = document.querySelector(".palette input");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Open settings");
+      input.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+    await sleep(300);
+    await app.page.eval(`[...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.textContent.includes("Open settings"))?.click(); true`);
+    return until(() => app.page.eval(`(() => { const row = [...document.querySelectorAll(".page-rail button, .page-rail [role=tab], .page-rail label, .sidebar button")].find((b) => b.textContent.trim() === "Keys"); if (!row) return false; row.click(); return true; })()`), 10_000, "Settings' Keys page");
+  })().catch(() => false);
   const rowsBox = keysTab && await until(() => app.page.eval(`(() => { const r = document.querySelector('[data-setting="quick-chat-shortcut"]')?.closest(".field")?.getBoundingClientRect(); return r ? { x: r.x - 16, y: r.y - 12, width: r.width + 32, height: r.height + 24 } : null; })()`), 10_000, "the quick chat rows").catch(() => null);
   if (rowsBox) {
     await sleep(300);
