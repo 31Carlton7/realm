@@ -5,8 +5,8 @@
  *   pnpm build && node apps/desktop/scripts/settings-set-live.mjs
  *
  * Boots the built app quietly on a scratch home with the scripted agent. The page is marked first, so
- * a reload would show. Each row passes on what the window's root says afterwards (`data-glass`,
- * `data-mode`) and on the mark still being there. Rows go to results.json in LIVE_OUT_DIR and
+ * a reload would show. Each row passes on the window's root (`data-glass`, `data-mode`) changing to
+ * the value set, and on the mark still being there. Rows go to results.json in LIVE_OUT_DIR and
  * LIVE_OUT, with light.png and dark.png beside them.
  */
 import fs from "node:fs";
@@ -56,7 +56,6 @@ const applied = () => page.eval(`(() => {
   return {
     mode: root.dataset.mode ?? null,
     glass: root.hasAttribute("data-glass"),
-    composerLook: document.querySelector(".composer")?.getAttribute("data-look") ?? null,
     sameDocument: window.__settingsSetMark === ${JSON.stringify(MARK)},
   };
 })()`);
@@ -82,28 +81,24 @@ try {
   const api = rpc(app.ports.server, await daemonToken(app.home));
   await api.ready;
 
-  const start = await applied();
-  row("the window starts plain, on this document", !start.glass && start.sameDocument, start);
+  /* Each row passes only when the window moved: from what it showed just before the set to the value
+     set, on the same document. A value the window already showed proves nothing, so a window that
+     starts light is taken to dark first. */
+  const step = async (name, key, value, read, capture) => {
+    const before = await applied();
+    await api.call("settings.set", { key, value });
+    const after = await waitFor((s) => read(s) === value);
+    if (capture) { await sleep(400); await app.screenshot(path.join(OUT, capture)); }
+    row(name, read(before) !== value && read(after) === value && after.sameDocument, { before, after, ...(capture ? { capture } : {}) });
+  };
+  const look = (s) => (s.glass ? "glass" : "plain");
+  const mode = (s) => s.mode;
 
-  await api.call("settings.set", { key: "ui.look", value: "glass" });
-  const glass = await waitFor((s) => s.glass);
-  row("ui.look glass over rpc: the root wears data-glass, no reload", glass.glass && glass.sameDocument, glass);
-
-  await api.call("settings.set", { key: "ui.theme", value: "light" });
-  const light = await waitFor((s) => s.mode === "light");
-  await sleep(400);
-  await app.screenshot(path.join(OUT, "light.png"));
-  row("ui.theme light over rpc: data-mode is light, no reload", light.mode === "light" && light.sameDocument, { ...light, capture: "light.png" });
-
-  await api.call("settings.set", { key: "ui.theme", value: "dark" });
-  const dark = await waitFor((s) => s.mode === "dark");
-  await sleep(400);
-  await app.screenshot(path.join(OUT, "dark.png"));
-  row("ui.theme dark over rpc: data-mode is dark, no reload", dark.mode === "dark" && dark.sameDocument, { ...dark, capture: "dark.png" });
-
-  await api.call("settings.set", { key: "ui.look", value: "plain" });
-  const plain = await waitFor((s) => !s.glass);
-  row("ui.look plain over rpc: data-glass is gone, no reload", !plain.glass && plain.sameDocument, plain);
+  await step("ui.look glass over rpc: the root takes data-glass, no reload", "ui.look", "glass", look);
+  if ((await applied()).mode === "light") await step("ui.theme dark over rpc, from the light it started in: data-mode turns dark, no reload", "ui.theme", "dark", mode);
+  await step("ui.theme light over rpc: data-mode turns light, no reload", "ui.theme", "light", mode, "light.png");
+  await step("ui.theme dark over rpc: data-mode turns dark, no reload", "ui.theme", "dark", mode, "dark.png");
+  await step("ui.look plain over rpc: data-glass goes, no reload", "ui.look", "plain", look);
 
   for (const dir of outs.slice(1)) for (const f of ["light.png", "dark.png"]) fs.copyFileSync(path.join(OUT, f), path.join(dir, f));
   api.close();
