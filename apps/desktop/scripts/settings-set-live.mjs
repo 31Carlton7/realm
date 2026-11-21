@@ -1,15 +1,13 @@
 /**
  * Live check: a look or theme set over RPC (`settings.set`) shows in the open window at once, with no
- * reload. Before the fix the value was only stored, so a script, the CLI or another window changing
- * it left this window as it was until it was reloaded.
+ * reload.
  *
  *   pnpm build && node apps/desktop/scripts/settings-set-live.mjs
  *
- * Boots the built app quietly on a scratch home with the scripted agent, gets past onboarding to the
- * composer, marks the page so a reload would show, then sets ui.look to glass, ui.theme to light and
- * to dark, and ui.look back to plain. Each row passes on what the window's root says afterwards
- * (`data-glass`, `data-mode`) and on the mark still being there. Rows go to results.json in
- * LIVE_OUT_DIR and LIVE_OUT, with light.png and dark.png beside them.
+ * Boots the built app quietly on a scratch home with the scripted agent. The page is marked first, so
+ * a reload would show. Each row passes on what the window's root says afterwards (`data-glass`,
+ * `data-mode`) and on the mark still being there. Rows go to results.json in LIVE_OUT_DIR and
+ * LIVE_OUT, with light.png and dark.png beside them.
  */
 import fs from "node:fs";
 import os from "node:os";
