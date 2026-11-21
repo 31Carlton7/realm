@@ -192,7 +192,6 @@ async function shoot(app, file) {
 }
 
 try {
-  /* ── open: no chord, the double-tap on ───────────────────────────────────────────────────── */
   current = await launch({ seed: true });
   await stop();
   for (let n = 1; n <= LAUNCHES; n++) {
@@ -213,7 +212,6 @@ try {
   }
 
   const { app, api } = current;
-  /* ── made: the double-tap off, then on, with no chord ────────────────────────────────────── */
   const made = { on: await panelCount(app) };
   await app.page.eval(`window.realm.keys.setDoubleTap(false)`);
   await sleep(500);
@@ -222,7 +220,6 @@ try {
   made.onAgain = await until(async () => (await panelCount(app)) || null, 5000, "the panel made again").catch(() => 0);
   row("made", "panel windows with the double-tap on, off, on again (no chord)", made, made.on === 1 && made.off === 0 && made.onAgain === 1);
 
-  /* ── knob and pictures ───────────────────────────────────────────────────────────────────── */
   await app.page.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1400, deviceScaleFactor: 2, mobile: false });
   await app.page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await openKeysSettings(app);
