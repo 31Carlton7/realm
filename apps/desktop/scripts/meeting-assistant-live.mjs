@@ -56,6 +56,8 @@
  *             Stop, the microphone let go and taken back starts nothing
  *   meetings  Settings ▸ General ▸ Meetings: the row's switch, its title saying a Stop holds, and the
  *             row in dark and light, Plain and Glass
+ *   glass-held in place of a Glass picture, why the app draws chosen glass plain on this machine
+ *             (Reduce Transparency, Low Power Mode, or no backdrop-filter url())
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -302,12 +304,32 @@ async function picture(page, file) {
   fs.writeFileSync(file, Buffer.from(out, "base64"));
 }
 
+/** Why the page draws chosen glass plain: the conditions `plainReason` reads, in its order, read as
+ *  use-look.ts reads them. */
+const PLAIN_REASON = `(() => {
+  if (window.matchMedia?.("(prefers-reduced-transparency: reduce)").matches) return "reduce-transparency";
+  if (document.documentElement.hasAttribute("data-low-power-mode")) return "low-power-mode";
+  if (!(typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("backdrop-filter", "url(#a)"))) return "no-backdrop-url";
+  return null; })()`;
+
+/** Waits for the page to draw `look` in `mode`. When it draws chosen glass plain, writes a glass-held
+ *  row naming why and returns true, so the caller skips that look's picture. */
+async function lookHeld(page, mode, look, what, waiting) {
+  const shown = await until(() => page.eval(`(() => {
+    if (document.documentElement.dataset.mode !== ${js(mode)}) return null;
+    if (document.documentElement.hasAttribute("data-glass") === ${look === "glass"}) return { held: null };
+    const held = ${look === "glass" ? PLAIN_REASON : "null"};
+    return held ? { held } : null; })()`), 15_000, waiting);
+  if (shown.held) row("glass-held", `${what} glass drawn plain, so no picture`, shown.held);
+  return !!shown.held;
+}
+
 async function everyLook({ app, api }, page, state) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
     await closePanel(app, page); await openPanel(app); await showAssistant(page);
-    await until(() => page.eval(`document.documentElement.dataset.mode === ${js(mode)} && document.documentElement.hasAttribute("data-glass") === ${look === "glass"}`), 15_000, `the panel in ${mode} ${look}`);
+    if (await lookHeld(page, mode, look, `${state}, ${mode}`, `the panel in ${mode} ${look}`)) continue;
     const file = `m3a-${state}-${mode}-${look}.png`;
     await picture(page, path.join(OUT_DIR, file));
     row("picture", `${state}, ${mode} ${look}`, file);
@@ -320,7 +342,7 @@ async function barLooks({ api }, page) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
-    await until(() => page.eval(`document.documentElement.dataset.mode === ${js(mode)} && document.documentElement.hasAttribute("data-glass") === ${look === "glass"}`), 15_000, `the bar in ${mode} ${look}`);
+    if (await lookHeld(page, mode, look, `the bar, ${mode}`, `the bar in ${mode} ${look}`)) continue;
     await sleep(400);
     const fit = await page.eval(`(() => {
       const bar = document.querySelector(".quick-chat-bar"), b = bar.getBoundingClientRect();
@@ -350,7 +372,7 @@ async function settingsLooks({ app, api }, state) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
-    await until(() => app.page.eval(`document.documentElement.dataset.mode === ${js(mode)} && document.documentElement.hasAttribute("data-glass") === ${look === "glass"}`), 15_000, `Settings in ${mode} ${look}`);
+    if (await lookHeld(app.page, mode, look, `Settings ▸ Keys, ${state}, ${mode}`, `Settings in ${mode} ${look}`)) continue;
     await sleep(400);
     const clip = await app.page.eval(`(() => { const first = document.querySelector('[data-setting="assistant-chords"]'); first.scrollIntoView({ block: "start" });
       const a = first.getBoundingClientRect(), z = document.querySelector('[data-setting="assistant-chord:."]').getBoundingClientRect();
@@ -380,7 +402,7 @@ async function meetingsLooks({ app, api }) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
-    await until(() => app.page.eval(`document.documentElement.dataset.mode === ${js(mode)} && document.documentElement.hasAttribute("data-glass") === ${look === "glass"}`), 15_000, `Settings in ${mode} ${look}`);
+    if (await lookHeld(app.page, mode, look, `Settings ▸ General ▸ Meetings, ${mode}`, `Settings in ${mode} ${look}`)) continue;
     await sleep(400);
     const clip = await app.page.eval(`(() => { const r = document.querySelector(${js(ROW)}); r.scrollIntoView({ block: "center" });
       const b = r.closest(".settings-list").getBoundingClientRect(); return { x: b.left, y: b.top, width: b.width, height: b.height }; })()`);
