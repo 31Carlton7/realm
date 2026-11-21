@@ -1,4 +1,4 @@
-import { RESOURCES_ADAPTIVE_DEFAULT, RESOURCES_ADAPTIVE_KEY, adaptIdleMinutes, type MachineMemory, type MemoryPressure, type ResourceReport } from "@realm/contracts";
+import { RESOURCES_ADAPTIVE_DEFAULT, RESOURCES_ADAPTIVE_KEY, adaptIdleMinutes, type MachineMemory, type MemoryPressure, type PressureIdleMinutes, type ResourceReport } from "@realm/contracts";
 import { attribute, type Owners } from "./attribute";
 import type { MachineCounters, MachineProbe } from "./machine";
 
@@ -53,9 +53,9 @@ export class ResourceService {
   }) {}
 
   /** An idle window as the Mac's memory leaves it: shorter under pressure, unless that is switched off. */
-  adapt(minutes: number): number {
+  adapt(minutes: number, windows?: PressureIdleMinutes): number {
     const raw = this.d.settings?.get(RESOURCES_ADAPTIVE_KEY);
-    return adaptIdleMinutes(minutes, this.pressure(), typeof raw === "boolean" ? raw : RESOURCES_ADAPTIVE_DEFAULT);
+    return adaptIdleMinutes(minutes, this.pressure(), typeof raw === "boolean" ? raw : RESOURCES_ADAPTIVE_DEFAULT, windows);
   }
 
   /**

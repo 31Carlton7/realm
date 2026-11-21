@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ResourceReport } from "@realm/contracts";
+import { adaptIdleMinutes, type ResourceReport } from "@realm/contracts";
 import { ResourceControls } from "./controls";
 
 const MB = 1024 ** 2;
@@ -24,7 +24,7 @@ function setup(o: { stoppable?: boolean; attached?: boolean } = {}) {
   const c = new ResourceControls({
     settings: { get: (k) => settings.get(k), set: (k, v) => { settings.set(k, v); } },
     snapshot: async () => REPORT,
-    adapt: (m) => Math.min(m, 10),
+    adapt: (m, windows) => adaptIdleMinutes(m, "warn", true, windows),
     engines: { idleEngines: () => ["s-idle"], stopIdleNow: async () => { calls.push("engines"); return ["s-idle"]; } },
     simulators: { idleCandidates: () => ["SIM-A"], sweepIdle: async (x) => { calls.push(`simulators:${x.minutes}`); return ["SIM-A"]; } },
     laya: { stoppable: () => o.stoppable ?? true, stopIdle: async () => { calls.push("laya"); return true; }, idleChanged: () => calls.push("laya-window") },
@@ -48,10 +48,11 @@ describe("the Memory page's controls", () => {
   });
 
   it("show the windows as set and as memory pressure leaves them, defaults first", () => {
+    // At "warn": Laya has a window of its own, shorter than the shared one.
     const { c } = setup();
     expect(c.policies()).toEqual({
       engineIdleMinutes: 30, mcpIdleMinutes: 30, layaIdleMinutes: 10, simulatorIdleMinutes: 30, browserHiddenMinutes: 20, browserKeepHidden: 3, adaptive: true,
-      effective: { engines: 10, mcp: 10, laya: 10, simulators: 10, browsers: 10 },
+      effective: { engines: 10, mcp: 10, laya: 3, simulators: 10, browsers: 10 },
     });
   });
 

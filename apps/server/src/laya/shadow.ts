@@ -1,4 +1,4 @@
-import { newId, type SessionEvent } from "@realm/contracts";
+import { newId, type MemoryPressure, type SessionEvent } from "@realm/contracts";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 import { clip } from "../mcp/tool-result";
 import type { LayaChoiceAnswer, LayaClient, LayaNoulAnswer } from "./client";
@@ -10,7 +10,9 @@ import type { LayaChoiceAnswer, LayaClient, LayaNoulAnswer } from "./client";
  * This returns at once and does all of its work afterwards, off the step's path — nothing here is
  * awaited by a tool, nothing can change what the tool does, and nothing Laya answers reaches the
  * agent, a permission card or the transcript. Its only output is a row in the decision log. When the
- * runtime is not ready — off, not installed, starting — a step is skipped without a word.
+ * runtime is not ready — off, not installed, starting — a step is skipped without a word. When the
+ * Mac is short of memory, a step is logged with its ground truth and asked nothing, and laya-serve is
+ * not started for it.
  *
  * **Three questions.** `sensitive` and `verify` are the spike's templates, so a Phase 2 evaluation of
  * this log is comparable with the numbers in the spec. `target` is not, because the spike's own set
@@ -195,8 +197,9 @@ export class LayaShadow {
 
   constructor(private readonly d: {
     /** `startable` and `acquire` are Laya on demand (`LayaService`): a step that finds it not running
-     *  but able to start is queued, and asked once it is up. Absent, a step with no client is skipped. */
-    laya: { client(): LayaClient | null; checkpoint(): string | null; startable?(): boolean; acquire?(): Promise<LayaClient | null> };
+     *  but able to start is queued, and asked once it is up. Absent, a step with no client is skipped.
+     *  `pressure` is the Mac's memory pressure; at "warn" or "critical" nothing is asked or started. */
+    laya: { client(): LayaClient | null; checkpoint(): string | null; startable?(): boolean; acquire?(): Promise<LayaClient | null>; pressure?(): MemoryPressure };
     log: { append(row: unknown): void };
     onLogged?: () => void;
     requestTimeoutMs?: number;
@@ -308,6 +311,8 @@ export class LayaShadow {
   }
 
   private async ask(step: Step, ready: LayaClient | null): Promise<void> {
+    const pressure = this.memoryShort();
+    if (pressure) { step.laya.errors.push(`skipped: memory pressure is ${pressure}`); return; }
     // Not running when the step was seen: started now, off the step's path, and asked once it is up.
     const client = ready ?? await this.d.laya.acquire?.() ?? null;
     if (!client) { step.laya.errors.push("skipped: Laya did not start"); return; }
@@ -353,6 +358,8 @@ export class LayaShadow {
     step.verifyAsked = step.asked.then(() => this.enqueue(step, async () => {
       const client = this.d.laya.client();
       if (!client) return;
+      const pressure = this.memoryShort();
+      if (pressure) { step.laya.errors.push(`verify: skipped, memory pressure is ${pressure}`); return; }
       const before = summarize(step.elements);
       const afterText = summarize(step.after!);
       const q = verifyQuestion(step.intent, step.elements, step.after!);
@@ -380,6 +387,13 @@ export class LayaShadow {
       this.d.log.append(rowOf(step));
       this.d.onLogged?.();
     }).catch(() => { /* a row that cannot be written is a row lost, never an error anywhere else */ });
+  }
+
+  /** "warn" or "critical" when the Mac is short of memory, else null. The shadow's answers are
+   *  measurement nobody sees: not worth loading laya-serve's 2.4 GB for, nor keeping it loaded. */
+  private memoryShort(): "warn" | "critical" | null {
+    const p = this.d.laya.pressure?.();
+    return p === "warn" || p === "critical" ? p : null;
   }
 
   private claimAnswer(sessionId: string, tool: string): Truth["permission"] {
