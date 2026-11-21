@@ -125,4 +125,15 @@ describe("a setting an agent changed with settings_set", () => {
     store.getState().applySettingChanged({ key: "sessions.defaultPermissionMode", value: "bypassPermissions" });
     expect(store.getState()).toBe(before);
   });
+
+  it("takes a look set over rpc, which no agent may set but a script or another window can", async () => {
+    const store = await withA(api());
+    expect(store.getState().look).toBe("plain");
+    store.getState().applySettingChanged({ key: "ui.look", value: "glass" });
+    expect(store.getState().look).toBe("glass");
+    store.getState().applySettingChanged({ key: "ui.look", value: "frosted" });
+    expect(store.getState().look).toBe("glass");
+    store.getState().applySettingChanged({ key: "ui.look", value: "plain" });
+    expect(store.getState().look).toBe("plain");
+  });
 });

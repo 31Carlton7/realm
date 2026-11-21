@@ -3,7 +3,7 @@ import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@r
 import type { z } from "zod";
 import type { CallContext, RpcServer } from "./server";
 import type { ServerOwner } from "./cli-methods";
-import { REMOTE_RELAY_KEY, TERMINALS_HISTORY_KEY } from "@realm/contracts";
+import { LIVE_SETTINGS, REMOTE_RELAY_KEY, TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
 /** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
@@ -351,6 +351,9 @@ export function registerMethods(d: Deps): void {
   reg("meetings.stopAnswers", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.stop(); return { ok: true as const }; });
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
+    // A setting windows apply live is announced, as `settings_set` announces it: a value written by a
+    // script, the CLI or another window would otherwise reach a window only at its next reload.
+    if (LIVE_SETTINGS.has(p.key)) rpc.broadcast("settings.changed", { key: p.key, value: p.value });
     // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output
     // on disk is not an off switch, and the thing being kept is whatever a shell printed.
     if (p.key === TERMINALS_HISTORY_KEY && p.value !== true) d.terminals.purgeHistory();
