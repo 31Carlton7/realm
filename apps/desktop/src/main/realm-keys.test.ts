@@ -151,7 +151,9 @@ describe("RealmKeys", () => {
     // Read as text: importing main would start an Electron app.
     const main = readFileSync(join(__dirname, "index.ts"), "utf8");
     expect(main).toContain("onDoubleTap: () => openQuickChat(),");
-    expect(main).toMatch(/function openQuickChat\(\): void \{\s*quickChatPanel\.toggle\(\);\s*\}/);
+    expect(main).toMatch(/function openQuickChat\(\): void \{\s*assistantKeys\.openChat\(\);\s*\}/);
+    expect(main).toMatch(/panel: \{\s*isOpen: \(\) => quickChatPanel\.isOpen\(\),\s*open: \(\) => quickChatPanel\.open\(\),/);
+    expect(main).toMatch(/\bclose: \(\) => quickChatPanel\.close\(\),/);
   });
 
   it("tells a watching page about the held key, and nobody when no page watches", () => {

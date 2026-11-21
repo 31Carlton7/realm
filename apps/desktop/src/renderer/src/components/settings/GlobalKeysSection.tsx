@@ -3,7 +3,7 @@ import {
   KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, MEETING_CONSENT_KEY, isHoldKey, meetingConsentAccepted,
   type GlobalKeysState, type HoldKey,
 } from "@realm/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { rpc } from "../../rpc/client";
 import { useApp } from "../../state/store";
 
@@ -19,8 +19,11 @@ const DOUBLE_TAP_LIT_MS = 1200;
  *
  * The line about Accessibility or Input Monitoring appears only when macOS is holding something
  * back, and its button opens that pane. Realm never raises either prompt itself.
+ *
+ * `afterDoubleTap` is drawn under the double-tap row, so the quick chat's own rows stay together
+ * ahead of the assistant's.
  */
-export function GlobalKeysRows() {
+export function GlobalKeysRows({ afterDoubleTap }: { afterDoubleTap?: ReactNode }) {
   const run = useApp((s) => s.run);
   const openTccPane = useApp((s) => s.openTccPane);
   const [doubleTap, setDoubleTap] = useState(KEYS_DOUBLE_TAP_DEFAULT);
@@ -105,6 +108,7 @@ export function GlobalKeysRows() {
         <input type="checkbox" role="switch" className="switch" aria-label="Double-tap Command opens the quick chat"
           checked={doubleTap} onChange={(e) => changeDoubleTap(e.target.checked)} />
       </li>
+      {afterDoubleTap}
       <li className="settings-row" data-setting="assistant-hold-key"
         title="The assistant's shortcuts are this key held with one other key. Some keyboards handle Fn themselves and never send it to the Mac, so pick another if Try it does not see yours.">
         <div className="settings-row-main"><span className="settings-row-name">Hold for assistant shortcuts</span></div>
