@@ -135,6 +135,14 @@ describe("PageInbox", () => {
     expect(got).toEqual([["new", "listen"]]);
   });
 
+  it("drops a key held for a page that went before it listened", () => {
+    const got: [string, AssistantPageAction][] = [];
+    const inbox = new PageInbox<string>((page, action) => got.push([page, action]));
+    inbox.send("failed load", "answer");
+    inbox.pageReady("next page");
+    expect(got).toEqual([]);
+  });
+
   it("drops a key when there is no panel", () => {
     const got: AssistantPageAction[] = [];
     const inbox = new PageInbox<string>((_page, action) => got.push(action));
