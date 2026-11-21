@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { tempDir } from "@realm/test-utils";
-import type { LayaStatus } from "@realm/contracts";
+import type { LayaStatus, MemoryPressure } from "@realm/contracts";
 import type { LayaEvalReport } from "@realm/contracts";
 import { DecisionLog } from "./log";
 import { LAYA_CHECKPOINT_KEY, LAYA_MODE_KEY, LayaService, evaluationOf, p50Of, type LayaTiming } from "./service";
@@ -38,7 +38,7 @@ type AutoConditions = { onboarded: boolean; busy: boolean; freeBytes: number | n
 
 /** `mode`: the stored switch. Left out it is an explicit Off, the position most of these tests start
  *  from; `null` is a home where nobody ever touched it. */
-function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist" | null; auto?: AutoConditions; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null; baseEval?: () => LayaEvalReport | null; train?: Train; checkpoint?: string; screen?: () => SimulatorAxTree } = {}) {
+function setup(o: { pressure?: () => MemoryPressure; runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist" | null; auto?: AutoConditions; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null; baseEval?: () => LayaEvalReport | null; train?: Train; checkpoint?: string; screen?: () => SimulatorAxTree } = {}) {
   const dir = tempDir("realm-laya-svc-");
   const runtime = o.runtime === undefined ? fakeRuntime({ dir }) : o.runtime;
   const mode = o.mode === undefined ? "off" : o.mode;
@@ -57,6 +57,7 @@ function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "ass
     publish: (s) => { published.push(s); },
     activeEval: o.activeEval,
     baseEval: o.baseEval,
+    ...(o.pressure ? { pressure: o.pressure } : {}),
     ...(o.train ? { train: o.train } : {}),
     ...(recorder ? { recorder } : {}),
     ...(o.auto ? { autoInstall: { onboarded: () => o.auto!.onboarded, busy: () => o.auto!.busy, freeBytes: () => o.auto!.freeBytes } } : {}),
@@ -359,9 +360,9 @@ describe("on demand, in Shadow", () => {
   /* The 02:15 reading: `laya.serve` held a 2.4 GB footprint all day while nothing asked it anything.
      A "minute" here is 20 ms, so the default ten-minute window is 200 ms. */
   const MIN = 20;
-  const demand = (o: { server?: Parameters<typeof fakeRuntime>[0]["server"]; serve?: boolean; idle?: number } = {}) => {
+  const demand = (o: { server?: Parameters<typeof fakeRuntime>[0]["server"]; serve?: boolean; idle?: number; pressure?: () => MemoryPressure } = {}) => {
     const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true, ...(o.server ? { server: o.server } : {}), ...(o.serve === false ? { serve: false } : {}) });
-    const env = setup({ runtime, mode: "shadow", timing: { minuteMs: MIN } });
+    const env = setup({ runtime, mode: "shadow", timing: { minuteMs: MIN }, ...(o.pressure ? { pressure: o.pressure } : {}) });
     if (o.idle !== undefined) env.settings.set(LAYA_IDLE_STOP_KEY, o.idle);
     env.service.boot();
     return { ...env, runtime };
@@ -465,6 +466,37 @@ describe("on demand, in Shadow", () => {
     await until(() => service.client() !== null, 2_000);
     expect(runtime.starts).toHaveLength(1);
     expect((await state(service)).state).toBe("ready");
+  });
+
+  it("unloads after three idle minutes when memory is short and five when it is critical", async () => {
+    // THE MUTANT: Laya on the shared windows, whose ten at warn is Laya's default — no change at all.
+    let pressure: MemoryPressure = "warn";
+    const { service } = demand({ pressure: () => pressure });
+    expect(await state(service)).toEqual({ state: "standby", idleMinutes: 3 });
+    pressure = "critical";
+    expect(await state(service)).toEqual({ state: "standby", idleMinutes: 5 });
+    pressure = "normal";
+    expect(await state(service)).toEqual({ state: "standby", idleMinutes: 10 });
+  });
+
+  it("never stops with a question in flight when memory is short", async () => {
+    const { service, runtime } = demand({ pressure: () => "warn", server: { delay: (state) => (state.startsWith("Goal: slow") ? 5 * MIN : 0) } });
+    const client = (await service.acquire())!;
+    const slow = client.ask("Goal: slow.", { q: { type: "noul", instructions: "?" } }, 60 * MIN);
+    // Past the three-minute window, the question still out.
+    await sleep(4 * MIN);
+    expect(await alive(runtime.starts[0]!.port)).toBe(true);
+    await slow;
+    await until(async () => (await state(service)).state === "standby", 2_000);
+  });
+
+  it("starts in Assist when memory is short: that work was asked for", async () => {
+    // THE MUTANT: the shadow's stand-down applied to every mode. Warn, don't cap.
+    const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
+    const { service } = setup({ runtime, mode: "assist", pressure: () => "warn" });
+    service.boot();
+    await until(() => service.client() !== null);
+    expect(runtime.starts).toHaveLength(1);
   });
 
   it("is never stopped in Assist, whose pick is on the step's path", async () => {

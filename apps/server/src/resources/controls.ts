@@ -1,7 +1,7 @@
 import {
-  BROWSER_DISCARD_HIDDEN_DEFAULT, BROWSER_KEEP_HIDDEN_DEFAULT, ENGINE_IDLE_MINUTES_DEFAULT, LAYA_IDLE_STOP_DEFAULT, MCP_IDLE_STOP_DEFAULT,
+  BROWSER_DISCARD_HIDDEN_DEFAULT, BROWSER_KEEP_HIDDEN_DEFAULT, ENGINE_IDLE_MINUTES_DEFAULT, LAYA_IDLE_STOP_DEFAULT, LAYA_PRESSURE_IDLE_MINUTES, MCP_IDLE_STOP_DEFAULT,
   RESOURCES_ADAPTIVE_DEFAULT, SIMULATOR_IDLE_SHUTDOWN_DEFAULT,
-  type FreeAction, type Freeable, type ResourcePolicies, type ResourcePolicyKey, type ResourceReport,
+  type FreeAction, type Freeable, type PressureIdleMinutes, type ResourcePolicies, type ResourcePolicyKey, type ResourceReport,
 } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { minutesSetting } from "./policies";
@@ -15,7 +15,7 @@ export class ResourceControls {
   constructor(private readonly d: {
     settings: { get(key: string): unknown; set(key: string, value: unknown): void };
     snapshot: (o: { fresh?: boolean }) => Promise<ResourceReport>;
-    adapt: (minutes: number) => number;
+    adapt: (minutes: number, windows?: PressureIdleMinutes) => number;
     engines: { idleEngines(): string[]; stopIdleNow(): Promise<string[]> };
     simulators: { idleCandidates(): string[]; sweepIdle(o: { minutes?: number }): Promise<string[]> };
     laya: { stoppable(): boolean; stopIdle(): Promise<boolean>; idleChanged(): void };
@@ -58,7 +58,7 @@ export class ResourceControls {
     const a = this.d.adapt;
     return {
       engineIdleMinutes, mcpIdleMinutes, layaIdleMinutes, simulatorIdleMinutes, browserHiddenMinutes, browserKeepHidden, adaptive,
-      effective: { engines: a(engineIdleMinutes), mcp: a(mcpIdleMinutes), laya: a(layaIdleMinutes), simulators: a(simulatorIdleMinutes), browsers: a(browserHiddenMinutes) },
+      effective: { engines: a(engineIdleMinutes), mcp: a(mcpIdleMinutes), laya: a(layaIdleMinutes, LAYA_PRESSURE_IDLE_MINUTES), simulators: a(simulatorIdleMinutes), browsers: a(browserHiddenMinutes) },
     };
   }
 

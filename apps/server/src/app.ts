@@ -120,7 +120,7 @@ import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub, type HubElicit } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
-import type { AgentKind, McpServerStatus } from "@realm/contracts";
+import type { AgentKind, McpServerStatus, PressureIdleMinutes } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { CLAUDE_BACKFILL_EVERY_MS, ClaudeMemoryBackfill } from "./memory/claude-backfill";
 import { AgentMemoryFolders } from "./memory/claude-redirect";
@@ -1011,7 +1011,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* The resource service, built further down once every service it asks exists; the idle windows read
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
-  const adaptIdle = (minutes: number): number => resourcesLate?.adapt(minutes) ?? minutes;
+  const adaptIdle = (minutes: number, windows?: PressureIdleMinutes): number => resourcesLate?.adapt(minutes, windows) ?? minutes;
   const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), frontApp: async () => (await machineProbe.frontApp?.()) ?? null, home: opts.home, adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
@@ -1291,7 +1291,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onChange: () => laya.recordingChanged(),
   });
   const laya = new LayaService({
-    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder, adaptIdle,
+    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder, pressure: () => resourcesLate?.pressure() ?? "unknown",
     publish: (status) => {
       rpc.broadcast("laya.changed", status);
       const listed = layaAssist?.gate().available ?? false;
