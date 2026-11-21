@@ -57,7 +57,7 @@ export function MeetingsRow() {
           onChange={(e) => run(() => setOpensMeetings(e.target.checked))} />
       </li>
       <li className="settings-row" data-setting="start-assistant"
-        title="When a calendar meeting starts, or Zoom, Teams, FaceTime, Slack, Discord or a browser in a call starts using the microphone, the quick chat panel opens on the meeting assistant and it starts listening. The red mark shows in the panel and the menu bar the whole time. After you stop it, it does not start again for that call or meeting.">
+        title="When Zoom, Teams, FaceTime, Slack, Discord or a browser in a call starts using the microphone, or a calendar meeting starts while Open the meeting when it starts is on, the quick chat panel opens on the meeting assistant and it starts listening. The red mark shows in the panel and the menu bar the whole time. After you stop it, it does not start again for that call or meeting.">
         <div className="settings-row-main">
           <span className="settings-row-name">Start the assistant when a call starts</span>
           <span className="settings-row-detail">Only after you have accepted the assistant's first-run sheet</span>

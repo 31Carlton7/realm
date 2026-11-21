@@ -237,6 +237,13 @@ describe("Start the assistant when a call starts", () => {
     expect(screen.getByRole("switch", { name: STARTS_ASSISTANT })).toBeChecked();
   });
 
+  it("says a calendar meeting starts it only while Open the meeting when it starts is on", async () => {
+    await general();
+    const row = screen.getByRole("switch", { name: STARTS_ASSISTANT }).closest("li")!;
+    expect(row.title).toContain("or a calendar meeting starts while Open the meeting when it starts is on,");
+    expect(row.title).not.toMatch(/^When a calendar meeting starts/);
+  });
+
   it("says it waits for the first-run sheet", async () => {
     await general();
     const row = screen.getByRole("switch", { name: STARTS_ASSISTANT }).closest("li")!;
