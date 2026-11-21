@@ -367,6 +367,16 @@ async function barLooks({ app, api }, page) {
   }
 }
 
+/** Reloads the Realm window, which comes back on its space or on the Settings it was showing. */
+async function reloadWindow(app) {
+  await app.page.send("Page.reload");
+  await until(() => app.page.eval(`document.readyState === "complete" && (document.body.innerText.includes("Stub space") || !!document.querySelector('input[name="settings-page-tab"]'))`), 30_000, "the window back after its reload")
+    .catch(async (error) => {
+      const shown = await app.page.eval(`document.readyState + ": " + document.body.innerText.replace(/\\s+/g, " ").trim().slice(0, 300)`).catch(() => "unread");
+      throw new Error(`${error.message}; the window showed ${js(shown)}`);
+    });
+}
+
 /** Settings ▸ Keys in the Realm window: the assistant's rows, read and captured in each look. */
 async function settingsLooks({ app, api }, state) {
   const openKeys = async () => {
@@ -380,8 +390,7 @@ async function settingsLooks({ app, api }, state) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
-    await app.page.send("Page.reload");
-    await until(() => app.page.eval(`document.readyState === "complete" && document.body.innerText.includes("Stub space")`), 30_000, "the window on its space");
+    await reloadWindow(app);
     await openKeys();
     if (await lookHeld(app.page, mode, look, `Settings ▸ Keys, ${state}, ${mode}`, `Settings in ${mode} ${look}`)) continue;
     await sleep(400);
