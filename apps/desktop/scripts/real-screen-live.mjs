@@ -29,7 +29,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
-import { electronBinary, quietEnv } from "./lib/live-app.mjs";
+import { electronBinary, noCalendarHelper, quietEnv } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9377), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8944);
@@ -169,7 +169,7 @@ async function launch() {
     REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
     REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), LIVE_CMD_PORT: String(CMD_PORT),
     LIVE_USER_DATA: path.join(scratch, "userData"), LIVE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js") };
-  const env = process.env.LIVE_FRONT === "1" ? base : quietEnv(base);
+  const env = process.env.LIVE_FRONT === "1" ? { ...base, REALM_MEETINGWATCH_BIN: noCalendarHelper() } : quietEnv(base);
   const app = path.resolve(electronBinary(), "../../..");
   execSync(`open -n ${process.env.LIVE_FRONT === "1" ? "" : "-g "}-a ${JSON.stringify(app)} ${Object.entries(env).map(([k, v]) => `--env ${k}=${JSON.stringify(v)}`).join(" ")} --args ${JSON.stringify(wrapper)}`);
   await until(async () => !(await portFree(CMD_PORT)), 30000, "command port");

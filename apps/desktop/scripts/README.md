@@ -41,6 +41,9 @@ How quiet mode works, and what it records instead of showing (`quietWindowsLog`)
 - Secrets are sealed with the mock Keychain, because the real one asks for the login password
   when a binary it has not seen reads an item. A check of the Keychain itself sets
   `REALM_QUIET_KEYCHAIN=real` and names its own item (`profiles-live.mjs`).
+- The calendar is never read. The launcher points `REALM_MEETINGWATCH_BIN` at a stand-in that
+  says access was never asked for, on the seen paths too. A check of the helper itself passes its
+  own (`meeting-watch-live.mjs`).
 - `Page.captureScreenshot` is the DOM only. For a native pane, capture the view's own
   `webContents.capturePage()` through `app.main`.
 
