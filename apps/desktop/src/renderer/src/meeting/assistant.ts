@@ -1,5 +1,5 @@
 import {
-  MEETING_DEFAULT_TITLE, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
+  HOLD_KEY_LABEL, MEETING_AUTO_ANSWERS_DEFAULT, MEETING_DEFAULT_TITLE, type AssistantPageAction, type HoldKey, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
   type MeetingTranscriptLine, type SaveMeetingNotesParams, type SaveMeetingNotesResult,
 } from "@realm/contracts";
 import { MeetingAnswers, type LiveAnswersApi } from "../voice/live-answers";
@@ -29,10 +29,13 @@ export type AssistantDeps = {
   openFile: (spaceId: string, path: string) => void;
   now: () => number;
   newId: () => string;
+  /** The auto-answers switch, kept as a setting (`MEETING_AUTO_ANSWERS_KEY`). Unset, it starts on and is not kept. */
+  autoAnswers?: { read(): Promise<boolean>; write(on: boolean): Promise<void> };
+  /** The held key of the assistant's chords, or null while Settings has them off. */
+  chords?: { read(): Promise<HoldKey | null> };
+  /** Tells main which view the panel shows, so its keys know whether to open it or put it away. */
+  onShown?: (on: boolean) => void;
 };
-
-/** Live answers start on their own when the other side asks a question. Its switch is M3b's. */
-const AUTO_ANSWERS = true;
 
 /** Past this many characters of custom info the prompter says that every answer sends all of it. */
 export const LONG_CUSTOM_INFO = 20_000;
@@ -74,12 +77,26 @@ export type AssistantState = {
   notes: MeetingNotesState | null;
   systemAudio: SystemAudioState | null;
   problem: string | null;
+  /** A quiet line under the words: the answer key pressed while not listening, or before anything was heard. */
+  notice: string | null;
+  /** The held key of the assistant's chords, for the first-run sheet. Null while they are off. */
+  chordsHeld: HoldKey | null;
+  /** The panel shows the assistant rather than the chat. */
+  shown: boolean;
+  /** Questions the other side asks are answered without a key. */
+  autoAnswers: boolean;
+  /** How many times the type key was pressed: the prompter takes the keyboard at each. */
+  typeKeyPresses: number;
 };
 
 const INITIAL: AssistantState = {
   consented: null, sheet: false, phase: "idle", startedAt: null, stoppedAt: null,
   lines: [], partial: {}, customInfo: [], asked: [], answer: null, notes: null, systemAudio: null, problem: null,
+  notice: null, chordsHeld: null, shown: false, autoAnswers: MEETING_AUTO_ANSWERS_DEFAULT, typeKeyPresses: 0,
 };
+
+/** Which way the scroll keys move the words: down (Fn J) or up (Fn K). */
+export type ScrollDirection = 1 | -1;
 
 /** The meeting assistant in the quick chat panel: one per panel page, so a run outlives the chat. */
 export class MeetingAssistant {
@@ -93,10 +110,11 @@ export class MeetingAssistant {
   private wrapUp: Promise<void> = Promise.resolve();
   /** The run that got as far as listening. One that never did is no meeting: it saves and clears nothing. */
   private heard: Listener | null = null;
+  private scrollers = new Set<(direction: ScrollDirection) => void>();
 
   constructor(private readonly deps: AssistantDeps) {
     this.answers = new MeetingAnswers({
-      api: deps.answers, auto: AUTO_ANSWERS, onEvent: (e) => this.onAnswer(e),
+      api: deps.answers, auto: MEETING_AUTO_ANSWERS_DEFAULT, onEvent: (e) => this.onAnswer(e),
       customInfo: () => customInfoText(this.state.customInfo),
     });
   }
@@ -117,8 +135,70 @@ export class MeetingAssistant {
   };
 
   async load(): Promise<void> {
-    const consented = await this.deps.consent.read().catch(() => false);
-    this.set({ consented });
+    const [consented, autoAnswers, chordsHeld] = await Promise.all([
+      this.deps.consent.read().catch(() => false),
+      this.deps.autoAnswers?.read().catch(() => MEETING_AUTO_ANSWERS_DEFAULT) ?? MEETING_AUTO_ANSWERS_DEFAULT,
+      this.deps.chords?.read().catch(() => null) ?? null,
+    ]);
+    this.answers.setAuto(autoAnswers);
+    this.set({ consented, autoAnswers, chordsHeld });
+  }
+
+  show(on: boolean): void {
+    if (on === this.state.shown) return;
+    this.set({ shown: on });
+    this.deps.onShown?.(on);
+  }
+
+  /** The auto-answers switch. Off, only the answer key and a typed question ask for an answer. */
+  setAutoAnswers(on: boolean): void {
+    this.answers.setAuto(on);
+    this.set({ autoAnswers: on });
+    void this.deps.autoAnswers?.write(on).catch(() => {});
+  }
+
+  /** The answer key: answer what was just asked, or say what to say next. */
+  answerNow(question?: string): void {
+    // Before a Start, or after a Stop, nothing is subscribed to the answers yet.
+    if (this.state.phase === "idle") this.answers.start();
+    void this.answers.askNow(question);
+  }
+
+  /** Hear the scroll keys; the returned function stops hearing. */
+  onScroll(cb: (direction: ScrollDirection) => void): () => void {
+    this.scrollers.add(cb);
+    return () => this.scrollers.delete(cb);
+  }
+
+  /** An assistant chord, pressed in any app (main/assistant-keys.ts), or the quick chat keys
+   *  (`chat`). Every chord but scrolling shows the assistant. Listen goes through Start and Stop, so
+   *  an unaccepted first-run sheet is put up, never accepted by a key. */
+  key(action: AssistantPageAction): void {
+    if (action === "scrollDown" || action === "scrollUp") {
+      for (const cb of [...this.scrollers]) cb(action === "scrollDown" ? 1 : -1);
+      return;
+    }
+    if (action === "chat") { this.show(false); return; }
+    this.show(true);
+    if (action === "listen") void (this.state.phase === "idle" ? this.start() : this.stop());
+    else if (action === "answer") this.answerKey();
+    else if (action === "type") this.set({ typeKeyPresses: this.state.typeKeyPresses + 1 });
+  }
+
+  /** The answer key asks only about what this run has heard: not listening, or with no line yet, it
+   *  says which and sends nothing. */
+  private answerKey(): void {
+    const { phase, chordsHeld } = this.state;
+    if (phase === "idle" || phase === "stopping") {
+      this.set({ notice: chordsHeld ? `The assistant is not listening. ${HOLD_KEY_LABEL[chordsHeld]} L starts it.` : "The assistant is not listening." });
+      return;
+    }
+    if (phase !== "listening" || this.state.lines.length === 0) {
+      this.set({ notice: "Nothing has been heard yet." });
+      return;
+    }
+    this.set({ notice: null });
+    this.answerNow();
   }
 
   /** Start listening, or put up the first-run sheet when it has not been accepted. */
@@ -159,10 +239,8 @@ export class MeetingAssistant {
   ask(text: string): void {
     const question = text.trim();
     if (!question) return;
-    this.set({ asked: [...this.state.asked, { id: this.nextId++, text: question, at: this.deps.now() }] });
-    // Before a Start, or after a Stop, nothing is subscribed to the answers yet.
-    if (this.state.phase === "idle") this.answers.start();
-    void this.answers.askNow(question);
+    this.set({ asked: [...this.state.asked, { id: this.nextId++, text: question, at: this.deps.now() }], notice: null });
+    this.answerNow(question);
   }
 
   /** The answer's ×: one still streaming is cancelled, and either way it leaves the panel. */
@@ -188,12 +266,13 @@ export class MeetingAssistant {
     if (this.run) this.deps.setListening(false);
     this.run = null;
     this.listeners.clear();
+    this.scrollers.clear();
   }
 
   private async begin(): Promise<void> {
     if (this.state.phase !== "idle") return;
     const startedAt = this.deps.now();
-    this.set({ phase: "starting", partial: {}, systemAudio: null, problem: null });
+    this.set({ phase: "starting", partial: {}, systemAudio: null, problem: null, notice: null });
     // The mark goes up before the microphone opens, so there is no moment it is heard without it.
     this.deps.setListening(true);
     this.answers.start();
@@ -202,7 +281,7 @@ export class MeetingAssistant {
         if (this.run !== run) return;
         const partial = { ...this.state.partial };
         delete partial[line.source];
-        this.set({ lines: [...this.state.lines, line], partial });
+        this.set({ lines: [...this.state.lines, line], partial, notice: null });
         this.answers.line(line);
       },
       partial: (source, text) => { if (this.run === run) this.set({ partial: { ...this.state.partial, [source]: text } }); },

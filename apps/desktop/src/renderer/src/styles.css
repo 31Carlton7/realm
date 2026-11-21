@@ -2608,7 +2608,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 :root[data-surface="quick-chat"][data-mode="light"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 92%, transparent); }
 /* The bar moves the window there, through the system, so a drag never reaches the card's own. */
 :root[data-surface="quick-chat"] .quick-chat-bar { -webkit-app-region: drag; }
-:root[data-surface="quick-chat"] .quick-chat-bar button { -webkit-app-region: no-drag; }
+:root[data-surface="quick-chat"] .quick-chat-bar :is(button, label) { -webkit-app-region: no-drag; }
 /* The card fills the panel at its own z-index, so a sheet opened in the panel (the meeting
    assistant's first-run sheet) stands over it rather than under it. */
 :root[data-surface="quick-chat"] .sheet-backdrop { z-index: 80; }
@@ -2756,6 +2756,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    in either view, for as long as it listens. */
 .meeting-mark { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
   font-weight: var(--fw-label); color: var(--rl-text-bright); white-space: nowrap; }
+.meeting-auto { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+  color: var(--rl-text-dim); white-space: nowrap; }
 .meeting-mark-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
 .meeting-empty { padding: 0 32px; }
 /* The words, as they come: one column read top to bottom, the speaker and the time beside each line. */
@@ -2789,6 +2791,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   text-align: left; overflow-wrap: anywhere; }
 .meeting-notes-path:hover { text-decoration: underline; }
 .meeting-problem { flex: none; margin: 0; padding: 6px 14px; font-size: 12px; line-height: 16px; color: var(--rl-danger); }
+.meeting-notice { flex: none; margin: 0; padding: 6px 14px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 /* Past 20,000 characters of custom info: said once, beside the prompter, and nothing is refused. */
 .meeting-long { flex: none; margin: 0; padding: 0 14px 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 /* Over the prompter, on the window's own ground: what it sends, then the notice and Start or Stop. */

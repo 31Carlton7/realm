@@ -85,10 +85,27 @@ export function noCalendarHelper() {
   return helper;
 }
 
+/**
+ * A stand-in for the `realmkeys` helper. The real one makes an event tap on the keys of whoever is at
+ * the Mac, an active one under `--swallow`. This one says it is ready with no tap, reports nothing,
+ * and waits for its stdin to close as the helper does.
+ */
+export function noKeysHelper() {
+  const helper = path.join(desktopRoot, "node_modules/.cache/realm-live-app/realmkeys");
+  fs.mkdirSync(path.dirname(helper), { recursive: true });
+  const staging = `${helper}.tmp-${process.pid}`;
+  fs.writeFileSync(staging, `#!/bin/bash\necho '{"ready":true,"active":false}'\ncat > /dev/null\n`, { mode: 0o755 });
+  fs.renameSync(staging, helper);
+  return helper;
+}
+
 /** Quiet mode, the app's RPC token written to `<home>/live-app-token` for the check to dial with
- *  (`lib/daemon-token.mjs`), and no calendar unless `env` names a helper of its own. */
+ *  (`lib/daemon-token.mjs`), and no calendar and no key tap unless `env` names a helper of its own. */
 export function quietEnv(env = process.env) {
-  return { ...env, REALM_MEETINGWATCH_BIN: env.REALM_MEETINGWATCH_BIN || noCalendarHelper(), REALM_QUIET_WINDOWS: "1", REALM_LIVE_APP_TOKEN: "1" };
+  return {
+    ...env, REALM_MEETINGWATCH_BIN: env.REALM_MEETINGWATCH_BIN || noCalendarHelper(), REALM_KEYS_BIN: env.REALM_KEYS_BIN || noKeysHelper(),
+    REALM_QUIET_WINDOWS: "1", REALM_LIVE_APP_TOKEN: "1",
+  };
 }
 
 /** What `spawnLiveElectron` starts the app with: `quietEnv`, less quiet mode for a check that is seen. */

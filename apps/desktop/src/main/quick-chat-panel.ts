@@ -49,6 +49,17 @@ export function quickChatPanelPlace(saved: SavedWindow | null, displays: Rect[],
   };
 }
 
+/**
+ * Where Fn , and Fn . move the panel: the next of three places along its display, its left edge, the
+ * middle and its right edge, at the height it is at. Between two places it goes to the next one in
+ * that direction; at an edge it stays.
+ */
+export function quickChatPanelStep(x: number, area: Rect, direction: -1 | 1): number {
+  const stops = [area.x, Math.round(area.x + (area.width - QUICK_CHAT_PANEL_SIZE.width) / 2), area.x + area.width - QUICK_CHAT_PANEL_SIZE.width];
+  if (direction < 0) return [...stops].reverse().find((stop) => stop < x) ?? stops[0]!;
+  return stops.find((stop) => stop > x) ?? stops[2]!;
+}
+
 export type PanelWindow = {
   isDestroyed(): boolean;
   isVisible(): boolean;
@@ -95,17 +106,27 @@ export class QuickChatPanel<W extends PanelWindow> {
     if (made) void made.ready.catch(() => this.forget(made));
   }
 
-  /** Made ahead while a key opens it from another app: its chord, or a double-tap of Command. With
-   *  neither, a window made ahead is destroyed rather than kept hidden, so no renderer is held for a
-   *  panel nothing can open; one that is open is left to be put away. */
-  prepareFor(keys: { chord: boolean; doubleTap: boolean }): void {
-    if (keys.chord || keys.doubleTap) this.prepare();
-    else if (this.made && !this.isOpen()) this.forget(this.made);
+  /** Made ahead while a key opens it from another app: its chord, a double-tap of Command, or the
+   *  assistant's chords. With none, a window made ahead is destroyed rather than kept hidden, so no
+   *  renderer is held for a panel nothing can open; one that is open is left to be put away, and so
+   *  is one whose page is listening, which would end the run and lose its notes. */
+  prepareFor(keys: { chord: boolean; doubleTap: boolean; assistant?: boolean }, listening = false): void {
+    if (keys.chord || keys.doubleTap || keys.assistant) this.prepare();
+    else if (this.made && !this.isOpen() && !listening) this.forget(this.made);
   }
 
   /** The window is made on the first open, unless `prepare` made it already, and kept, so the next
    *  one does not wait on a page load. */
   open(): void {
+    this.show(true);
+  }
+
+  /** Open it and leave the keyboard with the app in front: the assistant's keys but its type key. */
+  openInactive(): void {
+    this.show(false);
+  }
+
+  private show(focus: boolean): void {
     if (!platformCapabilities(this.platform).quickChatPanel) return;
     if (!this.window()) this.made = this.create();
     const made = this.made;
@@ -116,8 +137,10 @@ export class QuickChatPanel<W extends PanelWindow> {
       if (!this.wanted || win !== made.win) return;
       win.setContentProtection(this.hiddenFromSharing);
       win.showInactive();
-      win.focus();
-      win.webContents.focus();
+      if (focus) {
+        win.focus();
+        win.webContents.focus();
+      }
       win.webContents.send("quick-chat-panel:shown");
     }, () => this.forget(made));
   }

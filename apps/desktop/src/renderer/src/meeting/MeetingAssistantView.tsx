@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import type { MeetingSummaryOutcome } from "@realm/contracts";
+import { HOLD_KEY_LABEL, type MeetingSummaryOutcome } from "@realm/contracts";
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { useDissolve } from "../components/ScrollFades";
 import { Sheet } from "../components/Sheet";
@@ -13,14 +13,24 @@ function useAssistant(assistant: MeetingAssistant): AssistantState {
   return useSyncExternalStore(assistant.subscribe, assistant.getState);
 }
 
-/** The panel page's hold on its assistant: the notes' progress and the menu bar's Stop while it is
- *  mounted, and the run ended when the page itself goes. StrictMode rehearses this effect in dev, so
- *  the ending waits for `pagehide` rather than a cleanup. */
+const NO_SUBSCRIPTION = () => () => {};
+const NO_STATE = () => null;
+
+/** The assistant's state where there may be no assistant: a Realm window's quick chat has none. */
+export function useAssistantState(assistant: MeetingAssistant | null): AssistantState | null {
+  return useSyncExternalStore(assistant?.subscribe ?? NO_SUBSCRIPTION, assistant?.getState ?? NO_STATE);
+}
+
+/** The panel page's hold on its assistant: the notes' progress, the menu bar's Stop and the
+ *  assistant's chords while it is mounted, and the run ended when the page itself goes. StrictMode
+ *  rehearses this effect in dev, so the ending waits for `pagehide` rather than a cleanup. */
 export function useAssistantPage(assistant: MeetingAssistant | null): void {
   useEffect(() => {
     if (!assistant) return;
     void assistant.load();
-    const offs = [assistant.watchNotes(), window.realm?.meetingAssistant?.onStop(() => void assistant.stop())];
+    const bridge = window.realm?.meetingAssistant;
+    const offs = [assistant.watchNotes(), bridge?.onStop(() => void assistant.stop()), bridge?.onKey?.((action) => assistant.key(action))];
+    bridge?.keysReady?.();
     const onPageHide = () => assistant.dispose();
     window.addEventListener("pagehide", onPageHide);
     return () => {
@@ -71,6 +81,11 @@ export function AssistantBody({ assistant }: { assistant: MeetingAssistant }) {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [count]);
+  // Fn J and Fn K: a page of the words at a time, as Page Down and Page Up move one.
+  useEffect(() => assistant.onScroll((direction) => {
+    const el = scroller.current;
+    if (el) el.scrollTop += direction * el.clientHeight;
+  }), [assistant]);
 
   const empty = count === 0;
   return (
@@ -102,6 +117,7 @@ export function AssistantBody({ assistant }: { assistant: MeetingAssistant }) {
       )}
       {s.answer && <Answer answer={s.answer} onDismiss={() => assistant.dismissAnswer()} />}
       {s.notes && <NotesLine notes={s.notes} assistant={assistant} />}
+      {s.notice && <p className="meeting-notice" role="status">{s.notice}</p>}
       {s.problem && <p className="meeting-problem" role="alert">{s.problem}</p>}
     </>
   );
@@ -179,6 +195,18 @@ function NotesLine({ notes, assistant }: { notes: MeetingNotesState; assistant: 
   );
 }
 
+/** The bar's switch for answering a question the other side asks, without the answer key. */
+export function AutoAnswersSwitch({ assistant }: { assistant: MeetingAssistant }) {
+  const s = useAssistant(assistant);
+  return (
+    <label className="meeting-auto" title="When the other side asks a question, an answer starts without a key. Off, only the answer key and a typed question ask.">
+      Auto-answer
+      <input type="checkbox" role="switch" className="switch" checked={s.autoAnswers}
+        onChange={(e) => assistant.setAutoAnswers(e.target.checked)} />
+    </label>
+  );
+}
+
 /** The row over the prompter: where the prompter sends, the notice for the room, and Start or Stop. */
 export function AssistantStrip({ assistant, target, onTarget, draft }: {
   assistant: MeetingAssistant; target: AssistantTarget; onTarget: (t: AssistantTarget) => void;
@@ -231,6 +259,8 @@ export function AssistantStrip({ assistant, target, onTarget, draft }: {
 
 /** Before the first listen: what listening means, and that telling people is his to do. */
 function ConsentSheet({ assistant }: { assistant: MeetingAssistant }) {
+  const held = useAssistant(assistant).chordsHeld;
+  const key = held && HOLD_KEY_LABEL[held];
   return (
     <Sheet title="Before you start listening" width={340} onClose={() => assistant.dismissSheet()}
       footer={<>
@@ -244,6 +274,7 @@ function ConsentSheet({ assistant }: { assistant: MeetingAssistant }) {
         <li>Each live answer sends the last three minutes of transcript, your custom info and any question you typed to Anthropic, through the Claude CLI on your own Claude account.</li>
         <li>When you stop, the summary sends the transcript, your questions and your custom info to the model chosen for quick chat. If that model runs through an agent other than Claude or Codex, that agent's app keeps its usual copy on the Mac.</li>
         <li>Nothing else leaves the Mac.</li>
+        {key && <li>From any app, {key} R shows the assistant, {key} L listens, {key} G answers and {key} T asks. Turn them off in Settings ▸ Keys.</li>}
       </ul>
     </Sheet>
   );

@@ -5,7 +5,7 @@ import { QuickChat } from "../components/QuickChat";
 import { StoreContext, createAppStore, useAppStore } from "../state/store";
 import { appCommands } from "../keys/commands";
 import { fakeApi } from "../state/store.test-fakes";
-import type { LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesResult } from "@realm/contracts";
+import type { AssistantPageAction, HoldKey, LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesResult } from "@realm/contracts";
 import type { LiveAnswersApi } from "../voice/live-answers";
 import type { TranscriptEvents } from "../voice/transcript";
 import { MeetingAssistant } from "./assistant";
@@ -22,7 +22,7 @@ function AssistantPage({ assistant, children }: { assistant: MeetingAssistant; c
   return <>{children}</>;
 }
 
-async function mount(opts: { consented?: boolean; strict?: boolean } = {}) {
+async function mount(opts: { consented?: boolean; strict?: boolean; chordsHeld?: HoldKey | null } = {}) {
   const store = createAppStore(fakeApi());
   await store.getState().boot();
   let events: TranscriptEvents | null = null;
@@ -53,6 +53,7 @@ async function mount(opts: { consented?: boolean; strict?: boolean } = {}) {
     openFile: (space, path) => opened.push([space, path]),
     now: () => 10_000,
     newId: () => "m1",
+    chords: { read: async () => opts.chordsHeld ?? null },
   });
   const page = (
     <StoreContext.Provider value={store}>
@@ -110,6 +111,15 @@ describe("the meeting assistant in the quick chat panel", () => {
     expect(r.consented()).toBe(true);
     expect(r.marks).toEqual([true]);
     expect(screen.queryByRole("dialog", { name: "Before you start listening" })).toBeNull();
+  });
+
+  it("names the assistant's keys with the held key on the sheet, and where to turn them off", async () => {
+    const r = await mount({ chordsHeld: "rightOption" });
+    showAssistant(r.dialog);
+    await act(() => { fireEvent.click(within(r.dialog).getByRole("button", { name: "Start listening" })); });
+    const sheet = await screen.findByRole("dialog", { name: "Before you start listening" });
+    expect([...sheet.querySelectorAll(".meeting-consent li")].at(-1)!.textContent).toBe(
+      "From any app, Right Option R shows the assistant, Right Option L listens, Right Option G answers and Right Option T asks. Turn them off in Settings ▸ Keys.");
   });
 
   it("does not listen when the sheet is put away", async () => {
@@ -268,5 +278,100 @@ describe("the meeting assistant in the quick chat panel", () => {
     showAssistant(r.dialog);
     await act(() => { fireEvent.click(within(r.dialog).getByRole("button", { name: "Tell the room" })); });
     expect(writeText).toHaveBeenCalledWith(TELL_THE_ROOM);
+  });
+});
+
+describe("the assistant's keys and its auto-answers switch, in the panel", () => {
+  let keyCb: ((action: AssistantPageAction) => void) | null = null;
+  let ready = 0;
+  const press = (action: AssistantPageAction) => act(() => keyCb!(action));
+  const stubBridge = () => {
+    keyCb = null;
+    ready = 0;
+    (window as { realm?: unknown }).realm = {
+      meetingAssistant: {
+        setListening: () => {},
+        onStop: () => () => {},
+        onKey: (cb: (action: AssistantPageAction) => void) => { keyCb = cb; return () => { keyCb = null; }; },
+        keysReady: () => { ready++; },
+      },
+    };
+  };
+  afterEach(() => { delete (window as { realm?: unknown }).realm; });
+
+  it("says it hears the keys once the page listens, and stops hearing them when it unmounts", async () => {
+    stubBridge();
+    await mount();
+    expect(ready).toBe(1);
+    expect(keyCb).not.toBeNull();
+    cleanup();
+    expect(keyCb).toBeNull();
+  });
+
+  it("R turns the panel to the assistant", async () => {
+    stubBridge();
+    const r = await mount();
+    expect(r.dialog.querySelector(".quick-chat-title")!.textContent).toBe("Quick chat");
+    press("toggle");
+    expect(r.dialog.querySelector(".quick-chat-title")!.textContent).toBe("Meeting assistant");
+  });
+
+  it("G before a Start says on the assistant that it is not listening, and asks nothing", async () => {
+    stubBridge();
+    const r = await mount({ consented: true, chordsHeld: "fn" });
+    press("answer");
+    await act(async () => {});
+    expect(r.dialog.querySelector(".quick-chat-title")!.textContent).toBe("Meeting assistant");
+    expect(r.dialog.querySelector(".meeting-notice")?.textContent).toBe("The assistant is not listening. Fn L starts it.");
+    expect(r.asked).toEqual([]);
+  });
+
+  it("T gives the prompter the keyboard, sending a question", async () => {
+    stubBridge();
+    const r = await mount();
+    press("type");
+    const input = r.dialog.querySelector<HTMLTextAreaElement>(".composer-input")!;
+    expect(document.activeElement).toBe(input);
+    expect(input.placeholder).toBe("Ask about the call");
+  });
+
+  it("T after the prompter was set to Context sets it back to a question", async () => {
+    stubBridge();
+    const r = await mount();
+    showAssistant(r.dialog);
+    fireEvent.click(within(r.dialog).getByRole("radio", { name: "Context" }));
+    press("type");
+    expect(r.dialog.querySelector<HTMLTextAreaElement>(".composer-input")!.placeholder).toBe("Ask about the call");
+  });
+
+  it("J and K scroll the words a page down and up", async () => {
+    stubBridge();
+    const r = await mount({ consented: true });
+    showAssistant(r.dialog);
+    await act(() => r.assistant.start());
+    act(() => r.events().line({ source: "them", text: "Hello there.", start: 0, end: 900, at: 12_000 }));
+    const feed = r.dialog.querySelector<HTMLElement>(".meeting-feed")!;
+    Object.defineProperty(feed, "clientHeight", { value: 200, configurable: true });
+    feed.scrollTop = 500;
+    press("scrollUp");
+    expect(feed.scrollTop).toBe(300);
+    press("scrollDown");
+    expect(feed.scrollTop).toBe(500);
+  });
+
+  it("shows the switch in the bar only with the assistant, on, and off it waits for the key", async () => {
+    const r = await mount({ consented: true });
+    expect(within(r.dialog).queryByRole("switch", { name: "Auto-answer" })).toBeNull();
+    showAssistant(r.dialog);
+    const sw = within(r.dialog).getByRole("switch", { name: "Auto-answer" }) as HTMLInputElement;
+    expect(sw.checked).toBe(true);
+    fireEvent.click(sw);
+    expect(sw.checked).toBe(false);
+    await act(() => r.assistant.start());
+    act(() => r.events().line({ source: "them", text: "What does it cost?", start: 0, end: 900, at: 12_000 }));
+    expect(r.asked).toEqual([]);
+    fireEvent.click(sw);
+    act(() => r.events().line({ source: "them", text: "And when can you start?", start: 1_000, end: 1_900, at: 13_000 }));
+    expect(r.asked.map((a) => a.trigger)).toEqual(["question"]);
   });
 });

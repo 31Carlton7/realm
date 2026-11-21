@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
 import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
-import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp, GlobalKeysEvent, GlobalKeysState, HoldKey } from "@realm/contracts";
+import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp, GlobalKeysEvent, GlobalKeysState, HoldKey, AssistantPageAction } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { BackdropState } from "../main/backdrop-state";
@@ -42,6 +42,16 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.on("meeting-assistant:stop", handler);
       return () => ipcRenderer.removeListener("meeting-assistant:stop", handler);
     },
+    /** The assistant's chords (main/assistant-keys.ts). Main holds a key pressed before this listens,
+     *  and gives it once `keysReady` says it does. */
+    onKey: (cb: (action: AssistantPageAction) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, action: AssistantPageAction) => cb(action);
+      ipcRenderer.on("meeting-assistant:key", handler);
+      return () => ipcRenderer.removeListener("meeting-assistant:key", handler);
+    },
+    keysReady: (): void => ipcRenderer.send("meeting-assistant:keys-ready"),
+    /** Which view is up, so main knows whether a key opens the panel on it or puts it away. */
+    setShown: (on: boolean): void => ipcRenderer.send("meeting-assistant:shown", on),
   },
   /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). */
   quickChatPanel: {
@@ -49,7 +59,7 @@ contextBridge.exposeInMainWorld("realm", {
     hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),
     /** Whether the panel was opened while its page loaded, rather than made ahead of a press. */
     opening: (): Promise<boolean> => ipcRenderer.invoke("quick-chat-panel:opening"),
-    /** The panel has just been opened, with the keyboard. */
+    /** The panel has just been opened, with the keyboard or without it. */
     onShown: (cb: () => void): (() => void) => {
       const handler = () => cb();
       ipcRenderer.on("quick-chat-panel:shown", handler);
@@ -154,6 +164,7 @@ contextBridge.exposeInMainWorld("realm", {
     state: (): Promise<GlobalKeysState> => ipcRenderer.invoke("keys:state"),
     setDoubleTap: (on: boolean): Promise<void> => ipcRenderer.invoke("keys:set-double-tap", on),
     setHold: (key: HoldKey): Promise<void> => ipcRenderer.invoke("keys:set-hold", key),
+    setAssistant: (on: boolean): Promise<void> => ipcRenderer.invoke("keys:set-assistant", on),
     /** While a page watches, main says when it sees a double-tap or the held key (`onEvent`). */
     watch: (on: boolean): void => ipcRenderer.send("keys:watch", on),
     onEvent: (cb: (event: GlobalKeysEvent) => void): (() => void) => {

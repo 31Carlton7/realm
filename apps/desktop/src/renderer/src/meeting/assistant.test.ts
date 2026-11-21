@@ -3,13 +3,15 @@ import type { LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesParams, Sav
 import type { LiveAnswersApi } from "../voice/live-answers";
 import type { VoiceAudio } from "../voice/audio-io";
 import { MeetingTranscript, type TranscriptEvent, type TranscriptEvents, type TranscriptHelper, type TranscriptLine } from "../voice/transcript";
-import { MeetingAssistant, customInfoText, type Listener } from "./assistant";
+import { MeetingAssistant, customInfoText, type AssistantDeps, type Listener } from "./assistant";
 
 type Asked = Parameters<LiveAnswersApi["answer"]>[0];
 
 function rig(opts: {
   consented?: boolean; space?: string | null; save?: (p: SaveMeetingNotesParams) => Promise<SaveMeetingNotesResult>;
   listen?: (events: TranscriptEvents) => Listener;
+  autoAnswers?: AssistantDeps["autoAnswers"];
+  chords?: AssistantDeps["chords"];
 } = {}) {
   const calls: string[] = [];
   const marks: boolean[] = [];
@@ -17,6 +19,7 @@ function rig(opts: {
   const saved: SaveMeetingNotesParams[] = [];
   const cancelledSummaries: string[] = [];
   const opened: [string, string][] = [];
+  const shownSaid: boolean[] = [];
   const answerSubs = new Set<(e: LiveAnswerEvent) => void>();
   const progressSubs = new Set<(p: MeetingNotesProgress) => void>();
   let events: TranscriptEvents | null = null;
@@ -55,11 +58,14 @@ function rig(opts: {
     openFile: (space, path) => opened.push([space, path]),
     now: () => now,
     newId: () => `m${++ids}`,
+    autoAnswers: opts.autoAnswers,
+    chords: opts.chords,
+    onShown: (on) => shownSaid.push(on),
   });
   assistant.watchNotes();
   const line = (source: "me" | "them", text: string, at: number): TranscriptLine => ({ source, text, start: at - 1_000, end: at - 500, at });
   return {
-    assistant, calls, marks, asked, saved, cancelledSummaries, opened, answerSubs, progressSubs,
+    assistant, calls, marks, asked, saved, cancelledSummaries, opened, answerSubs, progressSubs, shownSaid,
     events: () => events!,
     answer: (e: LiveAnswerEvent) => { for (const cb of answerSubs) cb(e); },
     progress: (p: MeetingNotesProgress) => { for (const cb of progressSubs) cb(p); },
@@ -508,5 +514,219 @@ describe("MeetingAssistant", () => {
   it("joins the custom info in the order it was given", () => {
     expect(customInfoText(["one", "two"])).toBe("one\ntwo");
     expect(customInfoText([])).toBe("");
+  });
+});
+
+const settle = () => new Promise((res) => setTimeout(res, 0));
+
+describe("the assistant's keys", () => {
+  it("R and every key but scrolling turn the panel to the assistant", async () => {
+    for (const action of ["toggle", "listen", "answer", "type"] as const) {
+      const r = rig();
+      await r.assistant.load();
+      expect(r.state().shown).toBe(false);
+      r.assistant.key(action);
+      expect(r.state().shown).toBe(true);
+    }
+  });
+
+  it("L starts listening through Start, mark first, and L again stops it", async () => {
+    const r = rig();
+    await r.assistant.load();
+    r.assistant.key("listen");
+    await settle();
+    expect(r.state().phase).toBe("listening");
+    expect(r.marks).toEqual([true]);
+    r.assistant.key("listen");
+    await settle();
+    expect(r.state().phase).toBe("idle");
+    expect(r.marks).toEqual([true, false]);
+  });
+
+  it("L before the first-run sheet was accepted puts it up, and a second L does not accept it", async () => {
+    const r = rig({ consented: false });
+    await r.assistant.load();
+    r.assistant.key("listen");
+    await settle();
+    r.assistant.key("listen");
+    await settle();
+    expect(r.state().sheet).toBe(true);
+    expect(r.state().phase).toBe("idle");
+    expect(r.calls).not.toContain("accept");
+    expect(r.calls).not.toContain("listen");
+    expect(r.marks).toEqual([]);
+  });
+
+  it("G before a Start shows the assistant, says it is not listening and which key starts it, and asks nothing", async () => {
+    const r = rig({ chords: { read: async () => "rightOption" } });
+    await r.assistant.load();
+    r.assistant.key("answer");
+    await settle();
+    expect(r.asked).toEqual([]);
+    expect(r.state().asked).toEqual([]);
+    expect(r.state()).toMatchObject({ shown: true, notice: "The assistant is not listening. Right Option L starts it.", phase: "idle" });
+  });
+
+  it("G before a Start with the held key unread names no key", async () => {
+    const r = rig();
+    await r.assistant.load();
+    r.assistant.key("answer");
+    expect(r.state().notice).toBe("The assistant is not listening.");
+  });
+
+  it("G while listening before the first line asks nothing, and the first line takes the notice away", async () => {
+    const r = rig();
+    await r.assistant.start();
+    r.assistant.key("answer");
+    await settle();
+    expect(r.asked).toEqual([]);
+    expect(r.state().notice).toBe("Nothing has been heard yet.");
+    r.events().line(r.line("them", "Shall we begin?", 2_000));
+    expect(r.state().notice).toBeNull();
+  });
+
+  it("G after a Stop asks nothing, and says it is not listening rather than that nothing was heard", async () => {
+    const r = rig({ chords: { read: async () => "fn" } });
+    await r.assistant.start();
+    r.events().line(r.line("them", "That is all for today.", 2_000));
+    await r.assistant.stop();
+    r.assistant.key("answer");
+    await settle();
+    expect(r.asked).toEqual([]);
+    expect(r.state().lines).toHaveLength(1);
+    expect(r.state().notice).toBe("The assistant is not listening. Fn L starts it.");
+  });
+
+  it("a question typed with nothing heard is still asked", async () => {
+    const r = rig();
+    await r.assistant.load();
+    r.assistant.ask("What is the agenda?");
+    await settle();
+    expect(r.asked.map((a) => a.question)).toEqual(["What is the agenda?"]);
+    expect(r.state().notice).toBeNull();
+  });
+
+  it("a question typed after G takes the notice away", async () => {
+    const r = rig();
+    await r.assistant.load();
+    r.assistant.key("answer");
+    expect(r.state().notice).not.toBeNull();
+    r.assistant.ask("What is the agenda?");
+    expect(r.state().notice).toBeNull();
+  });
+
+  it("G while listening answers from the words heard", async () => {
+    const r = rig();
+    await r.assistant.start();
+    r.events().line(r.line("them", "We have a budget of ten.", 2_000));
+    r.assistant.key("answer");
+    await settle();
+    expect(r.asked.at(-1)).toMatchObject({ trigger: "key", lines: [{ text: "We have a budget of ten." }] });
+  });
+
+  it("T counts a press, so the prompter takes the keyboard each time", () => {
+    const r = rig();
+    r.assistant.key("type");
+    r.assistant.key("type");
+    expect(r.state().typeKeyPresses).toBe(2);
+    expect(r.asked).toEqual([]);
+  });
+
+  it("J and K scroll down and up, and leave the view as it is", () => {
+    const r = rig();
+    const moved: number[] = [];
+    const off = r.assistant.onScroll((direction) => moved.push(direction));
+    r.assistant.key("scrollDown");
+    r.assistant.key("scrollUp");
+    expect(moved).toEqual([1, -1]);
+    expect(r.state().shown).toBe(false);
+    off();
+    r.assistant.key("scrollDown");
+    expect(moved).toEqual([1, -1]);
+  });
+
+  it("the chat's button shows the assistant and goes back", () => {
+    const r = rig();
+    r.assistant.show(true);
+    expect(r.state().shown).toBe(true);
+    r.assistant.show(false);
+    expect(r.state().shown).toBe(false);
+  });
+
+  it("tells main each time the view changes, and only then", () => {
+    const r = rig();
+    r.assistant.key("toggle");
+    r.assistant.key("answer");
+    r.assistant.key("chat");
+    r.assistant.show(false);
+    expect(r.shownSaid).toEqual([true, false]);
+  });
+
+  it("the quick chat keys turn the panel back to the chat", () => {
+    const r = rig();
+    r.assistant.key("toggle");
+    r.assistant.key("chat");
+    expect(r.state().shown).toBe(false);
+    expect(r.asked).toEqual([]);
+  });
+
+  it("reads the held key for the first-run sheet, and none while the chords are off", async () => {
+    const on = rig({ chords: { read: async () => "rightOption" } });
+    await on.assistant.load();
+    expect(on.state().chordsHeld).toBe("rightOption");
+    const off = rig({ chords: { read: async () => null } });
+    await off.assistant.load();
+    expect(off.state().chordsHeld).toBeNull();
+    const unread = rig({ chords: { read: async () => { throw new Error("no socket"); } } });
+    await unread.assistant.load();
+    expect(unread.state().chordsHeld).toBeNull();
+  });
+});
+
+describe("the auto-answers switch", () => {
+  const question = (r: ReturnType<typeof rig>) => r.events().line(r.line("them", "What does it cost?", 2_000));
+
+  it("starts on, and a question from the other side is answered without a key", async () => {
+    const r = rig();
+    expect(r.state().autoAnswers).toBe(true);
+    await r.assistant.start();
+    question(r);
+    await settle();
+    expect(r.asked.map((a) => a.trigger)).toEqual(["question"]);
+  });
+
+  it("off, a question waits for the answer key", async () => {
+    const r = rig();
+    await r.assistant.start();
+    r.assistant.setAutoAnswers(false);
+    question(r);
+    await settle();
+    expect(r.asked).toEqual([]);
+    expect(r.state().autoAnswers).toBe(false);
+    r.assistant.key("answer");
+    await settle();
+    expect(r.asked.map((a) => a.trigger)).toEqual(["key"]);
+  });
+
+  it("keeps the switch as a setting, and reads it back at load", async () => {
+    const written: boolean[] = [];
+    const r = rig({ autoAnswers: { read: async () => false, write: async (on) => { written.push(on); } } });
+    await r.assistant.load();
+    expect(r.state().autoAnswers).toBe(false);
+    await r.assistant.start();
+    question(r);
+    await settle();
+    expect(r.asked).toEqual([]);
+    r.assistant.setAutoAnswers(true);
+    expect(written).toEqual([true]);
+    r.events().line(r.line("them", "And when could you start?", 3_000));
+    await settle();
+    expect(r.asked.map((a) => a.trigger)).toEqual(["question"]);
+  });
+
+  it("starts on when the setting cannot be read", async () => {
+    const r = rig({ autoAnswers: { read: async () => { throw new Error("no socket"); }, write: async () => {} } });
+    await r.assistant.load();
+    expect(r.state().autoAnswers).toBe(true);
   });
 });
