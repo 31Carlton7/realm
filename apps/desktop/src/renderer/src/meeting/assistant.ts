@@ -32,7 +32,7 @@ export type AssistantDeps = {
 };
 
 /** Live answers start on their own when the other side asks a question. Its switch is M3b's. */
-export const AUTO_ANSWERS = true;
+const AUTO_ANSWERS = true;
 
 /** Past this many characters of custom info the prompter says that every answer sends all of it. */
 export const LONG_CUSTOM_INFO = 20_000;
@@ -80,8 +80,6 @@ const INITIAL: AssistantState = {
   consented: null, sheet: false, phase: "idle", startedAt: null, stoppedAt: null,
   lines: [], partial: {}, customInfo: [], asked: [], answer: null, notes: null, systemAudio: null, problem: null,
 };
-
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** The meeting assistant in the quick chat panel: one per panel page, so a run outlives the chat. */
 export class MeetingAssistant {
@@ -247,7 +245,7 @@ export class MeetingAssistant {
       const n = this.state.notes;
       if (n?.meetingId === meetingId) this.set({ notes: { ...n, path, stage: "saved", summary } });
     } catch (e) {
-      if (this.state.notes?.meetingId === meetingId) this.set({ notes: null, problem: `Realm could not save the notes: ${message(e)}` });
+      if (this.state.notes?.meetingId === meetingId) this.set({ notes: null, problem: `Realm could not save the notes: ${e instanceof Error ? e.message : String(e)}` });
     }
   }
 

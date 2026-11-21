@@ -8,6 +8,11 @@
  * panel's page gets a silent stream in place of `getUserMedia`. The clipboard is the page's stand-in
  * too, so "Tell the room" writes nothing to the Mac's own.
  *
+ * Nothing is billed and nothing leaves the Mac. The quick chat model is Claude so the live answers
+ * run, and under the scripted agent they are the server's scripted answer (`ScriptedLiveAnswers`): no
+ * process, no request. `REALM_REAL_LIVE_ANSWERS` is cleared, never set. The fake stands in for Claude
+ * (`REALM_FAKE_STANDS_IN`), so the summary turn is the scripted agent's, answered from a script.
+ *
  * Rows, in `rows.txt` under LIVE_OUT_DIR:
  *
  *   sheet     a Start before the first-run sheet was accepted puts it up and listens to nothing
@@ -15,7 +20,13 @@
  *             bar, and the menu bar's item (quiet mode keeps it out of the menu bar and records it)
  *   hidden    the panel hidden from screen sharing while it listens, and the mark still drawn
  *   room      "Tell the room" hands the notice to the clipboard
+ *   answer    a typed question draws the scripted answer, streamed piece by piece
  *   stop      Stop takes both marks down and keeps the words
+ *   notes     Stop writes the notes file: the panel names its path, and the file in the scratch home
+ *             holds the transcript, the typed question and the scripted summary
+ *   open      the path opens the file in a Realm window's Documents pane
+ *   long      past 20,000 characters of custom info the prompter says every answer sends it, and
+ *             the words still send
  *   consent   the acceptance is kept as the setting M3c reads
  *   picture   the panel in dark and light, Plain and Glass, in each of the three states
  */
@@ -28,6 +39,8 @@ import { cdp, desktopRoot, freePort, launchLiveApp, sleep, until } from "./lib/l
 import { noCalendar } from "./quick-chat-panel/no-calendar.mjs";
 
 const OUT_DIR = process.env.LIVE_OUT_DIR ?? path.resolve(process.cwd(), ".verify/meeting-assistant");
+const SCRIPTED_ANSWER = "Scripted answer: twelve seats to start, on the annual plan.";
+const SUMMARY = "## Summary\n\nThe pilot runs four weeks with two teams, priced per seat.\n\n## Decisions\n\nNone\n\n## Action items\n\n- Me: send the pricing sheet.";
 const js = (v) => JSON.stringify(v);
 const CHORD = "mod+ctrl+alt+shift+f19";
 const CONSENT_KEY = "meetings.assistantConsentAt";
@@ -67,6 +80,8 @@ fs.mkdirSync(OUT_DIR, { recursive: true });
 const tools = fs.mkdtempSync(path.join(os.tmpdir(), "realm-meeting-live-tools-"));
 const linesFile = path.join(tools, "lines.json");
 fs.writeFileSync(linesFile, js(LINES));
+const scriptFile = path.join(tools, "fake-script.json");
+fs.writeFileSync(scriptFile, js([{ on: "You are writing the notes for a meeting that has just ended.", emit: [{ kind: "text", text: SUMMARY }] }]));
 const voiceBin = path.join(tools, "realmvoice");
 fs.writeFileSync(voiceBin, `#!${process.execPath}
 // A stand-in for realmvoice: continuous mode's wire, with lines read from a file.
@@ -121,7 +136,7 @@ async function launch() {
   const calendar = noCalendar();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "realm-meeting-home-"));
   const app = await launchLiveApp({ name: "meeting-assistant", inspect: true, rendererUrl,
-    env: { ...calendar.env, HOME: home, REALM_VOICE_BIN: voiceBin } });
+    env: { ...calendar.env, HOME: home, REALM_VOICE_BIN: voiceBin, REALM_FAKE_SCRIPT: scriptFile, REALM_FAKE_STANDS_IN: "claude", REALM_REAL_LIVE_ANSWERS: "" } });
   const stopApp = app.stop;
   app.stop = async () => { await stopApp(); fs.rmSync(home, { recursive: true, force: true }); };
   const api = rpc(app.ports.server, await daemonToken(app.home));
@@ -129,6 +144,8 @@ async function launch() {
   const profile = (await api.call("profiles.list", {}))[0];
   const space = await api.call("spaces.create", { profileId: profile.id, name: "Stub space" });
   await api.call("settings.set", { key: "ui.activeSpaceId", value: space.id });
+  await api.call("settings.set", { key: "quickChatModel", value: { agentKind: "claude", model: "claude-haiku-5-5" } });
+  const { root } = await api.call("documents.spaceRoot", { spaceId: space.id });
   await until(() => app.main.eval(`require("electron").BrowserWindow.getAllWindows().some((w) => w.isResizable() && !w.webContents.isLoading())`), 30_000, "the window's first load");
   await app.page.send("Page.reload");
   await until(() => app.page.eval(`document.readyState === "complete" && document.body.innerText.includes("Stub space")`), 30_000, "the window on its space");
@@ -138,7 +155,7 @@ async function launch() {
     const register = globalShortcut.register;
     globalShortcut.register = (accelerator, cb) => { globalThis.__quickChatChord = { press: cb }; return register(accelerator, cb); }; return true; })()`);
   await app.page.eval(`window.realm.quickChatPanel.setShortcut(${js(CHORD)})`);
-  return { app, api, calendar };
+  return { app, api, calendar, root };
 }
 
 const panelOf = `require("electron").BrowserWindow.getAllWindows().find((w) => !w.isResizable())`;
@@ -192,6 +209,13 @@ async function everyLook({ app, api }, page, state) {
   }
 }
 
+/** Every text an element matching `selector` shows from now on, in order, read by a MutationObserver. */
+const watchTexts = (page, key, selector) => page.eval(`(() => { const seen = window[${js(key)}] = [];
+  const read = () => { const t = document.querySelector(${js(selector)})?.textContent ?? null; if (t !== null && seen.at(-1) !== t) seen.push(t); };
+  new MutationObserver(read).observe(document.body, { subtree: true, childList: true, characterData: true }); read(); return true; })()`);
+const setDraft = (page, text) => page.eval(`(() => { const el = document.querySelector(".quick-chat .composer-input");
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(el, ${js(text)});
+  el.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
 const click = (page, selector) => page.eval(`(() => { const b = document.querySelector(${js(selector)}); if (!b) return false; b.click(); return true; })()`);
 const clickByText = (page, scope, text) => page.eval(`(() => { const b = [...document.querySelectorAll(${js(scope)} + " button")].find((x) => x.textContent.trim() === ${js(text)}); if (!b) return false; b.click(); return true; })()`);
 const typeAndSend = (page, text) => page.eval(`(() => { const el = document.querySelector(".quick-chat .composer-input");
@@ -230,10 +254,20 @@ try {
   /* ── listen ────────────────────────────────────────────────────────────────────────────────── */
   await clickByText(page, ".sheet", "Start listening");
   await until(() => page.eval(`document.querySelectorAll(".meeting-line:not([data-partial])").length === ${LINES.length}`), 20_000, "every line from the file");
-  await typeAndSend(page, "What did they ask about price?");
+  // The other side's questions are answered on their own; let those settle before the typed one.
+  await sleep(1500);
   await click(page, '.meeting-strip input[value="context"]');
   await typeAndSend(page, "They care about the price after the pilot.");
-  await sleep(400);
+  await click(page, '.meeting-strip input[value="ask"]');
+  await watchTexts(page, "__answers", ".meeting-answer-text");
+  await typeAndSend(page, "How many seats should I offer?");
+  await until(() => page.eval(`document.querySelector(".meeting-answer")?.dataset.state === "done"`), 15_000, "the typed question's answer");
+  const streamed = await page.eval(`window.__answers`);
+  const pieces = streamed.filter((t) => t !== "Answering…");
+  const answer = { streamed, asked: await page.eval(`[...document.querySelectorAll(".meeting-asked")].map((q) => q.textContent)`) };
+  row("answer", "a typed question draws the scripted answer, streamed", answer,
+    pieces.at(-1) === SCRIPTED_ANSWER && pieces.length >= 3 && pieces.slice(0, -1).every((t) => SCRIPTED_ANSWER.startsWith(t) && t.length < SCRIPTED_ANSWER.length)
+    && answer.asked.includes("How many seats should I offer?"));
   const listening = {
     lines: await page.eval(`[...document.querySelectorAll(".meeting-line")].map((l) => l.querySelector(".meeting-who").textContent + ": " + l.querySelector(".meeting-words").textContent)`),
     mark: await page.eval(`document.querySelector(".quick-chat-bar .meeting-mark")?.textContent ?? null`),
@@ -255,16 +289,58 @@ try {
   row("room", "Tell the room puts the notice on the clipboard", copied, copied.length === 1 && /transcribe this call/.test(copied[0]));
 
   /* ── stop ──────────────────────────────────────────────────────────────────────────────────── */
+  await watchTexts(page, "__notes", ".meeting-notes > span");
   await clickByText(page, ".meeting-strip", "Stop");
   await until(() => page.eval(`!document.querySelector(".meeting-mark")`), 10_000, "the mark to come down");
   const stopped = { lines: await page.eval(`document.querySelectorAll(".meeting-line").length`),
     tray: await quietTray(app).then((t) => t && { destroyed: t.destroyed }),
     again: await page.eval(`[...document.querySelectorAll(".meeting-strip button")].some((b) => b.textContent === "Start again")`) };
   row("stop", "Stop takes both marks down and keeps the words", stopped, stopped.lines === LINES.length && stopped.tray?.destroyed === true && stopped.again);
+  await until(() => page.eval(`document.querySelector(".meeting-notes > span")?.textContent === "Notes saved."`), 30_000, "the notes to be saved").catch(() => {});
+  const notesSaid = await page.eval(`window.__notes`);
+  const shownPath = await page.eval(`document.querySelector(".meeting-notes-path")?.textContent ?? null`);
+  const file = shownPath ? path.join(current.root, shownPath) : null;
+  const text = file && fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const notes = { said: notesSaid, path: shownPath, file, inScratch: !!file && file.startsWith(os.tmpdir()) && !file.startsWith(path.join(os.homedir(), "Realm")),
+    transcript: LINES.every((l) => text.includes(l.text)), question: text.includes("How many seats should I offer?"), summary: text.includes("priced per seat"),
+    head: text.split("\n").slice(0, 3) };
+  row("notes", "Stop writes the notes: the panel names the path, the file has the transcript", notes,
+    /^meetings\/\d{4}-\d{2}-\d{2} \d{4} Meeting\.md$/.test(shownPath ?? "") && notes.inScratch && notes.transcript && notes.question && notes.summary
+    && text.includes("## Transcript") && text.includes("## Notes"));
   const consent = (await api.call("settings.get", { key: CONSENT_KEY })).value;
   row("consent", "the acceptance kept as the setting", consent, typeof consent === "number" && consent > 0);
   await until(() => page.eval(`!document.querySelector(".toast")`), 20_000, "the toast to leave").catch(() => {});
   await everyLook(current, page, "stopped");
+
+  /* ── open ──────────────────────────────────────────────────────────────────────────────────── */
+  await click(page, ".meeting-notes-path");
+  const name = path.basename(shownPath ?? "");
+  const opened = await until(async () => {
+    const tabs = await app.page.eval(`[...document.querySelectorAll(".documents-tab-label[title]")].map((t) => t.title)`);
+    return name && tabs.some((t) => t.endsWith(name)) ? tabs : null;
+  }, 20_000, "the file in a Documents pane").catch(() => null);
+  const panelAway = !(await panelVisible(app));
+  row("open", "the path opens the file in a Realm window's Documents pane", { tabs: opened, panelAway }, !!opened && panelAway);
+
+  /* ── long ──────────────────────────────────────────────────────────────────────────────────── */
+  await openPanel(app);
+  await click(page, '.meeting-strip input[value="context"]');
+  await setDraft(page, "x".repeat(20_000));
+  await sleep(200);
+  const atLimit = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
+  await setDraft(page, "Background. ".repeat(1_700));
+  await sleep(200);
+  const past = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
+  const longPicture = "m3a-long-dark-plain.png";
+  await api.call("settings.set", { key: "ui.theme", value: "dark" });
+  await api.call("settings.set", { key: "ui.look", value: "plain" });
+  await picture(page, path.join(OUT_DIR, longPicture));
+  await page.eval(`document.querySelector(".quick-chat .composer-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+  await sleep(300);
+  const kept = await page.eval(`document.querySelector(".meeting-context")?.textContent.length ?? 0`);
+  const after = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
+  row("long", "past 20,000 characters the prompter warns, and the words still send", { atLimit, past, kept, after, picture: longPicture },
+    atLimit === null && /^Every answer sends all 20,4\d\d characters of custom info\.$/.test(past ?? "") && kept > 20_000 && after !== null);
   page.close();
 } catch (err) {
   process.exitCode = 1;
