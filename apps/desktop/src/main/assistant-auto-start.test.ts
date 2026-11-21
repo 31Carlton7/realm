@@ -1,21 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY } from "@realm/contracts";
-import { AssistantAutoStart } from "./assistant-auto-start";
+import { AssistantAutoStart, CALL_REARM_MS } from "./assistant-auto-start";
+import type { Meeting } from "./meeting-rules";
 
 function rig(opts: { consented?: boolean | (() => Promise<boolean>); listening?: boolean } = {}) {
   const calls: string[] = [];
   let listening = opts.listening ?? false;
+  let now = 0;
   const auto = new AssistantAutoStart({
     watchCalls: (on) => calls.push(`watchCalls ${on}`),
     consented: typeof opts.consented === "function" ? opts.consented : async () => (opts.consented as boolean | undefined) ?? true,
     listening: () => listening,
-    start: () => { calls.push("start"); listening = true; },
+    panel: { open: () => calls.push("open"), openInactive: () => calls.push("open inactive") },
+    start: () => { calls.push("start"); listening = true; auto.listeningChanged(true); },
+    now: () => now,
   });
-  return { auto, calls };
+  /** The person's Stop: the run's page says it no longer listens. */
+  const stop = () => { listening = false; auto.listeningChanged(false); };
+  const at = (t: number) => { now = t; };
+  return { auto, calls, stop, at, starts: () => calls.filter((c) => c === "start").length };
 }
 
+const MIN = 60_000;
+const meeting = (key: string, start: number, end: number): Meeting => ({ key, title: key, start, end, service: "Zoom", link: "https://zoom.us/j/1" });
+const zoom = { id: "us.zoom.xos", name: "Zoom" };
+
 describe("Start the assistant when a call starts", () => {
-  it("is off by default, under its own key, until Carlton decides", () => {
+  it("is off by default, under its own key, because it starts listening to other people on its own", () => {
     expect(MEETING_AUTO_START_DEFAULT).toBe(false);
     expect(MEETING_AUTO_START_KEY).toBe("meetings.startAssistantWithCall");
   });
@@ -66,7 +77,7 @@ describe("Start the assistant when a call starts", () => {
     r.auto.set(true);
     await r.auto.callStarted();
     await r.auto.callStarted();
-    expect(r.calls).toEqual(["watchCalls true", "start"]);
+    expect(r.calls).toEqual(["watchCalls true", "open inactive", "start"]);
   });
 
   it("starts nothing when turned off while the consent was being read", async () => {
@@ -78,5 +89,122 @@ describe("Start the assistant when a call starts", () => {
     answer(true);
     await started;
     expect(r.calls).toEqual(["watchCalls true", "watchCalls false"]);
+  });
+
+  it("opens the panel without the keyboard, before the page is told to Start", async () => {
+    const r = rig();
+    r.auto.set(true);
+    await r.auto.appCallStarted(zoom);
+    expect(r.calls).toEqual(["watchCalls true", "open inactive", "start"]);
+  });
+});
+
+describe("A Stop holds until the person has hung up", () => {
+  it("joined early: the calendar's start on the hour after a Stop starts nothing", async () => {
+    const r = rig();
+    r.auto.set(true);
+    r.at(58 * MIN);
+    await r.auto.appCallStarted(zoom);
+    r.stop();
+    r.at(60 * MIN);
+    await r.auto.meetingStarted(meeting("standup", 60 * MIN, 90 * MIN));
+    expect(r.starts()).toBe(1);
+  });
+
+  it("meeting first: the app taking the microphone after a Stop starts nothing", async () => {
+    const r = rig();
+    r.auto.set(true);
+    r.at(60 * MIN);
+    await r.auto.meetingStarted(meeting("standup", 60 * MIN, 90 * MIN));
+    r.stop();
+    r.at(61 * MIN);
+    await r.auto.appCallStarted(zoom);
+    r.at(89 * MIN);
+    await r.auto.appCallStarted(zoom);
+    expect(r.starts()).toBe(1);
+  });
+
+  it("a microphone let go and taken back after a Stop starts nothing", async () => {
+    const r = rig();
+    r.auto.set(true);
+    await r.auto.appCallStarted(zoom);
+    r.stop();
+    r.at(10 * MIN);
+    r.auto.appCallEnded(zoom);
+    r.at(10 * MIN + CALL_REARM_MS - 1);
+    await r.auto.appCallStarted(zoom);
+    r.at(30 * MIN);
+    r.auto.appCallEnded(zoom);
+    r.at(30 * MIN + CALL_REARM_MS - 1);
+    await r.auto.appCallStarted(zoom);
+    expect(r.starts()).toBe(1);
+  });
+
+  it("Stop, hang up, then a different meeting later still starts", async () => {
+    const r = rig();
+    r.auto.set(true);
+    r.at(0);
+    await r.auto.meetingStarted(meeting("standup", 0, 30 * MIN));
+    await r.auto.appCallStarted(zoom);
+    r.stop();
+    r.at(20 * MIN);
+    r.auto.appCallEnded(zoom);
+    r.at(60 * MIN);
+    await r.auto.meetingStarted(meeting("review", 60 * MIN, 90 * MIN));
+    expect(r.starts()).toBe(2);
+    r.stop();
+    r.at(120 * MIN);
+    await r.auto.appCallStarted(zoom);
+    expect(r.starts()).toBe(3);
+  });
+
+  it("a run that ends with no call or meeting going holds nothing", async () => {
+    const r = rig();
+    r.auto.set(true);
+    r.auto.listeningChanged(true);
+    r.stop();
+    await r.auto.appCallStarted(zoom);
+    expect(r.starts()).toBe(1);
+  });
+
+  it("holds an app's call until it has let go of the microphone for the re-arm time", async () => {
+    const r = rig();
+    r.auto.set(true);
+    await r.auto.appCallStarted(zoom);
+    r.stop();
+    r.at(5 * MIN);
+    r.auto.appCallEnded(zoom);
+    r.at(5 * MIN + CALL_REARM_MS);
+    await r.auto.appCallStarted(zoom);
+    expect(r.starts()).toBe(2);
+  });
+
+  it("holds a meeting until its end, and no longer", async () => {
+    const r = rig();
+    r.auto.set(true);
+    await r.auto.meetingStarted(meeting("standup", 0, 30 * MIN));
+    r.stop();
+    r.at(30 * MIN - 1);
+    await r.auto.meetingStarted(meeting("overlap", 29 * MIN, 45 * MIN));
+    r.at(30 * MIN);
+    await r.auto.appCallStarted(zoom);
+    r.at(31 * MIN);
+    r.auto.appCallEnded(zoom);
+    expect(r.starts()).toBe(1);
+    r.at(45 * MIN);
+    await r.auto.meetingStarted(meeting("next", 45 * MIN, 60 * MIN));
+    expect(r.starts()).toBe(2);
+  });
+
+  it("forgets the calls when turned off, since none will be said to end", async () => {
+    const r = rig();
+    r.auto.set(true);
+    await r.auto.appCallStarted(zoom);
+    r.auto.set(false);
+    r.stop();
+    r.auto.set(true);
+    r.at(60 * MIN);
+    await r.auto.appCallStarted(zoom);
+    expect(r.starts()).toBe(2);
   });
 });

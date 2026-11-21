@@ -47,6 +47,15 @@
  *   chat      the quick chat chord and a double-tap of Command open on the chat, after an assistant key
  *   heard     G with nothing heard says so and asks nothing
  *   reloaded  a key pressed after a reload reaches the reloaded page
+ *
+ * "Start the assistant when a call starts" (M3c), through a meetingwatch stand-in whose calls mode
+ * says Zoom holds the microphone, or nothing does, as this script writes it:
+ *
+ *   auto      before the sheet is accepted a call starting changes nothing; after it, a call
+ *             starting opens the panel without the keyboard and listens, with the mark up; after a
+ *             Stop, the microphone let go and taken back starts nothing
+ *   meetings  Settings ▸ General ▸ Meetings: the row's switch, its title saying a Stop holds, and the
+ *             row in dark and light, Plain and Glass
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -169,6 +178,31 @@ const keysLogged = () => (fs.existsSync(keysLog) ? fs.readFileSync(keysLog, "utf
 const chord = (key) => fs.appendFileSync(keysSay, `${js({ t: "chord", code: CODES[key] })}\n`);
 const doubleTap = () => fs.appendFileSync(keysSay, `${js({ t: "doubleTap" })}\n`);
 
+/** A stand-in for meetingwatch: its calendar mode says access was never asked for, and its calls mode
+ *  says the last line of `holders` every half second, as the helper says who holds the microphone. */
+const watchDir = path.join(tools, "watch");
+fs.mkdirSync(watchDir);
+const watchBin = path.join(watchDir, "meetingwatch");
+const watchHolders = path.join(watchDir, "holders");
+const watchLog = path.join(watchDir, "log.jsonl");
+fs.writeFileSync(watchHolders, `${js({ holders: [], titled: [] })}\n`);
+fs.writeFileSync(watchBin, `#!${process.execPath}
+const fs = require("node:fs");
+fs.appendFileSync(${js(watchLog)}, JSON.stringify({ argv: process.argv.slice(2) }) + "\\n");
+if (process.argv[2] === "calls") {
+  setInterval(() => process.stdout.write(fs.readFileSync(${js(watchHolders)}, "utf8").trim().split("\\n").at(-1) + "\\n"), 500);
+} else {
+  console.log(JSON.stringify({ access: "notDetermined" }));
+}
+process.stdin.resume();
+process.stdin.on("end", () => process.exit(0));
+`, { mode: 0o755 });
+const watchModes = () => (fs.existsSync(watchLog) ? fs.readFileSync(watchLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l).argv[0]) : []);
+/** Zoom takes the microphone, or nothing holds it. */
+const zoomHolds = (on) => fs.appendFileSync(watchHolders, `${js({ holders: on ? ["us.zoom.xos"] : [], titled: [] })}\n`);
+/** Main says a call started after `CALL_START_MS` (3 s) of holding, and ended after `CALL_END_MS` (5 s) of not. */
+const CALL_SETTLE_MS = 8000;
+
 let web = null;
 let rendererUrl = null;
 let current = null;
@@ -184,7 +218,7 @@ async function launch() {
   const calendar = noCalendar();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "realm-meeting-home-"));
   const app = await launchLiveApp({ name: "meeting-assistant", inspect: true, rendererUrl,
-    env: { ...calendar.env, HOME: home, REALM_KEYS_BIN: keysBin, REALM_VOICE_BIN: voiceBin, REALM_FAKE_SCRIPT: scriptFile, REALM_FAKE_STANDS_IN: "claude", REALM_REAL_LIVE_ANSWERS: "" } });
+    env: { ...calendar.env, REALM_MEETINGWATCH_BIN: watchBin, HOME: home, REALM_KEYS_BIN: keysBin, REALM_VOICE_BIN: voiceBin, REALM_FAKE_SCRIPT: scriptFile, REALM_FAKE_STANDS_IN: "claude", REALM_REAL_LIVE_ANSWERS: "" } });
   const stopApp = app.stop;
   app.stop = async () => { await stopApp(); fs.rmSync(home, { recursive: true, force: true }); };
   const api = rpc(app.ports.server, await daemonToken(app.home));
@@ -331,6 +365,35 @@ async function settingsLooks({ app, api }, state) {
   return said;
 }
 
+/** Settings ▸ General ▸ Meetings in the Realm window: "Start the assistant when a call starts" turned
+ *  on by its own switch, its title read, and the row captured in each look. */
+async function meetingsLooks({ app, api }) {
+  const ROW = '[data-setting="start-assistant"]';
+  await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).webContents.send("app:command", "settings.open"); true`);
+  await until(() => app.page.eval(`!!document.querySelector('input[name="settings-page-tab"][value="general"]')`), 10_000, "Settings");
+  await app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="general"]').click(); true`);
+  await until(() => app.page.eval(`!!document.querySelector(${js(ROW)})`), 10_000, "Settings ▸ General ▸ Meetings");
+  const before = await app.page.eval(`document.querySelector(${js(ROW + " input")}).checked`);
+  if (!before) await app.page.eval(`document.querySelector(${js(ROW + " input")}).click(); true`);
+  const on = await until(async () => (await api.call("settings.get", { key: "meetings.startAssistantWithCall" })).value === true || null, 10_000, "the switch to be kept").catch(() => false);
+  const title = await app.page.eval(`document.querySelector(${js(ROW)}).title`);
+  for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
+    await api.call("settings.set", { key: "ui.theme", value: mode });
+    await api.call("settings.set", { key: "ui.look", value: look });
+    await until(() => app.page.eval(`document.documentElement.dataset.mode === ${js(mode)} && document.documentElement.hasAttribute("data-glass") === ${look === "glass"}`), 15_000, `Settings in ${mode} ${look}`);
+    await sleep(400);
+    const clip = await app.page.eval(`(() => { const r = document.querySelector(${js(ROW)}); r.scrollIntoView({ block: "center" });
+      const b = r.closest(".settings-list").getBoundingClientRect(); return { x: b.left, y: b.top, width: b.width, height: b.height }; })()`);
+    const file = `m3c-settings-${mode}-${look}.png`;
+    const { data } = await app.page.send("Page.captureScreenshot", { format: "png", clip: { ...clip, scale: 2 } });
+    fs.writeFileSync(path.join(OUT_DIR, file), Buffer.from(data, "base64"));
+    row("picture", `Settings ▸ General ▸ Meetings, ${mode} ${look}`, file);
+  }
+  await app.page.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true`);
+  await until(() => app.page.eval(`!document.querySelector('input[name="settings-page-tab"]')`), 10_000, "Settings to close").catch(() => {});
+  return { before, on, title };
+}
+
 /** No real microphone: a silent stream stands in for it. No real clipboard: the page keeps what it is
  *  given. Each stand-in is marked, so a check can tell it is still the one in place. */
 const STAND_INS = `(() => {
@@ -388,6 +451,28 @@ try {
   const unregistered = keysLogged();
   row("register", "before the sheet is accepted: no chord registered, no helper able to swallow", unregistered,
     unregistered.length > 0 && unregistered.every((e) => (e.argv ? !e.argv.includes("--swallow") : e.config.chords.length === 0)));
+
+  /* ── meetings, auto: before the sheet is accepted ───────────────────────────────────────────── */
+  const meetingsRow = await meetingsLooks(current);
+  const watching = await until(() => watchModes().includes("calls") || null, 10_000, "the calls helper").catch(() => false);
+  row("meetings", "the switch turns it on, and the microphone is watched only then", { ...meetingsRow, watching, modes: watchModes() },
+    meetingsRow.before === false && meetingsRow.on === true && watching === true);
+  row("meetings", "the row's title says a Stop holds", meetingsRow.title, /After you stop it, it does not start again for that call or meeting\./.test(meetingsRow.title));
+  await closePanel(app, page);
+  await standInStill(page, "microphone");
+  zoomHolds(true);
+  await sleep(CALL_SETTLE_MS);
+  const unaccepted = { visible: await panelVisible(app), mark: await page.eval(`!!document.querySelector(".meeting-mark")`), tray: await quietTray(app),
+    sheet: await page.eval(`!!document.querySelector('.sheet[aria-label="Before you start listening"]')`),
+    consent: (await api.call("settings.get", { key: CONSENT_KEY })).value ?? null };
+  row("auto", "before the sheet is accepted, a call starting changes nothing", unaccepted,
+    !unaccepted.visible && !unaccepted.mark && unaccepted.tray === null && !unaccepted.sheet && unaccepted.consent === null);
+  zoomHolds(false);
+  await sleep(CALL_SETTLE_MS);
+  // Off until the accepted rows at the end, so the runs between have no call to hold.
+  await api.call("settings.set", { key: "meetings.startAssistantWithCall", value: false });
+  await app.page.eval(`window.realm.meetings.setStartAssistantWithCall(false)`);
+  await openPanel(app);
 
   /* ── sheet ─────────────────────────────────────────────────────────────────────────────────── */
   await click(page, '.quick-chat-bar button[aria-label="Meeting assistant"]');
@@ -633,6 +718,38 @@ try {
   /* ── settings: after the accept ─────────────────────────────────────────────────────────────── */
   const saidAfter = await settingsLooks(current, "after-consent");
   row("settings", "after the first Start, the switch no longer says the keys wait", saidAfter, !saidAfter.includes(WAITING));
+
+  /* ── auto: after the accept ─────────────────────────────────────────────────────────────────── */
+  await api.call("settings.set", { key: "meetings.startAssistantWithCall", value: true });
+  await app.page.eval(`window.realm.meetings.setStartAssistantWithCall(true)`);
+  await closePanel(app, page);
+  await standInStill(page, "microphone");
+  await countFocus(app);
+  zoomHolds(true);
+  const autoStarted = await until(() => page.eval(`!!document.querySelector(".quick-chat-bar .meeting-mark")`), 20_000, "a call starting to start listening").catch(() => false);
+  const accepted = { listening: autoStarted, visible: await panelVisible(app), focus: await focusCalls(app),
+    focused: await app.main.eval(`${panelOf}.isFocused()`), assistant: await onAssistant(page),
+    tray: await quietTray(app).then((t) => t && { title: t.title, destroyed: t.destroyed }) };
+  row("auto", "accepted: a call starting opens the panel without the keyboard, listening, with the mark up", accepted,
+    accepted.listening === true && accepted.visible && accepted.focus === 0 && !accepted.focused && accepted.assistant
+    && accepted.tray?.title === "Listening" && accepted.tray.destroyed === false);
+  const autoPicture = "m3c-auto-started.png";
+  await picture(page, path.join(OUT_DIR, autoPicture));
+  row("picture", "the panel a call starting opened", autoPicture);
+
+  await clickByText(page, ".meeting-strip", "Stop");
+  await until(() => page.eval(`!document.querySelector(".meeting-mark")`), 10_000, "Stop to take the mark down");
+  await closePanel(app, page);
+  // The app lets go of the microphone long enough for the call to end, and takes it back.
+  zoomHolds(false);
+  await sleep(CALL_SETTLE_MS);
+  zoomHolds(true);
+  await sleep(CALL_SETTLE_MS);
+  const afterStop = { visible: await panelVisible(app), mark: await page.eval(`!!document.querySelector(".meeting-mark")`),
+    tray: await quietTray(app).then((t) => t && { destroyed: t.destroyed }) };
+  row("auto", "after a Stop, the microphone let go and taken back starts nothing", afterStop,
+    !afterStop.visible && !afterStop.mark && afterStop.tray?.destroyed === true);
+  zoomHolds(false);
   page.close();
 } catch (err) {
   process.exitCode = 1;

@@ -31,7 +31,7 @@ export function meetingConsentAccepted(stored: unknown): boolean {
 /**
  * Settings ▸ General ▸ Meetings: start the assistant when a calendar meeting starts or a calling app
  * takes the microphone. It does nothing until the first-run sheet has been accepted
- * (`MEETING_CONSENT_KEY`). Off by default until Carlton decides whether it is on for everyone.
+ * (`MEETING_CONSENT_KEY`). Off by default, because it starts listening to other people on its own.
  */
 export const MEETING_AUTO_START_KEY = "meetings.startAssistantWithCall";
 export const MEETING_AUTO_START_DEFAULT = false;

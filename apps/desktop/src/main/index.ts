@@ -831,7 +831,11 @@ const listeningMark = new ListeningMark({
 });
 // `transcript`, the meeting transcript's helper, is made further down.
 const meetingListening = new MeetingListening<WebContents>({
-  mark: (on) => listeningMark.set(on),
+  mark: (on) => {
+    listeningMark.set(on);
+    // A run that ends holds auto-start off for its call (assistant-auto-start.ts).
+    assistantAutoStart.listeningChanged(meetingListening.listening);
+  },
   stopHelper: (page) => transcript.endRun(page),
 });
 ipcMain.on("meeting-assistant:listening", (e, on: unknown) => {
@@ -1702,13 +1706,13 @@ const assistantAutoStart = new AssistantAutoStart({
   watchCalls: (on) => meetingWatch.watchCalls(on),
   consented: async () => meetingConsentAccepted((await bridgeClient?.call("settings.get", { key: MEETING_CONSENT_KEY }) as { value?: unknown } | null)?.value),
   listening: () => meetingListening.listening,
-  start: () => {
-    quickChatPanel.openInactive();
-    assistantInbox.send(quickChatPanel.window()?.webContents ?? null, "autoStart");
-  },
+  panel: quickChatPanel,
+  start: () => assistantInbox.send(quickChatPanel.window()?.webContents ?? null, "autoStart"),
+  now: () => Date.now(),
 });
-meetingWatch.on("meetingStarted", () => void assistantAutoStart.callStarted());
-meetingWatch.on("callStarted", () => void assistantAutoStart.callStarted());
+meetingWatch.on("meetingStarted", (meeting) => void assistantAutoStart.meetingStarted(meeting));
+meetingWatch.on("callStarted", (app) => void assistantAutoStart.appCallStarted(app));
+meetingWatch.on("callEnded", (app) => assistantAutoStart.appCallEnded(app));
 ipcMain.handle("meetings:start-assistant-with-call", (_e, on: unknown) => { assistantAutoStart.set(on === true); preparePanel(); });
 /** Read again each time it is asked for, so a grant changed in System Settings shows on the page. */
 ipcMain.handle("meetings:calendar-access", () => { meetingWatch.checkCalendar(); return meetingWatch.access; });
