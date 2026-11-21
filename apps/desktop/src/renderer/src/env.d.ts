@@ -122,6 +122,7 @@ interface Window {
     /** Settings ▸ General ▸ Meetings: the switch, and calendar access as macOS reports it. */
     meetings?: {
       setOpenWhenStarts(on: boolean): Promise<void>;
+      setStartAssistantWithCall?(on: boolean): Promise<void>;
       calendarAccess(): Promise<import("@realm/contracts").CalendarAccess | null>;
       askForCalendar(): Promise<void>;
       openCalendarSettings(): Promise<void>;

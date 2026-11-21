@@ -59,5 +59,6 @@ export const ASSISTANT_CHORDS = [
   { key: ".", action: "moveRight", label: "Move the panel right" },
 ] as const;
 export type AssistantAction = (typeof ASSISTANT_CHORDS)[number]["action"];
-/** What the panel's page is told to do; moving the panel is main's own. */
-export type AssistantPageAction = Exclude<AssistantAction, "moveLeft" | "moveRight">;
+/** What the panel's page is told to do; moving the panel is main's own. `autoStart` is a call
+ *  starting (Settings ▸ General ▸ Meetings), not a key. */
+export type AssistantPageAction = Exclude<AssistantAction, "moveLeft" | "moveRight"> | "autoStart";

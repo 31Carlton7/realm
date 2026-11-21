@@ -592,3 +592,42 @@ describe("the auto-answers switch", () => {
     expect(r.state().autoAnswers).toBe(true);
   });
 });
+
+describe("starting on its own when a call starts", () => {
+  it("does nothing, not even the sheet, before the first-run sheet was accepted", async () => {
+    const r = rig({ consented: false });
+    r.assistant.key("autoStart");
+    await settle();
+    expect(r.state().sheet).toBe(false);
+    expect(r.state().shown).toBe(false);
+    expect(r.state().phase).toBe("idle");
+    expect(r.calls).not.toContain("listen");
+    expect(r.marks).toEqual([]);
+  });
+
+  it("does nothing before the sheet was accepted even once the consent has been read", async () => {
+    const r = rig({ consented: false });
+    await r.assistant.load();
+    await r.assistant.autoStart();
+    expect(r.state().sheet).toBe(false);
+    expect(r.calls).not.toContain("listen");
+  });
+
+  it("once accepted, shows the assistant and starts through the same Start, mark first", async () => {
+    const r = rig();
+    r.assistant.key("autoStart");
+    await settle();
+    expect(r.state().shown).toBe(true);
+    expect(r.state().phase).toBe("listening");
+    expect(r.marks).toEqual([true]);
+    expect(r.calls.slice(0, 3)).toEqual(["prepare", "listen", "start"]);
+  });
+
+  it("leaves a run that is already listening alone", async () => {
+    const r = rig();
+    await r.assistant.start();
+    await r.assistant.autoStart();
+    expect(r.calls.filter((c) => c === "listen")).toHaveLength(1);
+    expect(r.marks).toEqual([true]);
+  });
+});

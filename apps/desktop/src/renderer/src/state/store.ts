@@ -24,7 +24,7 @@ import {
   forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
@@ -637,6 +637,8 @@ export type Api = TeammatesApi & {
   setPreventSleep(on: boolean): Promise<void>;
   /** Tell main the Meetings switch moved; main reads the calendar only while it is on. */
   setOpensMeetings(on: boolean): Promise<void>;
+  /** Tell main "Start the assistant when a call starts" moved; main watches calls only while it is on. */
+  setStartsAssistant(on: boolean): Promise<void>;
   /** Calendar access as macOS reports it for Realm, read again. Null while nothing is reading it:
    *  the switch is off, or this OS has no calendar to read. Never asks. */
   calendarAccess(): Promise<CalendarAccess | null>;
@@ -3084,6 +3086,9 @@ export type AppState = TeammatesSlice & {
   /** Open a calendar meeting's link when it starts (Settings ▸ General ▸ Meetings). On by default. */
   opensMeetings: boolean;
   setOpensMeetings(on: boolean): Promise<void>;
+  /** Start the meeting assistant when a call starts (Settings ▸ General ▸ Meetings). */
+  startsAssistant: boolean;
+  setStartsAssistant(on: boolean): Promise<void>;
   /** Calendar access as macOS reports it for Realm; null until asked, or with the switch off. */
   calendarAccess: CalendarAccess | null;
   refreshCalendarAccess(): Promise<void>;
@@ -4876,7 +4881,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, memoryLearning: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, opensMeetings: MEETINGS_OPEN_DEFAULT, calendarAccess: null, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
+      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, opensMeetings: MEETINGS_OPEN_DEFAULT, startsAssistant: MEETING_AUTO_START_DEFAULT, calendarAccess: null, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
@@ -5036,6 +5041,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const opensMeetings = (await api.getSetting(MEETINGS_OPEN_KEY).catch(() => null)) !== false;
         set({ opensMeetings });
         void api.setOpensMeetings(opensMeetings).catch(() => {});
+        const startsAssistant = await api.getSetting(MEETING_AUTO_START_KEY).catch(() => null);
+        set({ startsAssistant: typeof startsAssistant === "boolean" ? startsAssistant : MEETING_AUTO_START_DEFAULT });
         const linksIn = await api.getSetting(LINKS_OPEN_IN_KEY).catch(() => null);
         const linksOpenIn = isLinksOpenIn(linksIn) ? linksIn : LINKS_OPEN_IN_DEFAULT;
         set({ linksOpenIn });
@@ -8764,6 +8771,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ opensMeetings: on });
         await Promise.all([api.setSetting(MEETINGS_OPEN_KEY, on), api.setOpensMeetings(on)]);
         await get().refreshCalendarAccess();
+      },
+      async setStartsAssistant(on) {
+        set({ startsAssistant: on });
+        await Promise.all([api.setSetting(MEETING_AUTO_START_KEY, on), api.setStartsAssistant(on)]);
       },
       async refreshCalendarAccess() { set({ calendarAccess: await api.calendarAccess() }); },
       watchCalendarAccess() { return api.onCalendarAccess?.((access) => set({ calendarAccess: access })) ?? (() => {}); },

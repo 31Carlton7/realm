@@ -25,6 +25,8 @@ export function MeetingsRow() {
   const watchCalendarAccess = useApp((s) => s.watchCalendarAccess);
   const askForCalendar = useApp((s) => s.askForCalendar);
   const openCalendarSettings = useApp((s) => s.openCalendarSettings);
+  const startsAssistant = useApp((s) => s.startsAssistant);
+  const setStartsAssistant = useApp((s) => s.setStartsAssistant);
   const run = useApp((s) => s.run);
   useEffect(() => {
     void run(() => refreshCalendarAccess());
@@ -53,6 +55,16 @@ export function MeetingsRow() {
         <input type="checkbox" role="switch" className="switch" aria-label="Open the meeting when it starts"
           checked={opensMeetings}
           onChange={(e) => run(() => setOpensMeetings(e.target.checked))} />
+      </li>
+      <li className="settings-row" data-setting="start-assistant"
+        title="When a calendar meeting starts, or Zoom, Teams, FaceTime, Slack, Discord or a browser in a call starts using the microphone, the quick chat panel opens on the meeting assistant and it starts listening. The red mark shows in the panel and the menu bar the whole time.">
+        <div className="settings-row-main">
+          <span className="settings-row-name">Start the assistant when a call starts</span>
+          <span className="settings-row-detail">Only after you have accepted the assistant's first-run sheet</span>
+        </div>
+        <input type="checkbox" role="switch" className="switch" aria-label="Start the assistant when a call starts"
+          checked={startsAssistant}
+          onChange={(e) => run(() => setStartsAssistant(e.target.checked))} />
       </li>
     </ul>
   );
