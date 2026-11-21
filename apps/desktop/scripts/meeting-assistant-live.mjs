@@ -285,7 +285,8 @@ try {
   await typeAndSend(page, "How many seats should I offer?");
   await until(() => page.eval(`document.querySelector(".meeting-answer")?.dataset.state === "done"`), 15_000, "the typed question's answer");
   const streamed = await page.eval(`window.__answers`);
-  const pieces = streamed.filter((t) => t !== "Answering…");
+  // The watch starts on the answer already up (the other side's question); the typed one starts at "Answering…".
+  const pieces = streamed.slice(streamed.lastIndexOf("Answering…") + 1);
   const answer = { streamed, asked: await page.eval(`[...document.querySelectorAll(".meeting-asked")].map((q) => q.textContent)`) };
   row("answer", "a typed question draws the scripted answer, streamed", answer,
     pieces.at(-1) === SCRIPTED_ANSWER && pieces.length >= 3 && pieces.slice(0, -1).every((t) => SCRIPTED_ANSWER.startsWith(t) && t.length < SCRIPTED_ANSWER.length)
@@ -348,22 +349,22 @@ try {
   /* ── long ──────────────────────────────────────────────────────────────────────────────────── */
   await openPanel(app);
   await click(page, '.meeting-strip input[value="context"]');
-  await setDraft(page, "x".repeat(20_000));
+  // The draft counts with what is already kept, joined by a newline: this brings the whole to 20,000 exactly.
+  const keptBefore = await page.eval(`[...document.querySelectorAll(".meeting-context > p")].map((p) => p.textContent).join("\\n").length`);
+  await setDraft(page, "x".repeat(20_000 - keptBefore - 1));
   await sleep(200);
   const atLimit = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
   await setDraft(page, "Background. ".repeat(1_700));
   await sleep(200);
   const past = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
-  const longPicture = "m3a-long-dark-plain.png";
-  await api.call("settings.set", { key: "ui.theme", value: "dark" });
-  await api.call("settings.set", { key: "ui.look", value: "plain" });
+  const longPicture = "m3a-long.png";
   await picture(page, path.join(OUT_DIR, longPicture));
   await page.eval(`document.querySelector(".quick-chat .composer-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
   await sleep(300);
   const kept = await page.eval(`document.querySelector(".meeting-context")?.textContent.length ?? 0`);
   const after = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
   row("long", "past 20,000 characters the prompter warns, and the words still send", { atLimit, past, kept, after, picture: longPicture },
-    atLimit === null && /^Every answer sends all 20,4\d\d characters of custom info\.$/.test(past ?? "") && kept > 20_000 && after !== null);
+    atLimit === null && /^Every answer sends all 20,\d{3} characters of custom info\.$/.test(past ?? "") && kept > 20_000 && after !== null);
   page.close();
 } catch (err) {
   process.exitCode = 1;
