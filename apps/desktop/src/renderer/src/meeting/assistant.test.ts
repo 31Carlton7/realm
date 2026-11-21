@@ -355,6 +355,16 @@ describe("MeetingAssistant", () => {
     expect(r.progressSubs.size).toBe(0);
   });
 
+  it("ends the answers a question asked them for when the page goes, with nothing listening", async () => {
+    const r = rig();
+    r.assistant.ask("What is the agenda?");
+    expect(r.answerSubs.size).toBe(1);
+    r.assistant.dispose();
+    await new Promise((res) => setTimeout(res, 0));
+    expect(r.calls).toContain("stop answers");
+    expect(r.answerSubs.size).toBe(0);
+  });
+
   it("joins the custom info in the order it was given", () => {
     expect(customInfoText(["one", "two"])).toBe("one\ntwo");
     expect(customInfoText([])).toBe("");

@@ -192,6 +192,7 @@ describe("the meeting assistant in the quick chat panel", () => {
     const path = "meetings/2026-11-20 1405 Meeting.md";
     r.progress({ meetingId: "m1", spaceId: "space-1", path, stage: "summarising" });
     expect(r.dialog.querySelector(".meeting-notes > span")!.textContent).toBe("Writing the summary…");
+    expect(within(r.dialog).getByRole("button", { name: path })).toBeTruthy();
     fireEvent.click(within(r.dialog).getByRole("button", { name: "Cancel summary" }));
     expect(r.cancelled).toEqual(["m1"]);
     await act(async () => { r.finishSave({ path, summary: "cancelled" }); await Promise.resolve(); });
