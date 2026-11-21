@@ -468,27 +468,29 @@ describe("on demand, in Shadow", () => {
     expect((await state(service)).state).toBe("ready");
   });
 
-  it("unloads after three idle minutes when memory is short and five when it is critical", async () => {
+  it("unloads after three idle minutes when memory is short and one when it is critical", async () => {
     // THE MUTANT: Laya on the shared windows, whose ten at warn is Laya's default — no change at all.
     let pressure: MemoryPressure = "warn";
     const { service } = demand({ pressure: () => pressure });
     expect(await state(service)).toEqual({ state: "standby", idleMinutes: 3 });
     pressure = "critical";
-    expect(await state(service)).toEqual({ state: "standby", idleMinutes: 5 });
+    expect(await state(service)).toEqual({ state: "standby", idleMinutes: 1 });
     pressure = "normal";
     expect(await state(service)).toEqual({ state: "standby", idleMinutes: 10 });
   });
 
-  it("never stops with a question in flight when memory is short", async () => {
-    const { service, runtime } = demand({ pressure: () => "warn", server: { delay: (state) => (state.startsWith("Goal: slow") ? 5 * MIN : 0) } });
-    const client = (await service.acquire())!;
-    const slow = client.ask("Goal: slow.", { q: { type: "noul", instructions: "?" } }, 60 * MIN);
-    // Past the three-minute window, the question still out.
-    await sleep(4 * MIN);
-    expect(await alive(runtime.starts[0]!.port)).toBe(true);
-    await slow;
-    await until(async () => (await state(service)).state === "standby", 2_000);
-  });
+  for (const pressure of ["warn", "critical"] as const) {
+    it(`never stops with a question in flight when memory is ${pressure === "warn" ? "short" : "critical"}`, async () => {
+      const { service, runtime } = demand({ pressure: () => pressure, server: { delay: (state) => (state.startsWith("Goal: slow") ? 5 * MIN : 0) } });
+      const client = (await service.acquire())!;
+      const slow = client.ask("Goal: slow.", { q: { type: "noul", instructions: "?" } }, 60 * MIN);
+      // Past the window, the question still out.
+      await sleep(4 * MIN);
+      expect(await alive(runtime.starts[0]!.port)).toBe(true);
+      await slow;
+      await until(async () => (await state(service)).state === "standby", 2_000);
+    });
+  }
 
   it("starts in Assist when memory is short: that work was asked for", async () => {
     // THE MUTANT: the shadow's stand-down applied to every mode. Warn, don't cap.
