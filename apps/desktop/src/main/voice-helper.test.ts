@@ -104,3 +104,41 @@ describe("TranscriptHelper (a meeting's transcript)", () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe("TranscriptHelper.endRun (main ends a window's run)", () => {
+  async function started(page: { crashed?: boolean; destroyed?: boolean } = {}) {
+    const f = fakeSpawn();
+    const transcript = new TranscriptHelper(() => "/bin/realmvoice", f.spawnHelper);
+    const w = owner();
+    const o = { ...w.o, isDestroyed: () => page.destroyed === true, isCrashed: () => page.crashed === true };
+    const start = transcript.start(o);
+    f.runs[0]!.say(ready("not decided"));
+    await start;
+    return { transcript, run: f.runs[0]!, o, sent: w.sent };
+  }
+
+  it("tells a window that is still there that the helper is gone, then stops it", async () => {
+    const { transcript, run, o, sent } = await started();
+    transcript.endRun(o);
+    run.say({ t: "line", source: "me", text: "late", start: 0, end: 1, at: 1 });
+    transcript.command(o, { t: "stop" });
+    await flush();
+    // THE MUTANT: main stops the helper and says nothing, and the page waits at "Stopping" for good.
+    expect(sent).toEqual([{ channel: "realm:transcript", event: { t: "error", message: "The speech helper stopped." } }]);
+    expect(run.written).toEqual([]);
+  });
+
+  it("tells a crashed or destroyed window nothing, and a window that does not own the helper nothing at all", async () => {
+    for (const page of [{ crashed: true }, { destroyed: true }]) {
+      const { transcript, o, sent } = await started(page);
+      transcript.endRun(o);
+      expect(sent, JSON.stringify(page)).toEqual([]);
+    }
+    const { transcript, run, o, sent } = await started();
+    transcript.endRun({ ...owner(2).o, isCrashed: () => false });
+    transcript.command(o, { t: "stop" });
+    await flush();
+    expect(sent).toEqual([]);
+    expect(run.written).toEqual([{ t: "stop" }]);
+  });
+});

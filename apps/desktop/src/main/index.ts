@@ -821,7 +821,7 @@ const listeningMark = new ListeningMark({
 // `transcript`, the meeting transcript's helper, is made further down.
 const meetingListening = new MeetingListening<WebContents>({
   mark: (on) => listeningMark.set(on),
-  stopHelper: (page) => transcript.stop(page),
+  stopHelper: (page) => transcript.endRun(page),
 });
 ipcMain.on("meeting-assistant:listening", (e, on: unknown) => {
   if (e.sender !== quickChatPanel.window()?.webContents) return;
