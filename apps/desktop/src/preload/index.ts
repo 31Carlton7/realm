@@ -33,6 +33,16 @@ contextBridge.exposeInMainWorld("realm", {
   /** "quick-chat" in the quick chat panel's page, which draws the Quick Chat and nothing else
    *  (main/quick-chat-panel.ts); undefined in a Realm window. */
   surface: arg("realm-surface") || undefined,
+  /** The quick chat panel's meeting assistant (main/listening-mark.ts): the menu bar's red mark while
+   *  it listens, and the Stop on the mark's menu. Answered only for the panel's own page. */
+  meetingAssistant: {
+    setListening: (on: boolean): void => ipcRenderer.send("meeting-assistant:listening", on),
+    onStop: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("meeting-assistant:stop", handler);
+      return () => ipcRenderer.removeListener("meeting-assistant:stop", handler);
+    },
+  },
   /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). */
   quickChatPanel: {
     /** Put the panel away. Answered only for the panel's own page. */
@@ -52,6 +62,8 @@ contextBridge.exposeInMainWorld("realm", {
     setHideFromSharing: (on: boolean): void => ipcRenderer.send("quick-chat-panel:set-hide-from-sharing", on),
     /** Put the panel away and bring a Realm window forward on a session the chat was saved as. */
     openInRealm: (target: { sessionId: string; spaceId: string }): void => ipcRenderer.send("quick-chat-panel:open-in-realm", target),
+    /** Put the panel away and bring a Realm window forward on a file of a space (a meeting's notes). */
+    openDocument: (target: { spaceId: string; path: string }): void => ipcRenderer.send("quick-chat-panel:open-document", target),
     /** This page opened, deleted or moved the quick chat: every other page reads the setting again. */
     chatChanged: (): void => ipcRenderer.send("quick-chat:changed"),
     onChatChanged: (cb: () => void): (() => void) => {
@@ -478,6 +490,12 @@ contextBridge.exposeInMainWorld("realm", {
     const handler = (_e: IpcRendererEvent, target: { sessionId: string; spaceId: string | null }) => cb(target);
     ipcRenderer.on("realm:open-session", handler);
     return () => ipcRenderer.removeListener("realm:open-session", handler);
+  },
+  /** A space's file asked for from the quick chat panel, which has no panes to open it in. */
+  onOpenDocument: (cb: (target: { spaceId: string; path: string }) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, target: { spaceId: string; path: string }) => cb(target);
+    ipcRenderer.on("realm:open-document", handler);
+    return () => ipcRenderer.removeListener("realm:open-document", handler);
   },
   /**
    * Settings → Sign-ins: the ONLY enrollment path for a browser credential.

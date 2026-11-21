@@ -63,7 +63,8 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
-import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietWindowsOn } from "./quiet-windows";
+import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
+import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
 import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
@@ -784,11 +785,49 @@ ipcMain.on("quick-chat-panel:open-in-realm", (e, target: unknown) => {
   quickChatPanel.close();
   void reattach({ sessionId: t.sessionId, spaceId: t.spaceId });
 });
+ipcMain.on("quick-chat-panel:open-document", (e, target: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  const t = target as { spaceId?: unknown; path?: unknown } | null;
+  if (typeof t?.spaceId !== "string" || typeof t.path !== "string") return;
+  quickChatPanel.close();
+  void reattach({ spaceId: t.spaceId, path: t.path });
+});
 // The quick chat is one chat wherever it is shown, so a page that opened or deleted it tells the rest.
 ipcMain.on("quick-chat:changed", (e) => {
   for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send("quick-chat:changed");
 });
 app.on("will-quit", () => quickChatShortcut.release());
+
+/** The menu bar's red mark while the panel's meeting assistant listens (listening-mark.ts). */
+const listeningMark = new ListeningMark({
+  createTray: () => {
+    const { buffer, ...size } = listeningDot();
+    const image = nativeImage.createFromBitmap(buffer, size);
+    // A live check's app keeps the item out of the person's menu bar and says what it would show.
+    if (quiet) return quietTray("listening", image);
+    const tray = new Tray(image);
+    return {
+      setTitle: (t) => tray.setTitle(t),
+      setToolTip: (t) => tray.setToolTip(t),
+      setContextMenu: (template) => tray.setContextMenu(Menu.buildFromTemplate(template)),
+      destroy: () => tray.destroy(),
+    };
+  },
+  actions: {
+    show: () => quickChatPanel.open(),
+    stop: () => meetingListening.stop(),
+  },
+});
+// `transcript`, the meeting transcript's helper, is made further down.
+const meetingListening = new MeetingListening<WebContents>({
+  mark: (on) => listeningMark.set(on),
+  stopHelper: (page) => transcript.endRun(page),
+});
+ipcMain.on("meeting-assistant:listening", (e, on: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  meetingListening.set(e.sender, on === true);
+});
+app.on("will-quit", () => listeningMark.set(false));
 
 /**
  * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
@@ -2793,7 +2832,7 @@ function goResident() {
 
 /** Bring a window back, optionally landing on one session — in the window showing that session's
  *  profile when one is open, else the window used last, else a new first window. */
-async function reattach(target?: { sessionId: string; spaceId: string | null }) {
+async function reattach(target?: { sessionId: string; spaceId: string | null } | { spaceId: string; path: string }) {
   // Even with a window up: everything it loads lazily from here on would come from the wrong file.
   if (relaunchIfBundleReplaced()) return;
   if (process.platform === "darwin") app.dock?.show();
@@ -2808,7 +2847,7 @@ async function reattach(target?: { sessionId: string; spaceId: string | null }) 
   }
   sessionTray.hide();
   void bridgeClient?.call("browserHost.register", { hasWindow: true }).catch(() => {});
-  if (target) win?.webContents.send("realm:open-session", target);
+  if (target) win?.webContents.send("sessionId" in target ? "realm:open-session" : "realm:open-document", target);
 }
 
 /** Raise a window in front of everything, the app included. */
