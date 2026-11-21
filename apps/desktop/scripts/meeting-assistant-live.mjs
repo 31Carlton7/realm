@@ -31,6 +31,8 @@
  *             menu bar's mark down
  *   consent   the acceptance is kept as the setting M3c reads
  *   picture   the panel in dark and light, Plain and Glass, in each of the three states
+ *   glass-held in place of a Glass picture, why the app draws chosen glass plain on this machine
+ *             (Reduce Transparency, Low Power Mode, or no backdrop-filter url())
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -201,12 +203,28 @@ async function picture(page, file) {
   fs.writeFileSync(file, Buffer.from(out, "base64"));
 }
 
+/** Why the page draws chosen glass plain: the conditions `plainReason` reads, in its order, read as
+ *  use-look.ts reads them. */
+const PLAIN_REASON = `(() => {
+  if (window.matchMedia?.("(prefers-reduced-transparency: reduce)").matches) return "reduce-transparency";
+  if (document.documentElement.hasAttribute("data-low-power-mode")) return "low-power-mode";
+  if (!(typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("backdrop-filter", "url(#a)"))) return "no-backdrop-url";
+  return null; })()`;
+
 async function everyLook({ app, api }, page, state) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
     await closePanel(app); await openPanel(app);
-    await until(() => page.eval(`document.documentElement.dataset.mode === ${js(mode)} && document.documentElement.hasAttribute("data-glass") === ${look === "glass"}`), 15_000, `the panel in ${mode} ${look}`);
+    const shown = await until(() => page.eval(`(() => {
+      if (document.documentElement.dataset.mode !== ${js(mode)}) return null;
+      if (document.documentElement.hasAttribute("data-glass") === ${look === "glass"}) return { held: null };
+      const held = ${look === "glass" ? PLAIN_REASON : "null"};
+      return held ? { held } : null; })()`), 15_000, `the panel in ${mode} ${look}`);
+    if (shown.held) {
+      row("glass-held", `${state}, ${mode} glass drawn plain, so no picture`, shown.held);
+      continue;
+    }
     const file = `m3a-${state}-${mode}-${look}.png`;
     await picture(page, path.join(OUT_DIR, file));
     row("picture", `${state}, ${mode} ${look}`, file);
