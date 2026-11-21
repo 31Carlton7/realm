@@ -106,4 +106,17 @@ describe("what the keyboard says", () => {
     t.show("b", opener);
     expect(t.has("b")).toBe(false);
   });
+
+  // What the discard guard asks of each of a browser's pages (`BrowserPaneHost.typedOf`).
+  it("says an opener waiting behind was typed into, until its own next document", () => {
+    const t = new TypedSince<ReturnType<typeof page>>();
+    const opener = page(), front = page();
+    t.show("b", opener);
+    opener.key("4");
+    t.show("b", front);
+    expect(t.typedInto(opener)).toBe(true);
+    expect(t.typedInto(front)).toBe(false);
+    opener.navigate();
+    expect(t.typedInto(opener)).toBe(false);
+  });
 });

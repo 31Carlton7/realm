@@ -197,6 +197,14 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
   const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => { if (shape) fit(); scrolled(); });
   sized?.observe(el);
   for (const child of Array.from(el.children)) sized?.observe(child);
+  // A row or section that mounts grows the column without resizing any child already watched.
+  const mounted = sized && new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of Array.from(record.addedNodes)) if (node instanceof Element) sized.observe(node);
+      for (const node of Array.from(record.removedNodes)) if (node instanceof Element) sized.unobserve(node);
+    }
+  });
+  mounted?.observe(el, { childList: true });
   return {
     set(start, end) {
       want.top = start;
@@ -208,6 +216,7 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
     stop() {
       if (frame) cancelAnimationFrame(frame);
       sized?.disconnect();
+      mounted?.disconnect();
       el.removeEventListener("scroll", scrolled);
       filter.remove();
       el.style.removeProperty("--edge-blur");

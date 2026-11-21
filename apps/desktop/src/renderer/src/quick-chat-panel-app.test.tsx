@@ -9,13 +9,13 @@ vi.mock("./rpc/client", () => ({ rpc: () => ({ on: () => () => {}, onStatusChang
 import { QuickChatPanelApp } from "./QuickChatPanelApp";
 
 /** Main, as the panel's page sees it: it can be asked to put the panel away, and says when it opened. */
-function mount(overrides: FakeData = {}) {
+function mount(overrides: FakeData = {}, { opening = true } = {}) {
   api = fakeApi(overrides);
   const hide = vi.fn();
   let shown = () => {};
   let changed = () => {};
   (window as any).realm = { surface: "quick-chat", quickChatPanel: {
-    hide, chatChanged: () => {},
+    hide, chatChanged: () => {}, opening: async () => opening,
     onShown: (cb: () => void) => { shown = cb; return () => {}; },
     onChatChanged: (cb: () => void) => { changed = cb; return () => {}; },
   } };
@@ -43,6 +43,18 @@ describe("the quick chat panel's page", () => {
     await screen.findByRole("dialog", { name: "Quick chat" });
     await main.shown();
     await waitFor(() => expect(made()).toBe(1));
+  });
+
+  it("made ahead of the first press, starts no chat until it is opened", async () => {
+    const main = mount({}, { opening: false });
+    // Long enough for a page that does show at load to have made its chat (the first test's, ~10ms).
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    expect(api.calls.some((c) => c.startsWith("listSpaces"))).toBe(false);
+    expect(screen.queryByRole("dialog", { name: "Quick chat" })).toBeNull();
+    expect(made()).toBe(0);
+    await main.shown();
+    expect(await screen.findByRole("dialog", { name: "Quick chat" })).toBeInTheDocument();
+    expect(made()).toBe(1);
   });
 
   it("Escape puts the panel away and deletes nothing, even an empty chat", async () => {

@@ -46,8 +46,9 @@ export function QuickChatPanelApp() {
       dismissBootSplash();
       document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input")?.focus();
     });
-    // The window is only ever made to be opened, and main's first "shown" can arrive before this listens.
-    void show();
+    /* Main's first "shown" can arrive before this listens, so a page loaded to be opened shows at
+       once. One made ahead of the first press waits for it: showing would start a chat nobody asked for. */
+    void (panel?.opening() ?? Promise.resolve(true)).then((opening) => { if (opening) void show(); });
     const offs = [
       subscribeSessionEvents(store),
       rpc().on("spaces.changed", () => store.getState().run(() => store.getState().refreshSpaces())),

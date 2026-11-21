@@ -472,7 +472,7 @@ function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
     entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null,
     error: null as BrowserLoadError | null, ready: false, popups: [] as string[], scroll: { x: 0, y: 0 } as { x: number; y: number } | null,
-    keyboard: false, muted: false, pid: 0 as number | null };
+    keyboard: false, muted: false, pid: 0 as number | null, typed: false };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -493,6 +493,7 @@ function fakeView() {
     setZoomFactor: (f) => { calls.push(`zoom:${f}`); nav.zoom = f; },
     print: () => calls.push("print"),
     popups: () => nav.popups,
+    typed: () => nav.typed,
     readScroll: async () => { calls.push("readScroll"); return nav.scroll; },
     scrollAfterLoad: (x, y) => calls.push(`scrollAfterLoad:${x},${y}`),
     reclaim: () => calls.push("reclaim"),
@@ -709,6 +710,19 @@ describe("BrowserPaneHost", () => {
       opener.nav.popups = ["https://accounts.google.com/o/oauth2/v2/auth"];
       front.nav.popups = ["https://example.com/share"];
       expect(host.popupsOf("b1")).toEqual(["https://example.com/share", "https://accounts.google.com/o/oauth2/v2/auth"]);
+    });
+
+    it("counts what was typed into the opener behind as the browser's: a discard would lose it with it", () => {
+      // What keeps the browser from a discard ("form"). THE MUTANT: read only the page in front, and a
+      // form half filled in on the opener is gone when the page shown in its place is closed to get back.
+      const { host, opener, front } = openedInPlace();
+      expect(host.typedOf("b1")).toBe(false);
+      opener.nav.typed = true;
+      expect(host.typedOf("b1")).toBe(true);
+      opener.nav.typed = false;
+      front.nav.typed = true;
+      expect(host.typedOf("b1")).toBe(true);
+      expect(host.typedOf("nope")).toBe(false);
     });
 
     it("closes the opener's page with the browser", () => {

@@ -123,4 +123,14 @@ describe("the hide from screen sharing row", () => {
     await screen.findByText("No shortcut");
     expect(document.body.textContent).not.toMatch(/undetectable|invisible/i);
   });
+
+  it("claims only screenshots and screen recordings on this Mac, and names no calling app", async () => {
+    mount({ chord: null, registered: false });
+    await screen.findByText("No shortcut");
+    const row = document.querySelector('[data-setting="quick-chat-hide"]')!;
+    const said = `${row.textContent} ${row.getAttribute("title")}`;
+    expect(row.textContent).toContain("Left out of screenshots and screen recordings on this Mac.");
+    expect(said).not.toMatch(/\bshares?\b|meeting app/i);
+    expect(said).not.toMatch(/zoom|meet\b|teams|facetime|webex|slack|discord/i);
+  });
 });

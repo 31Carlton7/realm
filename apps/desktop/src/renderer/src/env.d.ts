@@ -26,6 +26,7 @@ interface Window {
      *  every bridge: jsdom has none. */
     quickChatPanel?: {
       hide(): void;
+      opening(): Promise<boolean>;
       onShown(cb: () => void): () => void;
       shortcut(): Promise<import("@realm/contracts").QuickChatShortcutState>;
       setShortcut(chord: string | null): Promise<import("@realm/contracts").QuickChatShortcutState>;
@@ -113,6 +114,15 @@ interface Window {
       askForCalendar(): Promise<void>;
       openCalendarSettings(): Promise<void>;
       onCalendarAccess(cb: (access: import("@realm/contracts").CalendarAccess | null) => void): () => void;
+    };
+    /** Settings ▸ Keys ▸ From anywhere: the keys Realm answers from any app. */
+    keys?: {
+      state(): Promise<import("@realm/contracts").GlobalKeysState>;
+      setDoubleTap(on: boolean): Promise<void>;
+      setHold(key: import("@realm/contracts").HoldKey): Promise<void>;
+      watch(on: boolean): void;
+      onEvent(cb: (event: import("@realm/contracts").GlobalKeysEvent) => void): () => void;
+      onState(cb: (state: import("@realm/contracts").GlobalKeysState) => void): () => void;
     };
     /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every
      *  late bridge: jsdom has none, and a renderer without it simply lists no apps. */
@@ -246,6 +256,15 @@ interface Window {
       start(): Promise<unknown>;
       command(command: Record<string, unknown>): void;
       audio(pcm: Uint8Array): void;
+      stop(): void;
+      onEvent(cb: (event: unknown) => void): () => void;
+    };
+    /** A meeting's transcript, the speech helper's continuous mode; its wire is voice/transcript.ts. */
+    transcript?: {
+      start(): Promise<unknown>;
+      command(command: Record<string, unknown>): void;
+      audio(source: string, pcm: Uint8Array): void;
+      systemAudio(): void;
       stop(): void;
       onEvent(cb: (event: unknown) => void): () => void;
     };

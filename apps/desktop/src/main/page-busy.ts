@@ -75,6 +75,9 @@ export class TypedSince<Page extends TypingPage> {
     return !!page && this.typed.has(page);
   }
 
+  /** Whether this page was typed into, shown or waiting behind the one that is. */
+  typedInto(page: Page): boolean { return this.typed.has(page); }
+
   /** Browser `id` shows no page. */
   forget(id: string): void { this.shown.delete(id); }
 }

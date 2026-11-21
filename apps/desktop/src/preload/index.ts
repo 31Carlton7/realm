@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
 import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
-import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
+import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp, GlobalKeysEvent, GlobalKeysState, HoldKey } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { BackdropState } from "../main/backdrop-state";
@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld("realm", {
   quickChatPanel: {
     /** Put the panel away. Answered only for the panel's own page. */
     hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),
+    /** Whether the panel was opened while its page loaded, rather than made ahead of a press. */
+    opening: (): Promise<boolean> => ipcRenderer.invoke("quick-chat-panel:opening"),
     /** The panel has just been opened, with the keyboard. */
     onShown: (cb: () => void): (() => void) => {
       const handler = () => cb();
@@ -133,6 +135,24 @@ contextBridge.exposeInMainWorld("realm", {
       const handler = (_e: IpcRendererEvent, access: CalendarAccess | null) => cb(access);
       ipcRenderer.on("realm:calendar-access", handler);
       return () => ipcRenderer.removeListener("realm:calendar-access", handler);
+    },
+  },
+  /** Settings ▸ Keys ▸ From anywhere: the keys Realm answers from any app (main/realm-keys.ts). */
+  keys: {
+    state: (): Promise<GlobalKeysState> => ipcRenderer.invoke("keys:state"),
+    setDoubleTap: (on: boolean): Promise<void> => ipcRenderer.invoke("keys:set-double-tap", on),
+    setHold: (key: HoldKey): Promise<void> => ipcRenderer.invoke("keys:set-hold", key),
+    /** While a page watches, main says when it sees a double-tap or the held key (`onEvent`). */
+    watch: (on: boolean): void => ipcRenderer.send("keys:watch", on),
+    onEvent: (cb: (event: GlobalKeysEvent) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, event: GlobalKeysEvent) => cb(event);
+      ipcRenderer.on("keys:event", handler);
+      return () => ipcRenderer.removeListener("keys:event", handler);
+    },
+    onState: (cb: (state: GlobalKeysState) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, state: GlobalKeysState) => cb(state);
+      ipcRenderer.on("keys:state", handler);
+      return () => ipcRenderer.removeListener("keys:state", handler);
     },
   },
   /** The apps installed on this Mac and their icons, for the prompter's `@` list. `icons` answers only
@@ -309,6 +329,21 @@ contextBridge.exposeInMainWorld("realm", {
       const handler = (_e: IpcRendererEvent, event: unknown) => cb(event);
       ipcRenderer.on("realm:voice", handler);
       return () => ipcRenderer.removeListener("realm:voice", handler);
+    },
+  },
+  /** A meeting's transcript (main/voice-helper.ts's TranscriptHelper): "me" is the window's
+   *  microphone, sent as `audio("me", …)`; `systemAudio` hears "them" from this Mac's sound output
+   *  only where System Audio Recording is already granted, and never asks. */
+  transcript: {
+    start: (): Promise<unknown> => ipcRenderer.invoke("transcript:start"),
+    command: (command: Record<string, unknown>): void => ipcRenderer.send("transcript:command", command),
+    audio: (source: string, pcm: Uint8Array): void => ipcRenderer.send("transcript:audio", source, pcm),
+    systemAudio: (): void => ipcRenderer.send("transcript:system-audio"),
+    stop: (): void => ipcRenderer.send("transcript:stop"),
+    onEvent: (cb: (event: unknown) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, event: unknown) => cb(event);
+      ipcRenderer.on("realm:transcript", handler);
+      return () => ipcRenderer.removeListener("realm:transcript", handler);
     },
   },
   /** Settings page's macOS Permissions tab (Plan 12 W6). `probe` never triggers a TCC prompt —
