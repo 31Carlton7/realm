@@ -9,11 +9,12 @@
  * the value set, and on the mark still being there. Rows go to results.json in LIVE_OUT_DIR and
  * LIVE_OUT, with light.png and dark.png beside them.
  */
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
-import { launchLiveApp, sleep, until } from "./lib/live-app.mjs";
+import { desktopRoot, freePort, launchLiveApp, sleep, until } from "./lib/live-app.mjs";
 
 const outs = [...new Set([process.env.LIVE_OUT_DIR, process.env.LIVE_OUT].filter(Boolean))];
 if (outs.length === 0) outs.push(path.join(os.tmpdir(), "realm-settings-set-live"));
@@ -49,7 +50,13 @@ function rpc(port, token) {
 }
 
 const MARK = `settings-set-${Date.now()}`;
-const app = await launchLiveApp({ name: "settings-set" });
+// Over http, as the other checks that read data-glass are: from file:// the window falls back to plain.
+const httpPort = await freePort();
+const web = spawn("python3", ["-m", "http.server", String(httpPort), "--bind", "127.0.0.1"], { cwd: path.join(desktopRoot, "out/renderer"), stdio: "ignore" });
+process.on("exit", () => web.kill());
+const rendererUrl = `http://127.0.0.1:${httpPort}/index.html`;
+await until(() => fetch(rendererUrl).then((r) => r.ok), 10_000, "the renderer over http");
+const app = await launchLiveApp({ name: "settings-set", rendererUrl });
 const page = app.page;
 const applied = () => page.eval(`(() => {
   const root = document.documentElement;
@@ -57,6 +64,12 @@ const applied = () => page.eval(`(() => {
     mode: root.dataset.mode ?? null,
     glass: root.hasAttribute("data-glass"),
     sameDocument: window.__settingsSetMark === ${JSON.stringify(MARK)},
+    // What would hold glass back (glass/look.ts), so a plain reading says whether the look was refused.
+    glassHeldBy: [
+      matchMedia("(prefers-reduced-transparency: reduce)").matches && "reduce-transparency",
+      root.hasAttribute("data-low-power-mode") && "low-power-mode",
+      !CSS.supports("backdrop-filter", "url(#a)") && "no-backdrop-url",
+    ].filter(Boolean),
   };
 })()`);
 /** Polls for `want`, and answers with the last reading either way: a row is written from what the
@@ -105,4 +118,5 @@ try {
 } finally {
   writeRows();
   await app.stop();
+  web.kill();
 }
