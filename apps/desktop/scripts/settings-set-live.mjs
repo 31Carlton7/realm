@@ -118,7 +118,7 @@ try {
   };
   const chosen = (s) => s.chosen;
   const mode = (s) => s.mode;
-  /* A hosted runner has Reduce Transparency on, so glass there is held back by design: the row then
+  /* Where glass is held back anyway (Low Power Mode, or a renderer with no backdrop url), a look row
      checks the window stayed plain and Settings says why, instead of asking for glass it cannot draw. */
   const shownMatchesChoice = (s) => s.glassHeldBy.length && s.chosen === "glass"
     ? !s.glass && s.heldText !== null
