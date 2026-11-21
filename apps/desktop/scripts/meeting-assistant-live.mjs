@@ -381,12 +381,15 @@ async function reloadWindow(app) {
 }
 
 /** Settings ▸ Keys in the Realm window: the assistant's rows, read and captured in each look. */
-async function settingsLooks({ app, api }, state) {
+async function settingsLooks({ app, api }, state, waiting) {
   const openKeys = async () => {
     await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).webContents.send("app:command", "settings.open"); true`);
     await until(() => app.page.eval(`!!document.querySelector('input[name="settings-page-tab"][value="keys"]')`), 10_000, "Settings");
     await app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="keys"]').click(); true`);
     await until(() => app.page.eval(`!!document.querySelector('[data-setting="assistant-chord:."]')`), 10_000, "Settings ▸ Keys");
+    // The note shows once Settings has read the acceptance; with no note to wait on, the read is given a moment.
+    if (waiting) await until(() => app.page.eval(`document.querySelector('[data-setting="assistant-chords"]').innerText.includes(${js(waiting)})`), 5000, "the note that the keys wait").catch(() => {});
+    else await sleep(1000);
   };
   await openKeys();
   const said = await app.page.eval(`document.querySelector('[data-setting="assistant-chords"]').innerText.replace(/\\s+/g, " ").trim()`);
@@ -497,7 +500,7 @@ try {
 
   /* ── register, settings: before the sheet is accepted ─────────────────────────────────────── */
   const WAITING = "They start working after your first Start in the meeting assistant.";
-  const saidBefore = await settingsLooks(current, "before-consent");
+  const saidBefore = await settingsLooks(current, "before-consent", WAITING);
   row("settings", "before the first Start, the switch says the keys wait on it", saidBefore, saidBefore.includes(WAITING));
   const unregistered = keysLogged();
   row("register", "before the sheet is accepted: no chord registered, no helper able to swallow", unregistered,
@@ -768,7 +771,7 @@ try {
   row("keys", "L while listening stops the run and leaves the panel put away", { stopped: lStopped, visible: lVisible }, lStopped === true && !lVisible);
 
   /* ── settings: after the accept ─────────────────────────────────────────────────────────────── */
-  const saidAfter = await settingsLooks(current, "after-consent");
+  const saidAfter = await settingsLooks(current, "after-consent", null);
   row("settings", "after the first Start, the switch no longer says the keys wait", saidAfter, !saidAfter.includes(WAITING));
 
   /* ── auto: after the accept ─────────────────────────────────────────────────────────────────── */
