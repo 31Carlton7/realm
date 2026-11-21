@@ -1,0 +1,77 @@
+# Runs one of the hidden live checks (apps/desktop/scripts/*-live.mjs) on a Mac runner, against any
+# branch or sha. Each check boots the built app through scripts/lib/live-app.mjs on a scratch home with
+# the scripted agent, so it needs no sign-in and touches nobody's data. Its rows and captures come back
+# as the artifact live-<script>.
+#
+# Only checks that run quietly and need no macOS grant are listed: realm-keys-live.mjs needs an event
+# tap, and quick-chat-panel-live.mjs is seen on screen.
+#
+#   gh workflow run live-check.yml -f ref=<branch or sha> -f script=<check>
+name: Live check
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or sha to check out
+        required: true
+        type: string
+      script:
+        description: The live check to run
+        required: true
+        type: choice
+        options:
+          - meeting-assistant-live.mjs
+          - schedule-mode-live.mjs
+          - settings-set-live.mjs
+
+permissions:
+  contents: read
+
+env:
+  # Unsigned: never go looking for a signing identity in the runner's keychain.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  live:
+    name: Live (${{ inputs.script }})
+    runs-on: ${{ vars.RUNNER_MACOS || 'macos-latest' }}
+    timeout-minutes: 15
+    env:
+      SCRIPT: ${{ inputs.script }}
+      OUT: ${{ github.workspace }}/live-out
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
+
+      # The setup wrote the Hugeicons token to ~/.npmrc for the install (and checkout keeps no token in
+      # .git/config). The check runs a branch's code, so nothing it can read, and nothing it can put in the
+      # artifact, may hold a secret.
+      - name: Remove the Hugeicons token
+        run: |
+          sed -i '' '/_authToken/d' ~/.npmrc
+          if grep -q '_authToken' ~/.npmrc; then echo "::error::~/.npmrc still holds a token"; exit 1; fi
+
+      - run: pnpm build
+
+      # Some checks read LIVE_OUT and others LIVE_OUT_DIR, so both name the one folder.
+      - name: Run ${{ env.SCRIPT }}
+        env:
+          LIVE_OUT: ${{ env.OUT }}
+          LIVE_OUT_DIR: ${{ env.OUT }}
+        run: |
+          set -o pipefail
+          mkdir -p "$OUT"
+          node "apps/desktop/scripts/$SCRIPT" 2>&1 | tee "$OUT/console.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-${{ env.SCRIPT }}
+          path: live-out

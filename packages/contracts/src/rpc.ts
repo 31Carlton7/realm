@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PairRequestSchema, PairingWindowSchema, RemoteStatusSchema } from "./remote";
-import { LIVE_ANSWER_TRIGGERS, LiveAnswerEventSchema } from "./meetings";
+import { LIVE_ANSWER_TRIGGERS, LiveAnswerEventSchema, ScreenPictureSchema } from "./meetings";
 import type { CliJobStart, CliStatus } from "./cli";
 import { DICTATION_MAX } from "./voice";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema, QueueTurnSchema } from "./entities";
@@ -1168,8 +1168,10 @@ export const Methods = {
    *  `.strict()`, and only Realm's own app may ask. It answers at once with the answer's id; the text
    *  streams to the asking window as `meetings.answer` events. `customInfo` has no bound: a long brief
    *  is warned about beside the prompter, not refused. `question` is one the person typed (the
-   *  panel's prompter, Fn T), answered from the transcript and the custom info; unbounded likewise. */
-  "meetings.answer": { params: z.object({ lines: z.array(MeetingTranscriptLineSchema).max(5_000), customInfo: z.string(), trigger: z.enum(LIVE_ANSWER_TRIGGERS), question: z.string().optional() }).strict(),
+   *  panel's prompter, Fn T), answered from the transcript and the custom info; unbounded likewise.
+   *  `screen` goes with the `screen` trigger and only with it; one over the Claude API's own image
+   *  limits is refused with what to do (`apps/server/src/meetings/screen-picture.ts`). */
+  "meetings.answer": { params: z.object({ lines: z.array(MeetingTranscriptLineSchema).max(5_000), customInfo: z.string(), trigger: z.enum(LIVE_ANSWER_TRIGGERS), question: z.string().optional(), screen: ScreenPictureSchema.optional() }).strict(),
     result: z.object({ answerId: z.string() }) },
   /** Stop the answer in flight, if any: its window gets `cancelled`. */
   "meetings.cancelAnswer": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },

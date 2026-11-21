@@ -641,8 +641,9 @@ describe("the device's toolbar", () => {
     await mount(RUNNING);
     await waitFor(() => expect(pressNames()).toEqual(["Home button", "Take a screenshot", "More device controls"]));
     expect(screen.getByRole("group", { name: "Device controls" })).toHaveAttribute("data-status", "dot");
-    // The words a narrow toolbar stops showing are still its state's, for a screen reader.
-    expect(toolbar().getByRole("status")).toHaveTextContent("Live1206×2622");
+    // The words a narrow toolbar stops showing are still its state's, for a screen reader. Live waits on
+    // the input socket's open, which can land after the toolbar has laid out its presses.
+    await waitFor(() => expect(toolbar().getByRole("status")).toHaveTextContent("Live1206×2622"));
     expect(rowNames(await openMore()).slice(0, 3)).toEqual(["Elements", "Rotate", "—"]);
   });
 

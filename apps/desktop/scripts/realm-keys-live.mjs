@@ -236,7 +236,7 @@ async function throughOnboarding(page) {
 }
 
 async function openKeysSettings(app) {
-  await app.main.eval(`require("electron").BrowserWindow.getAllWindows()[0].webContents.send("app:command", "settings.open")`);
+  await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).webContents.send("app:command", "settings.open")`);
   await until(() => app.page.eval(`!!document.querySelector('input[name="settings-page-tab"][value="keys"]')`), 10_000, "Settings");
   await app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="keys"]').click(); true`);
   await until(() => app.page.eval(`!!document.querySelector('[data-setting="keys-try"]')`), 10_000, "Settings ▸ Keys");
