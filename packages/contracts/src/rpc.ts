@@ -1151,14 +1151,18 @@ export const Methods = {
   /** A meeting's live answer (`apps/server/src/meetings/live-answers.ts`). The transcript's last few
    *  minutes and the prompter's custom info go to the quick chat model, and nothing else does:
    *  `.strict()`, and only Realm's own app may ask. It answers at once with the answer's id; the text
-   *  streams to the asking window as `meeting.answer` events. */
-  "meeting.answer": { params: z.object({ lines: z.array(MeetingLineSchema).max(5_000), customInfo: z.string().max(20_000), trigger: z.enum(LIVE_ANSWER_TRIGGERS) }).strict(),
+   *  streams to the asking window as `meetings.answer` events. `customInfo` has no bound: a long brief
+   *  is warned about beside the prompter, not refused. */
+  "meetings.answer": { params: z.object({ lines: z.array(MeetingLineSchema).max(5_000), customInfo: z.string(), trigger: z.enum(LIVE_ANSWER_TRIGGERS) }).strict(),
     result: z.object({ answerId: z.string() }) },
   /** Stop the answer in flight, if any: its window gets `cancelled`. */
-  "meeting.cancelAnswer": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
+  "meetings.cancelAnswer": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
   /** Start the model's engine for the first answer, as listening starts, so it does not wait on a
    *  cold start. Sends nothing to the model. */
-  "meeting.prepareAnswers": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
+  "meetings.prepareAnswers": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
+  /** The meeting is over: stop the answer in flight and let the started engine go now, not when it
+   *  idles out. */
+  "meetings.stopAnswers": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
 
   /* The execution sandbox: what an agent CLI or a shell in this space is allowed to touch.
      Deliberately NOT `settings.get`/`settings.set` on a raw key, even though that is where the rows
@@ -2455,8 +2459,8 @@ export const Events = {
    *  (null). Whole state, like every broadcast but `terminal.data` — a client that missed one reads
    *  `terminals.programs` and is current again. */
   "terminal.program": z.object({ terminalId: IdSchema, program: TerminalProgramSchema.nullable() }),
-  /** A step of a live answer, sent only to the window that asked (`meeting.answer`). */
-  "meeting.answer": LiveAnswerEventSchema,
+  /** A step of a live answer, sent only to the window that asked (`meetings.answer`). */
+  "meetings.answer": LiveAnswerEventSchema,
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),

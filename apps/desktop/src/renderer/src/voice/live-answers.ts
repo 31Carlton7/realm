@@ -8,15 +8,18 @@ export interface LiveAnswersApi {
   answer(input: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }): Promise<{ answerId: string }>;
   cancel(): Promise<unknown>;
   prepare(): Promise<unknown>;
+  /** The meeting is over: the server cancels the answer in flight and lets its engine go. */
+  stop(): Promise<unknown>;
   /** Every step of every answer this window asked for; the server sends them to no other. */
   onEvent(cb: (e: LiveAnswerEvent) => void): () => void;
 }
 
 export const desktopLiveAnswers = (): LiveAnswersApi => ({
-  answer: (input) => rpc().call("meeting.answer", input),
-  cancel: () => rpc().call("meeting.cancelAnswer", {}),
-  prepare: () => rpc().call("meeting.prepareAnswers", {}),
-  onEvent: (cb) => rpc().on("meeting.answer", cb),
+  answer: (input) => rpc().call("meetings.answer", input),
+  cancel: () => rpc().call("meetings.cancelAnswer", {}),
+  prepare: () => rpc().call("meetings.prepareAnswers", {}),
+  stop: () => rpc().call("meetings.stopAnswers", {}),
+  onEvent: (cb) => rpc().on("meetings.answer", cb),
 });
 
 /**
@@ -63,9 +66,10 @@ export class MeetingAnswers {
 
   cancel(): Promise<void> { return this.deps.api.cancel().then(() => {}, () => {}); }
 
-  /** Stop: the answer in flight is cancelled, and nothing more is heard. */
+  /** Stop: the answer in flight is cancelled, the engine started for the next one goes, and nothing
+   *  more is heard. */
   async stop(): Promise<void> {
-    await this.cancel();
+    await this.deps.api.stop().catch(() => {});
     this.off?.();
     this.off = null;
     this.lines = [];

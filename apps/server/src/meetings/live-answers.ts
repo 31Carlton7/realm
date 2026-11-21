@@ -43,6 +43,12 @@ export class LiveAnswers {
     if (m.agentKind === "claude") this.d.engine?.prepare(m.model);
   }
 
+  /** The meeting is over: cancel the answer in flight and let the started engine go. */
+  stop(): void {
+    this.cancel();
+    this.d.engine?.release();
+  }
+
   close(): void {
     this.cancel();
     this.d.engine?.close();

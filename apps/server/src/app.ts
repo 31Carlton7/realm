@@ -843,7 +843,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  A billed call, but one the person asks for by turning the switch on and talking, so `main.ts`
    *  passes it even with the scripted agent on; a test passes a fake, or none. */
   dictationCleanup?: DictationCleanup;
-  /** A meeting's live answers. Unset, `meeting.answer` says they are not available. */
+  /** A meeting's live answers. Unset, `meetings.answer` says they are not available. */
   liveAnswers?: LiveAnswerModel;
   /** One call answering BOTH of a settle's model-written fields — the summary and the prompter's
    *  hint. Omitted on any build that must not make a billed call: without it the panes show the

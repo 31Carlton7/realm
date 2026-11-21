@@ -333,15 +333,21 @@ export function registerMethods(d: Deps): void {
   reg("accounts.remove", async (p) => { await d.accounts.remove(p.id); return { ok: true as const }; });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("dictation.clean", (p) => d.dictation.clean(p.text));
-  // Raw `rpc.register`, like `browserHost.register`: the answer streams to the asking socket alone, so
-  // no other window, phone or CLI ever receives the words.
-  rpc.register("meeting.answer", Methods["meeting.answer"].params, async (p, ctx) => {
-    const client = ctx.client;
-    if (!client || ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only Realm's own app can ask for a live answer");
-    return d.liveAnswers.ask(p, (e) => { if (!rpc.sendTo(client, "meeting.answer", e) && e.t !== "cancelled") d.liveAnswers.cancel(); });
+  // A meeting's live answers are the app's alone: the owner's `token:<id>` socket on another machine
+  // may not start an engine, cancel an answer or end the meeting here. Raw `rpc.register` for the
+  // answer, like `browserHost.register`: it streams to the asking socket alone, so no other window,
+  // phone or CLI ever receives the words.
+  const fromTheApp = (ctx: CallContext) => {
+    if (!ctx.client || ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only Realm's own app can ask for live answers");
+    return ctx.client;
+  };
+  rpc.register("meetings.answer", Methods["meetings.answer"].params, async (p, ctx) => {
+    const client = fromTheApp(ctx);
+    return d.liveAnswers.ask(p, (e) => { if (!rpc.sendTo(client, "meetings.answer", e) && e.t !== "cancelled") d.liveAnswers.cancel(); });
   });
-  reg("meeting.cancelAnswer", () => { d.liveAnswers.cancel(); return { ok: true as const }; });
-  reg("meeting.prepareAnswers", () => { d.liveAnswers.prepare(); return { ok: true as const }; });
+  reg("meetings.cancelAnswer", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.cancel(); return { ok: true as const }; });
+  reg("meetings.prepareAnswers", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.prepare(); return { ok: true as const }; });
+  reg("meetings.stopAnswers", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.stop(); return { ok: true as const }; });
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
     // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output

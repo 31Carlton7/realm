@@ -18,7 +18,7 @@ async function client(port: number) {
   ws.on("message", (d) => {
     const m = JSON.parse(d.toString());
     if ("id" in m) pending.get(m.id)?.(m);
-    else if (m.event === "meeting.answer") answers.push(m.payload);
+    else if (m.event === "meetings.answer") answers.push(m.payload);
   });
   let n = 0;
   const call = (method: string, params: unknown) => new Promise<Any>((res) => {
@@ -33,6 +33,7 @@ async function client(port: number) {
 class Model implements LiveAnswerModel {
   asked: LiveAnswerRequest[] = [];
   prepared: (string | null)[] = [];
+  released = 0;
   constructor(private hold = 5) {}
   prepare(model: string | null) { this.prepared.push(model); }
   async answer(req: LiveAnswerRequest) {
@@ -44,6 +45,7 @@ class Model implements LiveAnswerModel {
     }
     return "About twelve seats.";
   }
+  release() { this.released++; }
   close() {}
 }
 
@@ -56,10 +58,10 @@ const line = (source: "me" | "them", text: string, start: number, end = start + 
 const question = [line("me", "Thanks for having me.", 0), line("them", "How many seats do you need?", 3_000)];
 const settled = (answers: LiveAnswerEvent[], id: string) => answers.some((e) => e.answerId === id && (e.t === "done" || e.t === "error" || e.t === "cancelled"));
 
-describe("meeting.answer", () => {
+describe("meetings.answer", () => {
   it("streams start, the pieces, then done, to the window that asked", async () => {
     const { c } = await boot();
-    const { answerId } = (await c.call("meeting.answer", { lines: question, customInfo: "I'm pitching the annual plan.", trigger: "question" })).result;
+    const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "I'm pitching the annual plan.", trigger: "question" })).result;
     await waitFor(() => settled(c.answers, answerId));
     expect(c.answers).toEqual([
       { answerId, t: "start", trigger: "question", model: "claude-haiku-5-5" },
@@ -74,7 +76,7 @@ describe("meeting.answer", () => {
     const { model, c } = await boot();
     const other = await client(app.port);
     const lines = [line("them", "Thanks for joining, this is the intro.", 0, 2_000), line("me", "Happy to be here.", 30_000, 32_000), line("them", "How many seats do you need?", 210_000, 212_000)];
-    const { answerId } = (await c.call("meeting.answer", { lines, customInfo: "Their CTO doubts the SSO story.", trigger: "key" })).result;
+    const { answerId } = (await c.call("meetings.answer", { lines, customInfo: "Their CTO doubts the SSO story.", trigger: "key" })).result;
     await waitFor(() => settled(c.answers, answerId));
     const prompt = model.asked[0]!.prompt;
     expect(prompt).toContain("Their CTO doubts the SSO story.");
@@ -88,9 +90,9 @@ describe("meeting.answer", () => {
 
   it("cancels the answer in flight when a newer question arrives", async () => {
     const { model, c } = await boot(new Model(30));
-    const first = (await c.call("meeting.answer", { lines: question, customInfo: "", trigger: "question" })).result.answerId;
+    const first = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "question" })).result.answerId;
     await waitFor(() => model.asked.length === 1);
-    const second = (await c.call("meeting.answer", { lines: [...question, line("them", "And when would you start?", 6_000)], customInfo: "", trigger: "question" })).result.answerId;
+    const second = (await c.call("meetings.answer", { lines: [...question, line("them", "And when would you start?", 6_000)], customInfo: "", trigger: "question" })).result.answerId;
     await waitFor(() => settled(c.answers, second));
     expect(model.asked[0]!.signal.aborted).toBe(true);
     const ofFirst = c.answers.filter((e) => e.answerId === first).map((e) => e.t);
@@ -101,13 +103,33 @@ describe("meeting.answer", () => {
 
   it("stops the answer on cancel", async () => {
     const { model, c } = await boot(new Model(30));
-    const { answerId } = (await c.call("meeting.answer", { lines: question, customInfo: "", trigger: "key" })).result;
+    const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "key" })).result;
     await waitFor(() => model.asked.length === 1);
-    expect((await c.call("meeting.cancelAnswer", {})).result).toEqual({ ok: true });
+    expect((await c.call("meetings.cancelAnswer", {})).result).toEqual({ ok: true });
     await waitFor(() => settled(c.answers, answerId));
     await new Promise((r) => setTimeout(r, 80));
     expect(c.answers.filter((e) => e.answerId === answerId).map((e) => e.t)).toEqual(["start", "cancelled"]);
     expect(model.asked[0]!.signal.aborted).toBe(true);
+    c.close();
+  });
+
+  it("cancels the answer and lets the engine go when the meeting stops", async () => {
+    const { model, c } = await boot(new Model(30));
+    const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "key" })).result;
+    await waitFor(() => model.asked.length === 1);
+    expect((await c.call("meetings.stopAnswers", {})).result).toEqual({ ok: true });
+    await waitFor(() => settled(c.answers, answerId));
+    expect(c.answers.filter((e) => e.answerId === answerId).map((e) => e.t)).toEqual(["start", "cancelled"]);
+    expect(model.asked[0]!.signal.aborted).toBe(true);
+    expect(model.released).toBe(1);
+    c.close();
+  });
+
+  it("takes custom info of any length", async () => {
+    const { model, c } = await boot();
+    const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "brief ".repeat(10_000), trigger: "key" })).result;
+    await waitFor(() => settled(c.answers, answerId));
+    expect(model.asked[0]!.prompt).toContain("brief ".repeat(10_000).trim());
     c.close();
   });
 
@@ -120,9 +142,9 @@ describe("meeting.answer", () => {
       }
     }
     const { model, c } = await boot(new Deaf());
-    const { answerId } = (await c.call("meeting.answer", { lines: question, customInfo: "", trigger: "key" })).result;
+    const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "key" })).result;
     await waitFor(() => model.asked.length === 1);
-    await c.call("meeting.cancelAnswer", {});
+    await c.call("meetings.cancelAnswer", {});
     await new Promise((r) => setTimeout(r, 120));
     expect(c.answers.filter((e) => e.answerId === answerId).map((e) => e.t)).toEqual(["start", "cancelled"]);
     c.close();
@@ -131,11 +153,11 @@ describe("meeting.answer", () => {
   it("answers on the model the Quick chat model setting names", async () => {
     const { model, c } = await boot();
     await c.call("settings.set", { key: "quickChatModel", value: { agentKind: "claude", model: "claude-sonnet-5-5" } });
-    const { answerId } = (await c.call("meeting.answer", { lines: question, customInfo: "", trigger: "key" })).result;
+    const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "key" })).result;
     await waitFor(() => settled(c.answers, answerId));
     expect(model.asked[0]!.model).toBe("claude-sonnet-5-5");
     expect(c.answers[0]).toMatchObject({ t: "start", model: "claude-sonnet-5-5" });
-    expect((await c.call("meeting.prepareAnswers", {})).result).toEqual({ ok: true });
+    expect((await c.call("meetings.prepareAnswers", {})).result).toEqual({ ok: true });
     expect(model.prepared).toEqual(["claude-sonnet-5-5"]);
     c.close();
   });
@@ -143,10 +165,10 @@ describe("meeting.answer", () => {
   it("says so, and asks no model, when the setting names another agent", async () => {
     const { model, c } = await boot();
     await c.call("settings.set", { key: "quickChatModel", value: { agentKind: "fake", model: "fake" } });
-    const { answerId } = (await c.call("meeting.answer", { lines: question, customInfo: "", trigger: "key" })).result;
+    const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "key" })).result;
     await waitFor(() => settled(c.answers, answerId));
     expect(c.answers).toEqual([{ answerId, t: "error", message: "Live answers run on Claude, and the Quick chat model is set to fake." }]);
-    await c.call("meeting.prepareAnswers", {});
+    await c.call("meetings.prepareAnswers", {});
     expect(model.asked).toEqual([]);
     expect(model.prepared).toEqual([]);
     c.close();
@@ -154,7 +176,7 @@ describe("meeting.answer", () => {
 
   it("takes only lines and custom info", async () => {
     const { model, c } = await boot();
-    const refused = await c.call("meeting.answer", { lines: question, customInfo: "", trigger: "key", screen: "base64…" });
+    const refused = await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "key", screen: "base64…" });
     expect(refused.error).toBeTruthy();
     expect(model.asked).toEqual([]);
     c.close();

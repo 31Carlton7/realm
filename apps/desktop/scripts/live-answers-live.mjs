@@ -8,11 +8,17 @@
  * login is neither used nor touched. No microphone, no system audio: the transcript is a fixture.
  *
  * Asks for answers over the app's own socket, as the panel will, and times each from the ask to its
- * first streamed piece: one cold, one after `meeting.prepareAnswers`, one on the engine started as the
+ * first streamed piece: one cold, one after `meetings.prepareAnswers`, one on the engine started as the
  * last answer ended. Then a newer question while an answer streams, which must cancel it. Every
  * request the CLI made is written to `wire-requests.jsonl`, and the check reads them back for where
  * the transcript went: only to `/v1/messages`, only the window, and into no file in the scratch home.
+ * It reads the parked engine's memory by pid, and checks Stop lets that engine go.
+ *
+ * Then it boots the app again under the rig's default env, which does not ask for the real engine
+ * (`REALM_REAL_LIVE_ANSWERS`): the answer must be the scripted one, with no request to the stand-in and
+ * no Claude Code process started.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -46,13 +52,13 @@ const customInfo = "I'm pitching the annual plan. Their CTO doubts the SSO story
 const requests = [];
 const wire = await standInApi(path.join(OUT, "wire-requests.jsonl"));
 const calendar = noCalendar();
-const app = await launchLiveApp({ name: "live-answers", env: { ...wire.env, ...calendar.env } });
+const app = await launchLiveApp({ name: "live-answers", env: { ...wire.env, ...calendar.env, REALM_REAL_LIVE_ANSWERS: "1" } });
 const events = [];
 const eventsFile = path.join(OUT, "events.jsonl");
 fs.writeFileSync(eventsFile, "");
 try {
   const api = await connect(app.ports.server, await daemonToken(app.home), (event, payload) => {
-    if (event !== "meeting.answer") return;
+    if (event !== "meetings.answer") return;
     const row = { at: Date.now(), ...payload };
     events.push(row);
     fs.appendFileSync(eventsFile, `${js(row)}\n`);
@@ -64,7 +70,7 @@ try {
   const runs = [];
   const measure = async (label, trigger) => {
     const t0 = Date.now();
-    const { answerId } = await api.call("meeting.answer", { lines, customInfo, trigger });
+    const { answerId } = await api.call("meetings.answer", { lines, customInfo, trigger });
     await until(async () => settled(answerId), 90_000, `${label}: the answer`);
     const mine = of(answerId);
     const first = mine.find((e) => e.t === "delta");
@@ -80,8 +86,12 @@ try {
   // The answer before started the next engine as it ended; give it the time a call takes to move on.
   await sleep(8_000);
   await measure("warm after an answer", "question");
-  await api.call("meeting.prepareAnswers", {});
+  await api.call("meetings.prepareAnswers", {});
   await sleep(8_000);
+  const parked = claudeUnder(app.home);
+  fs.writeFileSync(path.join(OUT, "spare.json"), js(parked));
+  check("one Claude Code process parked for the next answer", parked.length === 1, parked);
+  console.log(`parked spare: ${parked.map((p) => `${p.rssMB} MB resident, ${p.footprintMB ?? "?"} MB footprint`).join("; ")}`);
   await measure("warm after prepare", "question");
   await sleep(8_000);
   await measure("warm again", "key");
@@ -91,10 +101,10 @@ try {
   // A newer question while an answer streams cancels it.
   await sleep(8_000);
   wire.slow(true);
-  const first = (await api.call("meeting.answer", { lines, customInfo, trigger: "question" })).answerId;
+  const first = (await api.call("meetings.answer", { lines, customInfo, trigger: "question" })).answerId;
   await until(async () => of(first).some((e) => e.t === "delta"), 60_000, "the first answer's first piece");
   const newer = [...lines, line("me", "Twelve to start, maybe twenty by spring.", 215_000), line("them", "And when could you start?", 220_000)];
-  const second = (await api.call("meeting.answer", { lines: newer, customInfo, trigger: "question" })).answerId;
+  const second = (await api.call("meetings.answer", { lines: newer, customInfo, trigger: "question" })).answerId;
   await until(async () => settled(first) && settled(second), 90_000, "both answers settled");
   wire.slow(false);
   const firstSteps = of(first).map((e) => e.t);
@@ -109,6 +119,12 @@ try {
   check("with no tools, no thinking and low effort", carrying.every((r) => r.tools === 0 && r.thinking === null && r.effort === "low"), carrying.map((r) => ({ tools: r.tools, thinking: r.thinking, effort: r.effort })));
   check("and only the last three minutes", requests.every((r) => !r.hasOpening), requests.filter((r) => r.hasOpening).length);
   check("the custom info went with it", carrying.every((r) => r.hasCustomInfo));
+  await sleep(8_000);
+  check("an engine is parked again before Stop", claudeUnder(app.home).length === 1);
+  await api.call("meetings.stopAnswers", {});
+  await sleep(3_000);
+  const afterStop = claudeUnder(app.home);
+  check("Stop lets the parked engine go", afterStop.length === 0, afterStop);
   api.close();
   await sleep(500);
   const leftIn = grepTree(app.home, "for a team of twelve");
@@ -118,8 +134,56 @@ try {
   fs.writeFileSync(path.join(OUT, "summary.json"), js({ runs: runs.map(({ label, firstTokenMs, doneMs, deltas }) => ({ label, firstTokenMs, doneMs, deltas })), requests: requests.length, carrying: carrying.length }));
 } finally {
   await app.stop();
+}
+
+// The rig's default env: the scripted agent on, the real engine not asked for.
+const before = requests.length;
+const rig = await launchLiveApp({ name: "live-answers-rig", env: { ...wire.env, ...calendar.env } });
+try {
+  const seen = [];
+  const api = await connect(rig.ports.server, await daemonToken(rig.home), (event, payload) => { if (event === "meetings.answer") seen.push(payload); });
+  const answer = async () => {
+    const { answerId } = await api.call("meetings.answer", { lines, customInfo, trigger: "key" });
+    await until(async () => seen.some((e) => e.answerId === answerId && ["done", "error", "cancelled"].includes(e.t)), 30_000, "the scripted answer");
+    return seen.filter((e) => e.answerId === answerId);
+  };
+  // A fresh scratch home with no Quick chat model setting: which agent the answer names.
+  const unset = await answer();
+  const set = (await api.call("settings.set", { key: "quickChatModel", value: { agentKind: "claude", model: "claude-haiku-5-5" } }), await answer());
+  const processes = claudeUnder(rig.home);
+  fs.writeFileSync(path.join(OUT, "rig-default.json"), js({ unset, set, requestsToStandIn: requests.length - before, claudeProcesses: processes }));
+  console.log(`rig default, no setting: ${js(unset.map((e) => e.t === "start" ? `start ${e.model}` : e.t))}`);
+  check("the rig's default env answers with the scripted model", set.at(-1)?.t === "done" && set.at(-1).text.startsWith("Scripted answer:"), set.map((e) => e.t));
+  check("and sends no request to the stand-in", requests.length === before, requests.length - before);
+  check("and starts no Claude Code process", processes.length === 0, processes);
+  api.close();
+} finally {
+  await rig.stop();
   wire.close();
   calendar.remove();
+}
+
+/** The Claude Code processes the server on `home` started, by pid and name only: no command line is
+ *  read, since a CLI's carries its session. */
+function claudeUnder(home) {
+  const server = JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8")).pid;
+  const rows = execFileSync("ps", ["-axo", "pid=,ppid=,rss=,comm="], { encoding: "utf8" }).trim().split("\n").map((l) => {
+    const [pid, ppid, rss, ...comm] = l.trim().split(/\s+/);
+    return { pid: Number(pid), ppid: Number(ppid), rssKB: Number(rss), name: path.basename(comm.join(" ")) };
+  });
+  const under = new Set([server]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const r of rows) if (!under.has(r.pid) && under.has(r.ppid)) { under.add(r.pid); grew = true; }
+  }
+  return rows.filter((r) => r.pid !== server && under.has(r.pid) && r.name === "claude").map((r) => ({ pid: r.pid, name: r.name, rssMB: Math.round(r.rssKB / 1024), footprintMB: footprintMB(r.pid) }));
+}
+
+function footprintMB(pid) {
+  try {
+    const m = execFileSync("footprint", ["-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).match(/Footprint:\s*([\d.]+)\s*(KB|MB|GB)/);
+    return m ? Math.round(Number(m[1]) * { KB: 1 / 1024, MB: 1, GB: 1024 }[m[2]]) : null;
+  } catch { return null; }
 }
 
 function grepTree(dir, needle) {

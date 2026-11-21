@@ -11,6 +11,7 @@ function fakeApi() {
     answer: async (input) => { asked.push(input); return { answerId: `a${asked.length}` }; },
     cancel: async () => { calls.push("cancel"); },
     prepare: async () => { calls.push("prepare"); },
+    stop: async () => { calls.push("stop"); },
     onEvent: (cb) => { listener = cb; return () => { listener = null; calls.push("off"); }; },
   };
   return { api, asked, calls, emit: (e: LiveAnswerEvent) => listener?.(e) };
@@ -82,10 +83,10 @@ describe("MeetingAnswers", () => {
     expect(m.asked[0]!.lines.map((l) => l.text)).toEqual(["How many seats do you need?"]);
   });
 
-  it("cancels and stops listening on stop", async () => {
+  it("tells the server the meeting is over, and stops listening, on stop", async () => {
     const m = meeting();
     await m.answers.stop();
-    expect(m.calls).toEqual(["prepare", "cancel", "off"]);
+    expect(m.calls).toEqual(["prepare", "stop", "off"]);
     m.emit({ answerId: "a1", t: "cancelled" });
     expect(m.heard).toEqual([]);
   });
