@@ -578,6 +578,17 @@ describe("the assistant's keys", () => {
     expect(r.state().notice).toBeNull();
   });
 
+  it("G after a Stop asks nothing, though the last meeting's words are still on screen", async () => {
+    const r = rig();
+    await r.assistant.start();
+    r.events().line(r.line("them", "That is all for today.", 2_000));
+    await r.assistant.stop();
+    r.assistant.key("answer");
+    await settle();
+    expect(r.asked).toEqual([]);
+    expect(r.state().notice).toBe("Nothing has been heard yet.");
+  });
+
   it("a question typed with nothing heard is still asked", async () => {
     const r = rig();
     await r.assistant.load();
