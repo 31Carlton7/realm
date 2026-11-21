@@ -12,15 +12,16 @@ function png(width: number, height: number, pad = 0): string {
   return b.toString("base64");
 }
 
-/** A JPEG with an EXIF segment and a quantisation table before its start of frame, as a camera or
- *  a screenshot tool writes one. */
+/** A JPEG with an EXIF segment, a quantisation table and a Huffman table (whose marker sits among the
+ *  start-of-frame ones) before its start of frame, as a camera or a screenshot tool writes one. */
 function jpeg(width: number, height: number, sof = 0xc0): string {
   const exif = Buffer.concat([Buffer.from([0xff, 0xe1, 0x00, 0x10]), Buffer.from("Exif\0\0padding!!", "latin1").subarray(0, 14)]);
   const dqt = Buffer.from([0xff, 0xdb, 0x00, 0x04, 0x00, 0x01]);
+  const dht = Buffer.from([0xff, 0xc4, 0x00, 0x05, 0x00, 0x01, 0x02]);
   const frame = Buffer.alloc(19);
   frame.writeUInt8(0xff, 0); frame.writeUInt8(sof, 1); frame.writeUInt16BE(17, 2); frame.writeUInt8(8, 4);
   frame.writeUInt16BE(height, 5); frame.writeUInt16BE(width, 7);
-  return Buffer.concat([Buffer.from([0xff, 0xd8]), exif, dqt, frame, Buffer.from([0xff, 0xd9])]).toString("base64");
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), exif, dqt, dht, frame, Buffer.from([0xff, 0xd9])]).toString("base64");
 }
 
 describe("checkScreenPicture", () => {
