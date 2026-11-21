@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { documentKindFor } from "@realm/contracts";
 import { codeLanguageFor } from "./code-languages";
 import {
-  CODE_FILE_LANGUAGES, checkoutFileOf, homeFilesOf, identityOf, matchRun, paneTabOf, placeFile, planNewFile, sessionDetail,
+  CODE_FILE_LANGUAGES, checkoutFileOf, homeFilesOf, identityOf, matchRun, meetingFileOf, paneTabOf, placeFile, planNewFile, sessionDetail,
   tildePath, withExtension, withoutShown,
 } from "./home-model";
 
@@ -67,6 +67,18 @@ describe("one file, listed once", () => {
     const shown = new Set(session.map(identityOf));
     expect(withoutShown(library, shown).map((f) => f.name)).toEqual(["other.md"]);
     expect(withoutShown([checkoutFileOf("notes/plan.md", ROOT)], shown)).toEqual([]);
+  });
+
+  it("places a meeting by the space's folder: a relative tab when the pane is rooted there, the absolute path when it is not", () => {
+    const note = { path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 };
+    const file = `${ROOT}/${note.path}`;
+    expect(meetingFileOf(note, ROOT, ROOT)).toMatchObject({ rel: note.path, abs: file, name: "2026-11-20 1405 Launch sync.md", ts: 2_000 });
+    const elsewhere = meetingFileOf(note, ROOT, "/Users/ada/work/worktrees/pricing");
+    expect(elsewhere).toMatchObject({ rel: null, abs: file });
+    expect(paneTabOf(elsewhere)).toBe(file);
+    // A session in the worktree that wrote its own file of the same relative name wrote a different file.
+    const own = homeFilesOf([{ id: "a", sessionId: "s", spaceId: "sp", kind: "output" as const, path: note.path, name: "x.md", ext: "md", ts: 1, sessionTitle: "T", agentKind: "fake" }], "/Users/ada/work/worktrees/pricing", () => "");
+    expect(withoutShown([elsewhere], new Set(own.map(identityOf)))).toEqual([elsewhere]);
   });
 
   it("marks the run of the name a search matched, and nothing when the name does not hold it", () => {

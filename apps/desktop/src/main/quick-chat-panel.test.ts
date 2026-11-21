@@ -74,6 +74,45 @@ describe("QuickChatPanel", () => {
     expect(w.calls).toEqual(["protect true", "showInactive", "focus", "page focus", "send quick-chat-panel:shown"]);
   });
 
+  it("is made ahead for the chord, and for a double-tap of Command with no chord", async () => {
+    for (const keys of [{ chord: true, doubleTap: false }, { chord: false, doubleTap: true }, { chord: true, doubleTap: true }]) {
+      let made = 0;
+      const panel = new QuickChatPanel(() => { made++; return { win: fakeWindow().win, ready: Promise.resolve() }; });
+      panel.prepareFor(keys); await settled();
+      expect(made, JSON.stringify(keys)).toBe(1);
+      expect(panel.isOpen()).toBe(false);
+    }
+  });
+
+  it("makes nothing ahead while no key opens it from another app", async () => {
+    let made = 0;
+    const panel = new QuickChatPanel(() => { made++; return { win: fakeWindow().win, ready: Promise.resolve() }; });
+    panel.prepareFor({ chord: false, doubleTap: false }); await settled();
+    expect(made).toBe(0);
+    expect(panel.window()).toBeNull();
+  });
+
+  it("destroys the window made ahead once neither key opens it, and makes a new one when one does again", async () => {
+    const first = fakeWindow(), second = fakeWindow();
+    const windows = [first, second];
+    const panel = new QuickChatPanel(() => ({ win: windows.shift()!.win, ready: Promise.resolve() }));
+    panel.prepareFor({ chord: false, doubleTap: true }); await settled();
+    panel.prepareFor({ chord: false, doubleTap: false });
+    expect(first.calls).toEqual(["destroy"]);
+    expect(panel.window()).toBeNull();
+    panel.prepareFor({ chord: true, doubleTap: false }); await settled();
+    expect(panel.window()).toBe(second.win);
+  });
+
+  it("leaves an open panel on screen when the last key is switched off", async () => {
+    const w = fakeWindow();
+    const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));
+    panel.open(); await settled();
+    panel.prepareFor({ chord: false, doubleTap: false });
+    expect(w.calls).not.toContain("destroy");
+    expect(panel.isOpen()).toBe(true);
+  });
+
   it("makes nothing ahead of time off macOS", () => {
     let made = 0;
     new QuickChatPanel(() => { made++; return { win: fakeWindow().win, ready: Promise.resolve() }; }, "linux").prepare();

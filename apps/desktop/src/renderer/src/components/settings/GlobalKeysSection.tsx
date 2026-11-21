@@ -19,7 +19,7 @@ const DOUBLE_TAP_LIT_MS = 1200;
  * The line about Accessibility or Input Monitoring appears only when macOS is holding something
  * back, and its button opens that pane. Realm never raises either prompt itself.
  */
-export function GlobalKeysSection() {
+export function GlobalKeysRows() {
   const run = useApp((s) => s.run);
   const openTccPane = useApp((s) => s.openTccPane);
   const [doubleTap, setDoubleTap] = useState(KEYS_DOUBLE_TAP_DEFAULT);
@@ -84,71 +84,68 @@ export function GlobalKeysSection() {
   const holdName = HOLD_KEY_LABEL[hold];
   const blind = state === "denied" || state === "needsInputMonitoring" || state === "missing";
   return (
-    <div className="field">
-      <span>From anywhere</span>
-      <ul className="settings-list">
-        <li className="settings-row" data-setting="double-tap-command"
-          title="Tap either Command key twice, quickly, in any app. A tap that turns into a shortcut, a click or a scroll does not count.">
+    <>
+      <li className="settings-row" data-setting="double-tap-command"
+        title="Tap either Command key twice, quickly, in any app. A tap that turns into a shortcut, a click or a scroll does not count.">
+        <div className="settings-row-main">
+          <span className="settings-row-name">Double-tap Command opens the quick chat</span>
+          <span className="settings-row-desc">macOS uses the same keys for Siri when Siri is on. One of the two can be changed.</span>
+        </div>
+        <input type="checkbox" role="switch" className="switch" aria-label="Double-tap Command opens the quick chat"
+          checked={doubleTap} onChange={(e) => changeDoubleTap(e.target.checked)} />
+      </li>
+      <li className="settings-row" data-setting="assistant-hold-key"
+        title="The assistant's shortcuts are this key held with one other key. Some keyboards handle Fn themselves and never send it to the Mac, so pick another if Try it does not see yours.">
+        <div className="settings-row-main"><span className="settings-row-name">Hold for assistant shortcuts</span></div>
+        <fieldset className="settings-tabs" aria-label="Hold for assistant shortcuts">
+          {HOLD_KEYS.map((key) => (
+            <label key={key} className="settings-tab" data-selected={hold === key || undefined}>
+              <input type="radio" name="settings-assistant-hold-key" value={key} checked={hold === key} onChange={() => changeHold(key)} />
+              {HOLD_KEY_LABEL[key]}
+            </label>
+          ))}
+        </fieldset>
+      </li>
+      {(state === "denied" || state === "listening") && (
+        <li className="settings-row" data-setting="keys-access">
           <div className="settings-row-main">
-            <span className="settings-row-name">Double-tap Command opens the quick chat</span>
-            <span className="settings-row-desc">macOS uses the same keys for Siri when Siri is on. One of the two can be changed.</span>
-          </div>
-          <input type="checkbox" role="switch" className="switch" aria-label="Double-tap Command opens the quick chat"
-            checked={doubleTap} onChange={(e) => changeDoubleTap(e.target.checked)} />
-        </li>
-        <li className="settings-row" data-setting="assistant-hold-key"
-          title="The assistant's shortcuts are this key held with one other key. Some keyboards handle Fn themselves and never send it to the Mac, so pick another if Try it does not see yours.">
-          <div className="settings-row-main"><span className="settings-row-name">Hold for assistant shortcuts</span></div>
-          <fieldset className="settings-tabs" aria-label="Hold for assistant shortcuts">
-            {HOLD_KEYS.map((key) => (
-              <label key={key} className="settings-tab" data-selected={hold === key || undefined}>
-                <input type="radio" name="settings-assistant-hold-key" value={key} checked={hold === key} onChange={() => changeHold(key)} />
-                {HOLD_KEY_LABEL[key]}
-              </label>
-            ))}
-          </fieldset>
-        </li>
-        {(state === "denied" || state === "listening") && (
-          <li className="settings-row" data-setting="keys-access">
-            <div className="settings-row-main">
-              <span className="settings-row-name">Realm needs Accessibility</span>
-              <span className="settings-row-desc">
-                {state === "denied"
-                  ? "Without it Realm cannot see a key pressed in another app, so neither of these works."
-                  : "Without it an assistant shortcut also types its key into the app in front. Double-tap Command works as it is."}
-              </span>
-            </div>
-            <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane("accessibility"))}>Open System Settings</button>
-          </li>
-        )}
-        {state === "needsInputMonitoring" && (
-          <li className="settings-row" data-setting="keys-access">
-            <div className="settings-row-main">
-              <span className="settings-row-name">Realm needs Input Monitoring</span>
-              <span className="settings-row-desc">Without it Realm cannot see Command tapped in another app, so the double-tap does nothing.</span>
-            </div>
-            <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane("inputMonitoring"))}>Open System Settings</button>
-          </li>
-        )}
-        <li className="settings-row" data-setting="keys-try">
-          <div className="settings-row-main">
-            <span className="settings-row-name">Try it</span>
+            <span className="settings-row-name">Realm needs Accessibility</span>
             <span className="settings-row-desc">
-              {blind ? "Realm is not seeing keys right now." : `Double-tap Command, or hold ${holdName}, and it shows here.`}
+              {state === "denied"
+                ? "Without it Realm cannot see a key pressed in another app, so neither of these works."
+                : "Without it an assistant shortcut also types its key into the app in front. Double-tap Command works as it is."}
             </span>
           </div>
-          {!blind && (
-            <div className="keys-try" aria-live="polite">
-              <span className="keys-try-key" data-lit={doubleTapLit || undefined}>
-                <kbd>⌘⌘</kbd>{doubleTapSeen ? "Seen" : "Not seen yet"}
-              </span>
-              <span className="keys-try-key" data-lit={holdDown || undefined}>
-                <kbd>{holdName}</kbd>{holdDown ? "Held" : holdSeen ? "Seen" : "Not seen yet"}
-              </span>
-            </div>
-          )}
+          <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane("accessibility"))}>Open System Settings</button>
         </li>
-      </ul>
-    </div>
+      )}
+      {state === "needsInputMonitoring" && (
+        <li className="settings-row" data-setting="keys-access">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Realm needs Input Monitoring</span>
+            <span className="settings-row-desc">Without it Realm cannot see Command tapped in another app, so the double-tap does nothing.</span>
+          </div>
+          <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane("inputMonitoring"))}>Open System Settings</button>
+        </li>
+      )}
+      <li className="settings-row" data-setting="keys-try">
+        <div className="settings-row-main">
+          <span className="settings-row-name">Try it</span>
+          <span className="settings-row-desc">
+            {blind ? "Realm is not seeing keys right now." : `Double-tap Command, or hold ${holdName}, and it shows here.`}
+          </span>
+        </div>
+        {!blind && (
+          <div className="keys-try" aria-live="polite">
+            <span className="keys-try-key" data-lit={doubleTapLit || undefined}>
+              <kbd>⌘⌘</kbd>{doubleTapSeen ? "Seen" : "Not seen yet"}
+            </span>
+            <span className="keys-try-key" data-lit={holdDown || undefined}>
+              <kbd>{holdName}</kbd>{holdDown ? "Held" : holdSeen ? "Seen" : "Not seen yet"}
+            </span>
+          </div>
+        )}
+      </li>
+    </>
   );
 }

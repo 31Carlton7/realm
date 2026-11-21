@@ -54,6 +54,8 @@ import { TextExtractor } from "./documents/text-extract";
 import { namedInRoot } from "./documents/paths";
 import { revealInFinder } from "./documents/reveal";
 import { LectureService } from "./school/lectures";
+import { MeetingNotesService } from "./meetings/service";
+import { quickChatSummariser } from "./meetings/summary-turn";
 import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
@@ -121,7 +123,7 @@ import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub, type HubElicit } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
-import type { AgentKind, McpServerStatus } from "@realm/contracts";
+import type { AgentKind, McpServerStatus, PressureIdleMinutes } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { CLAUDE_BACKFILL_EVERY_MS, ClaudeMemoryBackfill } from "./memory/claude-backfill";
 import { AgentMemoryFolders } from "./memory/claude-redirect";
@@ -1014,7 +1016,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* The resource service, built further down once every service it asks exists; the idle windows read
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
-  const adaptIdle = (minutes: number): number => resourcesLate?.adapt(minutes) ?? minutes;
+  const adaptIdle = (minutes: number, windows?: PressureIdleMinutes): number => resourcesLate?.adapt(minutes, windows) ?? minutes;
   const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), frontApp: async () => (await machineProbe.frontApp?.()) ?? null, home: opts.home, adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
@@ -1294,7 +1296,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onChange: () => laya.recordingChanged(),
   });
   const laya = new LayaService({
-    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder, adaptIdle,
+    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder, pressure: () => resourcesLate?.pressure() ?? "unknown",
     publish: (status) => {
       rpc.broadcast("laya.changed", status);
       const listed = layaAssist?.gate().available ?? false;
@@ -1892,9 +1894,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const owner = opts.owner ?? "app";
   const quickChats = new QuickChatEngines({ sessions, settings, registered: Object.keys(adapterRegistry) as AgentKind[], ...(opts.quickChat?.warmMs ? { warmMs: opts.quickChat.warmMs } : {}) });
   const liveAnswers = new LiveAnswers({ model: () => quickChats.model(), engine: opts.liveAnswers ?? null });
+  const meetingNotes = new MeetingNotesService({ documents, rpc, summarise: quickChatSummariser({
+    adapters: adapterRegistry, model: () => quickChats.model(), probes: () => sessions.probeCached()?.rows ?? [],
+    // One fixed folder for every summary turn: an agent CLI remembers each folder it is started in.
+    cwd: join(opts.home, "meeting-summary"),
+  }) });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, liveAnswers, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, liveAnswers, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, meetingNotes, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
@@ -2050,6 +2057,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     await laya.close();
     await quickChats.stop();
     liveAnswers.close();
+    meetingNotes.close();
     await sessions.closeAll();
     // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
     // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.

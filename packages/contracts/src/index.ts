@@ -86,6 +86,7 @@ export * from "./failover";
 export * from "./session-move";
 export * from "./accounts";
 export * from "./school";
+export * from "./meeting-notes";
 export * from "./links";
 export * from "./connectors";
 export * from "./machine";

@@ -67,6 +67,15 @@ describe("RealmKeys", () => {
     expect(states).toEqual(["starting", "off"]);
   });
 
+  it("says whether the double-tap is on, which is what main makes the quick chat panel ahead for", () => {
+    const { keys } = setup();
+    expect(keys.doubleTapOn).toBe(false);
+    keys.setDoubleTap(true);
+    expect(keys.doubleTapOn).toBe(true);
+    keys.setDoubleTap(false);
+    expect(keys.doubleTapOn).toBe(false);
+  });
+
   it("runs for a registered chord or a watching page alone, and stops when the last reason goes", () => {
     const { keys, helpers } = setup();
     const giveBack = keys.registerChord("L", () => {});
