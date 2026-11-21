@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { LiveAnswerEvent, LiveAnswerTrigger } from "@realm/contracts";
+import type { LiveAnswerEvent, LiveAnswerTrigger, ScreenPicture } from "@realm/contracts";
 import { MeetingAnswers, type LiveAnswersApi } from "./live-answers";
 import type { TranscriptLine } from "./transcript";
 
 function fakeApi() {
-  const asked: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string }[] = [];
+  const asked: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string; screen?: ScreenPicture }[] = [];
   const calls: string[] = [];
   let listener: ((e: LiveAnswerEvent) => void) | null = null;
   const api: LiveAnswersApi = {
@@ -81,6 +81,17 @@ describe("MeetingAnswers", () => {
     await m.answers.askNow("What did we quote them last year?");
     await m.answers.askNow();
     expect(m.asked.map((a) => [a.trigger, a.question])).toEqual([["key", "What did we quote them last year?"], ["key", undefined]]);
+  });
+
+  it("sends a picture of the screen with the screen key's ask only", async () => {
+    const m = meeting(false);
+    const screen: ScreenPicture = { mediaType: "image/jpeg", data: "/9j/" };
+    m.answers.line(line("them", "Can you walk me through this chart?", 0));
+    await m.answers.askScreen(screen, "What is the Q3 number?");
+    await m.answers.askNow();
+    expect(m.asked[0]).toEqual({ lines: [line("them", "Can you walk me through this chart?", 0)], customInfo: "I'm pitching the annual plan.", trigger: "screen", question: "What is the Q3 number?", screen });
+    expect("screen" in m.asked[1]!).toBe(false);
+    expect(m.asked[1]!.trigger).toBe("key");
   });
 
   it("keeps only the lines an answer reads", async () => {

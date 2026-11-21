@@ -44,4 +44,11 @@ describe("the server's billed model calls", () => {
     stop.abort();
     await expect(live.answer({ model: null, prompt: "p", signal: stop.signal, onText: () => {} })).rejects.toThrow("cancelled");
   });
+
+  it("script the same live answer when it comes with a picture of the screen", async () => {
+    const screen = { mediaType: "image/png" as const, data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC" };
+    const got: string[] = [];
+    await expect(new ScriptedLiveAnswers(1).answer({ model: null, prompt: "p", screen, signal: new AbortController().signal, onText: (d) => got.push(d) })).resolves.toBe("Scripted answer: twelve seats to start, on the annual plan.");
+    expect(got).toEqual(SCRIPTED_LIVE_ANSWER);
+  });
 });

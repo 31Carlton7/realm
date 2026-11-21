@@ -1,11 +1,11 @@
-import type { LiveAnswerEvent, LiveAnswerTrigger } from "@realm/contracts";
+import type { LiveAnswerEvent, LiveAnswerTrigger, ScreenPicture } from "@realm/contracts";
 import { answerWindow, questionForMe } from "@realm/view";
 import { rpc } from "../rpc/client";
 import type { TranscriptLine } from "./transcript";
 
 /** The server's live answers, by way of the socket. A seam: the tests hand in a fake. */
 export interface LiveAnswersApi {
-  answer(input: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string }): Promise<{ answerId: string }>;
+  answer(input: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string; screen?: ScreenPicture }): Promise<{ answerId: string }>;
   cancel(): Promise<unknown>;
   prepare(): Promise<unknown>;
   /** The meeting is over: the server cancels the answer in flight and lets its engine go. */
@@ -65,6 +65,10 @@ export class MeetingAnswers {
    *  the person typed, for this ask only. */
   askNow(question?: string): Promise<void> { return this.ask("key", question); }
 
+  /** The screen key: answer from the picture of the person's screen, with `question` if they typed
+   *  one. The picture is sent with this ask and kept by neither side. */
+  askScreen(screen: ScreenPicture, question?: string): Promise<void> { return this.ask("screen", question, screen); }
+
   cancel(): Promise<void> { return this.deps.api.cancel().then(() => {}, () => {}); }
 
   /** Stop: the answer in flight is cancelled, the engine started for the next one goes, and nothing
@@ -76,9 +80,9 @@ export class MeetingAnswers {
     this.lines = [];
   }
 
-  private async ask(trigger: LiveAnswerTrigger, question?: string): Promise<void> {
+  private async ask(trigger: LiveAnswerTrigger, question?: string, screen?: ScreenPicture): Promise<void> {
     try {
-      await this.deps.api.answer({ lines: this.lines, customInfo: this.deps.customInfo(), trigger, question });
+      await this.deps.api.answer({ lines: this.lines, customInfo: this.deps.customInfo(), trigger, question, ...(screen ? { screen } : {}) });
     } catch (e) {
       this.deps.onEvent({ answerId: "", t: "error", message: e instanceof Error ? e.message : String(e) });
     }
