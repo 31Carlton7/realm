@@ -296,10 +296,14 @@ Rules:
   denser prompter was a grey slab with a grey-brown halo, and neither carried the purple (the owner,
   11-17: "the coloring isn't the same like purplish coloring like the blur doesn't really follow
   that"). So over a picture or a loop the prompter and its tabs have no fill and no lift; their
-  ground is the picture behind them, blurred, and taken toward black (light: toward white) by
-  brightness and contrast inside the same backdrop filter (`--picture-ground`), one number for the
-  dim. Clear, a choice in Appearance, is the picture as it is with only the ink moved. The picture
-  runs under the card rather than clearing round it, because the blur can only borrow what is there:
+  ground is the picture behind them, blurred, and taken toward black (light: toward white) by a veil
+  of pure black or white over the blur, one number for the dim. The dim was a filter inside the blur
+  first, but the guard may draw a bright picture see-through and Chromium lays a backdrop filter's
+  result over its backdrop, so the picture came back through the dim (11-18: over a white sky the
+  placeholder measured 1.03:1). The number is measured off the picture each time it is drawn, the
+  least its words need and never less than the picture's own dim, so a bright picture is dimmed
+  further and every other looks as it did. Clear, a choice in Appearance, is the picture as it is
+  with only the ink moved. The picture runs under the card rather than clearing round it, because the blur can only borrow what is there:
   a hole round the card showed the window's material through it, which is where the halo came from.
   The blur stays inside the pane, which isolates over its picture, so it samples the picture's
   canvas and never the material. Your own message follows the same ground: see-through by default,
@@ -320,7 +324,9 @@ Rules:
   colour. In dark the dim is measured off the picture each time it is drawn, the least its words need,
   because the picture's own fixed dim took the glass to navy over Synth Coast's sun where macOS's
   glows orange (the owner, 11-18: "the liquid glass throughout the app looks very off, looks nothing
-  like the macos version"); light keeps the picture's own. A lens can only bend what is behind it, so the first Glass did nothing: the card
+  like the macos version"). Light is measured the same way toward white and never goes under the
+  picture's own dim, because on that fixed share the picker's quiet words stood at 1.42:1 over
+  Arcade. A lens can only bend what is behind it, so the first Glass did nothing: the card
   bent its own grey face, and the hero had cleared the picture from under the card, leaving the
   window's material, which an in-page filter cannot see. Glass that does nothing is a setting that
   lies; prove it with a card of stripes under it before tuning a number. A lens is drawn for the box it
