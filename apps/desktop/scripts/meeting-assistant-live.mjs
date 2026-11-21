@@ -27,6 +27,8 @@
  *   open      the path opens the file in a Realm window's Documents pane
  *   long      past 20,000 characters of custom info the prompter says every answer sends it, and
  *             the words still send
+ *   reload    a reload of the panel's page while it listens stops the stand-in helper and takes the
+ *             menu bar's mark down
  *   consent   the acceptance is kept as the setting M3c reads
  *   picture   the panel in dark and light, Plain and Glass, in each of the three states
  */
@@ -83,12 +85,15 @@ fs.writeFileSync(linesFile, js(LINES));
 const scriptFile = path.join(tools, "fake-script.json");
 fs.writeFileSync(scriptFile, js([{ on: "You are writing the notes for a meeting that has just ended.", emit: [{ kind: "text", text: SUMMARY }] }]));
 const voiceBin = path.join(tools, "realmvoice");
+/** The continuous stand-in's pid, written as it starts, so a row can tell whether it is still running. */
+const helperPidFile = path.join(tools, "helper.pid");
 fs.writeFileSync(voiceBin, `#!${process.execPath}
 // A stand-in for realmvoice: continuous mode's wire, with lines read from a file.
 const fs = require("node:fs");
 const out = (e) => process.stdout.write(JSON.stringify(e) + "\\n");
 if (process.argv[2] !== "continuous") { out({ t: "ready", stt: "none" }); process.stdin.resume(); return; }
 const lines = JSON.parse(fs.readFileSync(${js(linesFile)}, "utf8"));
+fs.writeFileSync(${js(helperPidFile)}, String(process.pid));
 const startedAt = Date.now();
 out({ t: "ready", stt: "analyzer", startedAt, systemAudio: "granted" });
 let fed = false, at = 0;
@@ -161,6 +166,7 @@ const panelVisible = (app) => app.main.eval(`${panelOf}?.isVisible() === true`);
 const press = (app) => app.main.eval(`globalThis.__quickChatChord.press(); true`);
 const openPanel = async (app) => { if (!(await panelVisible(app))) await press(app); await until(() => panelVisible(app), 10_000, "the panel to open"); };
 const closePanel = async (app) => { if (await panelVisible(app)) await press(app); await until(async () => !(await panelVisible(app)), 10_000, "the panel to close"); };
+const running = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const quietTray = (app) => app.main.eval(`globalThis[Symbol.for("realm.quietTrays")]?.listening ?? null`);
 
 async function attachPanel(app) {
@@ -269,7 +275,7 @@ try {
     text: await page.eval(`document.querySelector(".meeting-consent").innerText`) };
   row("sheet", "Start before acceptance: the sheet, and nothing listening", sheetState,
     consentBefore === null && !sheetState.mark && sheetState.tray === null && /your job/.test(sheetState.text) && /California/.test(sheetState.text)
-    && /Nothing else leaves the Mac\./.test(sheetState.text));
+    && /any question you typed/.test(sheetState.text) && /Nothing else leaves the Mac\./.test(sheetState.text));
   await everyLook(current, page, "sheet");
 
   /* ── listen ────────────────────────────────────────────────────────────────────────────────── */
@@ -285,7 +291,8 @@ try {
   await typeAndSend(page, "How many seats should I offer?");
   await until(() => page.eval(`document.querySelector(".meeting-answer")?.dataset.state === "done"`), 15_000, "the typed question's answer");
   const streamed = await page.eval(`window.__answers`);
-  const pieces = streamed.filter((t) => t !== "Answering…");
+  // The watch starts on the answer already up (the other side's question); the typed one starts at "Answering…".
+  const pieces = streamed.slice(streamed.lastIndexOf("Answering…") + 1);
   const answer = { streamed, asked: await page.eval(`[...document.querySelectorAll(".meeting-asked")].map((q) => q.textContent)`) };
   row("answer", "a typed question draws the scripted answer, streamed", answer,
     pieces.at(-1) === SCRIPTED_ANSWER && pieces.length >= 3 && pieces.slice(0, -1).every((t) => SCRIPTED_ANSWER.startsWith(t) && t.length < SCRIPTED_ANSWER.length)
@@ -348,22 +355,37 @@ try {
   /* ── long ──────────────────────────────────────────────────────────────────────────────────── */
   await openPanel(app);
   await click(page, '.meeting-strip input[value="context"]');
-  await setDraft(page, "x".repeat(20_000));
+  // The draft counts with what is already kept, joined by a newline: this brings the whole to 20,000 exactly.
+  const keptBefore = await page.eval(`[...document.querySelectorAll(".meeting-context > p")].map((p) => p.textContent).join("\\n").length`);
+  await setDraft(page, "x".repeat(20_000 - keptBefore - 1));
   await sleep(200);
   const atLimit = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
   await setDraft(page, "Background. ".repeat(1_700));
   await sleep(200);
   const past = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
-  const longPicture = "m3a-long-dark-plain.png";
-  await api.call("settings.set", { key: "ui.theme", value: "dark" });
-  await api.call("settings.set", { key: "ui.look", value: "plain" });
+  const longPicture = "m3a-long.png";
   await picture(page, path.join(OUT_DIR, longPicture));
   await page.eval(`document.querySelector(".quick-chat .composer-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
   await sleep(300);
   const kept = await page.eval(`document.querySelector(".meeting-context")?.textContent.length ?? 0`);
   const after = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
   row("long", "past 20,000 characters the prompter warns, and the words still send", { atLimit, past, kept, after, picture: longPicture },
-    atLimit === null && /^Every answer sends all 20,4\d\d characters of custom info\.$/.test(past ?? "") && kept > 20_000 && after !== null);
+    atLimit === null && /^Every answer sends all 20,\d{3} characters of custom info\.$/.test(past ?? "") && kept > 20_000 && after !== null);
+
+  /* ── reload ────────────────────────────────────────────────────────────────────────────────── */
+  fs.rmSync(helperPidFile, { force: true });
+  await standInStill(page, "microphone");
+  await clickByText(page, ".meeting-strip", "Start again");
+  await until(() => page.eval(`!!document.querySelector(".quick-chat-bar .meeting-mark")`), 10_000, "listening again");
+  const pid = await until(async () => (fs.existsSync(helperPidFile) ? Number(fs.readFileSync(helperPidFile, "utf8")) || null : null), 10_000, "the stand-in helper");
+  const reloadBefore = { running: running(pid), tray: await quietTray(app).then((t) => t && { destroyed: t.destroyed }) };
+  await page.send("Page.reload");
+  const gone = await until(async () => !running(pid), 15_000, "the stand-in helper to go").catch(() => false);
+  // A quiet tray's record stays once made; the mark is down when this run's record says destroyed.
+  const reloadAfter = { running: running(pid), tray: await quietTray(app).then((t) => t && { destroyed: t.destroyed }) };
+  row("reload", "a reload while listening stops the helper and takes the menu bar's mark down", { pid, before: reloadBefore, after: reloadAfter },
+    reloadBefore.running && reloadBefore.tray?.destroyed === false && gone && !reloadAfter.running
+    && (reloadAfter.tray === null || reloadAfter.tray.destroyed === true));
   page.close();
 } catch (err) {
   process.exitCode = 1;

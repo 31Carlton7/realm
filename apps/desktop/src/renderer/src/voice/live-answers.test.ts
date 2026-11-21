@@ -4,7 +4,7 @@ import { MeetingAnswers, type LiveAnswersApi } from "./live-answers";
 import type { TranscriptLine } from "./transcript";
 
 function fakeApi() {
-  const asked: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }[] = [];
+  const asked: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string }[] = [];
   const calls: string[] = [];
   let listener: ((e: LiveAnswerEvent) => void) | null = null;
   const api: LiveAnswersApi = {
@@ -73,6 +73,14 @@ describe("MeetingAnswers", () => {
     m.answers.setAuto(true);
     m.answers.line(line("them", "And when would you start?", 2_500));
     expect(m.asked).toHaveLength(2);
+  });
+
+  it("sends a typed question with that ask only, on the key", async () => {
+    const m = meeting(false);
+    m.answers.line(line("them", "How many seats do you need?", 0));
+    await m.answers.askNow("What did we quote them last year?");
+    await m.answers.askNow();
+    expect(m.asked.map((a) => [a.trigger, a.question])).toEqual([["key", "What did we quote them last year?"], ["key", undefined]]);
   });
 
   it("keeps only the lines an answer reads", async () => {

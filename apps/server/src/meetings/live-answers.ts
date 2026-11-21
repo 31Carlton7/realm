@@ -3,6 +3,7 @@ import { liveAnswerPrompt, type LiveAnswerModel } from "@realm/adapters";
 import { LIVE_ANSWER_WINDOW_MS, answerWindow, type QuickChatModel } from "@realm/view";
 
 type Asked = { id: string; abort: AbortController; send: (e: LiveAnswerEvent) => void };
+type Ask = { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string };
 
 /**
  * A meeting's live answers: the transcript's last few minutes and the prompter's custom info, sent to
@@ -20,7 +21,7 @@ export class LiveAnswers {
 
   constructor(private readonly d: { model(): QuickChatModel; engine: LiveAnswerModel | null; windowMs?: number }) {}
 
-  ask(input: { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }, send: (e: LiveAnswerEvent) => void): { answerId: string } {
+  ask(input: Ask, send: (e: LiveAnswerEvent) => void): { answerId: string } {
     this.cancel();
     const asked: Asked = { id: newId(), abort: new AbortController(), send };
     this.asked = asked;
@@ -54,7 +55,7 @@ export class LiveAnswers {
     this.d.engine?.close();
   }
 
-  private async run(asked: Asked, input: { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }): Promise<void> {
+  private async run(asked: Asked, input: Ask): Promise<void> {
     if (this.asked !== asked) return;
     const id = asked.id;
     const m = this.d.model();
@@ -68,7 +69,7 @@ export class LiveAnswers {
     try {
       const text = await this.d.engine.answer({
         model: m.model,
-        prompt: liveAnswerPrompt({ lines, customInfo: input.customInfo, trigger: input.trigger }),
+        prompt: liveAnswerPrompt({ lines, customInfo: input.customInfo, trigger: input.trigger, question: input.question }),
         signal: asked.abort.signal,
         onText: (delta) => { if (this.asked === asked) asked.send({ answerId: id, t: "delta", text: delta }); },
       });

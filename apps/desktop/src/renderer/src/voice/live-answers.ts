@@ -5,7 +5,7 @@ import type { TranscriptLine } from "./transcript";
 
 /** The server's live answers, by way of the socket. A seam: the tests hand in a fake. */
 export interface LiveAnswersApi {
-  answer(input: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }): Promise<{ answerId: string }>;
+  answer(input: { lines: TranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string }): Promise<{ answerId: string }>;
   cancel(): Promise<unknown>;
   prepare(): Promise<unknown>;
   /** The meeting is over: the server cancels the answer in flight and lets its engine go. */
@@ -61,8 +61,9 @@ export class MeetingAnswers {
 
   setAuto(on: boolean): void { this.auto = on; }
 
-  /** The answer key: answer what was just asked, or say what to say next. */
-  askNow(): Promise<void> { return this.ask("key"); }
+  /** The answer key: answer what was just asked, or say what to say next. With `question`, the one
+   *  the person typed, for this ask only. */
+  askNow(question?: string): Promise<void> { return this.ask("key", question); }
 
   cancel(): Promise<void> { return this.deps.api.cancel().then(() => {}, () => {}); }
 
@@ -75,9 +76,9 @@ export class MeetingAnswers {
     this.lines = [];
   }
 
-  private async ask(trigger: LiveAnswerTrigger): Promise<void> {
+  private async ask(trigger: LiveAnswerTrigger, question?: string): Promise<void> {
     try {
-      await this.deps.api.answer({ lines: this.lines, customInfo: this.deps.customInfo(), trigger });
+      await this.deps.api.answer({ lines: this.lines, customInfo: this.deps.customInfo(), trigger, question });
     } catch (e) {
       this.deps.onEvent({ answerId: "", t: "error", message: e instanceof Error ? e.message : String(e) });
     }
