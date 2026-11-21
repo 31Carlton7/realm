@@ -1,7 +1,7 @@
 /**
  * Live check for one quick chat shown in two places: a Realm window's card and the quick chat panel
  * (run with: node apps/desktop/scripts/quick-chat-panel-both-live.mjs; `pnpm build` first). The
- * BUILT app on a scratch home, quiet, with the scripted agent.
+ * BUILT app on a scratch home, quiet, with the scripted agent and a stand-in for the calendar helper.
  *
  * Rows, in `rows-followup.txt` under LIVE_OUT_DIR:
  *
@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 import { cdp, launchLiveApp, sleep, until } from "./lib/live-app.mjs";
+import { noCalendar } from "./quick-chat-panel/no-calendar.mjs";
 
 const OUT_DIR = process.env.LIVE_OUT_DIR ?? path.resolve(process.cwd(), ".verify/quick-chat-panel");
 const js = (v) => JSON.stringify(v);
@@ -45,7 +46,8 @@ function rpc(port, token) {
 }
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
-const app = await launchLiveApp({ name: "quick-chat-panel-both", inspect: true, env: { REALM_FAKE_STANDS_IN: "claude,codex" } });
+const calendar = noCalendar();
+const app = await launchLiveApp({ name: "quick-chat-panel-both", inspect: true, env: { ...calendar.env, REALM_FAKE_STANDS_IN: "claude,codex" } });
 const watchdog = setTimeout(() => { console.error("FAIL watchdog: the check ran for two minutes"); process.exit(9); }, 120_000);
 
 const main = (body) => app.main.eval(`(() => { const { BrowserWindow, globalShortcut } = require("electron");
@@ -136,5 +138,6 @@ try {
   api?.close();
   clearTimeout(watchdog);
   await app.stop();
+  calendar.remove();
 }
 process.exit(process.exitCode ?? 0);
