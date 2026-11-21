@@ -38,6 +38,7 @@ interface Window {
       setShortcut(chord: string | null): Promise<import("@realm/contracts").QuickChatShortcutState>;
       setHideFromSharing(on: boolean): void;
       openInRealm(target: { sessionId: string; spaceId: string }): void;
+      openDocument(target: { spaceId: string; path: string }): void;
       chatChanged(): void;
       onChatChanged(cb: () => void): () => void;
     };
@@ -57,6 +58,8 @@ interface Window {
     zoomFactor?(): number;
     /** A session picked from the menu-bar item while the window was closed. */
     onOpenSession(cb: (target: { sessionId: string; spaceId: string | null }) => void): () => void;
+    /** A space's file asked for from the quick chat panel. */
+    onOpenDocument?(cb: (target: { spaceId: string; path: string }) => void): () => void;
     /** Quit Realm and stop every agent. Confirms in main when anything is working. */
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */

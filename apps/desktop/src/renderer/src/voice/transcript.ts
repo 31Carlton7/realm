@@ -1,12 +1,12 @@
+import type { MeetingTranscriptLine } from "@realm/contracts";
 import type { VoiceAudio } from "./audio-io";
 
 /** A meeting's transcript: the `realmvoice` helper's continuous mode (apps/desktop/native/RealmVoice.swift),
  *  as the renderer sees it. "me" is this window's microphone, "them" the other side of the call. */
-export type TranscriptSource = "me" | "them";
+export type TranscriptSource = MeetingTranscriptLine["source"];
 
-/** One finished line. `start` and `end` are milliseconds since the transcript started; `at` is the
- *  wall-clock time of `start`, in epoch milliseconds. */
-export type TranscriptLine = { source: TranscriptSource; text: string; start: number; end: number; at: number };
+/** One finished line, as the notes and the live answers take it. */
+export type TranscriptLine = MeetingTranscriptLine;
 
 /** Hearing "them" through this Mac's sound output. `needs permission`: System Audio Recording has not
  *  been granted, so no tap was made and nothing was asked for. */

@@ -1,17 +1,31 @@
 import { describe, expect, it } from "vitest";
+import type { LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesParams, SaveMeetingNotesResult } from "@realm/contracts";
+import type { LiveAnswersApi } from "../voice/live-answers";
 import type { TranscriptEvents, TranscriptLine } from "../voice/transcript";
-import { MeetingAssistant, type Listener } from "./assistant";
-import type { AnswerEvent, AnswerRequest, MeetingRecord } from "./seams";
+import { MeetingAssistant, customInfoText, type Listener } from "./assistant";
 
-function rig(opts: { consented?: boolean; engine?: boolean } = {}) {
+type Asked = Parameters<LiveAnswersApi["answer"]>[0];
+
+function rig(opts: { consented?: boolean; space?: string | null; save?: (p: SaveMeetingNotesParams) => Promise<SaveMeetingNotesResult> } = {}) {
   const calls: string[] = [];
   const marks: boolean[] = [];
-  const records: MeetingRecord[] = [];
-  const asked: AnswerRequest[] = [];
-  let answerEvents: ((e: AnswerEvent) => void) | null = null;
+  const asked: Asked[] = [];
+  const saved: SaveMeetingNotesParams[] = [];
+  const cancelledSummaries: string[] = [];
+  const opened: [string, string][] = [];
+  const answerSubs = new Set<(e: LiveAnswerEvent) => void>();
+  const progressSubs = new Set<(p: MeetingNotesProgress) => void>();
   let events: TranscriptEvents | null = null;
   let consented = opts.consented ?? true;
   let now = 1_000;
+  let ids = 0;
+  const answers: LiveAnswersApi = {
+    answer: async (input) => { asked.push(input); return { answerId: `a${asked.length}` }; },
+    cancel: async () => { calls.push("cancel answer"); },
+    prepare: async () => { calls.push("prepare"); },
+    stop: async () => { calls.push("stop answers"); },
+    onEvent: (cb) => { answerSubs.add(cb); return () => answerSubs.delete(cb); },
+  };
   const assistant = new MeetingAssistant({
     listen: (e): Listener => {
       events = e;
@@ -26,17 +40,25 @@ function rig(opts: { consented?: boolean; engine?: boolean } = {}) {
       accept: async () => { calls.push("accept"); consented = true; },
     },
     setListening: (on) => marks.push(on),
-    summary: (r) => { records.push(r); },
-    answers: opts.engine ? { answer: (req, onEvent) => { asked.push(req); answerEvents = onEvent; return () => calls.push("cancel"); } } : null,
+    answers,
+    notes: {
+      save: async (p) => { calls.push("save"); saved.push(p); return opts.save ? opts.save(p) : { path: "meetings/m.md", summary: "written" }; },
+      cancel: async (id) => { cancelledSummaries.push(id); },
+      onProgress: (cb) => { progressSubs.add(cb); return () => progressSubs.delete(cb); },
+    },
+    spaceId: () => (opts.space === undefined ? "space-1" : opts.space),
+    openFile: (space, path) => opened.push([space, path]),
     now: () => now,
+    newId: () => `m${++ids}`,
   });
   const line = (source: "me" | "them", text: string, at: number): TranscriptLine => ({ source, text, start: at - 1_000, end: at - 500, at });
   return {
-    assistant, calls, marks, records, asked,
+    assistant, calls, marks, asked, saved, cancelledSummaries, opened, answerSubs, progressSubs,
     events: () => events!,
-    answer: (e: AnswerEvent) => answerEvents!(e),
+    answer: (e: LiveAnswerEvent) => { for (const cb of answerSubs) cb(e); },
+    progress: (p: MeetingNotesProgress) => { for (const cb of progressSubs) cb(p); },
     line, tick: (ms: number) => { now += ms; },
-    revoke: () => { consented = false; },
+    state: () => assistant.getState(),
   };
 }
 
@@ -44,9 +66,10 @@ describe("MeetingAssistant", () => {
   it("puts up the first-run sheet on a Start before it was accepted, and listens to nothing", async () => {
     const r = rig({ consented: false });
     await r.assistant.start();
-    expect(r.assistant.getState().sheet).toBe(true);
-    expect(r.assistant.getState().phase).toBe("idle");
+    expect(r.state().sheet).toBe(true);
+    expect(r.state().phase).toBe("idle");
     expect(r.calls).not.toContain("listen");
+    expect(r.calls).not.toContain("prepare");
     expect(r.marks).toEqual([]);
   });
 
@@ -54,15 +77,15 @@ describe("MeetingAssistant", () => {
     const r = rig({ consented: false });
     await r.assistant.start();
     await r.assistant.accept();
-    expect(r.calls).toEqual(["accept", "listen", "start"]);
-    expect(r.assistant.getState()).toMatchObject({ sheet: false, consented: true, phase: "listening" });
+    expect(r.calls).toEqual(["accept", "prepare", "listen", "start"]);
+    expect(r.state()).toMatchObject({ sheet: false, consented: true, phase: "listening" });
   });
 
   it("listens at once when the sheet was accepted before", async () => {
     const r = rig();
     await r.assistant.start();
-    expect(r.assistant.getState().sheet).toBe(false);
-    expect(r.assistant.getState().phase).toBe("listening");
+    expect(r.state().sheet).toBe(false);
+    expect(r.state().phase).toBe("listening");
   });
 
   it("puts the mark up before the microphone opens and takes it down on Stop", async () => {
@@ -74,7 +97,7 @@ describe("MeetingAssistant", () => {
     await started;
     await r.assistant.stop();
     expect(r.marks).toEqual([true, false]);
-    expect(r.assistant.getState().phase).toBe("idle");
+    expect(r.state().phase).toBe("idle");
   });
 
   it("takes the mark down when the run ends on its own", async () => {
@@ -82,7 +105,7 @@ describe("MeetingAssistant", () => {
     await r.assistant.start();
     r.events().ended?.();
     expect(r.marks).toEqual([true, false]);
-    expect(r.assistant.getState().phase).toBe("idle");
+    expect(r.state().phase).toBe("idle");
   });
 
   it("shows Me and Them lines as they come, and a line replaces its side's partial", async () => {
@@ -90,84 +113,223 @@ describe("MeetingAssistant", () => {
     await r.assistant.start();
     r.events().partial("them", "what is");
     r.events().partial("me", "so");
-    expect(r.assistant.getState().partial).toEqual({ them: "what is", me: "so" });
+    expect(r.state().partial).toEqual({ them: "what is", me: "so" });
     r.events().line(r.line("them", "What is the price?", 2_000));
-    expect(r.assistant.getState().partial).toEqual({ me: "so" });
-    expect(r.assistant.getState().lines.map((l) => `${l.source}: ${l.text}`)).toEqual(["them: What is the price?"]);
+    expect(r.state().partial).toEqual({ me: "so" });
+    expect(r.state().lines.map((l) => `${l.source}: ${l.text}`)).toEqual(["them: What is the price?"]);
   });
 
-  it("hands transcript, notes and custom info to the summary hook on Stop", async () => {
+  it("starts the live answers with listening, and hands them each line, so the other side's question is answered", async () => {
     const r = rig();
-    r.assistant.addContext("  I am pitching the stub plan.  ");
+    r.assistant.addContext("I sell seats.");
     await r.assistant.start();
-    r.events().line(r.line("them", "Any questions?", 2_000));
-    r.assistant.ask("What did they ask?");
-    await r.assistant.stop();
-    expect(r.records).toHaveLength(1);
-    expect(r.records[0]).toEqual({
-      transcript: [r.line("them", "Any questions?", 2_000)],
-      notes: [{ question: "What did they ask?", answer: "", at: 1_000 }],
-      customInfo: ["I am pitching the stub plan."],
+    expect(r.calls.filter((c) => c === "prepare")).toHaveLength(1);
+    expect(r.answerSubs.size).toBe(1);
+    r.events().line(r.line("them", "How many seats do you need to start?", 2_000));
+    expect(r.asked).toEqual([{ lines: [r.line("them", "How many seats do you need to start?", 2_000)], customInfo: "I sell seats.", trigger: "question" }]);
+  });
+
+  it("asks a typed question through the answer key, with the question in that answer's custom info alone", async () => {
+    const r = rig();
+    r.assistant.addContext("Budget is fixed.");
+    r.assistant.addContext("They want a pilot.");
+    await r.assistant.start();
+    r.events().line(r.line("me", "We can start small.", 2_000));
+    r.assistant.ask("  What should I say about price?  ");
+    expect(r.asked[0]).toEqual({
+      lines: [r.line("me", "We can start small.", 2_000)],
+      customInfo: "Budget is fixed.\nThey want a pilot.\n\nMy question now: What should I say about price?",
+      trigger: "key",
     });
+    expect(r.state().asked).toEqual([{ id: 1, text: "What should I say about price?", at: 1_000 }]);
+    r.events().line(r.line("them", "Does that work for you?", 3_000));
+    expect(r.asked[1]!.customInfo).toBe("Budget is fixed.\nThey want a pilot.");
   });
 
-  it("hands the run over once, though the end is said twice", async () => {
+  it("sends a typed question alone when there is no custom info", async () => {
     const r = rig();
     await r.assistant.start();
-    r.events().ended?.();
-    await r.assistant.stop();
-    expect(r.records).toHaveLength(1);
-    expect(r.marks).toEqual([true, false]);
+    r.assistant.ask("Who is on the call?");
+    expect(r.asked[0]!.customInfo).toBe("My question now: Who is on the call?");
+  });
+
+  it("subscribes to the answers for a question typed before listening starts", () => {
+    const r = rig();
+    r.assistant.ask("What is the agenda?");
+    expect(r.answerSubs.size).toBe(1);
+    r.answer({ answerId: "a1", t: "start", trigger: "key", model: null });
+    r.answer({ answerId: "a1", t: "done", text: "Pricing, then the pilot." });
+    expect(r.state().answer).toMatchObject({ text: "Pricing, then the pilot.", state: "done" });
   });
 
   it("ignores empty context and empty questions", () => {
     const r = rig();
     r.assistant.addContext("   ");
     r.assistant.ask("");
-    expect(r.assistant.getState().customInfo).toEqual([]);
-    expect(r.assistant.getState().questions).toEqual([]);
+    expect(r.state().customInfo).toEqual([]);
+    expect(r.state().asked).toEqual([]);
+    expect(r.asked).toEqual([]);
   });
 
-  it("marks a question unanswered when no engine is plugged in", () => {
+  it("streams the answer that started last, and drops what an older one still sends", async () => {
     const r = rig();
-    r.assistant.ask("Who is on the call?");
-    expect(r.assistant.getState().questions[0]).toMatchObject({ question: "Who is on the call?", state: "unanswered" });
-  });
-
-  it("streams an engine's answer into its question, with the transcript and context it read", async () => {
-    const r = rig({ engine: true });
-    r.assistant.addContext("Budget is fixed.");
     await r.assistant.start();
-    r.events().line(r.line("them", "Can you go lower?", 2_000));
-    r.assistant.ask("What should I say?");
-    expect(r.asked[0]).toEqual({ question: "What should I say?", transcript: [r.line("them", "Can you go lower?", 2_000)], customInfo: ["Budget is fixed."] });
-    r.answer({ t: "text", text: "The budget " });
-    r.answer({ t: "text", text: "is fixed." });
-    expect(r.assistant.getState().questions[0]).toMatchObject({ answer: "The budget is fixed.", state: "streaming" });
-    r.answer({ t: "done" });
-    expect(r.assistant.getState().questions[0]!.state).toBe("done");
+    r.answer({ answerId: "a1", t: "start", trigger: "question", model: "claude-haiku-5-5" });
+    r.answer({ answerId: "a1", t: "delta", text: "Twelve " });
+    r.answer({ answerId: "a1", t: "delta", text: "seats" });
+    expect(r.state().answer).toEqual({ id: "a1", trigger: "question", text: "Twelve seats", state: "streaming" });
+    r.answer({ answerId: "a2", t: "start", trigger: "key", model: null });
+    r.answer({ answerId: "a1", t: "delta", text: " to start." });
+    r.answer({ answerId: "a1", t: "done", text: "Twelve seats to start." });
+    expect(r.state().answer).toEqual({ id: "a2", trigger: "key", text: "", state: "streaming" });
+    r.answer({ answerId: "a2", t: "delta", text: "On the " });
+    r.answer({ answerId: "a2", t: "done", text: "On the annual plan." });
+    expect(r.state().answer).toEqual({ id: "a2", trigger: "key", text: "On the annual plan.", state: "done" });
   });
 
-  it("says why an answer failed", () => {
-    const r = rig({ engine: true });
-    r.assistant.ask("Anything?");
-    r.answer({ t: "error", message: "The model did not answer." });
-    expect(r.assistant.getState().questions[0]).toMatchObject({ state: "failed", error: "The model did not answer." });
+  it("shows the sentence an answer failed with, and one that could not begin", async () => {
+    const r = rig();
+    await r.assistant.start();
+    r.answer({ answerId: "a1", t: "start", trigger: "key", model: null });
+    r.answer({ answerId: "a1", t: "error", message: "The model did not answer." });
+    expect(r.state().answer).toMatchObject({ id: "a1", state: "failed", error: "The model did not answer." });
+    r.answer({ answerId: "a2", t: "error", message: "Live answers run on Claude only. Codex is chosen for quick chat." });
+    expect(r.state().answer).toMatchObject({ id: "a2", state: "failed", error: "Live answers run on Claude only. Codex is chosen for quick chat." });
+  });
+
+  it("takes a cancelled answer off the panel", async () => {
+    const r = rig();
+    await r.assistant.start();
+    r.answer({ answerId: "a1", t: "start", trigger: "key", model: null });
+    r.answer({ answerId: "a1", t: "delta", text: "Half" });
+    r.answer({ answerId: "a1", t: "cancelled" });
+    expect(r.state().answer).toBeNull();
+  });
+
+  it("cancels an answer dismissed while it streams, and only then", async () => {
+    const r = rig();
+    await r.assistant.start();
+    r.answer({ answerId: "a1", t: "start", trigger: "key", model: null });
+    r.assistant.dismissAnswer();
+    expect(r.calls).toContain("cancel answer");
+    expect(r.state().answer).toBeNull();
+    r.answer({ answerId: "a1", t: "delta", text: "late" });
+    expect(r.state().answer).toBeNull();
+    r.calls.length = 0;
+    r.answer({ answerId: "a2", t: "start", trigger: "key", model: null });
+    r.answer({ answerId: "a2", t: "done", text: "Done." });
+    r.assistant.dismissAnswer();
+    expect(r.calls).not.toContain("cancel answer");
+    expect(r.state().answer).toBeNull();
+  });
+
+  it("on Stop ends the live answers, then saves the notes with the transcript, the questions and the custom info", async () => {
+    const r = rig();
+    r.assistant.addContext("  I am pitching the stub plan.  ");
+    r.assistant.addContext("Their CTO doubts the price.");
+    await r.assistant.start();
+    r.events().line(r.line("them", "Any questions?", 2_000));
+    r.assistant.ask("What did they ask?");
+    r.assistant.ask("Who decides?");
+    r.tick(60_000);
+    await r.assistant.stop();
+    expect(r.calls.indexOf("stop answers")).toBeGreaterThan(-1);
+    expect(r.calls.indexOf("stop answers")).toBeLessThan(r.calls.indexOf("save"));
+    expect(r.saved).toEqual([{
+      meetingId: "m1", spaceId: "space-1", title: "Meeting", startedAt: 1_000, endedAt: 61_000,
+      lines: [r.line("them", "Any questions?", 2_000)],
+      notes: "- Asked the assistant: What did they ask?\n- Asked the assistant: Who decides?",
+      customInfo: "I am pitching the stub plan.\nTheir CTO doubts the price.",
+    }]);
+    expect(r.state().notes).toEqual({ meetingId: "m1", spaceId: "space-1", path: "meetings/m.md", stage: "saved", summary: "written" });
+    expect(r.answerSubs.size).toBe(0);
+  });
+
+  it("saves nothing for a run in which nothing was heard or typed", async () => {
+    const r = rig();
+    await r.assistant.start();
+    await r.assistant.stop();
+    expect(r.calls).toContain("stop answers");
+    expect(r.saved).toEqual([]);
+    expect(r.state().notes).toBeNull();
+  });
+
+  it("says why the notes were not saved when no space is open", async () => {
+    const r = rig({ space: null });
+    await r.assistant.start();
+    r.events().line(r.line("me", "Hello.", 2_000));
+    await r.assistant.stop();
+    expect(r.saved).toEqual([]);
+    expect(r.state().problem).toBe("Realm could not save the notes: no space is open.");
+  });
+
+  it("says why the notes could not be saved", async () => {
+    const r = rig({ save: async () => { throw new Error("the space has no folder"); } });
+    await r.assistant.start();
+    r.events().line(r.line("me", "Hello.", 2_000));
+    await r.assistant.stop();
+    expect(r.state().notes).toBeNull();
+    expect(r.state().problem).toBe("Realm could not save the notes: the space has no folder");
+  });
+
+  it("shows the path while the summary is written, offers its cancel, and ends on the outcome", async () => {
+    let finish!: (r: SaveMeetingNotesResult) => void;
+    const r = rig({ save: () => new Promise((res) => { finish = res; }) });
+    await r.assistant.start();
+    r.events().line(r.line("me", "Hello.", 2_000));
+    const stopping = r.assistant.stop();
+    await new Promise((res) => setTimeout(res, 0));
+    expect(r.state().notes).toMatchObject({ meetingId: "m1", stage: "saving", path: null });
+    r.progress({ meetingId: "other", spaceId: "space-1", path: "meetings/other.md", stage: "summarising" });
+    expect(r.state().notes).toMatchObject({ stage: "saving", path: null });
+    r.progress({ meetingId: "m1", spaceId: "space-1", path: "meetings/2026-11-20 1405 Meeting.md", stage: "summarising" });
+    expect(r.state().notes).toMatchObject({ stage: "summarising", path: "meetings/2026-11-20 1405 Meeting.md" });
+    r.assistant.cancelSummary();
+    expect(r.cancelledSummaries).toEqual(["m1"]);
+    finish({ path: "meetings/2026-11-20 1405 Meeting.md", summary: "cancelled" });
+    await stopping;
+    expect(r.state().notes).toMatchObject({ stage: "saved", summary: "cancelled" });
+    r.progress({ meetingId: "m1", spaceId: "space-1", path: "meetings/x.md", stage: "summarising" });
+    expect(r.state().notes).toMatchObject({ stage: "saved", path: "meetings/2026-11-20 1405 Meeting.md" });
+    r.assistant.cancelSummary();
+    expect(r.cancelledSummaries).toEqual(["m1"]);
+  });
+
+  it("opens the saved file in the space it was saved in", async () => {
+    const r = rig();
+    r.assistant.openNotes();
+    expect(r.opened).toEqual([]);
+    await r.assistant.start();
+    r.events().line(r.line("me", "Hello.", 2_000));
+    await r.assistant.stop();
+    r.assistant.openNotes();
+    expect(r.opened).toEqual([["space-1", "meetings/m.md"]]);
+  });
+
+  it("saves once, though the end is said twice", async () => {
+    const r = rig();
+    await r.assistant.start();
+    r.events().line(r.line("me", "Hello.", 2_000));
+    r.events().ended?.();
+    await r.assistant.stop();
+    await Promise.resolve(); await Promise.resolve();
+    expect(r.saved).toHaveLength(1);
+    expect(r.marks).toEqual([true, false]);
   });
 
   it("starts a new meeting after a Stop, and keeps what was typed before the first Start", async () => {
     const r = rig();
     r.assistant.ask("Before the call");
     await r.assistant.start();
-    expect(r.assistant.getState().questions).toHaveLength(1);
+    expect(r.state().asked).toHaveLength(1);
     r.events().line(r.line("me", "Hello.", 2_000));
+    r.answer({ answerId: "a1", t: "start", trigger: "key", model: null });
     await r.assistant.stop();
-    expect(r.assistant.getState().lines).toHaveLength(1);
+    expect(r.state().lines).toHaveLength(1);
+    expect(r.state().notes).not.toBeNull();
     r.tick(5_000);
     await r.assistant.start();
-    expect(r.assistant.getState().lines).toEqual([]);
-    expect(r.assistant.getState().questions).toEqual([]);
-    expect(r.assistant.getState().startedAt).toBe(6_000);
+    expect(r.state()).toMatchObject({ lines: [], asked: [], answer: null, notes: null, startedAt: 6_000 });
   });
 
   it("drops lines from a run that has ended", async () => {
@@ -175,19 +337,26 @@ describe("MeetingAssistant", () => {
     await r.assistant.start();
     const old = r.events();
     await r.assistant.stop();
-    old.line(r.line("them", "Late.", 3_000));
+    old.line(r.line("them", "Late?", 3_000));
     old.partial("them", "Late");
-    expect(r.assistant.getState().lines).toEqual([]);
-    expect(r.assistant.getState().partial).toEqual({});
+    expect(r.state().lines).toEqual([]);
+    expect(r.state().partial).toEqual({});
+    expect(r.asked).toEqual([]);
   });
 
-  it("takes the mark down and cancels answers when the page goes", async () => {
-    const r = rig({ engine: true });
+  it("takes the mark down, ends the answers and stops hearing progress when the page goes", async () => {
+    const r = rig();
     await r.assistant.start();
-    r.assistant.ask("Anything?");
     r.assistant.dispose();
+    await Promise.resolve();
     expect(r.marks).toEqual([true, false]);
-    expect(r.calls).toContain("cancel");
+    expect(r.calls).toContain("stop answers");
     expect(r.calls).toContain("stop");
+    expect(r.progressSubs.size).toBe(0);
+  });
+
+  it("joins the custom info in the order it was given", () => {
+    expect(customInfoText(["one", "two"])).toBe("one\ntwo");
+    expect(customInfoText([])).toBe("");
   });
 });

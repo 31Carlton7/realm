@@ -25,7 +25,7 @@ export function QuickChatPanelApp() {
   const store = useMemo(() => createAppStore(liveApi()), []);
   /* The meeting assistant lives on the page, not on the chat: deleting the chat, or putting the
      panel away, leaves a run listening, and the menu bar's mark says so. */
-  const assistant = useMemo(() => desktopMeetingAssistant(), []);
+  const assistant = useMemo(() => desktopMeetingAssistant(() => store.getState().activeSpaceId), [store]);
   useEffect(() => {
     if (!assistant) return;
     void assistant.load();

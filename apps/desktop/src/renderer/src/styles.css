@@ -2772,13 +2772,25 @@ button.panel-title:hover { background: var(--rl-hover); }
 .meeting-words { min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .meeting-line[data-partial] .meeting-words { color: var(--rl-text-dim); }
 .meeting-time { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
-.meeting-question { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: var(--r-panel); background: var(--stripe); }
-.meeting-asked { margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
-.meeting-answer { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); white-space: pre-wrap; }
-.meeting-answer:is([data-state="none"], [data-state="streaming"]:empty) { color: var(--rl-text-dim); }
-.meeting-answer[data-state="failed"] { color: var(--rl-danger); }
+/* A question he typed: his own words, in the column with the call's, set off by a tint. */
+.meeting-asked { align-self: flex-end; max-width: 85%; padding: 6px 10px; border-radius: var(--r-panel); background: var(--stripe);
+  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .meeting-stopped { margin: 0; font-size: 12px; color: var(--rl-text-dim); text-align: center; }
+/* The live answer, under the words rather than among them, so it stays in view while they move. */
+.meeting-answer { flex: none; position: relative; margin: 0 14px 6px; padding: 8px 32px 8px 10px; border-radius: var(--r-panel);
+  background: var(--stripe); }
+.meeting-answer-text { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); white-space: pre-wrap; }
+.meeting-answer[data-state="failed"] .meeting-answer-text { color: var(--rl-danger); }
+.meeting-answer-dismiss { position: absolute; top: 2px; right: 2px; }
+/* Where Stop put the notes: a quiet line, the path in mono because it is one, and it opens the file. */
+.meeting-notes { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; row-gap: 2px; margin: 0; padding: 4px 14px 6px;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.meeting-notes-path { padding: 0; border: 0; background: none; font: inherit; font-family: var(--font-mono); color: var(--accent-ink);
+  text-align: left; overflow-wrap: anywhere; }
+.meeting-notes-path:hover { text-decoration: underline; }
 .meeting-problem { flex: none; margin: 0; padding: 6px 14px; font-size: 12px; line-height: 16px; color: var(--rl-danger); }
+/* Past 20,000 characters of custom info: said once, beside the prompter, and nothing is refused. */
+.meeting-long { flex: none; margin: 0; padding: 0 14px 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 /* Over the prompter, on the window's own ground: what it sends, then the notice and Start or Stop. */
 .meeting-strip { flex: none; display: flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 10px; }
 .meeting-tell { flex: none; margin-left: auto; }

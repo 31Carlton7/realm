@@ -1,8 +1,19 @@
-import type { SystemAudioState, TranscriptEvents, TranscriptLine, TranscriptSource } from "../voice/transcript";
-import type { AnswerEngine, MeetingNote, MeetingSummaryHook } from "./seams";
+import {
+  MEETING_DEFAULT_TITLE, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
+  type MeetingTranscriptLine, type SaveMeetingNotesParams, type SaveMeetingNotesResult,
+} from "@realm/contracts";
+import { MeetingAnswers, type LiveAnswersApi } from "../voice/live-answers";
+import type { SystemAudioState, TranscriptEvents, TranscriptSource } from "../voice/transcript";
 
 /** One listening run's transcript, started and stopped (voice/transcript.ts's MeetingTranscript). */
 export type Listener = { start(): Promise<void>; stop(): Promise<void> };
+
+/** Where Stop's notes go: `meetings.saveNotes`, its progress and its cancel. */
+export interface MeetingNotesApi {
+  save(params: SaveMeetingNotesParams): Promise<SaveMeetingNotesResult>;
+  cancel(meetingId: string): Promise<unknown>;
+  onProgress(cb: (p: MeetingNotesProgress) => void): () => void;
+}
 
 export type AssistantDeps = {
   listen: (events: TranscriptEvents) => Listener;
@@ -10,19 +21,40 @@ export type AssistantDeps = {
   consent: { read(): Promise<boolean>; accept(): Promise<void> };
   /** Draws the red mark in the menu bar while this is true. */
   setListening: (on: boolean) => void;
-  summary: MeetingSummaryHook;
-  answers: AnswerEngine | null;
+  answers: LiveAnswersApi;
+  notes: MeetingNotesApi;
+  /** The space a meeting's notes are saved in, read at Stop. */
+  spaceId: () => string | null;
+  /** Shows a saved meeting's file in a Realm window. */
+  openFile: (spaceId: string, path: string) => void;
   now: () => number;
+  newId: () => string;
 };
+
+/** Live answers start on their own when the other side asks a question. Its switch is M3b's. */
+export const AUTO_ANSWERS = true;
+
+/** Past this many characters of custom info the prompter says that every answer sends all of it. */
+export const LONG_CUSTOM_INFO = 20_000;
+
+/** The custom info as one string, in the order it was given. */
+export function customInfoText(info: readonly string[]): string {
+  return info.join("\n");
+}
 
 /** "idle" before the first Start and after each Stop. */
 export type AssistantPhase = "idle" | "starting" | "listening" | "stopping";
 
-export type AssistantQuestion = MeetingNote & {
-  id: number;
-  /** "unanswered" when no answer engine is plugged in. */
-  state: "streaming" | "done" | "failed" | "unanswered";
-  error?: string;
+/** A question typed into the assistant. */
+export type AskedQuestion = { id: number; text: string; at: number };
+
+/** The live answer on screen: the one whose `start` came last. */
+export type LiveAnswer = { id: string; trigger: LiveAnswerTrigger | null; text: string; state: "streaming" | "done" | "failed"; error?: string };
+
+/** A stopped meeting's notes file: `path` once the server has named it. */
+export type MeetingNotesState = {
+  meetingId: string; spaceId: string; path: string | null;
+  stage: "saving" | MeetingNotesProgress["stage"]; summary: MeetingSummaryOutcome | null;
 };
 
 export type AssistantState = {
@@ -34,18 +66,22 @@ export type AssistantState = {
   /** When the run on screen started and stopped, in epoch milliseconds. */
   startedAt: number | null;
   stoppedAt: number | null;
-  lines: readonly TranscriptLine[];
+  lines: readonly MeetingTranscriptLine[];
   partial: Readonly<Partial<Record<TranscriptSource, string>>>;
   customInfo: readonly string[];
-  questions: readonly AssistantQuestion[];
+  asked: readonly AskedQuestion[];
+  answer: LiveAnswer | null;
+  notes: MeetingNotesState | null;
   systemAudio: SystemAudioState | null;
   problem: string | null;
 };
 
 const INITIAL: AssistantState = {
   consented: null, sheet: false, phase: "idle", startedAt: null, stoppedAt: null,
-  lines: [], partial: {}, customInfo: [], questions: [], systemAudio: null, problem: null,
+  lines: [], partial: {}, customInfo: [], asked: [], answer: null, notes: null, systemAudio: null, problem: null,
 };
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** The meeting assistant in the quick chat panel: one per panel page, so a run outlives the chat. */
 export class MeetingAssistant {
@@ -53,9 +89,27 @@ export class MeetingAssistant {
   private listeners = new Set<() => void>();
   private run: Listener | null = null;
   private nextId = 1;
-  private cancels = new Map<number, () => void>();
+  private readonly answers: MeetingAnswers;
+  /** A question being asked right now, which goes with the custom info of that one answer. */
+  private typed: string | null = null;
+  /** Answers that have started, so an `error` for one that never started is still shown. */
+  private started = new Set<string>();
+  private wrapUp: Promise<void> = Promise.resolve();
+  private offProgress: () => void;
 
-  constructor(private readonly deps: AssistantDeps) {}
+  constructor(private readonly deps: AssistantDeps) {
+    this.answers = new MeetingAnswers({
+      api: deps.answers, auto: AUTO_ANSWERS, onEvent: (e) => this.onAnswer(e),
+      customInfo: () => {
+        const info = customInfoText(this.state.customInfo);
+        return this.typed === null ? info : [info, `My question now: ${this.typed}`].filter(Boolean).join("\n\n");
+      },
+    });
+    this.offProgress = deps.notes.onProgress((p) => {
+      const n = this.state.notes;
+      if (n?.meetingId === p.meetingId && n.stage !== "saved") this.set({ notes: { ...n, path: p.path, stage: p.stage } });
+    });
+  }
 
   getState = (): AssistantState => this.state;
 
@@ -88,12 +142,14 @@ export class MeetingAssistant {
     this.set({ sheet: false });
   }
 
+  /** Stop: the mark comes down, the live answers end, and the notes are saved. */
   async stop(): Promise<void> {
     const run = this.run;
     if (!run || this.state.phase === "stopping") return;
     this.set({ phase: "stopping" });
     await run.stop();
     this.finish(run);
+    await this.wrapUp;
   }
 
   addContext(text: string): void {
@@ -101,27 +157,38 @@ export class MeetingAssistant {
     if (info) this.set({ customInfo: [...this.state.customInfo, info] });
   }
 
+  /** A typed question: answered through the answer key, with the question in that answer's custom info. */
   ask(text: string): void {
     const question = text.trim();
     if (!question) return;
-    const id = this.nextId++;
-    const engine = this.deps.answers;
-    this.set({ questions: [...this.state.questions, { id, question, answer: "", at: this.deps.now(), state: engine ? "streaming" : "unanswered" }] });
-    if (!engine) return;
-    const cancel = engine.answer({ question, transcript: this.state.lines, customInfo: this.state.customInfo }, (e) => {
-      if (e.t === "text") this.patchQuestion(id, (q) => ({ answer: q.answer + e.text }));
-      else {
-        this.cancels.delete(id);
-        this.patchQuestion(id, () => (e.t === "done" ? { state: "done" } : { state: "failed", error: e.message }));
-      }
-    });
-    if (this.questionOf(id)?.state === "streaming") this.cancels.set(id, cancel);
+    this.set({ asked: [...this.state.asked, { id: this.nextId++, text: question, at: this.deps.now() }] });
+    // Before a Start, or after a Stop, nothing is subscribed to the answers yet.
+    if (this.state.phase === "idle") this.answers.start();
+    this.typed = question;
+    void this.answers.askNow();
+    this.typed = null;
+  }
+
+  /** The answer's ×: one still streaming is cancelled, and either way it leaves the panel. */
+  dismissAnswer(): void {
+    if (this.state.answer?.state === "streaming") void this.answers.cancel();
+    this.set({ answer: null });
+  }
+
+  cancelSummary(): void {
+    const n = this.state.notes;
+    if (n && n.stage !== "saved") void this.deps.notes.cancel(n.meetingId).catch(() => {});
+  }
+
+  openNotes(): void {
+    const n = this.state.notes;
+    if (n?.path) this.deps.openFile(n.spaceId, n.path);
   }
 
   /** The panel's page is going: nothing is left listening. */
   dispose(): void {
-    for (const cancel of this.cancels.values()) cancel();
-    this.cancels.clear();
+    void this.answers.stop();
+    this.offProgress();
     void this.run?.stop();
     if (this.run) this.deps.setListening(false);
     this.run = null;
@@ -131,16 +198,18 @@ export class MeetingAssistant {
   private async begin(): Promise<void> {
     if (this.state.phase !== "idle") return;
     // A Start after a Stop is a new meeting; what was typed before the first Start belongs to this one.
-    const fresh = this.state.stoppedAt !== null ? { lines: [], questions: [] } : {};
-    this.set({ ...fresh, phase: "starting", startedAt: this.deps.now(), stoppedAt: null, partial: {}, systemAudio: null, problem: null });
+    const fresh = this.state.stoppedAt !== null ? { lines: [], asked: [], answer: null } : {};
+    this.set({ ...fresh, notes: null, phase: "starting", startedAt: this.deps.now(), stoppedAt: null, partial: {}, systemAudio: null, problem: null });
     // The mark goes up before the microphone opens, so there is no moment it is heard without it.
     this.deps.setListening(true);
+    this.answers.start();
     const run = this.deps.listen({
       line: (line) => {
         if (this.run !== run) return;
         const partial = { ...this.state.partial };
         delete partial[line.source];
         this.set({ lines: [...this.state.lines, line], partial });
+        this.answers.line(line);
       },
       partial: (source, text) => { if (this.run === run) this.set({ partial: { ...this.state.partial, [source]: text } }); },
       systemAudio: (systemAudio) => { if (this.run === run) this.set({ systemAudio }); },
@@ -152,26 +221,50 @@ export class MeetingAssistant {
     if (this.run === run && this.getState().phase === "starting") this.set({ phase: "listening" });
   }
 
-  /** The run is over, by Stop or on its own: the mark comes down and the record goes to the hook. */
+  /** The run is over, by Stop or on its own: the mark comes down, the answers end, the notes are saved. */
   private finish(run: Listener): void {
     if (this.run !== run) return;
     this.run = null;
     this.deps.setListening(false);
     this.set({ phase: "idle", stoppedAt: this.deps.now(), partial: {} });
-    const { lines, questions, customInfo } = this.state;
-    void Promise.resolve(this.deps.summary({
-      transcript: lines,
-      notes: questions.map(({ question, answer, at }) => ({ question, answer, at })),
-      customInfo,
-    })).catch(() => {});
+    const { lines, asked, customInfo, startedAt, stoppedAt } = this.state;
+    this.wrapUp = this.answers.stop().then(() => {
+      if (lines.length === 0 && asked.length === 0 && customInfo.length === 0) return;
+      return this.save({
+        title: MEETING_DEFAULT_TITLE, startedAt: startedAt ?? stoppedAt!, endedAt: stoppedAt!, lines: [...lines],
+        notes: asked.map((q) => `- Asked the assistant: ${q.text}`).join("\n"), customInfo: customInfoText(customInfo),
+      });
+    });
   }
 
-  private questionOf(id: number): AssistantQuestion | undefined {
-    return this.state.questions.find((q) => q.id === id);
+  private async save(meeting: Omit<SaveMeetingNotesParams, "meetingId" | "spaceId">): Promise<void> {
+    const spaceId = this.deps.spaceId();
+    if (!spaceId) { this.set({ problem: "Realm could not save the notes: no space is open." }); return; }
+    const meetingId = this.deps.newId();
+    this.set({ notes: { meetingId, spaceId, path: null, stage: "saving", summary: null } });
+    try {
+      const { path, summary } = await this.deps.notes.save({ meetingId, spaceId, ...meeting });
+      const n = this.state.notes;
+      if (n?.meetingId === meetingId) this.set({ notes: { ...n, path, stage: "saved", summary } });
+    } catch (e) {
+      if (this.state.notes?.meetingId === meetingId) this.set({ notes: null, problem: `Realm could not save the notes: ${message(e)}` });
+    }
   }
 
-  private patchQuestion(id: number, patch: (q: AssistantQuestion) => Partial<AssistantQuestion>): void {
-    this.set({ questions: this.state.questions.map((q) => (q.id === id ? { ...q, ...patch(q) } : q)) });
+  private onAnswer(e: LiveAnswerEvent): void {
+    const current = this.state.answer;
+    if (e.t === "start") {
+      this.started.add(e.answerId);
+      this.set({ answer: { id: e.answerId, trigger: e.trigger, text: "", state: "streaming" } });
+    } else if (e.t === "error" && !this.started.has(e.answerId)) {
+      // An answer that could not begin, or an ask the server refused: the newest ask, so it is shown.
+      this.set({ answer: { id: e.answerId, trigger: null, text: "", state: "failed", error: e.message } });
+    } else if (current?.id === e.answerId) {
+      if (e.t === "delta") this.set({ answer: { ...current, text: current.text + e.text } });
+      else if (e.t === "done") this.set({ answer: { ...current, text: e.text, state: "done" } });
+      else if (e.t === "error") this.set({ answer: { ...current, state: "failed", error: e.message } });
+      else this.set({ answer: null });
+    }
   }
 
   private set(patch: Partial<AssistantState>): void {

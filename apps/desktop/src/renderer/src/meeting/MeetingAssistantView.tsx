@@ -1,9 +1,13 @@
+import { Icon } from "@realm/ui";
+import type { MeetingSummaryOutcome } from "@realm/contracts";
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { useDissolve } from "../components/ScrollFades";
 import { Sheet } from "../components/Sheet";
 import { useApp } from "../state/store";
 import type { TranscriptLine, TranscriptSource } from "../voice/transcript";
-import type { AssistantQuestion, AssistantState, MeetingAssistant } from "./assistant";
+import {
+  LONG_CUSTOM_INFO, customInfoText, type AskedQuestion, type AssistantState, type LiveAnswer, type MeetingAssistant, type MeetingNotesState,
+} from "./assistant";
 
 function useAssistant(assistant: MeetingAssistant): AssistantState {
   return useSyncExternalStore(assistant.subscribe, assistant.getState);
@@ -39,18 +43,17 @@ export function ListeningMark({ assistant }: { assistant: MeetingAssistant }) {
   );
 }
 
-/** The panel's middle while the assistant is shown: the sheet, or the transcript and the answers. */
+/** The panel's middle while the assistant is shown: the sheet, the transcript, the answer and the notes. */
 export function AssistantBody({ assistant }: { assistant: MeetingAssistant }) {
   const s = useAssistant(assistant);
   const scroller = useRef<HTMLDivElement>(null);
   useDissolve(scroller);
   // New words arrive at the foot, so the column follows them there.
-  const count = s.lines.length + s.questions.length + s.customInfo.length + Object.keys(s.partial).length;
-  const answered = s.questions.reduce((n, q) => n + q.answer.length, 0);
+  const count = s.lines.length + s.asked.length + s.customInfo.length + Object.keys(s.partial).length;
   useEffect(() => {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [count, answered]);
+  }, [count]);
 
   const empty = count === 0;
   return (
@@ -75,11 +78,13 @@ export function AssistantBody({ assistant }: { assistant: MeetingAssistant }) {
                 ? <li key={`p${item.source}`} className="meeting-line" data-source={item.source} data-partial="">
                     <span className="meeting-who">{SPEAKER[item.source]}</span><span className="meeting-words">{item.text}</span>
                   </li>
-                : <Question key={`q${item.q.id}`} q={item.q} />))}
+                : <li key={`q${item.q.id}`} className="meeting-asked">{item.q.text}</li>))}
           </ol>
           {s.stoppedAt !== null && <p className="meeting-stopped">Stopped.</p>}
         </div>
       )}
+      {s.answer && <Answer answer={s.answer} onDismiss={() => assistant.dismissAnswer()} />}
+      {s.notes && <NotesLine notes={s.notes} assistant={assistant} />}
       {s.problem && <p className="meeting-problem" role="alert">{s.problem}</p>}
     </>
   );
@@ -88,13 +93,13 @@ export function AssistantBody({ assistant }: { assistant: MeetingAssistant }) {
 type FeedItem =
   | { kind: "line"; line: TranscriptLine; i: number; at: number }
   | { kind: "partial"; source: TranscriptSource; text: string; at: number }
-  | { kind: "question"; q: AssistantQuestion; at: number };
+  | { kind: "asked"; q: AskedQuestion; at: number };
 
-/** Lines and questions in the order they happened, with what each side is saying now at the foot. */
+/** Lines and typed questions in the order they happened, with what each side is saying now at the foot. */
 function feed(s: AssistantState): FeedItem[] {
   const items: FeedItem[] = [
     ...s.lines.map((line, i) => ({ kind: "line" as const, line, i, at: line.at })),
-    ...s.questions.map((q) => ({ kind: "question" as const, q, at: q.at })),
+    ...s.asked.map((q) => ({ kind: "asked" as const, q, at: q.at })),
   ].sort((a, b) => a.at - b.at);
   for (const source of ["them", "me"] as const) {
     const text = s.partial[source];
@@ -118,31 +123,53 @@ function Line({ line, startedAt }: { line: TranscriptLine; startedAt: number | n
   );
 }
 
-/** A typed question and its answer as it streams (the M5 engine's `AnswerEvent`s). */
-function Question({ q }: { q: AssistantQuestion }) {
+/** The live answer on screen, under the words: the newest one, streaming as it comes. */
+function Answer({ answer, onDismiss }: { answer: LiveAnswer; onDismiss: () => void }) {
   return (
-    <li className="meeting-question">
-      <p className="meeting-asked">{q.question}</p>
-      <AnswerStream q={q} />
-    </li>
+    <section className="meeting-answer" aria-label="Live answer" data-state={answer.state} data-selectable="">
+      <button type="button" className="icon-btn meeting-answer-dismiss" aria-label="Dismiss the answer"
+        title={answer.state === "streaming" ? "Stop and dismiss the answer" : "Dismiss the answer"} onClick={onDismiss}>
+        <Icon name="close" size={12} />
+      </button>
+      {answer.state === "failed"
+        ? <p className="meeting-answer-text" role="alert">{answer.error || "The answer did not come."}</p>
+        : <p className="meeting-answer-text" aria-live="polite" aria-busy={answer.state === "streaming"}>{answer.text || "Answering…"}</p>}
+    </section>
   );
 }
 
-function AnswerStream({ q }: { q: AssistantQuestion }) {
-  if (q.state === "unanswered") return <p className="meeting-answer" data-state="none">Live answers are not built yet.</p>;
-  if (q.state === "failed") return <p className="meeting-answer" data-state="failed" role="alert">{q.error || "The answer did not come."}</p>;
+const WITHOUT_SUMMARY: Partial<Record<MeetingSummaryOutcome, string>> = {
+  unavailable: "Saved without a summary: the quick chat model's agent is not set up.",
+  failed: "Saved without a summary: the summary could not be written.",
+  cancelled: "Saved without a summary.",
+};
+
+/** Where Stop put the notes, and how the summary went. The path opens the file in Realm. */
+function NotesLine({ notes, assistant }: { notes: MeetingNotesState; assistant: MeetingAssistant }) {
+  const said = notes.stage === "saving" ? "Saving the notes…"
+    : notes.stage === "summarising" ? "Writing the summary…"
+    : (notes.summary && WITHOUT_SUMMARY[notes.summary]) ?? "Notes saved.";
   return (
-    <p className="meeting-answer" data-state={q.state} aria-live="polite" aria-busy={q.state === "streaming"}>
-      {q.answer || (q.state === "streaming" ? "Answering…" : "")}
+    <p className="meeting-notes" role="status">
+      <span>{said}</span>
+      {notes.path && (
+        <button type="button" className="meeting-notes-path" title="Open in Realm" onClick={() => assistant.openNotes()}>{notes.path}</button>
+      )}
+      {notes.stage === "summarising" && (
+        <button type="button" className="btn-quiet" onClick={() => assistant.cancelSummary()}>Cancel summary</button>
+      )}
     </p>
   );
 }
 
 /** The row over the prompter: where the prompter sends, the notice for the room, and Start or Stop. */
-export function AssistantStrip({ assistant, target, onTarget }: {
+export function AssistantStrip({ assistant, target, onTarget, draft }: {
   assistant: MeetingAssistant; target: AssistantTarget; onTarget: (t: AssistantTarget) => void;
+  /** What the prompter holds now, which counts toward the custom info while it sends to Context. */
+  draft: string;
 }) {
   const s = useAssistant(assistant);
+  const info = customInfoText(target === "context" && draft.trim() ? [...s.customInfo, draft.trim()] : s.customInfo).length;
   const toast = useApp((st) => st.toast);
   const ids = useId();
   const listening = isListening(s);
@@ -153,6 +180,7 @@ export function AssistantStrip({ assistant, target, onTarget }: {
     );
   };
   return (
+    <>
     <div className="meeting-strip">
       <fieldset className="seg">
         <legend className="visually-hidden">The prompter sends</legend>
@@ -177,6 +205,10 @@ export function AssistantStrip({ assistant, target, onTarget }: {
         </button>
       )}
     </div>
+    {info > LONG_CUSTOM_INFO && (
+      <p className="meeting-long">Every answer sends all {info.toLocaleString("en-US")} characters of custom info.</p>
+    )}
+    </>
   );
 }
 
@@ -192,7 +224,8 @@ function ConsentSheet({ assistant }: { assistant: MeetingAssistant }) {
         <li>Telling the people on the call is your job. Tell the room puts a notice on your clipboard.</li>
         <li>In California, everyone on the call has to agree before it is recorded.</li>
         <li>Realm keeps the words only. No audio is saved.</li>
-        <li>The transcript goes to the model only when you ask for an answer.</li>
+        <li>The summary call sends the transcript, the notes and the custom info to the model chosen for quick chat, and nothing else is sent anywhere. When that model runs through an agent other than Claude or Codex, that agent's own app keeps its usual copy of the conversation on the Mac.</li>
+        <li>Transcript text leaves the Mac in one place only: the live-answer request to Anthropic's Messages API, sent by the Claude CLI on your own Claude account. That request carries the last three minutes of transcript and the custom info you typed, and nothing else.</li>
       </ul>
     </Sheet>
   );

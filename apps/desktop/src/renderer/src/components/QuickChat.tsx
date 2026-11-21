@@ -245,7 +245,7 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
           </div>
         )}
       </div>
-      {showing && <AssistantStrip assistant={showing} target={target} onTarget={setTarget} />}
+      {showing && <AssistantStrip assistant={showing} target={target} onTarget={setTarget} draft={assistantDraft} />}
       {/* The pane's own prompter, in compact: no plan strip, no branch, no permission or mode chips,
           no under-strip. One card, the model, and send. Under the assistant it sends to the
           assistant, a question or something to keep in mind, with no files and no model. */}

@@ -4,6 +4,8 @@ import { QuickChat } from "../components/QuickChat";
 import { StoreContext, createAppStore, useAppStore } from "../state/store";
 import { appCommands } from "../keys/commands";
 import { fakeApi } from "../state/store.test-fakes";
+import type { LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesResult } from "@realm/contracts";
+import type { LiveAnswersApi } from "../voice/live-answers";
 import type { TranscriptEvents } from "../voice/transcript";
 import { MeetingAssistant } from "./assistant";
 import { TELL_THE_ROOM } from "./MeetingAssistantView";
@@ -18,14 +20,31 @@ async function mount(opts: { consented?: boolean } = {}) {
   await store.getState().boot();
   let events: TranscriptEvents | null = null;
   const marks: boolean[] = [];
+  const asked: Parameters<LiveAnswersApi["answer"]>[0][] = [];
+  const opened: [string, string][] = [];
+  const cancelled: string[] = [];
+  let answerCb: ((e: LiveAnswerEvent) => void) | null = null;
+  let progressCb: ((p: MeetingNotesProgress) => void) | null = null;
+  let finishSave: ((r: SaveMeetingNotesResult) => void) | null = null;
   let consented = opts.consented ?? false;
   const assistant = new MeetingAssistant({
     listen: (e) => { events = e; return { start: async () => {}, stop: async () => { e.ended?.(); } }; },
     consent: { read: async () => consented, accept: async () => { consented = true; } },
     setListening: (on) => marks.push(on),
-    summary: () => {},
-    answers: null,
+    answers: {
+      answer: async (input) => { asked.push(input); return { answerId: "a1" }; },
+      cancel: async () => {}, prepare: async () => {}, stop: async () => {},
+      onEvent: (cb) => { answerCb = cb; return () => { answerCb = null; }; },
+    },
+    notes: {
+      save: () => new Promise((res) => { finishSave = res; }),
+      cancel: async (id) => { cancelled.push(id); },
+      onProgress: (cb) => { progressCb = cb; return () => { progressCb = null; }; },
+    },
+    spaceId: () => "space-1",
+    openFile: (space, path) => opened.push([space, path]),
     now: () => 10_000,
+    newId: () => "m1",
   });
   render(
     <StoreContext.Provider value={store}>
@@ -35,7 +54,12 @@ async function mount(opts: { consented?: boolean } = {}) {
   );
   fireEvent.click(screen.getByRole("button", { name: "Open quick chat" }));
   const dialog = await screen.findByRole("dialog", { name: "Quick chat" });
-  return { assistant, marks, dialog, events: () => events!, consented: () => consented };
+  return {
+    assistant, marks, dialog, asked, opened, cancelled, events: () => events!, consented: () => consented,
+    answer: (e: LiveAnswerEvent) => act(() => answerCb!(e)),
+    progress: (p: MeetingNotesProgress) => act(() => progressCb!(p)),
+    finishSave: (r: SaveMeetingNotesResult) => finishSave!(r),
+  };
 }
 
 const showAssistant = (dialog: HTMLElement) => fireEvent.click(within(dialog).getByRole("button", { name: "Meeting assistant" }));
@@ -52,7 +76,7 @@ describe("the meeting assistant in the quick chat panel", () => {
     expect(within(dialog).queryByRole("button", { name: "Meeting assistant" })).toBeNull();
   });
 
-  it("asks for the first-run sheet before it listens, with the four things it says", async () => {
+  it("asks for the first-run sheet before it listens, with the five things it says", async () => {
     const r = await mount();
     showAssistant(r.dialog);
     await act(() => { fireEvent.click(within(r.dialog).getByRole("button", { name: "Start listening" })); });
@@ -61,7 +85,13 @@ describe("the meeting assistant in the quick chat panel", () => {
     expect(text).toContain("Telling the people on the call is your job.");
     expect(text).toContain("California");
     expect(text).toContain("No audio is saved.");
-    expect(text).toContain("only when you ask for an answer");
+    expect([...sheet.querySelectorAll(".meeting-consent li")].map((li) => li.textContent)).toEqual([
+      "Telling the people on the call is your job. Tell the room puts a notice on your clipboard.",
+      "In California, everyone on the call has to agree before it is recorded.",
+      "Realm keeps the words only. No audio is saved.",
+      "The summary call sends the transcript, the notes and the custom info to the model chosen for quick chat, and nothing else is sent anywhere. When that model runs through an agent other than Claude or Codex, that agent's own app keeps its usual copy of the conversation on the Mac.",
+      "Transcript text leaves the Mac in one place only: the live-answer request to Anthropic's Messages API, sent by the Claude CLI on your own Claude account. That request carries the last three minutes of transcript and the custom info you typed, and nothing else.",
+    ]);
     expect(r.marks).toEqual([]);
     await act(() => { fireEvent.click(within(sheet).getByRole("button", { name: "Start listening" })); });
     expect(r.consented()).toBe(true);
@@ -115,14 +145,74 @@ describe("the meeting assistant in the quick chat panel", () => {
     expect(box.placeholder).toBe("Ask about the call");
     fireEvent.change(box, { target: { value: "Who is the buyer?" } });
     fireEvent.keyDown(box, { key: "Enter" });
-    expect(r.assistant.getState().questions.map((q) => q.question)).toEqual(["Who is the buyer?"]);
+    expect(r.asked.map((a) => a.trigger)).toEqual(["key"]);
+    expect(within(r.dialog).getByText("Who is the buyer?").className).toBe("meeting-asked");
     fireEvent.click(within(r.dialog).getByLabelText("Context"));
     expect(box.placeholder).toBe("Tell the assistant what to keep in mind");
     fireEvent.change(box, { target: { value: "They want a pilot." } });
     fireEvent.keyDown(box, { key: "Enter" });
     expect(r.assistant.getState().customInfo).toEqual(["They want a pilot."]);
     expect(within(r.dialog).getByText("They want a pilot.")).toBeTruthy();
-    expect(within(r.dialog).getByText("Live answers are not built yet.")).toBeTruthy();
+  });
+
+  it("draws the live answer as it streams, and the × dismisses it", async () => {
+    const r = await mount({ consented: true });
+    showAssistant(r.dialog);
+    await act(() => r.assistant.start());
+    r.answer({ answerId: "a1", t: "start", trigger: "key", model: null });
+    const card = within(r.dialog).getByRole("region", { name: "Live answer" });
+    expect(card.textContent).toBe("Answering…");
+    r.answer({ answerId: "a1", t: "delta", text: "Scripted answer: " });
+    r.answer({ answerId: "a1", t: "delta", text: "twelve seats" });
+    expect(card.querySelector(".meeting-answer-text")!.textContent).toBe("Scripted answer: twelve seats");
+    expect(card.querySelector("[aria-busy='true']")).not.toBeNull();
+    r.answer({ answerId: "a1", t: "done", text: "Scripted answer: twelve seats to start." });
+    expect(card.querySelector(".meeting-answer-text")!.textContent).toBe("Scripted answer: twelve seats to start.");
+    expect(card.querySelector("[aria-busy='true']")).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "Dismiss the answer" }));
+    expect(within(r.dialog).queryByRole("region", { name: "Live answer" })).toBeNull();
+  });
+
+  it("says the sentence a failed answer came back with", async () => {
+    const r = await mount({ consented: true });
+    showAssistant(r.dialog);
+    await act(() => r.assistant.start());
+    r.answer({ answerId: "a9", t: "error", message: "Live answers run on Claude only." });
+    expect(within(r.dialog).getByRole("alert").textContent).toBe("Live answers run on Claude only.");
+  });
+
+  it("names the notes file as soon as it is on disk, offers the summary's cancel, and opens the file", async () => {
+    const r = await mount({ consented: true });
+    showAssistant(r.dialog);
+    await act(() => r.assistant.start());
+    act(() => r.events().line({ source: "them", text: "Thanks.", start: 0, end: 500, at: 11_000 }));
+    act(() => { fireEvent.click(within(r.dialog).getByRole("button", { name: "Stop" })); });
+    await act(async () => { await new Promise((res) => setTimeout(res, 0)); });
+    expect(r.dialog.querySelector(".meeting-notes")!.textContent).toBe("Saving the notes…");
+    const path = "meetings/2026-11-20 1405 Meeting.md";
+    r.progress({ meetingId: "m1", spaceId: "space-1", path, stage: "summarising" });
+    expect(r.dialog.querySelector(".meeting-notes > span")!.textContent).toBe("Writing the summary…");
+    fireEvent.click(within(r.dialog).getByRole("button", { name: "Cancel summary" }));
+    expect(r.cancelled).toEqual(["m1"]);
+    await act(async () => { r.finishSave({ path, summary: "cancelled" }); await Promise.resolve(); });
+    expect(r.dialog.querySelector(".meeting-notes > span")!.textContent).toBe("Saved without a summary.");
+    expect(within(r.dialog).queryByRole("button", { name: "Cancel summary" })).toBeNull();
+    fireEvent.click(within(r.dialog).getByRole("button", { name: path }));
+    expect(r.opened).toEqual([["space-1", path]]);
+  });
+
+  it("says once the custom info passes 20,000 characters that every answer sends it, and still sends", async () => {
+    const r = await mount({ consented: true });
+    showAssistant(r.dialog);
+    fireEvent.click(within(r.dialog).getByLabelText("Context"));
+    const box = within(r.dialog).getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "x".repeat(20_000) } });
+    expect(r.dialog.querySelector(".meeting-long")).toBeNull();
+    fireEvent.change(box, { target: { value: "x".repeat(20_001) } });
+    expect(r.dialog.querySelector(".meeting-long")!.textContent).toBe("Every answer sends all 20,001 characters of custom info.");
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(r.assistant.getState().customInfo).toEqual(["x".repeat(20_001)]);
+    expect(r.dialog.querySelector(".meeting-long")!.textContent).toBe("Every answer sends all 20,001 characters of custom info.");
   });
 
   it("carries no + and no model picker under the assistant", async () => {

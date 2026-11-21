@@ -785,6 +785,13 @@ ipcMain.on("quick-chat-panel:open-in-realm", (e, target: unknown) => {
   quickChatPanel.close();
   void reattach({ sessionId: t.sessionId, spaceId: t.spaceId });
 });
+ipcMain.on("quick-chat-panel:open-document", (e, target: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  const t = target as { spaceId?: unknown; path?: unknown } | null;
+  if (typeof t?.spaceId !== "string" || typeof t.path !== "string") return;
+  quickChatPanel.close();
+  void reattach({ spaceId: t.spaceId, path: t.path });
+});
 // The quick chat is one chat wherever it is shown, so a page that opened or deleted it tells the rest.
 ipcMain.on("quick-chat:changed", (e) => {
   for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send("quick-chat:changed");
@@ -2822,7 +2829,7 @@ function goResident() {
 
 /** Bring a window back, optionally landing on one session — in the window showing that session's
  *  profile when one is open, else the window used last, else a new first window. */
-async function reattach(target?: { sessionId: string; spaceId: string | null }) {
+async function reattach(target?: { sessionId: string; spaceId: string | null } | { spaceId: string; path: string }) {
   // Even with a window up: everything it loads lazily from here on would come from the wrong file.
   if (relaunchIfBundleReplaced()) return;
   if (process.platform === "darwin") app.dock?.show();
@@ -2837,7 +2844,7 @@ async function reattach(target?: { sessionId: string; spaceId: string | null }) 
   }
   sessionTray.hide();
   void bridgeClient?.call("browserHost.register", { hasWindow: true }).catch(() => {});
-  if (target) win?.webContents.send("realm:open-session", target);
+  if (target) win?.webContents.send("sessionId" in target ? "realm:open-session" : "realm:open-document", target);
 }
 
 /** Raise a window in front of everything, the app included. */
