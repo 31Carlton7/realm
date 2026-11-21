@@ -119,16 +119,14 @@ process.stdin.on("data", (d) => {
 process.stdin.on("end", () => process.exit(0));
 `, { mode: 0o755 });
 
-const httpPort = await freePort();
-const web = spawn("python3", ["-m", "http.server", String(httpPort), "--bind", "127.0.0.1"], { cwd: path.join(desktopRoot, "out/renderer"), stdio: "ignore" });
-const rendererUrl = `http://127.0.0.1:${httpPort}/index.html`;
-await until(() => fetch(rendererUrl).then((r) => r.ok), 10_000, "the renderer over http");
+let web = null;
+let rendererUrl = null;
 let current = null;
 const watchdog = setTimeout(async () => {
   console.error("FAIL watchdog: the check ran for five minutes");
   await current?.app.stop().catch(() => {});
   current?.calendar.remove();
-  web.kill();
+  web?.kill();
   process.exit(9);
 }, 300_000);
 
@@ -209,6 +207,27 @@ async function everyLook({ app, api }, page, state) {
   }
 }
 
+/** No real microphone: a silent stream stands in for it. No real clipboard: the page keeps what it is
+ *  given. Each stand-in is marked, so a check can tell it is still the one in place. */
+const STAND_INS = `(() => {
+  const getUserMedia = async () => { const ctx = new AudioContext(); const o = ctx.createOscillator(); const g = ctx.createGain();
+    g.gain.value = 0; const d = ctx.createMediaStreamDestination(); o.connect(g); g.connect(d); o.start(); return d.stream; };
+  getUserMedia.realmStandIn = true;
+  navigator.mediaDevices.getUserMedia = getUserMedia;
+  window.__copied = [];
+  const writeText = async (t) => { window.__copied.push(t); };
+  writeText.realmStandIn = true;
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  return true; })()`;
+const STAND_IN_CHECKS = {
+  microphone: `navigator.mediaDevices.getUserMedia.realmStandIn === true`,
+  clipboard: `navigator.clipboard?.writeText?.realmStandIn === true`,
+};
+/** Before a click that could reach the Mac's own microphone or clipboard: the run stops if the stand-in is gone. */
+async function standInStill(page, what) {
+  if (!(await page.eval(STAND_IN_CHECKS[what]))) throw new Error(`the ${what} stand-in is gone from the panel's page`);
+}
+
 /** Every text an element matching `selector` shows from now on, in order, read by a MutationObserver. */
 const watchTexts = (page, key, selector) => page.eval(`(() => { const seen = window[${js(key)}] = [];
   const read = () => { const t = document.querySelector(${js(selector)})?.textContent ?? null; if (t !== null && seen.at(-1) !== t) seen.push(t); };
@@ -224,34 +243,37 @@ const typeAndSend = (page, text) => page.eval(`(() => { const el = document.quer
   el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
 
 try {
+  const httpPort = await freePort();
+  web = spawn("python3", ["-m", "http.server", String(httpPort), "--bind", "127.0.0.1"], { cwd: path.join(desktopRoot, "out/renderer"), stdio: "ignore" });
+  rendererUrl = `http://127.0.0.1:${httpPort}/index.html`;
+  await until(() => fetch(rendererUrl).then((r) => r.ok), 10_000, "the renderer over http");
   current = await launch();
   const { app, api } = current;
   await sleep(3000);
   await openPanel(app);
   const page = await attachPanel(app);
   await until(() => page.eval(`!!document.querySelector(".quick-chat .composer-input")`), 20_000, "the panel's prompter");
-  // No real microphone: a silent stream stands in for it. No real clipboard: the page keeps what it is given.
-  await page.eval(`(() => {
-    navigator.mediaDevices.getUserMedia = async () => { const ctx = new AudioContext(); const o = ctx.createOscillator(); const g = ctx.createGain();
-      g.gain.value = 0; const d = ctx.createMediaStreamDestination(); o.connect(g); g.connect(d); o.start(); return d.stream; };
-    window.__copied = [];
-    Object.defineProperty(navigator, "clipboard", { value: { writeText: async (t) => { window.__copied.push(t); } }, configurable: true });
-    return true; })()`);
+  // On this document now, and on any the page loads after it.
+  await page.send("Page.addScriptToEvaluateOnNewDocument", { source: STAND_INS });
+  await page.eval(STAND_INS);
 
   /* ── sheet ─────────────────────────────────────────────────────────────────────────────────── */
   await click(page, '.quick-chat-bar button[aria-label="Meeting assistant"]');
   await until(() => page.eval(`!!document.querySelector(".meeting-strip")`), 10_000, "the assistant view");
   const consentBefore = (await api.call("settings.get", { key: CONSENT_KEY })).value ?? null;
+  await standInStill(page, "microphone");
   await clickByText(page, ".meeting-strip", "Start listening");
   await until(() => page.eval(`!!document.querySelector('.sheet[aria-label="Before you start listening"]')`), 10_000, "the first-run sheet");
   await sleep(600);
   const sheetState = { consentBefore, mark: await page.eval(`!!document.querySelector(".meeting-mark")`), tray: await quietTray(app),
     text: await page.eval(`document.querySelector(".meeting-consent").innerText`) };
   row("sheet", "Start before acceptance: the sheet, and nothing listening", sheetState,
-    consentBefore === null && !sheetState.mark && sheetState.tray === null && /your job/.test(sheetState.text) && /California/.test(sheetState.text));
+    consentBefore === null && !sheetState.mark && sheetState.tray === null && /your job/.test(sheetState.text) && /California/.test(sheetState.text)
+    && /Nothing else leaves the Mac\./.test(sheetState.text));
   await everyLook(current, page, "sheet");
 
   /* ── listen ────────────────────────────────────────────────────────────────────────────────── */
+  await standInStill(page, "microphone");
   await clickByText(page, ".sheet", "Start listening");
   await until(() => page.eval(`document.querySelectorAll(".meeting-line:not([data-partial])").length === ${LINES.length}`), 20_000, "every line from the file");
   // The other side's questions are answered on their own; let those settle before the typed one.
@@ -280,9 +302,10 @@ try {
   if (trayPng) fs.writeFileSync(path.join(OUT_DIR, "m3a-tray-mark.png"), Buffer.from(trayPng, "base64"));
   const hidden = { contentProtected: await app.main.eval(`${panelOf}.isContentProtected?.() ?? null`),
     mark: await page.eval(`!!document.querySelector(".quick-chat-bar .meeting-mark")`) };
-  row("hidden", "hidden from screen sharing while listening, and the mark still drawn", hidden, hidden.contentProtected !== false && hidden.mark);
+  row("hidden", "hidden from screen sharing while listening, and the mark still drawn", hidden, hidden.contentProtected === true && hidden.mark);
   await everyLook(current, page, "listening");
   // After the pictures: its toast would stand over the strip in them.
+  await standInStill(page, "clipboard");
   await clickByText(page, ".meeting-strip", "Tell the room");
   await sleep(200);
   const copied = await page.eval(`window.__copied`);
@@ -354,7 +377,7 @@ try {
     current.calendar.remove();
   }
   fs.rmSync(tools, { recursive: true, force: true });
-  web.kill();
+  web?.kill();
   clearTimeout(watchdog);
 }
 process.exit(process.exitCode ?? 0);
