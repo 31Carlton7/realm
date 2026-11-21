@@ -1,3 +1,4 @@
+import { StrictMode, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { QuickChat } from "../components/QuickChat";
@@ -8,14 +9,20 @@ import type { LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesResult } fr
 import type { LiveAnswersApi } from "../voice/live-answers";
 import type { TranscriptEvents } from "../voice/transcript";
 import { MeetingAssistant } from "./assistant";
-import { TELL_THE_ROOM } from "./MeetingAssistantView";
+import { TELL_THE_ROOM, useAssistantPage } from "./MeetingAssistantView";
 
 function QuickChatKey() {
   const store = useAppStore();
   return <button type="button" onClick={() => appCommands(store)["session.quickChat"]!()}>Open quick chat</button>;
 }
 
-async function mount(opts: { consented?: boolean } = {}) {
+/** What QuickChatPanelApp does with its assistant. */
+function AssistantPage({ assistant, children }: { assistant: MeetingAssistant; children: ReactNode }) {
+  useAssistantPage(assistant);
+  return <>{children}</>;
+}
+
+async function mount(opts: { consented?: boolean; strict?: boolean } = {}) {
   const store = createAppStore(fakeApi());
   await store.getState().boot();
   let events: TranscriptEvents | null = null;
@@ -27,13 +34,14 @@ async function mount(opts: { consented?: boolean } = {}) {
   let progressCb: ((p: MeetingNotesProgress) => void) | null = null;
   let finishSave: ((r: SaveMeetingNotesResult) => void) | null = null;
   let consented = opts.consented ?? false;
+  let answersStopped = 0;
   const assistant = new MeetingAssistant({
     listen: (e) => { events = e; return { start: async () => {}, stop: async () => { e.ended?.(); } }; },
     consent: { read: async () => consented, accept: async () => { consented = true; } },
     setListening: (on) => marks.push(on),
     answers: {
       answer: async (input) => { asked.push(input); return { answerId: "a1" }; },
-      cancel: async () => {}, prepare: async () => {}, stop: async () => {},
+      cancel: async () => {}, prepare: async () => {}, stop: async () => { answersStopped++; },
       onEvent: (cb) => { answerCb = cb; return () => { answerCb = null; }; },
     },
     notes: {
@@ -46,16 +54,19 @@ async function mount(opts: { consented?: boolean } = {}) {
     now: () => 10_000,
     newId: () => "m1",
   });
-  render(
+  const page = (
     <StoreContext.Provider value={store}>
-      <QuickChatKey />
-      <QuickChat assistant={assistant} />
-    </StoreContext.Provider>,
+      <AssistantPage assistant={assistant}>
+        <QuickChatKey />
+        <QuickChat assistant={assistant} />
+      </AssistantPage>
+    </StoreContext.Provider>
   );
+  render(opts.strict ? <StrictMode>{page}</StrictMode> : page);
   fireEvent.click(screen.getByRole("button", { name: "Open quick chat" }));
   const dialog = await screen.findByRole("dialog", { name: "Quick chat" });
   return {
-    assistant, marks, dialog, asked, opened, cancelled, events: () => events!, consented: () => consented,
+    assistant, marks, dialog, asked, opened, cancelled, events: () => events!, consented: () => consented, answersStopped: () => answersStopped,
     answer: (e: LiveAnswerEvent) => act(() => answerCb!(e)),
     progress: (p: MeetingNotesProgress) => act(() => progressCb!(p)),
     finishSave: (r: SaveMeetingNotesResult) => finishSave!(r),
@@ -200,6 +211,29 @@ describe("the meeting assistant in the quick chat panel", () => {
     expect(within(r.dialog).queryByRole("button", { name: "Cancel summary" })).toBeNull();
     fireEvent.click(within(r.dialog).getByRole("button", { name: path }));
     expect(r.opened).toEqual([["space-1", path]]);
+  });
+
+  it("still hears the notes' progress after StrictMode's rehearsal, and ends nothing at mount", async () => {
+    const r = await mount({ consented: true, strict: true });
+    expect(r.answersStopped()).toBe(0);
+    showAssistant(r.dialog);
+    await act(() => r.assistant.start());
+    act(() => r.events().line({ source: "them", text: "Thanks.", start: 0, end: 500, at: 11_000 }));
+    act(() => { fireEvent.click(within(r.dialog).getByRole("button", { name: "Stop" })); });
+    await act(async () => { await new Promise((res) => setTimeout(res, 0)); });
+    const path = "meetings/2026-11-20 1405 Meeting.md";
+    r.progress({ meetingId: "m1", spaceId: "space-1", path, stage: "summarising" });
+    expect(r.dialog.querySelector(".meeting-notes > span")!.textContent).toBe("Writing the summary…");
+    expect(within(r.dialog).getByRole("button", { name: path })).toBeTruthy();
+    expect(within(r.dialog).getByRole("button", { name: "Cancel summary" })).toBeTruthy();
+  });
+
+  it("ends the run when the page goes", async () => {
+    const r = await mount({ consented: true });
+    await act(() => r.assistant.start());
+    act(() => { window.dispatchEvent(new Event("pagehide")); });
+    expect(r.marks).toEqual([true, false]);
+    expect(r.answersStopped()).toBeGreaterThan(0);
   });
 
   it("says once the custom info passes 20,000 characters that every answer sends it, and still sends", async () => {

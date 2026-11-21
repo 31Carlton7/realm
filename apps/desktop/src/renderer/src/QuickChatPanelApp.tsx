@@ -4,6 +4,7 @@ import { dismissBootSplash } from "./boot-splash";
 import { QuickChat } from "./components/QuickChat";
 import { Toasts } from "./components/Toasts";
 import { desktopMeetingAssistant } from "./meeting/desktop";
+import { useAssistantPage } from "./meeting/MeetingAssistantView";
 import { rpc } from "./rpc/client";
 import { liveApi } from "./state/live-api";
 import { StoreContext, createAppStore, useApp } from "./state/store";
@@ -26,12 +27,7 @@ export function QuickChatPanelApp() {
   /* The meeting assistant lives on the page, not on the chat: deleting the chat, or putting the
      panel away, leaves a run listening, and the menu bar's mark says so. */
   const assistant = useMemo(() => desktopMeetingAssistant(() => store.getState().activeSpaceId), [store]);
-  useEffect(() => {
-    if (!assistant) return;
-    void assistant.load();
-    const off = window.realm?.meetingAssistant?.onStop(() => void assistant.stop());
-    return () => { off?.(); assistant.dispose(); };
-  }, [assistant]);
+  useAssistantPage(assistant);
   useEffect(() => {
     document.documentElement.dataset.surface = QUICK_CHAT_SURFACE;
     const panel = window.realm?.quickChatPanel;

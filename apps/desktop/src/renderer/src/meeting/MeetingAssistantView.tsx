@@ -13,6 +13,23 @@ function useAssistant(assistant: MeetingAssistant): AssistantState {
   return useSyncExternalStore(assistant.subscribe, assistant.getState);
 }
 
+/** The panel page's hold on its assistant: the notes' progress and the menu bar's Stop while it is
+ *  mounted, and the run ended when the page itself goes. StrictMode rehearses this effect in dev, so
+ *  the ending waits for `pagehide` rather than a cleanup. */
+export function useAssistantPage(assistant: MeetingAssistant | null): void {
+  useEffect(() => {
+    if (!assistant) return;
+    void assistant.load();
+    const offs = [assistant.watchNotes(), window.realm?.meetingAssistant?.onStop(() => void assistant.stop())];
+    const onPageHide = () => assistant.dispose();
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      for (const off of offs) off?.();
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [assistant]);
+}
+
 function isListening(s: AssistantState): boolean {
   return s.phase !== "idle";
 }
