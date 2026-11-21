@@ -4,7 +4,8 @@ export type AssistantAutoStartDeps = {
   /** The first-run sheet was accepted (`MEETING_CONSENT_KEY`), read at each start. */
   consented: () => Promise<boolean>;
   listening: () => boolean;
-  /** Opens the panel and tells its page to Start, the same Start as the button. */
+  /** Opens the panel, leaving the keyboard with the app in front, and tells its page to Start, the
+   *  same Start as the button. */
   start: () => void;
 };
 
@@ -17,6 +18,9 @@ export class AssistantAutoStart {
   private on = false;
 
   constructor(private readonly deps: AssistantAutoStartDeps) {}
+
+  /** The setting is on: a call starting opens the panel, so it is kept made. */
+  get enabled(): boolean { return this.on; }
 
   set(on: boolean): void {
     if (on === this.on) return;

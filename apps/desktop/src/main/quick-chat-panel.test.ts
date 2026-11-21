@@ -120,6 +120,16 @@ describe("QuickChatPanel", () => {
     expect(made).toBe(1);
   });
 
+  it("is made ahead, and kept, for starting the assistant when a call starts alone", async () => {
+    const w = fakeWindow();
+    let made = 0;
+    const panel = new QuickChatPanel(() => { made++; return { win: w.win, ready: Promise.resolve() }; });
+    panel.prepareFor({ chord: false, doubleTap: false, autoStart: true }); await settled();
+    panel.prepareFor({ chord: false, doubleTap: false, autoStart: true });
+    expect(made).toBe(1);
+    expect(w.calls).not.toContain("destroy");
+  });
+
   it("keeps a hidden panel whose page is listening when no key opens it any more", async () => {
     const w = fakeWindow();
     const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));

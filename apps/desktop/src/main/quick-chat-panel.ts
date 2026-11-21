@@ -106,12 +106,12 @@ export class QuickChatPanel<W extends PanelWindow> {
     if (made) void made.ready.catch(() => this.forget(made));
   }
 
-  /** Made ahead while a key opens it from another app: its chord, a double-tap of Command, or the
-   *  assistant's chords. With none, a window made ahead is destroyed rather than kept hidden, so no
+  /** Made ahead while a key opens it from another app: its chord, a double-tap of Command, the
+   *  assistant's chords, or a call starting with "Start the assistant when a call starts" on. With none, a window made ahead is destroyed rather than kept hidden, so no
    *  renderer is held for a panel nothing can open; one that is open is left to be put away, and so
    *  is one whose page is listening, which would end the run and lose its notes. */
-  prepareFor(keys: { chord: boolean; doubleTap: boolean; assistant?: boolean }, listening = false): void {
-    if (keys.chord || keys.doubleTap || keys.assistant) this.prepare();
+  prepareFor(keys: { chord: boolean; doubleTap: boolean; assistant?: boolean; autoStart?: boolean }, listening = false): void {
+    if (keys.chord || keys.doubleTap || keys.assistant || keys.autoStart) this.prepare();
     else if (this.made && !this.isOpen() && !listening) this.forget(this.made);
   }
 

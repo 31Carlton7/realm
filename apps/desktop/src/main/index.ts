@@ -367,6 +367,7 @@ async function readMeetingsPreference() {
     meetingWatch.setOpensMeetings((stored as { value?: unknown } | null)?.value !== false);
     const autoStart = (await bridgeClient?.call("settings.get", { key: MEETING_AUTO_START_KEY }) as { value?: unknown } | null)?.value;
     assistantAutoStart.set(typeof autoStart === "boolean" ? autoStart : MEETING_AUTO_START_DEFAULT);
+    preparePanel();
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
 
@@ -764,11 +765,14 @@ async function readQuickChatPanelSettings(): Promise<void> {
   } catch { /* the bridge dropped; the next connection reads them */ }
 }
 /** The panel's window is made ahead of the first press, hidden, once there is a key that opens it.
- *  With no chord, no double-tap and no assistant chord there is nothing to open it from another app,
+ *  With no chord, no double-tap, no assistant chord and no auto-start there is nothing to open it from another app,
  *  and a renderer kept for it would be memory spent on nothing. */
 function preparePanel(): void {
   quickChatPanel.prepareFor(
-    { chord: quickChatShortcut.current().registered, doubleTap: realmKeys.doubleTapOn, assistant: assistantKeys.live },
+    {
+      chord: quickChatShortcut.current().registered, doubleTap: realmKeys.doubleTapOn, assistant: assistantKeys.live,
+      autoStart: assistantAutoStart.enabled,
+    },
     meetingListening.listening,
   );
 }
@@ -1699,13 +1703,13 @@ const assistantAutoStart = new AssistantAutoStart({
   consented: async () => meetingConsentAccepted((await bridgeClient?.call("settings.get", { key: MEETING_CONSENT_KEY }) as { value?: unknown } | null)?.value),
   listening: () => meetingListening.listening,
   start: () => {
-    quickChatPanel.open();
+    quickChatPanel.openInactive();
     assistantInbox.send(quickChatPanel.window()?.webContents ?? null, "autoStart");
   },
 });
 meetingWatch.on("meetingStarted", () => void assistantAutoStart.callStarted());
 meetingWatch.on("callStarted", () => void assistantAutoStart.callStarted());
-ipcMain.handle("meetings:start-assistant-with-call", (_e, on: unknown) => { assistantAutoStart.set(on === true); });
+ipcMain.handle("meetings:start-assistant-with-call", (_e, on: unknown) => { assistantAutoStart.set(on === true); preparePanel(); });
 /** Read again each time it is asked for, so a grant changed in System Settings shows on the page. */
 ipcMain.handle("meetings:calendar-access", () => { meetingWatch.checkCalendar(); return meetingWatch.access; });
 /** The one place Realm asks macOS for the calendar on its own account: the button in Settings. */

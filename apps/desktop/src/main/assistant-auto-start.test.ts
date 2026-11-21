@@ -30,6 +30,15 @@ describe("Start the assistant when a call starts", () => {
     expect(r.calls).toEqual(["watchCalls true", "watchCalls false"]);
   });
 
+  it("says it is on, so main keeps the panel made for the call", () => {
+    const r = rig();
+    expect(r.auto.enabled).toBe(false);
+    r.auto.set(true);
+    expect(r.auto.enabled).toBe(true);
+    r.auto.set(false);
+    expect(r.auto.enabled).toBe(false);
+  });
+
   it("starts nothing while it is off, and does not ask the server about consent", async () => {
     let reads = 0;
     const r = rig({ consented: async () => { reads++; return true; } });
