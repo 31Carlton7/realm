@@ -1241,6 +1241,13 @@ describe("CodexAdapter memory", () => {
     expect("developerInstructions" in reflected(evs)).toBe(false);
   });
 
+  it("starts an ephemeral thread when the start asks for no session file, and says nothing about it otherwise", async () => {
+    const kept = await booted({ model: "reflect" });
+    expect("ephemeral" in reflected(kept.evs)).toBe(false);
+    const none = await booted({ model: "reflect", persistSession: false });
+    expect(reflected(none.evs).ephemeral).toBe(true);
+  });
+
   it("does not send it on thread/resume — a resumed thread keeps what it was started with", async () => {
     const { evs } = await booted({ model: "reflect", resume: "th_prior", systemContext: "REALM CONTEXT 4417" });
     const params = reflected(evs);

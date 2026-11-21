@@ -86,8 +86,9 @@ export type StartOptions = {
    */
   answerOnly?: boolean;
   /** `false` asks the agent to keep no session file of its own for this conversation, where it has a
-   *  switch for that. Claude does (`persistSession`); every other engine keeps what it always keeps.
-   *  A meeting's summary turn sets it, so the transcript it reads is not left under `~/.claude`. */
+   *  switch for that. Claude does (`persistSession`) and Codex does (an `ephemeral` thread); every
+   *  other engine keeps what it always keeps. A meeting's summary turn sets it, so the transcript it
+   *  reads is not left under `~/.claude` or `~/.codex`. */
   persistSession?: boolean;
   env?: Record<string, string>;
   /**

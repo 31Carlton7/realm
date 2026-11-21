@@ -755,6 +755,8 @@ export class CodexAdapter implements AgentAdapter {
         const start = (): Promise<unknown> => c.request("thread/start", {
           ...common,
           ...(opts.systemContext ? { developerInstructions: opts.systemContext } : {}),
+          // An ephemeral thread is "not materialized on disk" (the binary's own schema): no rollout file.
+          ...(opts.persistSession === false ? { ephemeral: true } : {}),
           sessionStartSource: "startup",
         }, bootMs);
         /**
