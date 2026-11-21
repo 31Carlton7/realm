@@ -149,7 +149,8 @@ try {
   };
   // A fresh scratch home with no Quick chat model setting: which agent the answer names.
   const unset = await answer();
-  const set = (await api.call("settings.set", { key: "quickChatModel", value: { agentKind: "claude", model: "claude-haiku-5-5" } }), await answer());
+  await api.call("settings.set", { key: "quickChatModel", value: { agentKind: "claude", model: "claude-haiku-5-5" } });
+  const set = await answer();
   const processes = claudeUnder(rig.home);
   fs.writeFileSync(path.join(OUT, "rig-default.json"), js({ unset, set, requestsToStandIn: requests.length - before, claudeProcesses: processes }));
   console.log(`rig default, no setting: ${js(unset.map((e) => e.t === "start" ? `start ${e.model}` : e.t))}`);
