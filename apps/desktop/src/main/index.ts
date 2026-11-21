@@ -765,8 +765,8 @@ async function readQuickChatPanelSettings(): Promise<void> {
   } catch { /* the bridge dropped; the next connection reads them */ }
 }
 /** The panel's window is made ahead of the first press, hidden, once there is a key that opens it.
- *  With no chord, no double-tap, no assistant chord and no auto-start there is nothing to open it from another app,
- *  and a renderer kept for it would be memory spent on nothing. */
+ *  With no chord, no double-tap, no assistant chord and no auto-start there is nothing to open it
+ *  from another app, and a renderer kept for it would be memory spent on nothing. */
 function preparePanel(): void {
   quickChatPanel.prepareFor(
     {
