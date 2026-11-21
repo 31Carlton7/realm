@@ -425,12 +425,7 @@ async function meetingsLooks({ app, api }) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
-    await app.page.send("Page.reload");
-    await until(() => app.page.eval(`document.readyState === "complete" && (document.body.innerText.includes("Stub space") || !!document.querySelector('input[name="settings-page-tab"]'))`), 30_000, "the window back after its reload")
-      .catch(async (error) => {
-        const shown = await app.page.eval(`document.readyState + ": " + document.body.innerText.replace(/\\s+/g, " ").trim().slice(0, 300)`).catch(() => "unread");
-        throw new Error(`${error.message}; the window showed ${js(shown)}`);
-      });
+    await reloadWindow(app);
     await openGeneral();
     if (await lookHeld(app.page, mode, look, `Settings ▸ General ▸ Meetings, ${mode}`, `Settings in ${mode} ${look}`)) continue;
     await sleep(400);
