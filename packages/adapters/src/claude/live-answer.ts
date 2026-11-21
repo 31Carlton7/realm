@@ -14,18 +14,22 @@ const SYSTEM = [
 const who = { me: "Me", them: "Them" } as const;
 
 /**
- * The one message a live answer sends: the person's custom info and the transcript, each fenced as
- * untrusted data, then what to answer. The lines are the window the server already cut.
+ * The one message a live answer sends: the person's custom info, the transcript and the question they
+ * typed, if any, each fenced as untrusted data, then what to answer. The lines are the window the
+ * server already cut.
  */
-export function liveAnswerPrompt(input: { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }): string {
+export function liveAnswerPrompt(input: { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string }): string {
   const transcript = input.lines.map((l) => `${who[l.source]}: ${l.text.trim()}`).join("\n");
   const info = input.customInfo.trim();
+  const question = input.question?.trim();
   return [
     info ? fenceUntrusted(info, "WHAT THE PERSON TOLD YOU BEFORE OR DURING THE CALL") : "The person told you nothing about this call.",
     fenceUntrusted(transcript || "(nothing said yet)", "THE LAST FEW MINUTES OF THE CALL'S TRANSCRIPT, \"Me\" being the person"),
-    input.trigger === "question"
-      ? "They were just asked the last question in the transcript. Draft their answer to it."
-      : "They asked you for help now. Draft what they should say next, answering the latest question put to them if there is one.",
+    ...(question
+      ? [fenceUntrusted(question, "THE QUESTION THE PERSON TYPED TO YOU DURING THE CALL"), "They typed you that question. Answer it, using the transcript and what they told you."]
+      : [input.trigger === "question"
+        ? "They were just asked the last question in the transcript. Draft their answer to it."
+        : "They asked you for help now. Draft what they should say next, answering the latest question put to them if there is one."]),
   ].join("\n\n");
 }
 

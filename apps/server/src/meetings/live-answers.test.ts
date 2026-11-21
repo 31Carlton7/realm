@@ -88,6 +88,15 @@ describe("meetings.answer", () => {
     c.close();
   });
 
+  it("puts a typed question in the prompt, on the answer key", async () => {
+    const { model, c } = await boot();
+    const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "key", question: "What did we quote them last year?" })).result;
+    await waitFor(() => settled(c.answers, answerId));
+    expect(c.answers[0]).toMatchObject({ t: "start", trigger: "key" });
+    expect(model.asked[0]!.prompt).toMatch(/<<<untrusted-[0-9a-f]{16}\nWhat did we quote them last year\?\nuntrusted-[0-9a-f]{16}>>>/);
+    c.close();
+  });
+
   it("cancels the answer in flight when a newer question arrives", async () => {
     const { model, c } = await boot(new Model(30));
     const first = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "question" })).result.answerId;
