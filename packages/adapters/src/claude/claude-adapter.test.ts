@@ -865,6 +865,19 @@ describe("ClaudeAdapter", () => {
       expect("fastMode" in captureOptions[0]!).toBe(false);
     });
 
+    it("keeps no session file when the start asks for none, and says nothing about it otherwise", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      for (const persistSession of [false, undefined]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], ...(persistSession === false ? { persistSession } : {}) });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      expect(captureOptions[0]!.persistSession).toBe(false);
+      expect("persistSession" in captureOptions[1]!).toBe(false);
+    });
+
     it("leaves the option off the start entirely when it was not asked for", async () => {
       // `fastMode: false` and an absent key mean the same thing to the SDK, but sending the key
       // writes the flag layer and would override a user's own Claude Code setting with a default.
@@ -1310,6 +1323,31 @@ describe("ClaudeAdapter skills", () => {
     await handle.send({ text: "hi", attachments: [] });
     await handle.interrupt(); // pressed while the helper is still minting
     expect(interrupt).toHaveBeenCalledTimes(1);
+    await handle.dispose();
+  });
+
+  it("starts an answer-only turn with no built-in tools, none of the person's settings and no MCP server of theirs", async () => {
+    const answerOnly = capture({ answerOnly: true });
+    await answerOnly.handle.send({ text: "hi", attachments: [] });
+    const o = await answerOnly.options();
+    expect(o.tools).toEqual([]);
+    expect(o.settingSources).toEqual([]);
+    expect(o.strictMcpConfig).toBe(true);
+    await answerOnly.handle.dispose();
+    const plain = capture({ answerOnly: false });
+    await plain.handle.send({ text: "hi", attachments: [] });
+    const p = await plain.options();
+    for (const key of ["tools", "settingSources", "strictMcpConfig"]) expect(key in p).toBe(false);
+    await plain.handle.dispose();
+  });
+
+  it("carries the settings file's auth into an answer-only turn, which reads no settings either", async () => {
+    settingsFile({ env: { REALM_PROBE_FROM_SETTINGS: "yes" }, apiKeyHelper: "printf sk-carried-2" });
+    const { handle, options } = capture({ answerOnly: true });
+    await handle.send({ text: "hi", attachments: [] });
+    const env = (await options()).env as Record<string, string>;
+    expect(env.ANTHROPIC_API_KEY).toBe("sk-carried-2");
+    expect(env.REALM_PROBE_FROM_SETTINGS).toBe("yes");
     await handle.dispose();
   });
 

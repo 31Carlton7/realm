@@ -54,6 +54,8 @@ import { TextExtractor } from "./documents/text-extract";
 import { namedInRoot } from "./documents/paths";
 import { revealInFinder } from "./documents/reveal";
 import { LectureService } from "./school/lectures";
+import { MeetingNotesService } from "./meetings/service";
+import { quickChatSummariser } from "./meetings/summary-turn";
 import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
@@ -1888,9 +1890,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let access: Access | null = null;
   const owner = opts.owner ?? "app";
   const quickChats = new QuickChatEngines({ sessions, settings, registered: Object.keys(adapterRegistry) as AgentKind[], ...(opts.quickChat?.warmMs ? { warmMs: opts.quickChat.warmMs } : {}) });
+  const meetingNotes = new MeetingNotesService({ documents, rpc, summarise: quickChatSummariser({
+    adapters: adapterRegistry, model: () => quickChats.model(), probes: () => sessions.probeCached()?.rows ?? [],
+    // One fixed folder for every summary turn: an agent CLI remembers each folder it is started in.
+    cwd: join(opts.home, "meeting-summary"),
+  }) });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, meetingNotes, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
@@ -2045,6 +2052,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     await layaShadow.close();
     await laya.close();
     await quickChats.stop();
+    meetingNotes.close();
     await sessions.closeAll();
     // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
     // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.

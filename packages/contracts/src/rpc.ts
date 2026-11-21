@@ -50,6 +50,7 @@ import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema, PendingMoveSchema 
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
+import { MeetingNotesListSchema, MeetingNotesProgressSchema, SaveMeetingNotesParamsSchema, SaveMeetingNotesResultSchema } from "./meeting-notes";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
 import { TerminalProgramSchema, TerminalStatusSchema } from "./terminal-programs";
@@ -1033,6 +1034,20 @@ export const Methods = {
    *  documents pane, and answer with everything the store needs to arrange the panes. */
   "lectures.start": { params: z.object({ spaceId: IdSchema, title: z.string().default("") }), result: StartLectureResultSchema },
   "lectures.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ lectures: z.array(LectureSchema) }) },
+  /** A meeting ended: write its notes as one Markdown file under the space's `meetings/` folder. The
+   *  file goes to disk with the person's notes and the transcript before the model is asked for
+   *  anything, so no failure of the summary costs the transcript. Answers once the file is final;
+   *  `meetings.notesProgress` says where it has got to meanwhile. The transcript, the notes and the
+   *  custom info go to the Quick chat model for the summary. Realm keeps them nowhere but the file;
+   *  Claude and Codex are asked to keep no session file of the turn, and any other agent keeps what
+   *  its own app always keeps. */
+  "meetings.saveNotes": { params: SaveMeetingNotesParamsSchema, result: SaveMeetingNotesResultSchema },
+  /** Stop the summary `meetings.saveNotes` is waiting on. The file keeps its notes and transcript and
+   *  says the summary was cancelled. `cancelled` is false when no summary was being written. */
+  "meetings.cancelSummary": { params: z.object({ meetingId: z.string() }), result: z.object({ cancelled: z.boolean() }) },
+  /** The Markdown files in a space's `meetings/` folder, the newest meeting first, and the folder
+   *  their paths are relative to. */
+  "meetings.list": { params: z.object({ spaceId: IdSchema }), result: MeetingNotesListSchema },
   /** Plynn's meetings folder, newest first. `available` is false when the folder does not exist —
    *  Plynn not installed, or no meeting recorded yet — which the sheet says instead of showing an
    *  empty list that looks like a bug. A pure read. */
@@ -2427,6 +2442,8 @@ export const Events = {
    * pane would fight its own autosave.
    */
   "documents.fileChanged": z.object({ environmentId: IdSchema, path: z.string(), hash: z.string().nullable() }),
+  /** Where `meetings.saveNotes` has got to with one meeting's file. */
+  "meetings.notesProgress": MeetingNotesProgressSchema,
   /** `documents.openPath` ran (Plan 22): a mounted pane over this workspace opens the tab, and the
    *  store puts the item on screen if the space is active. Carries the item so the store need not
    *  re-list. `openedBy` is the session whose agent asked, which is the session whose side pane the

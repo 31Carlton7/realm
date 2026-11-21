@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
@@ -256,6 +257,27 @@ describe("documents RPC — a file outside the space the session recorded", () =
     expect((await c.call("documents.setTabs", { documentsId, openPaths: [stray], activePath: stray })).error?.code).toBe("BAD_PATH");
     const { dir } = await outsideFile(app, c, space.id, "recorded");
     expect((await c.call("documents.read", { documentsId, path: `${dir}/../${dir.split("/").pop()}/REPORT.md` })).error?.code).toBe("BAD_PATH");
+    c.close();
+  });
+
+  it("reads a meeting in the space's folder from a pane rooted at a worktree, and nothing else there", async () => {
+    const { c, space, root } = await setup();
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args], { cwd: root, stdio: "pipe" });
+    await writeFile(join(root, "plan.md"), "# Plan\n");
+    git("init", "-q"); git("add", "plan.md"); git("commit", "-q", "-m", "plan");
+    await mkdir(join(root, "meetings", "raw"), { recursive: true });
+    await writeFile(join(root, "meetings", "2026-11-20 1405 Launch sync.md"), "# Launch sync\n");
+    await writeFile(join(root, "meetings", "raw", "inner.md"), "inner");
+    await writeFile(join(root, "private.md"), "private");
+    const worktree = (await c.call("environments.createWorktree", { spaceId: space.id, title: "Second checkout" })).result;
+    const { documentsId } = (await c.call("documents.create", { spaceId: space.id, environmentId: worktree.id })).result;
+    const read = (path: string) => c.call("documents.read", { documentsId, path });
+    expect((await read(join(root, "meetings", "2026-11-20 1405 Launch sync.md"))).result?.text).toBe("# Launch sync\n");
+    // THE MUTANTS: any file of the space's folder readable from the worktree, or a `..` let through.
+    expect((await read(join(root, "private.md"))).error?.code).toBe("BAD_PATH");
+    expect((await read(join(root, "meetings", "raw", "inner.md"))).error?.code).toBe("BAD_PATH");
+    expect((await read(`${root}/meetings/../private.md`)).error?.code).toBe("BAD_PATH");
+    expect((await c.call("documents.write", { documentsId, path: join(root, "meetings", "2026-11-20 1405 Launch sync.md"), text: "x", baseHash: null })).error?.code).toBe("BAD_PATH");
     c.close();
   });
 

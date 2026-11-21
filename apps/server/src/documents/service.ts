@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
-import { basename, isAbsolute } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import {
-  documentTemplate, isSecretPath, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
+  documentTemplate, isSecretPath, emptyGuideProgress, GuideProgressSchema, MEETINGS_DIR, newId, progressSidecarPath, recordGuideAttempt,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace, type GuideProgress,
 } from "@realm/contracts";
 import type { DocumentPreviewServer } from "./preview";
@@ -378,7 +378,14 @@ export class DocumentService {
   /** Recorded by a session or the Library, or opened by name (`openPath`) — this run, or an earlier
    *  one whose tab is still on the strip. */
   private mayRead(ws: DocumentWorkspace, abs: string): boolean {
-    return this.d.recorded?.(abs) === true || this.named.has(abs) || ws.openPaths.includes(abs);
+    return this.d.recorded?.(abs) === true || this.named.has(abs) || ws.openPaths.includes(abs) || this.isMeetingNotes(ws.spaceId, abs);
+  }
+
+  /** A Markdown file directly in the space's own `meetings/` folder. Every pane of the space lists
+   *  those (`meetings.list`), and a pane rooted at a worktree reaches them only by absolute path. The
+   *  folder is matched as written, so a `..` composed onto it names no meeting. */
+  private isMeetingNotes(spaceId: string, abs: string): boolean {
+    return abs.toLowerCase().endsWith(".md") && dirname(abs) === join(this.rootForSpace(spaceId), MEETINGS_DIR);
   }
 
   private titleFor(envPath: string): string {
