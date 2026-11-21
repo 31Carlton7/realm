@@ -102,6 +102,8 @@ export class AssistantKeys {
 export class PageInbox<P> {
   private ready: P | null = null;
   private waiting: { page: P; action: AssistantPageAction } | null = null;
+  /** The page that last said it shows the assistant. A new page starts on the chat and says nothing. */
+  private showing: P | null = null;
 
   constructor(private readonly deliver: (page: P, action: AssistantPageAction) => void) {}
 
@@ -119,9 +121,21 @@ export class PageInbox<P> {
     if (waiting?.page === page) this.deliver(page, waiting.action);
   }
 
+  /** What the page says it shows: the assistant (true) or the chat. */
+  setShown(page: P, on: boolean): void {
+    if (on) this.showing = page;
+    else if (this.showing === page) this.showing = null;
+  }
+
+  /** Whether this page shows the assistant, as it last said. Any other page is on the chat. */
+  shown(page: P | null): boolean {
+    return page !== null && page === this.showing;
+  }
+
   /** The page is reloading or has crashed: keys wait again until it says it listens. */
   forget(page: P): void {
     if (this.ready === page) this.ready = null;
+    if (this.showing === page) this.showing = null;
   }
 }
 

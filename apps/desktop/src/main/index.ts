@@ -2188,22 +2188,20 @@ const assistantKeys = new AssistantKeys({
   },
   send: (action) => assistantInbox.send(quickChatPanel.window()?.webContents ?? null, action),
   listening: () => meetingListening.listening,
-  shown: () => assistantShown,
+  shown: () => assistantInbox.shown(quickChatPanel.window()?.webContents ?? null),
 });
-/** Whether the panel's page shows the assistant, as it last said. A new document starts on the chat. */
-let assistantShown = false;
 const assistantPages = new WeakSet<WebContents>();
 ipcMain.on("meeting-assistant:keys-ready", (e) => {
   const page = e.sender;
   if (page !== quickChatPanel.window()?.webContents) return;
   if (!assistantPages.has(page)) {
     assistantPages.add(page);
-    onPageGone(page, () => { assistantInbox.forget(page); assistantShown = false; });
+    onPageGone(page, () => assistantInbox.forget(page));
   }
   assistantInbox.pageReady(page);
 });
 ipcMain.on("meeting-assistant:shown", (e, on: unknown) => {
-  if (e.sender === quickChatPanel.window()?.webContents) assistantShown = on === true;
+  if (e.sender === quickChatPanel.window()?.webContents) assistantInbox.setShown(e.sender, on === true);
 });
 
 /** The two settings, read from the server when main (re)connects, as the sleep preference is: a

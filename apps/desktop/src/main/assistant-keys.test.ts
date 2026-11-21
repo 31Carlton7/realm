@@ -215,6 +215,52 @@ describe("PageInbox", () => {
     expect(got).toEqual(["answer"]);
   });
 
+  it("says a page shows the assistant only while that page last said so, and forgets it with the page", () => {
+    const inbox = new PageInbox<string>(() => {});
+    inbox.setShown("panel", true);
+    expect(inbox.shown("panel")).toBe(true);
+    expect(inbox.shown("new panel")).toBe(false);
+    expect(inbox.shown(null)).toBe(false);
+    inbox.setShown("new panel", false);
+    expect(inbox.shown("panel")).toBe(true);
+    inbox.setShown("panel", false);
+    expect(inbox.shown("panel")).toBe(false);
+    inbox.setShown("panel", true);
+    inbox.forget("panel");
+    expect(inbox.shown("panel")).toBe(false);
+  });
+
+  it("a new panel window after the assistant was showing is on the chat, so the quick chat keys still put it away", () => {
+    const inbox = new PageInbox<string>(() => {});
+    let page: string | null = "first window";
+    let open = false;
+    const calls: string[] = [];
+    const keys = new AssistantKeys({
+      register: () => () => {},
+      panel: {
+        isOpen: () => open,
+        open: () => { open = true; calls.push("open"); },
+        openInactive: () => { open = true; calls.push("open inactive"); },
+        close: () => { open = false; calls.push("close"); },
+        move: () => {},
+      },
+      send: (action) => inbox.send(page, action),
+      listening: () => false,
+      shown: () => inbox.shown(page),
+    });
+    inbox.pageReady("first window");
+    keys.press("toggle");
+    inbox.setShown("first window", true);
+    // Every key off: the window is destroyed, and the next one is made for the quick chat.
+    page = "second window";
+    open = false;
+    calls.length = 0;
+    keys.openChat();
+    inbox.pageReady("second window");
+    keys.openChat();
+    expect(calls).toEqual(["open", "close"]);
+  });
+
   it("drops a key when there is no panel", () => {
     const got: AssistantPageAction[] = [];
     const inbox = new PageInbox<string>((_page, action) => got.push(action));
