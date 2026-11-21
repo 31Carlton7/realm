@@ -1034,12 +1034,14 @@ describe("CodexAdapter", () => {
     // No timeout here and boot stays pending forever: dispose() -> App.close() never returns and the desktop
     // main process SIGTERMs the server out from under its agent children.
     const adapter = newAdapter({ bootTimeoutMs: 200 });
-    const handle = adapter.start(startOpts({ env: { FAKE_CODEX_MUTE_THREAD_START: "1" } }));
+    // A spawn slower than the thread budget, as on a loaded CI runner: initialize has its own budget.
+    const handle = adapter.start(startOpts({ env: { FAKE_CODEX_MUTE_THREAD_START: "1", FAKE_CODEX_INITIALIZE_DELAY_MS: "400" } }));
     const conn = adapter.connection!;
     const { evs, done } = drain(handle);
     // send() awaits boot too, so a bounded boot is what stops it hanging the WebSocket call as well.
     await expect(handle.send({ text: "hi", attachments: [] })).resolves.toBeUndefined();
     await done;
+    expect(of(evs, "error")).toHaveLength(1);
     expect(of(evs, "error")[0]!.payload.message).toMatch(/thread\/start within 200ms/);
     expect(statuses(evs)).toEqual(["error", "ended"]);
     expect(adapter.processCount).toBe(0);
@@ -1050,9 +1052,10 @@ describe("CodexAdapter", () => {
 
   it("bounds thread/resume the same way", async () => {
     const adapter = newAdapter({ bootTimeoutMs: 200 });
-    const handle = adapter.start(startOpts({ resume: "th_old", env: { FAKE_CODEX_MUTE_THREAD_START: "1" } }));
+    const handle = adapter.start(startOpts({ resume: "th_old", env: { FAKE_CODEX_MUTE_THREAD_START: "1", FAKE_CODEX_INITIALIZE_DELAY_MS: "400" } }));
     const { evs, done } = drain(handle);
     await done;
+    expect(of(evs, "error")).toHaveLength(1);
     expect(of(evs, "error")[0]!.payload.message).toMatch(/thread\/resume within 200ms/);
     expect(adapter.processCount).toBe(0);
   });
@@ -1487,7 +1490,7 @@ describe("a resume Codex refuses", () => {
 
   it("a resume that TIMES OUT is not a refusal — no second boot budget is spent on the same silence", async () => {
     const adapter = newAdapter({ bootTimeoutMs: 200 });
-    const handle = adapter.start(startOpts({ resume: "th_old", env: { FAKE_CODEX_MUTE_THREAD_START: "1" } }));
+    const handle = adapter.start(startOpts({ resume: "th_old", env: { FAKE_CODEX_MUTE_THREAD_START: "1", FAKE_CODEX_INITIALIZE_DELAY_MS: "400" } }));
     const { evs, done } = drain(handle);
     await done;
     // MUTANT: fall back on any rejection and this becomes "thread/start", after waiting 400ms rather
