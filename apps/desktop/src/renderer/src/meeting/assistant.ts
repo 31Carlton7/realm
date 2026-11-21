@@ -1,5 +1,5 @@
 import {
-  MEETING_AUTO_ANSWERS_DEFAULT, MEETING_DEFAULT_TITLE, type AssistantPageAction, type HoldKey, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
+  HOLD_KEY_LABEL, MEETING_AUTO_ANSWERS_DEFAULT, MEETING_DEFAULT_TITLE, type AssistantPageAction, type HoldKey, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
   type MeetingTranscriptLine, type SaveMeetingNotesParams, type SaveMeetingNotesResult,
 } from "@realm/contracts";
 import { MeetingAnswers, type LiveAnswersApi } from "../voice/live-answers";
@@ -77,7 +77,7 @@ export type AssistantState = {
   notes: MeetingNotesState | null;
   systemAudio: SystemAudioState | null;
   problem: string | null;
-  /** A quiet line under the words: the answer key pressed before anything was heard. */
+  /** A quiet line under the words: the answer key pressed while not listening, or before anything was heard. */
   notice: string | null;
   /** The held key of the assistant's chords, for the first-run sheet. Null while they are off. */
   chordsHeld: HoldKey | null;
@@ -186,10 +186,15 @@ export class MeetingAssistant {
     else if (action === "type") this.set({ typeKeyPresses: this.state.typeKeyPresses + 1 });
   }
 
-  /** The answer key asks only about what this run has heard: with no line yet, it says so and
-   *  sends nothing. */
+  /** The answer key asks only about what this run has heard: not listening, or with no line yet, it
+   *  says which and sends nothing. */
   private answerKey(): void {
-    if (this.state.phase !== "listening" || this.state.lines.length === 0) {
+    const { phase, chordsHeld } = this.state;
+    if (phase === "idle" || phase === "stopping") {
+      this.set({ notice: chordsHeld ? `The assistant is not listening. ${HOLD_KEY_LABEL[chordsHeld]} L starts it.` : "The assistant is not listening." });
+      return;
+    }
+    if (phase !== "listening" || this.state.lines.length === 0) {
       this.set({ notice: "Nothing has been heard yet." });
       return;
     }
@@ -245,7 +250,7 @@ export class MeetingAssistant {
   ask(text: string): void {
     const question = text.trim();
     if (!question) return;
-    this.set({ asked: [...this.state.asked, { id: this.nextId++, text: question, at: this.deps.now() }] });
+    this.set({ asked: [...this.state.asked, { id: this.nextId++, text: question, at: this.deps.now() }], notice: null });
     this.answerNow(question);
   }
 

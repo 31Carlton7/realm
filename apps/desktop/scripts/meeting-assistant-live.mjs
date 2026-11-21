@@ -45,7 +45,7 @@
  *             types, J and K scroll, , and . move the panel, L starts and stops; R, L and G leave the
  *             keyboard where it was and T takes it
  *   chat      the quick chat chord and a double-tap of Command open on the chat, after an assistant key
- *   heard     G with nothing heard says so and asks nothing
+ *   heard     G after a reload says the assistant is not listening and names Fn L, and asks nothing
  *   reloaded  a key pressed after a reload reaches the reloaded page
  *
  * "Start the assistant when a call starts" (M3c), through a meetingwatch stand-in whose calls mode
@@ -718,8 +718,8 @@ try {
   await sleep(1000);
   const heardState = { notice: heard, answer: await page.eval(`!!document.querySelector(".meeting-answer")`),
     asked: await page.eval(`document.querySelectorAll(".meeting-asked").length`), focus: await focusCalls(app) };
-  row("heard", "G with nothing heard says so, and asks nothing", heardState,
-    heard === "Nothing has been heard yet." && !heardState.answer && heardState.asked === 0 && heardState.focus === 0);
+  row("heard", "G after a reload says the assistant is not listening and Fn L starts it, and asks nothing", heardState,
+    heard === "The assistant is not listening. Fn L starts it." && !heardState.answer && heardState.asked === 0 && heardState.focus === 0);
   row("reloaded", "a key pressed after a reload reaches the reloaded page", { notice: heard }, heard !== null);
 
   await closePanel(app, page);

@@ -316,13 +316,13 @@ describe("the assistant's keys and its auto-answers switch, in the panel", () =>
     expect(r.dialog.querySelector(".quick-chat-title")!.textContent).toBe("Meeting assistant");
   });
 
-  it("G with nothing heard says so on the assistant, and asks nothing", async () => {
+  it("G before a Start says on the assistant that it is not listening, and asks nothing", async () => {
     stubBridge();
-    const r = await mount({ consented: true });
+    const r = await mount({ consented: true, chordsHeld: "fn" });
     press("answer");
     await act(async () => {});
     expect(r.dialog.querySelector(".quick-chat-title")!.textContent).toBe("Meeting assistant");
-    expect(r.dialog.querySelector(".meeting-notice")?.textContent).toBe("Nothing has been heard yet.");
+    expect(r.dialog.querySelector(".meeting-notice")?.textContent).toBe("The assistant is not listening. Fn L starts it.");
     expect(r.asked).toEqual([]);
   });
 

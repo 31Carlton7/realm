@@ -557,14 +557,21 @@ describe("the assistant's keys", () => {
     expect(r.marks).toEqual([]);
   });
 
-  it("G with nothing heard shows the assistant, says so, and asks nothing", async () => {
-    const r = rig();
+  it("G before a Start shows the assistant, says it is not listening and which key starts it, and asks nothing", async () => {
+    const r = rig({ chords: { read: async () => "rightOption" } });
     await r.assistant.load();
     r.assistant.key("answer");
     await settle();
     expect(r.asked).toEqual([]);
     expect(r.state().asked).toEqual([]);
-    expect(r.state()).toMatchObject({ shown: true, notice: "Nothing has been heard yet.", phase: "idle" });
+    expect(r.state()).toMatchObject({ shown: true, notice: "The assistant is not listening. Right Option L starts it.", phase: "idle" });
+  });
+
+  it("G before a Start with the held key unread names no key", async () => {
+    const r = rig();
+    await r.assistant.load();
+    r.assistant.key("answer");
+    expect(r.state().notice).toBe("The assistant is not listening.");
   });
 
   it("G while listening before the first line asks nothing, and the first line takes the notice away", async () => {
@@ -578,15 +585,16 @@ describe("the assistant's keys", () => {
     expect(r.state().notice).toBeNull();
   });
 
-  it("G after a Stop asks nothing, though the last meeting's words are still on screen", async () => {
-    const r = rig();
+  it("G after a Stop asks nothing, and says it is not listening rather than that nothing was heard", async () => {
+    const r = rig({ chords: { read: async () => "fn" } });
     await r.assistant.start();
     r.events().line(r.line("them", "That is all for today.", 2_000));
     await r.assistant.stop();
     r.assistant.key("answer");
     await settle();
     expect(r.asked).toEqual([]);
-    expect(r.state().notice).toBe("Nothing has been heard yet.");
+    expect(r.state().lines).toHaveLength(1);
+    expect(r.state().notice).toBe("The assistant is not listening. Fn L starts it.");
   });
 
   it("a question typed with nothing heard is still asked", async () => {
@@ -595,6 +603,15 @@ describe("the assistant's keys", () => {
     r.assistant.ask("What is the agenda?");
     await settle();
     expect(r.asked.map((a) => a.question)).toEqual(["What is the agenda?"]);
+    expect(r.state().notice).toBeNull();
+  });
+
+  it("a question typed after G takes the notice away", async () => {
+    const r = rig();
+    await r.assistant.load();
+    r.assistant.key("answer");
+    expect(r.state().notice).not.toBeNull();
+    r.assistant.ask("What is the agenda?");
     expect(r.state().notice).toBeNull();
   });
 
