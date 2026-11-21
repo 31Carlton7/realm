@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
-import { chordsForCommand, displayKeyChord, type DocumentKind, type LibraryEntry, type MeetingNotesFile } from "@realm/contracts";
+import { chordsForCommand, displayKeyChord, type DocumentKind, type LibraryEntry, type MeetingNotesList } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
 import { FileMark } from "../../components/file-icon";
@@ -33,7 +33,7 @@ const CARD_GAP = 12;
 const SESSION_LIMIT = 100;
 const LIBRARY_LIMIT = 60;
 
-type Lists = { forQuery: string; session: LibraryEntry[] | null; meetings: MeetingNotesFile[]; library: LibraryEntry[]; checkout: string[] | null };
+type Lists = { forQuery: string; session: LibraryEntry[] | null; meetings: MeetingNotesList | null; library: LibraryEntry[]; checkout: string[] | null };
 
 /**
  * The documents pane before a file is open, and whenever its Files tab is: what this session has
@@ -115,7 +115,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
     const t = setTimeout(() => {
       void Promise.all([
         sessionId ? libraryArtifacts({ sessionId, perFile: true, query: q, limit: SESSION_LIMIT }) : null,
-        listMeetingNotes(spaceId).catch(() => []),
+        listMeetingNotes(spaceId).catch(() => null),
         libraryArtifacts({ profileId, perFile: true, query: q, limit: LIBRARY_LIMIT }),
         q && root ? searchProjectFiles(q, root).catch(() => null) : null,
       ]).then(([session, meetings, library, checkout]) => {
@@ -140,7 +140,8 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
     if (!lists) return null;
     const session = lists.session ? homeFilesOf(lists.session, root, (e, place) => sessionDetail(e, place, e.path)) : null;
     const shown = new Set((session ?? []).map(identityOf));
-    const named = root ? lists.meetings.map((note) => meetingFileOf(note, root)).filter((f) => !lists.forQuery || matchRun(f.name, lists.forQuery)) : [];
+    const { root: folder, notes } = lists.meetings ?? { root: "", notes: [] };
+    const named = notes.map((note) => meetingFileOf(note, folder, root)).filter((f) => !lists.forQuery || matchRun(f.name, lists.forQuery));
     const meetings = withoutShown(named, shown);
     for (const f of meetings) shown.add(identityOf(f));
     const library = withoutShown(homeFilesOf(lists.library, root, libraryDetail), shown);

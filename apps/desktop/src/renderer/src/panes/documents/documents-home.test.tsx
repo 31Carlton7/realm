@@ -37,15 +37,15 @@ const art = (id: string, sessionId: string, path: string, ts: number, extra: Par
 
 /** The pane as a tab of the lead session's side pane — the way its bar's Documents button opens it —
  *  or, with `owned: false`, as a pane of its own. */
-async function mount(o: { meetingNotes?: MeetingNotesFile[]; artifacts?: LibraryEntry[]; addedProfiles?: Record<string, string>; files?: Record<string, string>; checkout?: string[]; owned?: boolean; settings?: Record<string, unknown> } = {}) {
+async function mount(o: { paneRoot?: string; meetingNotes?: MeetingNotesFile[]; artifacts?: LibraryEntry[]; addedProfiles?: Record<string, string>; files?: Record<string, string>; checkout?: string[]; owned?: boolean; settings?: Record<string, unknown> } = {}) {
   const api = fakeApi({
     items: { s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Pricing page" }), docsItem] },
-    sessions: [session("lead", "s1", { environmentId: ENV.id, cwd: ROOT, title: "Pricing page" })],
-    environments: { s1: [ENV] },
+    sessions: [session("lead", "s1", { environmentId: ENV.id, cwd: o.paneRoot ?? ROOT, title: "Pricing page" })],
+    environments: { s1: [{ ...ENV, path: o.paneRoot ?? ROOT }] },
     documentWorkspaces: { docs1: { id: "docs1", spaceId: "s1", environmentId: ENV.id, openPaths: [], activePath: null, createdAt: 0, updatedAt: 0 } },
     documentFiles: { docs1: { ...o.files } },
     artifacts: o.artifacts ?? [],
-    meetingNotes: { s1: o.meetingNotes ?? [] },
+    meetingNotes: { s1: { root: ROOT, notes: o.meetingNotes ?? [] } },
     addedProfiles: o.addedProfiles ?? {},
     projectFiles: { hits: (o.checkout ?? []).map((path) => ({ path, score: 1, segments: [{ text: path, match: false }] })), source: "git", truncated: false },
     ...(o.settings ? { settings: o.settings } : {}),
@@ -100,6 +100,20 @@ describe("the documents home", () => {
     expect(screen.queryByRole("region", { name: "Meetings" })).toBeNull();
   });
 
+  it("opens a meeting from a pane rooted at a worktree by where the file is, in the space's folder", async () => {
+    const worktree = "/Users/ada/work/worktrees/pricing";
+    const file = `${ROOT}/meetings/2026-11-20 1405 Launch sync.md`;
+    const { api } = await mount({
+      paneRoot: worktree,
+      meetingNotes: [{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }],
+      files: { [file]: "# Launch sync\n" },
+    });
+    expect(await namesIn("Meetings")).toEqual(["2026-11-20 1405 Launch sync.md"]);
+    fireEvent.click(rowFor("2026-11-20 1405 Launch sync.md"));
+    await waitFor(() => expect(api.calls).toContain(`readDocument:docs1:${file}`));
+    expect(api.calls).not.toContain("readDocument:docs1:meetings/2026-11-20 1405 Launch sync.md");
+  });
+
   it("narrows the meetings to the ones a search names", async () => {
     await mount({ meetingNotes: [{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }, { path: "meetings/2026-11-19 0900 Standup.md", modifiedAt: 1_000 }] });
     await namesIn("Meetings");
@@ -111,7 +125,7 @@ describe("the documents home", () => {
     const { api } = await mount({ artifacts: [art("a1", "other", `${ROOT}/old.md`, 50)] });
     await namesIn("Library");
     const listed = vi.spyOn(api, "listMeetingNotes");
-    listed.mockResolvedValue([{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }]);
+    listed.mockResolvedValue({ root: ROOT, notes: [{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }] });
     act(() => broadcast("meetings.notesProgress", { meetingId: "m1", spaceId: "elsewhere", path: "meetings/x.md", stage: "saved" }));
     await new Promise((r) => setTimeout(r, 400));
     expect(screen.queryByRole("region", { name: "Meetings" })).toBeNull();

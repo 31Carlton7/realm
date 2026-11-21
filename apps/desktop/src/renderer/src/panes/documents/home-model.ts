@@ -105,9 +105,13 @@ export function checkoutFileOf(rel: string, root: string): HomeFile {
 }
 
 /** One meeting's notes, from the space's `meetings/` folder. Its section's head already says where
- *  it is, so the row says when it was written instead. */
-export function meetingFileOf(note: { path: string; modifiedAt: number }, root: string): HomeFile {
-  return { ...checkoutFileOf(note.path, root), key: `meeting:${note.path}`, detail: "", ts: note.modifiedAt };
+ *  it is, so the row says when it was written instead. `folder` is the space's own folder, which is
+ *  the pane's root only for a pane on the space's primary checkout: from a session's worktree the
+ *  file is outside the root, and is placed like any Library row that is. */
+export function meetingFileOf(note: { path: string; modifiedAt: number }, folder: string, root: string | null): HomeFile {
+  const path = `${trimSlashes(folder)}/${note.path}`;
+  const name = basenameOf(note.path);
+  return { key: `meeting:${note.path}`, path, name, ...placeFile(path, root), type: artifactTypeOf(extOf(name)), detail: "", ts: note.modifiedAt, from: null };
 }
 
 /**

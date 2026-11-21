@@ -50,7 +50,7 @@ import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema, PendingMoveSchema 
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
-import { MeetingNotesFileSchema, MeetingNotesProgressSchema, SaveMeetingNotesParamsSchema, SaveMeetingNotesResultSchema } from "./meeting-notes";
+import { MeetingNotesListSchema, MeetingNotesProgressSchema, SaveMeetingNotesParamsSchema, SaveMeetingNotesResultSchema } from "./meeting-notes";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
 import { TerminalProgramSchema, TerminalStatusSchema } from "./terminal-programs";
@@ -1038,13 +1038,16 @@ export const Methods = {
    *  file goes to disk with the person's notes and the transcript before the model is asked for
    *  anything, so no failure of the summary costs the transcript. Answers once the file is final;
    *  `meetings.notesProgress` says where it has got to meanwhile. The transcript, the notes and the
-   *  custom info go to the Quick chat model for the summary, and nowhere else. */
+   *  custom info go to the Quick chat model for the summary. Realm keeps them nowhere but the file;
+   *  Claude and Codex are asked to keep no session file of the turn, and any other agent keeps what
+   *  its own app always keeps. */
   "meetings.saveNotes": { params: SaveMeetingNotesParamsSchema, result: SaveMeetingNotesResultSchema },
   /** Stop the summary `meetings.saveNotes` is waiting on. The file keeps its notes and transcript and
    *  says the summary was cancelled. `cancelled` is false when no summary was being written. */
   "meetings.cancelSummary": { params: z.object({ meetingId: z.string() }), result: z.object({ cancelled: z.boolean() }) },
-  /** The Markdown files in a space's `meetings/` folder, the newest meeting first. */
-  "meetings.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ notes: z.array(MeetingNotesFileSchema) }) },
+  /** The Markdown files in a space's `meetings/` folder, the newest meeting first, and the folder
+   *  their paths are relative to. */
+  "meetings.list": { params: z.object({ spaceId: IdSchema }), result: MeetingNotesListSchema },
   /** Plynn's meetings folder, newest first. `available` is false when the folder does not exist —
    *  Plynn not installed, or no meeting recorded yet — which the sheet says instead of showing an
    *  empty list that looks like a bug. A pure read. */

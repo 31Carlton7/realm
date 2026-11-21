@@ -1022,7 +1022,7 @@ export function registerMethods(d: Deps): void {
   reg("lectures.list", async (p) => ({ lectures: await d.lectures.list(p.spaceId) }));
   reg("meetings.saveNotes", (p) => d.meetingNotes.save(p));
   reg("meetings.cancelSummary", (p) => ({ cancelled: d.meetingNotes.cancelSummary(p.meetingId) }));
-  reg("meetings.list", async (p) => ({ notes: await d.meetingNotes.list(p.spaceId) }));
+  reg("meetings.list", (p) => d.meetingNotes.list(p.spaceId));
   reg("plynn.list", () => d.plynn.list());
   reg("plynn.import", (p) => d.plynn.import(p));
 

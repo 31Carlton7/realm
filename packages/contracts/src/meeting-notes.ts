@@ -67,3 +67,9 @@ export type MeetingNotesProgress = z.infer<typeof MeetingNotesProgressSchema>;
  *  relative to the space's primary checkout; `modifiedAt` is epoch milliseconds. */
 export const MeetingNotesFileSchema = z.object({ path: z.string(), modifiedAt: z.number() });
 export type MeetingNotesFile = z.infer<typeof MeetingNotesFileSchema>;
+
+/** A space's meetings, the newest first. `root` is the absolute path of the space's primary checkout,
+ *  the folder each `path` is relative to: a Documents pane rooted somewhere else (a session in a
+ *  worktree) needs it to find the file. */
+export const MeetingNotesListSchema = z.object({ root: z.string(), notes: z.array(MeetingNotesFileSchema) });
+export type MeetingNotesList = z.infer<typeof MeetingNotesListSchema>;

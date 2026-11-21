@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { MEETINGS_DIR, type MeetingNotesFile, type MeetingNotesProgress, type MeetingSummaryOutcome, type SaveMeetingNotesParams, type SaveMeetingNotesResult } from "@realm/contracts";
+import { MEETINGS_DIR, type MeetingNotesFile, type MeetingNotesList, type MeetingNotesProgress, type MeetingSummaryOutcome, type SaveMeetingNotesParams, type SaveMeetingNotesResult } from "@realm/contracts";
 import type { DocumentService } from "../documents/service";
 import { writeAtomic } from "../documents/files";
 import { resolveInRoot } from "../documents/paths";
@@ -50,8 +50,9 @@ export class MeetingNotesService {
 
   /** Every `.md` under `meetings/`. A name starts with its meeting's date and time, so names in
    *  reverse are the newest meeting first. */
-  async list(spaceId: string): Promise<MeetingNotesFile[]> {
-    const dir = join(this.d.documents.rootForSpace(spaceId), MEETINGS_DIR);
+  async list(spaceId: string): Promise<MeetingNotesList> {
+    const root = this.d.documents.rootForSpace(spaceId);
+    const dir = join(root, MEETINGS_DIR);
     const names = await readdir(dir).catch(() => [] as string[]);
     const notes: MeetingNotesFile[] = [];
     for (const name of names.sort().reverse()) {
@@ -59,7 +60,7 @@ export class MeetingNotesService {
       const file = await stat(join(dir, name)).catch(() => null);
       if (file?.isFile()) notes.push({ path: `${MEETINGS_DIR}/${name}`, modifiedAt: file.mtimeMs });
     }
-    return notes;
+    return { root, notes };
   }
 
   /** Stop the summary a `save` is waiting on. False when that meeting has none in flight. */

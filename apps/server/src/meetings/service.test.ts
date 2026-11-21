@@ -252,12 +252,13 @@ Nothing was transcribed.
 describe("meetings.list", () => {
   it("lists the meetings' Markdown files, the newest meeting first, and nothing for a space with none", async () => {
     const { c, save, space, root } = await boot(answers([{ kind: "text", text: ANSWER }]));
-    expect((await c.call("meetings.list", { spaceId: space.id })).result).toEqual({ notes: [] });
+    expect((await c.call("meetings.list", { spaceId: space.id })).result).toEqual({ root, notes: [] });
     const earlier = await save({ meetingId: "a", title: "Standup", startedAt: STARTED - 86_400_000, endedAt: STARTED - 86_000_000 });
     const later = await save({ meetingId: "b" });
     writeFileSync(join(root, "meetings", ".hidden.md"), "x");
     writeFileSync(join(root, "meetings", "recording.txt"), "x");
-    const { notes } = (await c.call("meetings.list", { spaceId: space.id })).result;
+    const { root: listedRoot, notes } = (await c.call("meetings.list", { spaceId: space.id })).result;
+    expect(listedRoot).toBe(root);
     expect(notes.map((n: Any) => n.path)).toEqual([later.path, earlier.path]);
     expect(notes.every((n: Any) => n.modifiedAt > STARTED)).toBe(true);
   });
