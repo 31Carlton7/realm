@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type LiveAnswerModel, type LiveAnswerRequest } from "@realm/adapters";
-import type { LiveAnswerEvent, MeetingLine } from "@realm/contracts";
+import type { LiveAnswerEvent, MeetingTranscriptLine } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 
@@ -54,7 +54,7 @@ async function boot(model = new Model()) {
   return { model, c: await client(app.port) };
 }
 
-const line = (source: "me" | "them", text: string, start: number, end = start + 2_000): MeetingLine => ({ source, text, start, end, at: 1_795_207_765_432 + start });
+const line = (source: "me" | "them", text: string, start: number, end = start + 2_000): MeetingTranscriptLine => ({ source, text, start, end, at: 1_795_207_765_432 + start });
 const question = [line("me", "Thanks for having me.", 0), line("them", "How many seats do you need?", 3_000)];
 const settled = (answers: LiveAnswerEvent[], id: string) => answers.some((e) => e.answerId === id && (e.t === "done" || e.t === "error" || e.t === "cancelled"));
 

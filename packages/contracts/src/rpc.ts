@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PairRequestSchema, PairingWindowSchema, RemoteStatusSchema } from "./remote";
-import { LIVE_ANSWER_TRIGGERS, LiveAnswerEventSchema, MeetingLineSchema } from "./meetings";
+import { LIVE_ANSWER_TRIGGERS, LiveAnswerEventSchema } from "./meetings";
 import type { CliJobStart, CliStatus } from "./cli";
 import { DICTATION_MAX } from "./voice";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema, QueueTurnSchema } from "./entities";
@@ -51,7 +51,7 @@ import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema, PendingMoveSchema 
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
-import { MeetingNotesListSchema, MeetingNotesProgressSchema, SaveMeetingNotesParamsSchema, SaveMeetingNotesResultSchema } from "./meeting-notes";
+import { MeetingNotesListSchema, MeetingNotesProgressSchema, MeetingTranscriptLineSchema, SaveMeetingNotesParamsSchema, SaveMeetingNotesResultSchema } from "./meeting-notes";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
 import { TerminalProgramSchema, TerminalStatusSchema } from "./terminal-programs";
@@ -1168,7 +1168,7 @@ export const Methods = {
    *  `.strict()`, and only Realm's own app may ask. It answers at once with the answer's id; the text
    *  streams to the asking window as `meetings.answer` events. `customInfo` has no bound: a long brief
    *  is warned about beside the prompter, not refused. */
-  "meetings.answer": { params: z.object({ lines: z.array(MeetingLineSchema).max(5_000), customInfo: z.string(), trigger: z.enum(LIVE_ANSWER_TRIGGERS) }).strict(),
+  "meetings.answer": { params: z.object({ lines: z.array(MeetingTranscriptLineSchema).max(5_000), customInfo: z.string(), trigger: z.enum(LIVE_ANSWER_TRIGGERS) }).strict(),
     result: z.object({ answerId: z.string() }) },
   /** Stop the answer in flight, if any: its window gets `cancelled`. */
   "meetings.cancelAnswer": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },

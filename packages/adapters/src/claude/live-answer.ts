@@ -1,5 +1,5 @@
 import { query as sdkQuery, startup as sdkStartup, type Options, type WarmQuery } from "@anthropic-ai/claude-agent-sdk";
-import { fenceUntrusted, type LiveAnswerTrigger, type MeetingLine } from "@realm/contracts";
+import { fenceUntrusted, type LiveAnswerTrigger, type MeetingTranscriptLine } from "@realm/contracts";
 
 /** How long a started engine waits for the next live answer before it is stopped, as the quick
  *  chat's spare waits (`QUICK_CHAT_WARM_MS`). */
@@ -17,7 +17,7 @@ const who = { me: "Me", them: "Them" } as const;
  * The one message a live answer sends: the person's custom info and the transcript, each fenced as
  * untrusted data, then what to answer. The lines are the window the server already cut.
  */
-export function liveAnswerPrompt(input: { lines: readonly MeetingLine[]; customInfo: string; trigger: LiveAnswerTrigger }): string {
+export function liveAnswerPrompt(input: { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }): string {
   const transcript = input.lines.map((l) => `${who[l.source]}: ${l.text.trim()}`).join("\n");
   const info = input.customInfo.trim();
   return [

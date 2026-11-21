@@ -1,4 +1,4 @@
-import type { MeetingLine } from "@realm/contracts";
+import type { MeetingTranscriptLine } from "@realm/contracts";
 
 /** How much of the call a live answer reads: the last three minutes, counted back from the newest
  *  line's end. Long enough to hold the question and what led to it, short enough that an hour-long
@@ -6,7 +6,7 @@ import type { MeetingLine } from "@realm/contracts";
 export const LIVE_ANSWER_WINDOW_MS = 3 * 60_000;
 
 /** The lines a live answer is given, in the order they were said. */
-export function answerWindow(lines: readonly MeetingLine[], windowMs = LIVE_ANSWER_WINDOW_MS): MeetingLine[] {
+export function answerWindow(lines: readonly MeetingTranscriptLine[], windowMs = LIVE_ANSWER_WINDOW_MS): MeetingTranscriptLine[] {
   if (lines.length === 0) return [];
   const newest = Math.max(...lines.map((l) => l.end));
   return lines.filter((l) => l.end >= newest - windowMs).sort((a, b) => a.start - b.start);
@@ -46,7 +46,7 @@ function isAsk(sentence: string): boolean {
  *   ("What does that mean? It means we ship Friday.") was rhetorical.
  * - A tag on a statement ("That's the plan, right?") is not a question to answer.
  */
-export function questionForMe(lines: readonly MeetingLine[]): AskedQuestion | null {
+export function questionForMe(lines: readonly MeetingTranscriptLine[]): AskedQuestion | null {
   const said = [...lines].sort((a, b) => a.start - b.start);
   let first = said.length;
   while (first > 0 && said[first - 1]!.source === "them") first--;

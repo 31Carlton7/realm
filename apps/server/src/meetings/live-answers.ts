@@ -1,4 +1,4 @@
-import { newId, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingLine } from "@realm/contracts";
+import { newId, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingTranscriptLine } from "@realm/contracts";
 import { liveAnswerPrompt, type LiveAnswerModel } from "@realm/adapters";
 import { LIVE_ANSWER_WINDOW_MS, answerWindow, type QuickChatModel } from "@realm/view";
 
@@ -20,7 +20,7 @@ export class LiveAnswers {
 
   constructor(private readonly d: { model(): QuickChatModel; engine: LiveAnswerModel | null; windowMs?: number }) {}
 
-  ask(input: { lines: readonly MeetingLine[]; customInfo: string; trigger: LiveAnswerTrigger }, send: (e: LiveAnswerEvent) => void): { answerId: string } {
+  ask(input: { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }, send: (e: LiveAnswerEvent) => void): { answerId: string } {
     this.cancel();
     const asked: Asked = { id: newId(), abort: new AbortController(), send };
     this.asked = asked;
@@ -54,7 +54,7 @@ export class LiveAnswers {
     this.d.engine?.close();
   }
 
-  private async run(asked: Asked, input: { lines: readonly MeetingLine[]; customInfo: string; trigger: LiveAnswerTrigger }): Promise<void> {
+  private async run(asked: Asked, input: { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger }): Promise<void> {
     if (this.asked !== asked) return;
     const id = asked.id;
     const m = this.d.model();

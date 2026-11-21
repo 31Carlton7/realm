@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { MeetingLine } from "@realm/contracts";
+import type { MeetingTranscriptLine } from "@realm/contracts";
 import { LIVE_ANSWER_WINDOW_MS, answerWindow, questionForMe } from "./live-answers";
 
 // Shaped as RealmVoice's continuous mode hands lines over (M1's live run, Nov 20): one finished line
 // per recogniser result, punctuated, `start`/`end` in ms since the transcript started.
 const T0 = 1_795_207_765_432;
-const line = (source: "me" | "them", text: string, start: number, end = start + 2_000): MeetingLine => ({ source, text, start, end, at: T0 + start });
+const line = (source: "me" | "them", text: string, start: number, end = start + 2_000): MeetingTranscriptLine => ({ source, text, start, end, at: T0 + start });
 
 describe("questionForMe", () => {
   it("finds the question the other side just asked", () => {

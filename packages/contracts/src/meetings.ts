@@ -16,18 +16,6 @@ export function isCalendarAccess(v: unknown): v is CalendarAccess {
   return (CALENDAR_ACCESS as readonly unknown[]).includes(v);
 }
 
-/** One finished line of a meeting's transcript, as RealmVoice's continuous mode hands it over: "me" is
- *  this Mac's microphone, "them" the other side of the call. `start` and `end` are milliseconds since
- *  the transcript started, `at` the wall-clock time of `start`. */
-export const MeetingLineSchema = z.object({
-  source: z.enum(["me", "them"]),
-  text: z.string().max(4_000),
-  start: z.number(),
-  end: z.number(),
-  at: z.number(),
-}).strict();
-export type MeetingLine = z.infer<typeof MeetingLineSchema>;
-
 /** What started a live answer: the answer key (Fn G), or a question the other side asked. */
 export const LIVE_ANSWER_TRIGGERS = ["key", "question"] as const;
 export type LiveAnswerTrigger = (typeof LIVE_ANSWER_TRIGGERS)[number];
