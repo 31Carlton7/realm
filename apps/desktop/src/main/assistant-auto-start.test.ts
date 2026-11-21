@@ -158,6 +158,29 @@ describe("A Stop holds until the person has hung up", () => {
     expect(r.starts()).toBe(3);
   });
 
+  it("a call that starts while it holds stays held after the meeting's end", async () => {
+    const r = rig();
+    r.auto.set(true);
+    await r.auto.meetingStarted(meeting("standup", 0, 30 * MIN));
+    r.stop();
+    r.at(5 * MIN);
+    await r.auto.appCallStarted(zoom);
+    r.at(40 * MIN);
+    r.auto.appCallEnded(zoom);
+    r.at(41 * MIN);
+    await r.auto.appCallStarted(zoom);
+    expect(r.starts()).toBe(1);
+  });
+
+  it("a page saying it does not listen, with no run before, holds nothing", async () => {
+    const r = rig();
+    await r.auto.appCallStarted(zoom);
+    r.auto.listeningChanged(false);
+    r.auto.set(true);
+    await r.auto.meetingStarted(meeting("standup", 0, 30 * MIN));
+    expect(r.starts()).toBe(1);
+  });
+
   it("a run that ends with no call or meeting going holds nothing", async () => {
     const r = rig();
     r.auto.set(true);
