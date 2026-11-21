@@ -78,6 +78,13 @@ export type StartOptions = {
    *  whose enabled skill set is empty. */
   skills?: SkillsInjection;
   resume?: string | null;
+  /**
+   * A turn that reads what it is sent and answers, and can do nothing else: a meeting's summary,
+   * whose message is other people's speech. Claude starts with no built-in tools and none of the
+   * person's own settings, hooks, CLAUDE.md or MCP servers. No other engine has such a switch, so
+   * each keeps the tools its own default mode gives it.
+   */
+  answerOnly?: boolean;
   /** `false` asks the agent to keep no session file of its own for this conversation, where it has a
    *  switch for that. Claude does (`persistSession`); every other engine keeps what it always keeps.
    *  A meeting's summary turn sets it, so the transcript it reads is not left under `~/.claude`. */

@@ -1326,6 +1326,31 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
+  it("starts an answer-only turn with no built-in tools, none of the person's settings and no MCP server of theirs", async () => {
+    const answerOnly = capture({ answerOnly: true });
+    await answerOnly.handle.send({ text: "hi", attachments: [] });
+    const o = await answerOnly.options();
+    expect(o.tools).toEqual([]);
+    expect(o.settingSources).toEqual([]);
+    expect(o.strictMcpConfig).toBe(true);
+    await answerOnly.handle.dispose();
+    const plain = capture({ answerOnly: false });
+    await plain.handle.send({ text: "hi", attachments: [] });
+    const p = await plain.options();
+    for (const key of ["tools", "settingSources", "strictMcpConfig"]) expect(key in p).toBe(false);
+    await plain.handle.dispose();
+  });
+
+  it("carries the settings file's auth into an answer-only turn, which reads no settings either", async () => {
+    settingsFile({ env: { REALM_PROBE_FROM_SETTINGS: "yes" }, apiKeyHelper: "printf sk-carried-2" });
+    const { handle, options } = capture({ answerOnly: true });
+    await handle.send({ text: "hi", attachments: [] });
+    const env = (await options()).env as Record<string, string>;
+    expect(env.ANTHROPIC_API_KEY).toBe("sk-carried-2");
+    expect(env.REALM_PROBE_FROM_SETTINGS).toBe("yes");
+    await handle.dispose();
+  });
+
   it("leaves a non-skills session's env what it always was, settings file or not", async () => {
     // The CLI reads the file itself here, so carrying it too would apply every entry twice — and run
     // a token-minting helper on sessions that never lost their login.

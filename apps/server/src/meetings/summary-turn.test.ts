@@ -27,10 +27,10 @@ describe("the summary turn", () => {
     expect(await said).toBe("## Summary\nShort.\n\n## Decisions\nNone");
   });
 
-  it("starts the agent with none of Realm's tools, in the folder it was given, keeping no session file", async () => {
+  it("starts the agent answer-only, with none of Realm's tools, in the folder it was given, keeping no session file", async () => {
     const { adapter, said } = turn([{ on: "summarise", emit: [{ kind: "text", text: "ok" }] }]);
     await said;
-    expect(adapter.starts).toEqual([{ cwd: "/tmp/summary", model: "quick", permissionMode: "default", mcpServers: [], persistSession: false }]);
+    expect(adapter.starts).toEqual([{ cwd: "/tmp/summary", model: "quick", permissionMode: "default", mcpServers: [], answerOnly: true, persistSession: false }]);
   });
 
   it("rejects with the agent's error when the turn fails", async () => {

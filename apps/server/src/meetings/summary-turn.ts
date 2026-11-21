@@ -18,14 +18,15 @@ const SUMMARY_TIMEOUT_MS = 5 * 60_000;
  *
  * The agent is started here, on the adapter, and not as a Realm session: a session's messages are
  * rows in `realm.db`, and the prompt is a meeting's whole transcript. Nothing of this turn is stored
- * by Realm. It gets none of Realm's tools, a folder of its own to stand in, and a no to anything it
- * asks permission for, since what it reads is other people's speech.
+ * by Realm. What it reads is other people's speech, so it is started answer-only: on Claude that is
+ * no tool at all and none of the person's own settings. Every engine gets none of Realm's tools, a
+ * folder of its own to stand in, and a no to anything it asks permission for.
  */
 export async function summaryTurn(turn: {
   adapter: AgentAdapter; model: string | null; cwd: string; prompt: string; signal: AbortSignal; timeoutMs?: number;
 }): Promise<string> {
   if (turn.signal.aborted) throw new SummaryCancelled();
-  const handle = turn.adapter.start({ cwd: turn.cwd, model: turn.model, permissionMode: "default", mcpServers: [], persistSession: false });
+  const handle = turn.adapter.start({ cwd: turn.cwd, model: turn.model, permissionMode: "default", mcpServers: [], answerOnly: true, persistSession: false });
   let timedOut = false;
   const end = () => { void handle.dispose().catch(() => {}); };
   const timer = setTimeout(() => { timedOut = true; end(); }, turn.timeoutMs ?? SUMMARY_TIMEOUT_MS);
