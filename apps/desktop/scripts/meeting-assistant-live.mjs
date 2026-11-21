@@ -395,6 +395,13 @@ async function barLooks({ app, api }, page) {
   }
 }
 
+/** Puts the pointer in the window's corner: a titled row scrolled under where it was would show its tooltip
+ *  over the capture. */
+async function pointerAway(page) {
+  await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+  await sleep(200);
+}
+
 /** Reloads the Realm window, which comes back on its space or on the Settings it was showing. */
 async function reloadWindow(app) {
   await app.page.send("Page.reload");
@@ -436,13 +443,14 @@ async function settingsLooks({ app, api }, state, waiting) {
     const clip = await app.page.eval(`(() => { const first = document.querySelector('[data-setting="assistant-chords"]'); first.scrollIntoView({ block: "start" });
       const a = first.getBoundingClientRect(), z = document.querySelector('[data-setting="assistant-chord:."]').getBoundingClientRect();
       return { x: a.left, y: a.top, width: a.width, height: z.bottom - a.top }; })()`);
+    await pointerAway(app.page);
     const file = `m3b-settings-${state}-${mode}-${look}.png`;
     row("picture", `Settings ▸ Keys, ${state}, ${mode} ${look}`, file, await shot(app.page, path.join(OUT_DIR, file), { clip: { ...clip, scale: 2 } }));
     if (state !== "after-consent") continue;
     const group = await app.page.eval(`(() => { const field = document.querySelector('[data-setting="quick-chat-shortcut"]').closest(".field"); field.scrollIntoView({ block: "start" });
       const r = field.getBoundingClientRect();
       return { x: r.left, y: r.top, width: r.width, height: r.height, cut: r.top < 0 || r.bottom > window.innerHeight }; })()`);
-    await sleep(200);
+    await pointerAway(app.page);
     const groupFile = `m3b-keys-from-anywhere-${mode}-${look}.png`;
     const groupFlat = await shot(app.page, path.join(OUT_DIR, groupFile), { clip: { x: group.x, y: group.y, width: group.width, height: group.height, scale: 2 } });
     row("picture", `Settings ▸ Keys ▸ From anywhere, ${mode} ${look}`, { file: groupFile, cut: group.cut }, groupFlat && !group.cut);
