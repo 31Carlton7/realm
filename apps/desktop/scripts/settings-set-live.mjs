@@ -4,10 +4,13 @@
  *
  *   pnpm build && node apps/desktop/scripts/settings-set-live.mjs
  *
- * Boots the built app quietly on a scratch home with the scripted agent. The page is marked first, so
- * a reload would show. Each row passes on the window's root (`data-glass`, `data-mode`) changing to
- * the value set, and on the mark still being there. Rows go to results.json in LIVE_OUT_DIR and
- * LIVE_OUT, with light.png and dark.png beside them.
+ * Boots the built app quietly on a scratch home with the scripted agent, with Settings ▸ Appearance
+ * open. The page is marked first, so a reload would show. A theme row passes on the root's `data-mode`
+ * changing to the value set. A look row passes on the look Settings shows as chosen changing to it,
+ * and on the root's `data-glass` agreeing with that choice under what holds glass back (glass/look.ts):
+ * where something does, the row says which, and the window must stay plain and Settings must name it.
+ * Every row also needs the mark still there. Rows go to results.json in LIVE_OUT_DIR and LIVE_OUT,
+ * with light.png and dark.png beside them.
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -63,6 +66,8 @@ const applied = () => page.eval(`(() => {
   return {
     mode: root.dataset.mode ?? null,
     glass: root.hasAttribute("data-glass"),
+    chosen: document.querySelector('fieldset[aria-label="Controls"] input:checked')?.value ?? null,
+    heldText: document.querySelector('.settings-row[data-setting="look"] .settings-row-detail')?.textContent ?? null,
     sameDocument: window.__settingsSetMark === ${JSON.stringify(MARK)},
     // What would hold glass back (glass/look.ts), so a plain reading says whether the look was refused.
     glassHeldBy: [
@@ -90,6 +95,11 @@ try {
     input.closest("form").requestSubmit(); return true; })()`);
   await until(() => page.eval(`!!document.querySelector('.composer')`), 30_000, "composer");
   await page.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+  await page.send("Input.dispatchKeyEvent", { type: "keyDown", modifiers: 4, key: ",", code: "Comma", windowsVirtualKeyCode: 188 });
+  await page.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 4, key: ",", code: "Comma", windowsVirtualKeyCode: 188 });
+  await until(() => page.eval(`!!document.querySelector(".settings-page-pane")`), 10_000, "settings");
+  await page.eval(`(() => { const t = [...document.querySelectorAll(".settings-tab")].find((l) => l.textContent.trim() === "Appearance"); (t?.querySelector("input") ?? t)?.click(); return true; })()`);
+  await until(() => page.eval(`!!document.querySelector('fieldset[aria-label="Controls"] input:checked')`), 10_000, "the Controls row");
   await page.eval(`window.__settingsSetMark = ${JSON.stringify(MARK)}`);
   const api = rpc(app.ports.server, await daemonToken(app.home));
   await api.ready;
@@ -97,21 +107,26 @@ try {
   /* Each row passes only when the window moved: from what it showed just before the set to the value
      set, on the same document. A value the window already showed proves nothing, so a window that
      starts light is taken to dark first. */
-  const step = async (name, key, value, read, capture) => {
+  const step = async (name, key, value, read, capture, shownRight = () => true) => {
     const before = await applied();
     await api.call("settings.set", { key, value });
-    const after = await waitFor((s) => read(s) === value);
+    const after = await waitFor((s) => read(s) === value && shownRight(s));
     if (capture) { await sleep(400); await app.screenshot(path.join(OUT, capture)); }
-    row(name, read(before) !== value && read(after) === value && after.sameDocument, { before, after, ...(capture ? { capture } : {}) });
+    row(name, read(before) !== value && read(after) === value && shownRight(after) && after.sameDocument, { before, after, ...(capture ? { capture } : {}) });
   };
-  const look = (s) => (s.glass ? "glass" : "plain");
+  const chosen = (s) => s.chosen;
   const mode = (s) => s.mode;
+  /* A hosted runner has Reduce Transparency on, so glass there is held back by design: the row then
+     checks the window stayed plain and Settings says why, instead of asking for glass it cannot draw. */
+  const shownMatchesChoice = (s) => s.glassHeldBy.length && s.chosen === "glass"
+    ? !s.glass && s.heldText !== null
+    : s.glass === (s.chosen === "glass");
 
-  await step("ui.look glass over rpc: the root takes data-glass, no reload", "ui.look", "glass", look);
+  await step("ui.look glass over rpc: Settings shows glass chosen, the root wears it unless held back, no reload", "ui.look", "glass", chosen, null, shownMatchesChoice);
   if ((await applied()).mode === "light") await step("ui.theme dark over rpc, from the light it started in: data-mode turns dark, no reload", "ui.theme", "dark", mode);
   await step("ui.theme light over rpc: data-mode turns light, no reload", "ui.theme", "light", mode, "light.png");
   await step("ui.theme dark over rpc: data-mode turns dark, no reload", "ui.theme", "dark", mode, "dark.png");
-  await step("ui.look plain over rpc: data-glass goes, no reload", "ui.look", "plain", look);
+  await step("ui.look plain over rpc: Settings shows plain chosen, the root has no data-glass, no reload", "ui.look", "plain", chosen, null, shownMatchesChoice);
 
   for (const dir of outs.slice(1)) for (const f of ["light.png", "dark.png"]) fs.copyFileSync(path.join(OUT, f), path.join(dir, f));
   api.close();
