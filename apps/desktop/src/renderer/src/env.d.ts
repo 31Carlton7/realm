@@ -22,14 +22,14 @@ interface Window {
     landSpaceId?: string;
     /** "quick-chat" in the quick chat panel's page; undefined in a Realm window. */
     surface?: string;
-    /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). Optional like
-     *  every bridge: jsdom has none. */
     /** The quick chat panel's meeting assistant: the menu bar's red mark while it listens, and the
      *  mark's Stop. Answered for the panel's own page only. */
     meetingAssistant?: {
       setListening(on: boolean): void;
       onStop(cb: () => void): () => void;
     };
+    /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). Optional like
+     *  every bridge: jsdom has none. */
     quickChatPanel?: {
       hide(): void;
       opening(): Promise<boolean>;
