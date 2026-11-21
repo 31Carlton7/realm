@@ -16,7 +16,7 @@ vi.mock("../../rpc/client", () => ({
   }),
 }));
 
-import { QuickChatPanelSettings } from "./QuickChatPanelSettings";
+import { QuickChatHideRow, QuickChatShortcutRow } from "./QuickChatPanelSettings";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
 
@@ -29,7 +29,7 @@ function mount(state: QuickChatShortcutState, taken: string[] = [], home: Record
   const setHideFromSharing = vi.fn();
   (window as any).realm = { platform: "darwin", quickChatPanel: { shortcut: async () => state, setShortcut, setHideFromSharing } };
   const store = createAppStore(fakeApi());
-  render(<StoreContext.Provider value={store}><QuickChatPanelSettings /></StoreContext.Provider>);
+  render(<StoreContext.Provider value={store}><ul><QuickChatShortcutRow /><QuickChatHideRow /></ul></StoreContext.Provider>);
   return { setShortcut, setHideFromSharing };
 }
 
