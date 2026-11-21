@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { findLeafOfItem, sessionEvent, type Environment, type LibraryEntry, type MeetingNotesFile } from "@realm/contracts";
@@ -69,6 +69,9 @@ const namesIn = async (section: string) => {
 };
 const rowFor = (name: string) => screen.getAllByRole("button").find((b) => b.querySelector(".docs-home-name")?.textContent === name)!;
 
+/* The code editor is split out of the pane's chunk, and its first import is a transform of CodeMirror.
+   Taken once here, so the first test to open a code file times the pane and not the import (#622). */
+beforeAll(() => import("./CodeEditor"), 60_000);
 beforeEach(() => { vi.useRealTimers(); });
 afterEach(() => cleanup());
 
