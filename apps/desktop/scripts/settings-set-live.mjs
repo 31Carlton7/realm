@@ -100,6 +100,8 @@ try {
   await until(() => page.eval(`!!document.querySelector(".settings-page-pane")`), 10_000, "settings");
   await page.eval(`(() => { const t = [...document.querySelectorAll(".settings-tab")].find((l) => l.textContent.trim() === "Appearance"); (t?.querySelector("input") ?? t)?.click(); return true; })()`);
   await until(() => page.eval(`!!document.querySelector('fieldset[aria-label="Controls"] input:checked')`), 10_000, "the Controls row");
+  // CI's macOS runners have Reduce Transparency on, which holds glass back whatever the setting says.
+  await page.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-transparency", value: "no-preference" }] });
   await page.eval(`window.__settingsSetMark = ${JSON.stringify(MARK)}`);
   const api = rpc(app.ports.server, await daemonToken(app.home));
   await api.ready;
