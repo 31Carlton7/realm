@@ -170,9 +170,10 @@ describe("liveAnswerPrompt", () => {
     expect(prompt).toMatch(/asked you for help now/);
   });
 
-  it("fences a typed question after the transcript, and asks for an answer to it", () => {
+  it("puts a typed question after the transcript, unfenced, and asks for an answer to it", () => {
     const prompt = liveAnswerPrompt({ lines: [{ source: "them", text: "How many seats do you need?", start: 0, end: 2_000, at: 1 }], customInfo: "I'm pitching the annual plan.", trigger: "key", question: " What did we quote them last year? " });
-    expect(prompt).toMatch(/THE QUESTION THE PERSON TYPED[^\n]*\n[^\n]*\n<<<untrusted-[0-9a-f]{16}\nWhat did we quote them last year\?\nuntrusted-[0-9a-f]{16}>>>\n\nThey typed you that question\. Answer it, using the transcript and what they told you\.$/);
+    expect(prompt).toMatch(/untrusted-[0-9a-f]{16}>>>\n\nTHE PERSON TYPED THIS TO YOU DURING THE CALL:\nWhat did we quote them last year\?\n\nAnswer what they typed, using the transcript and what they told you\.$/);
+    expect(prompt.slice(prompt.lastIndexOf(">>>"))).toContain("What did we quote them last year?");
     expect(prompt.indexOf("Them: How many seats")).toBeLessThan(prompt.indexOf("What did we quote them"));
     expect(prompt).not.toMatch(/asked you for help now/);
   });

@@ -93,7 +93,7 @@ describe("meetings.answer", () => {
     const { answerId } = (await c.call("meetings.answer", { lines: question, customInfo: "", trigger: "key", question: "What did we quote them last year?" })).result;
     await waitFor(() => settled(c.answers, answerId));
     expect(c.answers[0]).toMatchObject({ t: "start", trigger: "key" });
-    expect(model.asked[0]!.prompt).toMatch(/<<<untrusted-[0-9a-f]{16}\nWhat did we quote them last year\?\nuntrusted-[0-9a-f]{16}>>>/);
+    expect(model.asked[0]!.prompt).toMatch(/\nTHE PERSON TYPED THIS TO YOU DURING THE CALL:\nWhat did we quote them last year\?\n\nAnswer what they typed/);
     c.close();
   });
 
