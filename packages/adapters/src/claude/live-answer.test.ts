@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeLiveAnswers, liveAnswerPrompt } from "./live-answer";
 
-type Options = { model?: string; tools?: string[]; settingSources?: string[]; env?: Record<string, string | undefined>; effort?: string; persistSession?: boolean; includePartialMessages?: boolean; abortController?: AbortController };
+type Options = { model?: string; tools?: string[]; mcpServers?: Record<string, unknown>; strictMcpConfig?: boolean; settingSources?: string[]; env?: Record<string, string | undefined>; effort?: string; persistSession?: boolean; includePartialMessages?: boolean; abortController?: AbortController };
 
 const delta = (text: string) => ({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } } });
 
@@ -46,10 +46,12 @@ describe("ClaudeLiveAnswers", () => {
     live.close();
   });
 
-  it("sends the words to the model and nothing else: no tools, no settings, no thinking, not saved", async () => {
+  it("sends the words to the model and nothing else: no tools, no MCP servers, no settings, no thinking, not saved", async () => {
     const { started, startup } = engines();
     const live = new ClaudeLiveAnswers({ startup });
     await ask(live).done;
+    expect(started[0]!.options.mcpServers).toEqual({});
+    expect(started[0]!.options.strictMcpConfig).toBe(true);
     expect(started[0]!.options).toMatchObject({ model: "claude-haiku-5-5", tools: [], settingSources: [], effort: "low", persistSession: false, includePartialMessages: true });
     expect(started[0]!.options.env).toMatchObject({ CLAUDE_CODE_DISABLE_THINKING: "1", PATH: process.env.PATH });
     expect(started[0]!.prompts).toEqual(["the prompt"]);
@@ -100,6 +102,43 @@ describe("ClaudeLiveAnswers", () => {
     await expect(done).rejects.toThrow("cancelled");
     expect(started[0]!.options.abortController!.signal.aborted).toBe(true);
     expect(got.length).toBeLessThan(3);
+    live.close();
+  });
+
+  it("starts nothing once closed, not even as the answer closing cancelled unwinds", async () => {
+    const { started, startup } = engines(["one ", "two ", "three"]);
+    const live = new ClaudeLiveAnswers({ startup });
+    const stop = new AbortController();
+    const { done } = ask(live, { signal: stop.signal });
+    await new Promise((r) => setTimeout(r, 8));
+    // As `LiveAnswers.close()` does: cancel the answer, then close.
+    stop.abort();
+    live.close();
+    await expect(done).rejects.toThrow("cancelled");
+    live.prepare("claude-haiku-5-5");
+    await expect(ask(live).done).rejects.toThrow("closed");
+    expect(started).toHaveLength(1);
+  });
+
+  it("lets the started engine go on release, and starts no next one as the cancelled answer ends", async () => {
+    const { started, startup } = engines(["one ", "two ", "three"]);
+    const live = new ClaudeLiveAnswers({ startup });
+    live.prepare("claude-haiku-5-5");
+    await new Promise((r) => setTimeout(r, 1));
+    live.release();
+    await new Promise((r) => setTimeout(r, 1));
+    expect(started[0]!.closed).toBe(true);
+    // Stop mid-answer: the answer is cancelled and the meeting released.
+    const stop = new AbortController();
+    const { done } = ask(live, { signal: stop.signal });
+    await new Promise((r) => setTimeout(r, 8));
+    stop.abort();
+    live.release();
+    await expect(done).rejects.toThrow("cancelled");
+    expect(started).toHaveLength(2);
+    // The next meeting starts one again.
+    live.prepare("claude-haiku-5-5");
+    expect(started).toHaveLength(3);
     live.close();
   });
 

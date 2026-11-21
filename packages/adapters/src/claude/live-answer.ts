@@ -37,6 +37,9 @@ export interface LiveAnswerModel {
   prepare(model: string | null): void;
   /** Stream one answer; resolves with its whole text, rejects when it fails or `signal` aborts. */
   answer(req: LiveAnswerRequest): Promise<string>;
+  /** The meeting is over: stop the started engine, and start no next one until `prepare` or `answer`. */
+  release(): void;
+  /** For good: nothing starts after this. */
   close(): void;
 }
 
@@ -50,10 +53,16 @@ type Spare = { model: string | null; abort: AbortController; warm: Promise<WarmQ
  */
 export class ClaudeLiveAnswers implements LiveAnswerModel {
   private spare: Spare | null = null;
+  /** Whether an answer that ends should start the next engine: from `prepare` or `answer` until
+   *  `release`, so an answer Stop cancelled does not start one as it unwinds. */
+  private listening = false;
+  private closed = false;
 
   constructor(private readonly deps: { startup?: typeof sdkStartup; query?: typeof sdkQuery; warmMs?: number } = {}) {}
 
   prepare(model: string | null): void {
+    if (this.closed) return;
+    this.listening = true;
     if (this.spare?.model === model) { this.idleOut(this.spare); return; }
     this.drop();
     this.spare = this.start(model);
@@ -61,6 +70,8 @@ export class ClaudeLiveAnswers implements LiveAnswerModel {
   }
 
   async answer(req: LiveAnswerRequest): Promise<string> {
+    if (this.closed) throw new Error("live answers are closed");
+    this.listening = true;
     const engine = this.take(req.model) ?? this.start(req.model);
     const stop = () => engine.abort.abort();
     if (req.signal.aborted) stop();
@@ -85,11 +96,19 @@ export class ClaudeLiveAnswers implements LiveAnswerModel {
     } finally {
       req.signal.removeEventListener("abort", stop);
       stop();
-      this.prepare(req.model);
+      if (this.listening) this.prepare(req.model);
     }
   }
 
-  close(): void { this.drop(); }
+  release(): void {
+    this.listening = false;
+    this.drop();
+  }
+
+  close(): void {
+    this.closed = true;
+    this.release();
+  }
 
   private options(model: string | null, abortController: AbortController): Options {
     return {
@@ -98,6 +117,10 @@ export class ClaudeLiveAnswers implements LiveAnswerModel {
       // No tools at all: their definitions alone are thousands of tokens on every answer, and a tool is
       // a way for the transcript to go somewhere other than the model.
       tools: [],
+      // Nor MCP servers: `tools` covers the built-in ones only, so without these the servers in his
+      // own config would be offered to a turn that reads other people's speech.
+      mcpServers: {},
+      strictMcpConfig: true,
       settingSources: [],
       // The CLI sends adaptive thinking to Haiku 5.5 whatever `thinking` or `maxThinkingTokens` say
       // (measured on the wire, SDK 0.3.322); only this variable leaves it out. `env` replaces the
