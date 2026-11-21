@@ -64,7 +64,7 @@ import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
 import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
-import { ListeningMark, listeningDot } from "./listening-mark";
+import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
 import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
@@ -815,14 +815,17 @@ const listeningMark = new ListeningMark({
   },
   actions: {
     show: () => quickChatPanel.open(),
-    stop: () => quickChatPanel.window()?.webContents.send("meeting-assistant:stop"),
+    stop: () => meetingListening.stop(),
   },
 });
-const listeningPages = new WeakSet<WebContents>();
+// `transcript`, the meeting transcript's helper, is made further down.
+const meetingListening = new MeetingListening<WebContents>({
+  mark: (on) => listeningMark.set(on),
+  stopHelper: (page) => transcript.stop(page),
+});
 ipcMain.on("meeting-assistant:listening", (e, on: unknown) => {
   if (e.sender !== quickChatPanel.window()?.webContents) return;
-  if (!listeningPages.has(e.sender)) { listeningPages.add(e.sender); e.sender.once("destroyed", () => listeningMark.set(false)); }
-  listeningMark.set(on === true);
+  meetingListening.set(e.sender, on === true);
 });
 app.on("will-quit", () => listeningMark.set(false));
 
