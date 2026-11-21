@@ -285,7 +285,11 @@ async function lookHeld(page, mode, look, what, waiting) {
     if (document.documentElement.dataset.mode !== ${js(mode)}) return null;
     if (document.documentElement.hasAttribute("data-glass") === ${look === "glass"}) return { held: null };
     const held = ${look === "glass" ? PLAIN_REASON : "null"};
-    return held ? { held } : null; })()`), 15_000, waiting);
+    return held ? { held } : null; })()`), 15_000, waiting).catch(async (err) => {
+    const had = await page.eval(`({ mode: document.documentElement.dataset.mode ?? null, glass: document.documentElement.hasAttribute("data-glass"),
+      visibility: document.visibilityState, plainReason: ${PLAIN_REASON} })`).catch((e) => ({ unread: e.message }));
+    throw new Error(`${err.message}; the root had ${js(had)}`);
+  });
   if (shown.held) row("glass-held", `${what} glass drawn plain, so no picture`, shown.held);
   return !!shown.held;
 }
@@ -304,10 +308,11 @@ async function everyLook({ app, api }, page, state) {
 
 /** The bar at the panel's width: the title, the mark, the Auto-answer switch and the mic button each
  *  whole, side by side and inside it, and a capture of the bar alone. */
-async function barLooks({ api }, page) {
+async function barLooks({ app, api }, page) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
+    await closePanel(app, page); await openPanel(app); await showAssistant(page);
     if (await lookHeld(page, mode, look, `the bar, ${mode}`, `the bar in ${mode} ${look}`)) continue;
     await sleep(400);
     const fit = await page.eval(`(() => {
@@ -330,14 +335,20 @@ async function barLooks({ api }, page) {
 
 /** Settings ▸ Keys in the Realm window: the assistant's rows, read and captured in each look. */
 async function settingsLooks({ app, api }, state) {
-  await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).webContents.send("app:command", "settings.open"); true`);
-  await until(() => app.page.eval(`!!document.querySelector('input[name="settings-page-tab"][value="keys"]')`), 10_000, "Settings");
-  await app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="keys"]').click(); true`);
-  await until(() => app.page.eval(`!!document.querySelector('[data-setting="assistant-chord:."]')`), 10_000, "Settings ▸ Keys");
+  const openKeys = async () => {
+    await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).webContents.send("app:command", "settings.open"); true`);
+    await until(() => app.page.eval(`!!document.querySelector('input[name="settings-page-tab"][value="keys"]')`), 10_000, "Settings");
+    await app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="keys"]').click(); true`);
+    await until(() => app.page.eval(`!!document.querySelector('[data-setting="assistant-chord:."]')`), 10_000, "Settings ▸ Keys");
+  };
+  await openKeys();
   const said = await app.page.eval(`document.querySelector('[data-setting="assistant-chords"]').innerText.replace(/\\s+/g, " ").trim()`);
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
+    await app.page.send("Page.reload");
+    await until(() => app.page.eval(`document.readyState === "complete" && document.body.innerText.includes("Stub space")`), 30_000, "the window on its space");
+    await openKeys();
     if (await lookHeld(app.page, mode, look, `Settings ▸ Keys, ${state}, ${mode}`, `Settings in ${mode} ${look}`)) continue;
     await sleep(400);
     const clip = await app.page.eval(`(() => { const first = document.querySelector('[data-setting="assistant-chords"]'); first.scrollIntoView({ block: "start" });
