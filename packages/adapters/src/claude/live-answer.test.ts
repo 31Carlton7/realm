@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeLiveAnswers, liveAnswerPrompt } from "./live-answer";
 
-type Options = { model?: string; tools?: string[]; settingSources?: string[]; thinking?: { type: string }; persistSession?: boolean; includePartialMessages?: boolean; abortController?: AbortController };
+type Options = { model?: string; tools?: string[]; settingSources?: string[]; env?: Record<string, string | undefined>; effort?: string; persistSession?: boolean; includePartialMessages?: boolean; abortController?: AbortController };
 
 const delta = (text: string) => ({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } } });
 
@@ -50,7 +50,8 @@ describe("ClaudeLiveAnswers", () => {
     const { started, startup } = engines();
     const live = new ClaudeLiveAnswers({ startup });
     await ask(live).done;
-    expect(started[0]!.options).toMatchObject({ model: "claude-haiku-5-5", tools: [], settingSources: [], thinking: { type: "disabled" }, persistSession: false, includePartialMessages: true });
+    expect(started[0]!.options).toMatchObject({ model: "claude-haiku-5-5", tools: [], settingSources: [], effort: "low", persistSession: false, includePartialMessages: true });
+    expect(started[0]!.options.env).toMatchObject({ CLAUDE_CODE_DISABLE_THINKING: "1", PATH: process.env.PATH });
     expect(started[0]!.prompts).toEqual(["the prompt"]);
     live.close();
   });

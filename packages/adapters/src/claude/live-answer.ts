@@ -99,7 +99,11 @@ export class ClaudeLiveAnswers implements LiveAnswerModel {
       // a way for the transcript to go somewhere other than the model.
       tools: [],
       settingSources: [],
-      thinking: { type: "disabled" },
+      // The CLI sends adaptive thinking to Haiku 5.5 whatever `thinking` or `maxThinkingTokens` say
+      // (measured on the wire, SDK 0.3.322); only this variable leaves it out. `env` replaces the
+      // child's environment, so the rest is passed on.
+      env: { ...process.env, CLAUDE_CODE_DISABLE_THINKING: "1" },
+      effort: "low",
       persistSession: false,
       includePartialMessages: true,
       systemPrompt: SYSTEM,
