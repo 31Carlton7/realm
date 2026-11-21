@@ -832,6 +832,15 @@ export function App() {
         st.run(() => st.revealSession(sessionId, spaceId));
       });
     });
+    // A meeting's notes, opened from the quick chat panel: main has brought this window forward.
+    const offOD = window.realm?.onOpenDocument?.(({ spaceId, path }) => {
+      void whenBooted(store).then(() => store.getState().run(async () => {
+        const space = store.getState().spaces.find((sp) => sp.id === spaceId);
+        if (space && space.profileId !== store.getState().activeProfileId) await store.getState().selectProfile(space.profileId);
+        if (store.getState().activeSpaceId !== spaceId) await store.getState().selectSpace(spaceId);
+        await store.getState().openDocumentPath(path, null, spaceId);
+      }));
+    });
     // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, a
     // middle-click, or the link's right-click menu): main routed it here, and the tab goes beside the
     // session in view — behind the tab showing for a middle-click.
@@ -906,7 +915,7 @@ export function App() {
       window.removeEventListener("dragover", swallowDrop);
       offEggs();
       window.removeEventListener("drop", swallowDrop);
-      offOS?.(); offLink?.(); offTab?.(); offCloseTab?.();
+      offOS?.(); offOD?.(); offLink?.(); offTab?.(); offCloseTab?.();
     };
   }, [store]);
   return (

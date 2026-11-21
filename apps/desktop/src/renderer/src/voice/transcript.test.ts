@@ -21,7 +21,7 @@ function fakes(opts: { grant?: string; ready?: TranscriptStart | Promise<Transcr
     start: async (cb: typeof frame) => { calls.push("mic started"); frame = cb; },
     stop: () => calls.push("mic stopped"),
   } as unknown as VoiceAudio;
-  const seen = { lines: [] as TranscriptLine[], partials: [] as string[], systemAudio: [] as string[], problems: [] as string[] };
+  const seen = { lines: [] as TranscriptLine[], partials: [] as string[], systemAudio: [] as string[], problems: [] as string[], ended: 0 };
   const t = new MeetingTranscript({
     helper, audio, systemAudio: opts.systemAudio ?? true,
     events: {
@@ -29,6 +29,7 @@ function fakes(opts: { grant?: string; ready?: TranscriptStart | Promise<Transcr
       partial: (source, text) => seen.partials.push(`${source}: ${text}`),
       systemAudio: (state) => seen.systemAudio.push(state),
       problem: (m) => seen.problems.push(m),
+      ended: () => { seen.ended++; },
     },
   });
   const frames = (count: number, value = 0) => { for (let i = 0; i < count; i++) frame(0, new Int16Array(1024).fill(value)); };
@@ -170,5 +171,36 @@ describe("MeetingTranscript", () => {
     const none = fakes({ ready: { t: "unavailable", reason: "no helper" } });
     await none.t.start();
     expect(none.seen.problems).toEqual(["no helper"]);
+  });
+
+  it("says it ended once, whether it was stopped or could not start", async () => {
+    const stopped = fakes();
+    await stopped.t.start();
+    const stopping = stopped.t.stop();
+    stopped.emit({ t: "stopped" });
+    await stopping;
+    stopped.emit({ t: "stopped" });
+    expect(stopped.seen.ended).toBe(1);
+
+    const denied = fakes({ grant: "denied" });
+    await denied.t.start();
+    expect(denied.seen.ended).toBe(1);
+  });
+
+  it("says it ended once when the helper stops while the microphone is failing to open", async () => {
+    let ended = 0;
+    let emit: (e: TranscriptEvent) => void = () => {};
+    const helper: TranscriptHelper = {
+      microphone: async () => "granted",
+      start: async () => ({ t: "ready", stt: "analyzer", startedAt: 0, systemAudio: "not decided" }),
+      audio: () => {}, systemAudio: () => {}, finish: () => {}, stop: () => {},
+      onEvent: (cb) => { emit = cb; return () => {}; },
+    };
+    const audio = { start: async () => { emit({ t: "stopped" }); throw new Error("no device"); }, stop: () => {} } as unknown as VoiceAudio;
+    const t = new MeetingTranscript({ helper, audio, systemAudio: false,
+      events: { line: () => {}, partial: () => {}, systemAudio: () => {}, problem: () => {}, ended: () => { ended++; } } });
+    await t.start();
+    // THE MUTANT: every teardown says it ended.
+    expect(ended).toBe(1);
   });
 });
