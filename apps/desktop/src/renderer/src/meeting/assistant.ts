@@ -1,5 +1,5 @@
 import {
-  MEETING_DEFAULT_TITLE, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
+  MEETING_AUTO_ANSWERS_DEFAULT, MEETING_DEFAULT_TITLE, type AssistantPageAction, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
   type MeetingTranscriptLine, type SaveMeetingNotesParams, type SaveMeetingNotesResult,
 } from "@realm/contracts";
 import { MeetingAnswers, type LiveAnswersApi } from "../voice/live-answers";
@@ -29,10 +29,9 @@ export type AssistantDeps = {
   openFile: (spaceId: string, path: string) => void;
   now: () => number;
   newId: () => string;
+  /** The auto-answers switch, kept as a setting (`MEETING_AUTO_ANSWERS_KEY`). Unset, it starts on and is not kept. */
+  autoAnswers?: { read(): Promise<boolean>; write(on: boolean): Promise<void> };
 };
-
-/** Live answers start on their own when the other side asks a question. Its switch is M3b's. */
-const AUTO_ANSWERS = true;
 
 /** Past this many characters of custom info the prompter says that every answer sends all of it. */
 export const LONG_CUSTOM_INFO = 20_000;
@@ -74,12 +73,22 @@ export type AssistantState = {
   notes: MeetingNotesState | null;
   systemAudio: SystemAudioState | null;
   problem: string | null;
+  /** The panel shows the assistant rather than the chat. */
+  shown: boolean;
+  /** Questions the other side asks are answered without a key. */
+  autoAnswers: boolean;
+  /** How many times the type key was pressed: the prompter takes the keyboard at each. */
+  typeKeyPresses: number;
 };
 
 const INITIAL: AssistantState = {
   consented: null, sheet: false, phase: "idle", startedAt: null, stoppedAt: null,
   lines: [], partial: {}, customInfo: [], asked: [], answer: null, notes: null, systemAudio: null, problem: null,
+  shown: false, autoAnswers: MEETING_AUTO_ANSWERS_DEFAULT, typeKeyPresses: 0,
 };
+
+/** Which way the scroll keys move the words: down (Fn J) or up (Fn K). */
+export type ScrollDirection = 1 | -1;
 
 /** The meeting assistant in the quick chat panel: one per panel page, so a run outlives the chat. */
 export class MeetingAssistant {
@@ -95,10 +104,11 @@ export class MeetingAssistant {
   private wrapUp: Promise<void> = Promise.resolve();
   /** The run that got as far as listening. One that never did is no meeting: it saves and clears nothing. */
   private heard: Listener | null = null;
+  private scrollers = new Set<(direction: ScrollDirection) => void>();
 
   constructor(private readonly deps: AssistantDeps) {
     this.answers = new MeetingAnswers({
-      api: deps.answers, auto: AUTO_ANSWERS, onEvent: (e) => this.onAnswer(e),
+      api: deps.answers, auto: MEETING_AUTO_ANSWERS_DEFAULT, onEvent: (e) => this.onAnswer(e),
       customInfo: () => {
         const info = customInfoText(this.state.customInfo);
         return this.typed === null ? info : [info, `My question now: ${this.typed}`].filter(Boolean).join("\n\n");
@@ -122,8 +132,51 @@ export class MeetingAssistant {
   };
 
   async load(): Promise<void> {
-    const consented = await this.deps.consent.read().catch(() => false);
-    this.set({ consented });
+    const [consented, autoAnswers] = await Promise.all([
+      this.deps.consent.read().catch(() => false),
+      this.deps.autoAnswers?.read().catch(() => MEETING_AUTO_ANSWERS_DEFAULT) ?? MEETING_AUTO_ANSWERS_DEFAULT,
+    ]);
+    this.answers.setAuto(autoAnswers);
+    this.set({ consented, autoAnswers });
+  }
+
+  /** Show the assistant in the panel, or the chat. */
+  show(on: boolean): void {
+    this.set({ shown: on });
+  }
+
+  /** The auto-answers switch. Off, only the answer key and a typed question ask for an answer. */
+  setAutoAnswers(on: boolean): void {
+    this.answers.setAuto(on);
+    this.set({ autoAnswers: on });
+    void this.deps.autoAnswers?.write(on).catch(() => {});
+  }
+
+  /** The answer key: answer what was just asked, or say what to say next. */
+  answerNow(): void {
+    // Before a Start, or after a Stop, nothing is subscribed to the answers yet.
+    if (this.state.phase === "idle") this.answers.start();
+    void this.answers.askNow();
+  }
+
+  /** Hear the scroll keys; the returned function stops hearing. */
+  onScroll(cb: (direction: ScrollDirection) => void): () => void {
+    this.scrollers.add(cb);
+    return () => this.scrollers.delete(cb);
+  }
+
+  /** An assistant chord, pressed in any app (main/assistant-keys.ts). Every one but scrolling shows
+   *  the assistant. Listen goes through Start and Stop, so an unaccepted first-run sheet is put up,
+   *  never accepted by a key. */
+  key(action: AssistantPageAction): void {
+    if (action === "scrollDown" || action === "scrollUp") {
+      for (const cb of [...this.scrollers]) cb(action === "scrollDown" ? 1 : -1);
+      return;
+    }
+    this.show(true);
+    if (action === "listen") void (this.state.phase === "idle" ? this.start() : this.stop());
+    else if (action === "answer") this.answerNow();
+    else if (action === "type") this.set({ typeKeyPresses: this.state.typeKeyPresses + 1 });
   }
 
   /** Start listening, or put up the first-run sheet when it has not been accepted. */
@@ -165,10 +218,8 @@ export class MeetingAssistant {
     const question = text.trim();
     if (!question) return;
     this.set({ asked: [...this.state.asked, { id: this.nextId++, text: question, at: this.deps.now() }] });
-    // Before a Start, or after a Stop, nothing is subscribed to the answers yet.
-    if (this.state.phase === "idle") this.answers.start();
     this.typed = question;
-    void this.answers.askNow();
+    this.answerNow();
     this.typed = null;
   }
 
@@ -195,6 +246,7 @@ export class MeetingAssistant {
     if (this.run) this.deps.setListening(false);
     this.run = null;
     this.listeners.clear();
+    this.scrollers.clear();
   }
 
   private async begin(): Promise<void> {

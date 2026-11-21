@@ -13,14 +13,24 @@ function useAssistant(assistant: MeetingAssistant): AssistantState {
   return useSyncExternalStore(assistant.subscribe, assistant.getState);
 }
 
-/** The panel page's hold on its assistant: the notes' progress and the menu bar's Stop while it is
- *  mounted, and the run ended when the page itself goes. StrictMode rehearses this effect in dev, so
- *  the ending waits for `pagehide` rather than a cleanup. */
+const NO_SUBSCRIPTION = () => () => {};
+const NO_STATE = () => null;
+
+/** The assistant's state where there may be no assistant: a Realm window's quick chat has none. */
+export function useAssistantState(assistant: MeetingAssistant | null): AssistantState | null {
+  return useSyncExternalStore(assistant?.subscribe ?? NO_SUBSCRIPTION, assistant?.getState ?? NO_STATE);
+}
+
+/** The panel page's hold on its assistant: the notes' progress, the menu bar's Stop and the
+ *  assistant's chords while it is mounted, and the run ended when the page itself goes. StrictMode
+ *  rehearses this effect in dev, so the ending waits for `pagehide` rather than a cleanup. */
 export function useAssistantPage(assistant: MeetingAssistant | null): void {
   useEffect(() => {
     if (!assistant) return;
     void assistant.load();
-    const offs = [assistant.watchNotes(), window.realm?.meetingAssistant?.onStop(() => void assistant.stop())];
+    const bridge = window.realm?.meetingAssistant;
+    const offs = [assistant.watchNotes(), bridge?.onStop(() => void assistant.stop()), bridge?.onKey?.((action) => assistant.key(action))];
+    bridge?.keysReady?.();
     const onPageHide = () => assistant.dispose();
     window.addEventListener("pagehide", onPageHide);
     return () => {
@@ -71,6 +81,11 @@ export function AssistantBody({ assistant }: { assistant: MeetingAssistant }) {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [count]);
+  // Fn J and Fn K: a page of the words at a time, as Page Down and Page Up move one.
+  useEffect(() => assistant.onScroll((direction) => {
+    const el = scroller.current;
+    if (el) el.scrollTop += direction * el.clientHeight;
+  }), [assistant]);
 
   const empty = count === 0;
   return (
@@ -176,6 +191,18 @@ function NotesLine({ notes, assistant }: { notes: MeetingNotesState; assistant: 
         <button type="button" className="btn-quiet" onClick={() => assistant.cancelSummary()}>Cancel summary</button>
       )}
     </p>
+  );
+}
+
+/** The bar's switch for answering a question the other side asks, without the answer key. */
+export function AutoAnswersSwitch({ assistant }: { assistant: MeetingAssistant }) {
+  const s = useAssistant(assistant);
+  return (
+    <label className="meeting-auto" title="When the other side asks a question, an answer starts without a key. Off, only the answer key and a typed question ask.">
+      Auto-answer
+      <input type="checkbox" role="switch" className="switch" checked={s.autoAnswers}
+        onChange={(e) => assistant.setAutoAnswers(e.target.checked)} />
+    </label>
   );
 }
 

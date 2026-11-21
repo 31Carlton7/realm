@@ -27,6 +27,9 @@ interface Window {
     meetingAssistant?: {
       setListening(on: boolean): void;
       onStop(cb: () => void): () => void;
+      /** The assistant's chords, pressed in any app. */
+      onKey?(cb: (action: import("@realm/contracts").AssistantPageAction) => void): () => void;
+      keysReady?(): void;
     };
     /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). Optional like
      *  every bridge: jsdom has none. */
@@ -129,6 +132,7 @@ interface Window {
       state(): Promise<import("@realm/contracts").GlobalKeysState>;
       setDoubleTap(on: boolean): Promise<void>;
       setHold(key: import("@realm/contracts").HoldKey): Promise<void>;
+      setAssistant(on: boolean): Promise<void>;
       watch(on: boolean): void;
       onEvent(cb: (event: import("@realm/contracts").GlobalKeysEvent) => void): () => void;
       onState(cb: (state: import("@realm/contracts").GlobalKeysState) => void): () => void;

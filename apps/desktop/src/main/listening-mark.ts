@@ -81,6 +81,9 @@ export class MeetingListening<Page extends ListeningPage> {
 
   constructor(private readonly d: { mark: (on: boolean) => void; stopHelper: (page: Page) => void }) {}
 
+  /** A page is listening. */
+  get listening(): boolean { return this.page !== null; }
+
   set(page: Page, on: boolean): void {
     this.watch(page);
     if (on) this.page = page;

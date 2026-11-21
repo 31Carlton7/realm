@@ -1,5 +1,6 @@
 import {
-  HOLD_KEYS, HOLD_KEY_DEFAULT, HOLD_KEY_LABEL, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, isHoldKey,
+  ASSISTANT_CHORDS, HOLD_KEYS, HOLD_KEY_DEFAULT, HOLD_KEY_LABEL, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT,
+  KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, isHoldKey,
   type GlobalKeysState, type HoldKey,
 } from "@realm/contracts";
 import { useEffect, useState } from "react";
@@ -24,6 +25,7 @@ export function GlobalKeysRows() {
   const openTccPane = useApp((s) => s.openTccPane);
   const [doubleTap, setDoubleTap] = useState(KEYS_DOUBLE_TAP_DEFAULT);
   const [hold, setHold] = useState<HoldKey>(HOLD_KEY_DEFAULT);
+  const [chords, setChords] = useState(KEYS_ASSISTANT_DEFAULT);
   const [state, setState] = useState<GlobalKeysState | null>(null);
   const [doubleTapSeen, setDoubleTapSeen] = useState(false);
   const [doubleTapLit, setDoubleTapLit] = useState(false);
@@ -36,6 +38,7 @@ export function GlobalKeysRows() {
       const client = rpc();
       void client.call("settings.get", { key: KEYS_DOUBLE_TAP_KEY }).then((s) => { if (alive && typeof s.value === "boolean") setDoubleTap(s.value); }).catch(() => {});
       void client.call("settings.get", { key: KEYS_HOLD_KEY }).then((s) => { if (alive && isHoldKey(s.value)) setHold(s.value); }).catch(() => {});
+      void client.call("settings.get", { key: KEYS_ASSISTANT_KEY }).then((s) => { if (alive && typeof s.value === "boolean") setChords(s.value); }).catch(() => {});
     } catch {
       // No socket in this host: the rows show the defaults, as the shortcuts list shows its loading state.
     }
@@ -81,6 +84,11 @@ export function GlobalKeysRows() {
     await Promise.all([rpc().call("settings.set", { key: KEYS_HOLD_KEY, value: key }), window.realm?.keys?.setHold(key)]);
   });
 
+  const changeChords = (on: boolean) => run(async () => {
+    setChords(on);
+    await Promise.all([rpc().call("settings.set", { key: KEYS_ASSISTANT_KEY, value: on }), window.realm?.keys?.setAssistant(on)]);
+  });
+
   const holdName = HOLD_KEY_LABEL[hold];
   const blind = state === "denied" || state === "needsInputMonitoring" || state === "missing";
   return (
@@ -106,6 +114,20 @@ export function GlobalKeysRows() {
           ))}
         </fieldset>
       </li>
+      <li className="settings-row" data-setting="assistant-chords"
+        title="While this is on, each of these keys pressed with the held key goes to the meeting assistant and not to the app in front.">
+        <div className="settings-row-main"><span className="settings-row-name">Assistant shortcuts</span></div>
+        <input type="checkbox" role="switch" className="switch" aria-label="Assistant shortcuts"
+          checked={chords} onChange={(e) => changeChords(e.target.checked)} />
+      </li>
+      {chords && ASSISTANT_CHORDS.map(({ key, label }) => (
+        <li key={key} className="settings-row" data-setting={`assistant-chord:${key}`}>
+          <div className="settings-row-main">
+            <span className="settings-row-name">{label}</span>
+            <kbd className="settings-chip">{holdName} {key}</kbd>
+          </div>
+        </li>
+      ))}
       {(state === "denied" || state === "listening") && (
         <li className="settings-row" data-setting="keys-access">
           <div className="settings-row-main">

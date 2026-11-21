@@ -49,6 +49,17 @@ export function quickChatPanelPlace(saved: SavedWindow | null, displays: Rect[],
   };
 }
 
+/**
+ * Where Fn , and Fn . move the panel: the next of three places along its display, its left edge, the
+ * middle and its right edge, at the height it is at. Between two places it goes to the next one in
+ * that direction; at an edge it stays.
+ */
+export function quickChatPanelStep(x: number, area: Rect, direction: -1 | 1): number {
+  const stops = [area.x, Math.round(area.x + (area.width - QUICK_CHAT_PANEL_SIZE.width) / 2), area.x + area.width - QUICK_CHAT_PANEL_SIZE.width];
+  if (direction < 0) return [...stops].reverse().find((stop) => stop < x) ?? stops[0]!;
+  return stops.find((stop) => stop > x) ?? stops[2]!;
+}
+
 export type PanelWindow = {
   isDestroyed(): boolean;
   isVisible(): boolean;

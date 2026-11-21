@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_PANEL_SIZE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, type PanelWindow } from "./quick-chat-panel";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_PANEL_SIZE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, type PanelWindow } from "./quick-chat-panel";
 
 const DISPLAY = { x: 0, y: 25, width: 1440, height: 875 };
 
@@ -267,5 +267,35 @@ describe("QuickChatShortcut", () => {
     shortcut.set("mod+shift+j");
     shortcut.release();
     expect(unregistered).toEqual([]);
+  });
+});
+
+describe("quickChatPanelStep", () => {
+  const area = { x: 0, y: 25, width: 1440, height: 875 };
+  const middle = (1440 - QUICK_CHAT_PANEL_SIZE.width) / 2;
+  const right = 1440 - QUICK_CHAT_PANEL_SIZE.width;
+
+  it("moves from the right edge to the middle, then to the left edge, and stays there", () => {
+    expect(quickChatPanelStep(right, area, -1)).toBe(middle);
+    expect(quickChatPanelStep(middle, area, -1)).toBe(0);
+    expect(quickChatPanelStep(0, area, -1)).toBe(0);
+  });
+
+  it("moves from the left edge to the middle, then to the right edge, and stays there", () => {
+    expect(quickChatPanelStep(0, area, 1)).toBe(middle);
+    expect(quickChatPanelStep(middle, area, 1)).toBe(right);
+    expect(quickChatPanelStep(right, area, 1)).toBe(right);
+  });
+
+  it("goes to the next place in that direction from where it was dragged", () => {
+    expect(quickChatPanelStep(middle + 40, area, -1)).toBe(middle);
+    expect(quickChatPanelStep(middle + 40, area, 1)).toBe(right);
+    expect(quickChatPanelStep(20, area, -1)).toBe(0);
+  });
+
+  it("keeps to the display it is on", () => {
+    const second = { x: 1440, y: 0, width: 1920, height: 1080 };
+    expect(quickChatPanelStep(1440, second, 1)).toBe(1440 + Math.round((1920 - QUICK_CHAT_PANEL_SIZE.width) / 2));
+    expect(quickChatPanelStep(3000, second, 1)).toBe(1440 + 1920 - QUICK_CHAT_PANEL_SIZE.width);
   });
 });

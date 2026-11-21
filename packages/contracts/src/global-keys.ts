@@ -35,3 +35,29 @@ export type GlobalKeysState = "off" | "starting" | "active" | "listening" | "den
 
 /** What Settings' "Try it" row is told while it is on screen. */
 export type GlobalKeysEvent = { t: "doubleTap" } | { t: "hold"; down: boolean };
+
+/**
+ * Whether the assistant's chords are taken from the app in front. On unless turned off: they were
+ * asked for. Off, no chord is registered and the helper keeps no key from any app.
+ */
+export const KEYS_ASSISTANT_KEY = "keys.assistantChords";
+export const KEYS_ASSISTANT_DEFAULT = true;
+
+/**
+ * The assistant's chords: the held key (`KEYS_HOLD_KEY`) and one of these. The keys stay off the
+ * letters macOS gives the Globe key (A C D E F H M N Q) and off Space, which a dictation app holds.
+ * Fn S, read the screen and answer, comes with the screen reading it needs.
+ */
+export const ASSISTANT_CHORDS = [
+  { key: "R", action: "toggle", label: "Show or hide the assistant" },
+  { key: "L", action: "listen", label: "Start or stop listening" },
+  { key: "G", action: "answer", label: "Answer what was just asked" },
+  { key: "T", action: "type", label: "Type a question" },
+  { key: "J", action: "scrollDown", label: "Scroll down" },
+  { key: "K", action: "scrollUp", label: "Scroll up" },
+  { key: ",", action: "moveLeft", label: "Move the panel left" },
+  { key: ".", action: "moveRight", label: "Move the panel right" },
+] as const;
+export type AssistantAction = (typeof ASSISTANT_CHORDS)[number]["action"];
+/** What the panel's page is told to do; moving and putting the panel away are main's own. */
+export type AssistantPageAction = Exclude<AssistantAction, "moveLeft" | "moveRight">;

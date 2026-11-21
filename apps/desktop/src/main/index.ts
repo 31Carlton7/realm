@@ -22,13 +22,14 @@ import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
-import { BROWSER_KEEP_HIDDEN_DEFAULT, isHoldKey, isLinksOpenIn, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETINGS_OPEN_KEY, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETINGS_OPEN_KEY, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { startBackdropState } from "./backdrop-state";
 import { MeetingWatch, meetingWatchPath, startMeetingWatchHelper } from "./meeting-watch";
 import { RealmKeys } from "./realm-keys";
+import { AssistantKeys, PageInbox } from "./assistant-keys";
 import { readFileRange, readTextFile } from "./read-text";
 import {
   addBackgrounds, backgroundImageUrl, backgroundLoopFile, listBackgrounds, removeBackground, setBackgroundPoster, updateBackground, type FirstFrame, type Reencode,
@@ -65,7 +66,7 @@ import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
 import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
 import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
-import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace } from "./quick-chat-panel";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -2164,12 +2165,35 @@ const realmKeys = new RealmKeys({
 });
 app.on("will-quit", () => realmKeys.stop());
 
+/** The assistant's chords (assistant-keys.ts), told to the panel's page once it says it hears them. */
+const assistantInbox = new PageInbox<WebContents>((page, action) => { if (!page.isDestroyed()) page.send("meeting-assistant:key", action); });
+const assistantKeys = new AssistantKeys({
+  register: (key, run) => realmKeys.registerChord(key, run),
+  panel: {
+    isOpen: () => quickChatPanel.isOpen(),
+    open: () => quickChatPanel.open(),
+    close: () => quickChatPanel.close(),
+    move: (direction) => {
+      const win = quickChatPanel.window();
+      if (!win) return;
+      const [x, y] = win.getPosition();
+      win.setPosition(quickChatPanelStep(x!, screen.getDisplayMatching(win.getBounds()).workArea, direction), y!);
+    },
+  },
+  send: (action) => assistantInbox.send(quickChatPanel.window()?.webContents ?? null, action),
+  listening: () => meetingListening.listening,
+});
+ipcMain.on("meeting-assistant:keys-ready", (e) => {
+  if (e.sender === quickChatPanel.window()?.webContents) assistantInbox.pageReady(e.sender);
+});
+
 /** The two settings, read from the server when main (re)connects, as the sleep preference is: a
  *  launch with no window still answers a double-tap. */
 async function readKeysPreferences() {
   try {
-    const [doubleTap, hold] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
+    const [doubleTap, hold, chords] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, KEYS_ASSISTANT_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
     if (isHoldKey(hold?.value)) realmKeys.setHoldKey(hold.value);
+    assistantKeys.set(typeof chords?.value === "boolean" ? chords.value : KEYS_ASSISTANT_DEFAULT);
     realmKeys.setDoubleTap(typeof doubleTap?.value === "boolean" ? doubleTap.value : KEYS_DOUBLE_TAP_DEFAULT);
     preparePanel();
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
@@ -2177,6 +2201,7 @@ async function readKeysPreferences() {
 ipcMain.handle("keys:state", () => realmKeys.state);
 ipcMain.handle("keys:set-double-tap", (_e, on: unknown) => { realmKeys.setDoubleTap(on === true); preparePanel(); });
 ipcMain.handle("keys:set-hold", (_e, key: unknown) => { if (isHoldKey(key)) realmKeys.setHoldKey(key); });
+ipcMain.handle("keys:set-assistant", (_e, on: unknown) => { assistantKeys.set(on === true); });
 ipcMain.on("keys:watch", (e, on: unknown) => {
   const contents = e.sender;
   if (on !== true) keysWatchers.delete(contents);
