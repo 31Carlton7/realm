@@ -402,10 +402,13 @@ async function settingsLooks({ app, api }, state) {
  *  on by its own switch, its title read, and the row captured in each look. */
 async function meetingsLooks({ app, api }) {
   const ROW = '[data-setting="start-assistant"]';
-  await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).webContents.send("app:command", "settings.open"); true`);
-  await until(() => app.page.eval(`!!document.querySelector('input[name="settings-page-tab"][value="general"]')`), 10_000, "Settings");
-  await app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="general"]').click(); true`);
-  await until(() => app.page.eval(`!!document.querySelector(${js(ROW)})`), 10_000, "Settings ▸ General ▸ Meetings");
+  const openGeneral = async () => {
+    await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).webContents.send("app:command", "settings.open"); true`);
+    await until(() => app.page.eval(`!!document.querySelector('input[name="settings-page-tab"][value="general"]')`), 10_000, "Settings");
+    await app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="general"]').click(); true`);
+    await until(() => app.page.eval(`!!document.querySelector(${js(ROW)})`), 10_000, "Settings ▸ General ▸ Meetings");
+  };
+  await openGeneral();
   const before = await app.page.eval(`document.querySelector(${js(ROW + " input")}).checked`);
   if (!before) await app.page.eval(`document.querySelector(${js(ROW + " input")}).click(); true`);
   const on = await until(async () => (await api.call("settings.get", { key: "meetings.startAssistantWithCall" })).value === true || null, 10_000, "the switch to be kept").catch(() => false);
@@ -413,6 +416,9 @@ async function meetingsLooks({ app, api }) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
+    await app.page.send("Page.reload");
+    await until(() => app.page.eval(`document.readyState === "complete" && document.body.innerText.includes("Stub space")`), 30_000, "the window on its space");
+    await openGeneral();
     if (await lookHeld(app.page, mode, look, `Settings ▸ General ▸ Meetings, ${mode}`, `Settings in ${mode} ${look}`)) continue;
     await sleep(400);
     const clip = await app.page.eval(`(() => { const r = document.querySelector(${js(ROW)}); r.scrollIntoView({ block: "center" });
