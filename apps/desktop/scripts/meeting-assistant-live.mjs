@@ -318,8 +318,11 @@ async function barLooks({ app, api }, page) {
     const fit = await page.eval(`(() => {
       const bar = document.querySelector(".quick-chat-bar"), b = bar.getBoundingClientRect();
       const parts = { title: ".quick-chat-title", mark: ".meeting-mark", auto: ".meeting-auto", mic: 'button[aria-label="Meeting assistant"]' };
+      // An icon button's scroll box takes in its ::after hit area (styles.css), so it is measured by its icon.
+      const clipped = (el, r) => { const icon = el.matches(".icon-btn") ? el.querySelector("svg")?.getBoundingClientRect() : null;
+        return icon ? icon.left < r.left || icon.right > r.right || icon.top < r.top || icon.bottom > r.bottom : el.scrollWidth > el.clientWidth; };
       const rects = Object.fromEntries(Object.entries(parts).map(([k, sel]) => { const el = bar.querySelector(sel); const r = el?.getBoundingClientRect();
-        return [k, r ? { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), clipped: el.scrollWidth > el.clientWidth } : null]; }));
+        return [k, r ? { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), clipped: clipped(el, r) } : null]; }));
       const order = ["title", "mark", "auto", "mic"].map((k) => rects[k]);
       const inside = order.every((r) => r && r.left >= b.left && r.right <= b.right && r.top >= b.top && r.bottom <= b.bottom);
       const apart = order.every((r, i) => i === 0 || (r && order[i - 1] && order[i - 1].right <= r.left));
@@ -419,7 +422,8 @@ try {
   await openPanel(app);
   const page = await attachPanel(app);
   await until(() => page.eval(`!!document.querySelector(".quick-chat .composer-input")`), 20_000, "the panel's prompter");
-  // On this document now, and on any the page loads after it.
+  // On this document now, and on any the page loads after it. A page agent not enabled runs no script on a new document.
+  await page.send("Page.enable");
   await page.send("Page.addScriptToEvaluateOnNewDocument", { source: STAND_INS });
   await page.eval(STAND_INS);
 
@@ -476,7 +480,7 @@ try {
   row("listen", "Me and Them from the file, the mark in the bar and in the menu bar", listening,
     js(listening.lines) === js(LINES.map((l) => `${l.source === "me" ? "Me" : "Them"}: ${l.text}`)) && listening.mark === "Listening"
     && listening.tray?.title === "Listening" && listening.tray.menu.includes("Stop listening") && listening.tray.destroyed === false);
-  const registered = await until(() => {
+  const registered = await until(async () => {
     const log = keysLogged();
     const swallows = log.some((e) => e.argv?.includes("--swallow"));
     const chords = log.filter((e) => e.config).at(-1)?.config.chords ?? [];
@@ -615,16 +619,17 @@ try {
   const top = () => page.eval(`Math.round(document.querySelector(".meeting-feed").scrollTop)`);
   const onePage = await page.eval(`document.querySelector(".meeting-feed").clientHeight`);
   chord("J");
-  const afterJ = await until(async () => { const t = await top(); return t > 0 ? t : null; }, 5000, "J to scroll down").catch(() => 0);
+  // Wrapped, as `until` waits on while it reads 0, the top of the words and the left of the display.
+  const afterJ = await until(async () => { const t = await top(); return t > 0 ? { t } : null; }, 5000, "J to scroll down").then((v) => v.t, () => 0);
   chord("K");
-  const afterK = await until(async () => { const t = await top(); return t < afterJ ? t : null; }, 5000, "K to scroll up").catch(() => afterJ);
+  const afterK = await until(async () => { const t = await top(); return t < afterJ ? { t } : null; }, 5000, "K to scroll up").then((v) => v.t, () => afterJ);
   row("keys", "J scrolls the words a page down and K a page up", { page: onePage, afterJ, afterK }, afterJ > 0 && afterK < afterJ);
   const area = await workArea(app);
   const x0 = await panelX(app);
   chord(",");
-  const afterComma = await until(async () => { const x = await panelX(app); return x !== x0 ? x : null; }, 5000, ", to move the panel").catch(() => x0);
+  const afterComma = await until(async () => { const x = await panelX(app); return x !== x0 ? { x } : null; }, 5000, ", to move the panel").then((v) => v.x, () => x0);
   chord(".");
-  const afterDot = await until(async () => { const x = await panelX(app); return x !== afterComma ? x : null; }, 5000, ". to move the panel").catch(() => afterComma);
+  const afterDot = await until(async () => { const x = await panelX(app); return x !== afterComma ? { x } : null; }, 5000, ". to move the panel").then((v) => v.x, () => afterComma);
   row("keys", ", moves the panel left and . moves it right, along its display", { area, x0, afterComma, afterDot },
     afterComma < x0 && afterComma >= area.x && afterDot > afterComma && afterDot + 380 <= area.x + area.width);
 
