@@ -97,8 +97,6 @@ export class MeetingAssistant {
   private run: Listener | null = null;
   private nextId = 1;
   private readonly answers: MeetingAnswers;
-  /** A question being asked right now, which goes with the custom info of that one answer. */
-  private typed: string | null = null;
   /** Answers that have started, so an `error` for one that never started is still shown. */
   private started = new Set<string>();
   private wrapUp: Promise<void> = Promise.resolve();
@@ -109,10 +107,7 @@ export class MeetingAssistant {
   constructor(private readonly deps: AssistantDeps) {
     this.answers = new MeetingAnswers({
       api: deps.answers, auto: MEETING_AUTO_ANSWERS_DEFAULT, onEvent: (e) => this.onAnswer(e),
-      customInfo: () => {
-        const info = customInfoText(this.state.customInfo);
-        return this.typed === null ? info : [info, `My question now: ${this.typed}`].filter(Boolean).join("\n\n");
-      },
+      customInfo: () => customInfoText(this.state.customInfo),
     });
   }
 
@@ -152,10 +147,10 @@ export class MeetingAssistant {
   }
 
   /** The answer key: answer what was just asked, or say what to say next. */
-  answerNow(): void {
+  answerNow(question?: string): void {
     // Before a Start, or after a Stop, nothing is subscribed to the answers yet.
     if (this.state.phase === "idle") this.answers.start();
-    void this.answers.askNow();
+    void this.answers.askNow(question);
   }
 
   /** Hear the scroll keys; the returned function stops hearing. */
@@ -212,14 +207,12 @@ export class MeetingAssistant {
     if (info) this.set({ customInfo: [...this.state.customInfo, info] });
   }
 
-  /** A typed question: answered through the answer key, with the question in that answer's custom info. */
+  /** A typed question: answered through the answer key, which takes it for that answer alone. */
   ask(text: string): void {
     const question = text.trim();
     if (!question) return;
     this.set({ asked: [...this.state.asked, { id: this.nextId++, text: question, at: this.deps.now() }] });
-    this.typed = question;
-    this.answerNow();
-    this.typed = null;
+    this.answerNow(question);
   }
 
   /** The answer's ×: one still streaming is cancelled, and either way it leaves the panel. */
@@ -272,8 +265,10 @@ export class MeetingAssistant {
     await run.start();
     if (this.run !== run || this.getState().phase !== "starting") return;
     this.heard = run;
-    // A Start after a Stop is a new meeting; what was typed before the first Start belongs to this one.
-    const fresh = this.state.stoppedAt !== null ? { lines: [], asked: [], answer: null } : {};
+    // A Start after a Stop is a new meeting, which keeps only what was typed since this Start, and its
+    // answer. What was typed before the first Start belongs to the first meeting.
+    const asked = this.state.asked.filter((q) => q.at >= startedAt);
+    const fresh = this.state.stoppedAt !== null ? { lines: [], asked, ...(asked.length === 0 ? { answer: null } : {}) } : {};
     this.set({ ...fresh, notes: null, phase: "listening", startedAt, stoppedAt: null });
   }
 

@@ -163,6 +163,7 @@ describe("realm --server: a server on another machine", () => {
     const c = await connect({ kind: "url", url: srv.url, token, ca: null, allowPlaintext: false });
     try {
       await expect(c.call("meetings.answer", { lines: [], customInfo: "", trigger: "key" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(c.call("meetings.answer", { lines: [], customInfo: "", trigger: "key", question: "What did we quote them?" })).rejects.toMatchObject({ code: "FORBIDDEN" });
       for (const method of ["meetings.cancelAnswer", "meetings.prepareAnswers", "meetings.stopAnswers"] as const) {
         await expect(c.call(method, {}), method).rejects.toMatchObject({ code: "FORBIDDEN" });
       }

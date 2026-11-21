@@ -144,4 +144,13 @@ export class TranscriptHelper extends VoiceHelper {
     if (grant === "granted") { this.write({ t: "tap" }); return; }
     if (!from.isDestroyed()) from.send("realm:transcript", { t: "tap", state: grant === "denied" ? "denied" : "needs permission" });
   }
+
+  /** Main ends the window's run without it. A window that is still there is told the helper is gone,
+   *  as an exit would tell it, since `stop` leaves the exit nobody to tell: its run ends and saves
+   *  what it has. */
+  endRun(from: VoiceOwner & { isCrashed(): boolean }): void {
+    if (from.id !== this.owner?.id) return;
+    if (!from.isDestroyed() && !from.isCrashed()) from.send("realm:transcript", { t: "error", message: "The speech helper stopped." });
+    this.stop(from);
+  }
 }

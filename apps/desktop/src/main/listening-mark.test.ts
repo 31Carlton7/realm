@@ -1,8 +1,12 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import type { spawn } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LISTENING_DOT_POINTS, LISTENING_TITLE, ListeningMark, MeetingListening, STOP_GRACE_MS, listeningDot, listeningMenu,
   type ListeningPage, type ListeningTray,
 } from "./listening-mark";
+import { TranscriptHelper } from "./voice-helper";
 
 function rig() {
   const log: string[] = [];
@@ -141,6 +145,24 @@ describe("MeetingListening", () => {
     vi.advanceTimersByTime(1);
     expect(r.stopped).toEqual(["panel"]);
     expect(r.marks).toEqual([true, false]);
+  });
+
+  it("tells a page that never answers Stop that its helper is gone, as main wires it", () => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true });
+    const transcript = new TranscriptHelper(() => "/bin/realmvoice", (() => child) as unknown as typeof spawn);
+    const marks: boolean[] = [];
+    const l = new MeetingListening<ReturnType<typeof page> & { id: number }>({ mark: (on) => marks.push(on), stopHelper: (pg) => transcript.endRun(pg) });
+    const heard: unknown[] = [];
+    const p = Object.assign(page("panel", false, () => {}), { id: 1 });
+    p.send = ((channel: string, event?: unknown) => { p.sent.push(channel); if (event) heard.push(event); }) as typeof p.send;
+    void transcript.start(p);
+    l.set(p, true);
+    l.stop();
+    vi.advanceTimersByTime(STOP_GRACE_MS);
+    // THE MUTANT: the grace ends the helper without a word, and the page's Stop never settles.
+    expect(heard).toEqual([{ t: "error", message: "The speech helper stopped." }]);
+    expect(marks).toEqual([true, false]);
   });
 
   it("leaves a run the page stopped in time alone", () => {
