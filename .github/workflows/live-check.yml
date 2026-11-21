@@ -10,6 +10,7 @@
 name: Live check
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       ref:
@@ -34,16 +35,16 @@ env:
 
 jobs:
   live:
-    name: Live (${{ inputs.script }})
+    name: Live (${{ inputs.script || 'settings-set-live.mjs' }})
     runs-on: ${{ vars.RUNNER_MACOS || 'macos-latest' }}
     timeout-minutes: 15
     env:
-      SCRIPT: ${{ inputs.script }}
+      SCRIPT: ${{ inputs.script || 'settings-set-live.mjs' }}
       OUT: ${{ github.workspace }}/live-out
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: ./.github/actions/setup
