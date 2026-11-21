@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld("realm", {
       return () => ipcRenderer.removeListener("meeting-assistant:key", handler);
     },
     keysReady: (): void => ipcRenderer.send("meeting-assistant:keys-ready"),
+    /** Which view is up, so main knows whether a key opens the panel on it or puts it away. */
+    setShown: (on: boolean): void => ipcRenderer.send("meeting-assistant:shown", on),
   },
   /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). */
   quickChatPanel: {
@@ -57,7 +59,7 @@ contextBridge.exposeInMainWorld("realm", {
     hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),
     /** Whether the panel was opened while its page loaded, rather than made ahead of a press. */
     opening: (): Promise<boolean> => ipcRenderer.invoke("quick-chat-panel:opening"),
-    /** The panel has just been opened, with the keyboard. */
+    /** The panel has just been opened, with the keyboard or without it. */
     onShown: (cb: () => void): (() => void) => {
       const handler = () => cb();
       ipcRenderer.on("quick-chat-panel:shown", handler);

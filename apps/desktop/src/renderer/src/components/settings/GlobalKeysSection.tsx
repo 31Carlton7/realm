@@ -1,6 +1,6 @@
 import {
   ASSISTANT_CHORDS, HOLD_KEYS, HOLD_KEY_DEFAULT, HOLD_KEY_LABEL, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT,
-  KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, isHoldKey,
+  KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, MEETING_CONSENT_KEY, isHoldKey, meetingConsentAccepted,
   type GlobalKeysState, type HoldKey,
 } from "@realm/contracts";
 import { useEffect, useState } from "react";
@@ -26,6 +26,8 @@ export function GlobalKeysRows() {
   const [doubleTap, setDoubleTap] = useState(KEYS_DOUBLE_TAP_DEFAULT);
   const [hold, setHold] = useState<HoldKey>(HOLD_KEY_DEFAULT);
   const [chords, setChords] = useState(KEYS_ASSISTANT_DEFAULT);
+  /** Null until read. Main registers the chords only once the assistant's first-run sheet was accepted. */
+  const [consented, setConsented] = useState<boolean | null>(null);
   const [state, setState] = useState<GlobalKeysState | null>(null);
   const [doubleTapSeen, setDoubleTapSeen] = useState(false);
   const [doubleTapLit, setDoubleTapLit] = useState(false);
@@ -39,6 +41,7 @@ export function GlobalKeysRows() {
       void client.call("settings.get", { key: KEYS_DOUBLE_TAP_KEY }).then((s) => { if (alive && typeof s.value === "boolean") setDoubleTap(s.value); }).catch(() => {});
       void client.call("settings.get", { key: KEYS_HOLD_KEY }).then((s) => { if (alive && isHoldKey(s.value)) setHold(s.value); }).catch(() => {});
       void client.call("settings.get", { key: KEYS_ASSISTANT_KEY }).then((s) => { if (alive && typeof s.value === "boolean") setChords(s.value); }).catch(() => {});
+      void client.call("settings.get", { key: MEETING_CONSENT_KEY }).then((s) => { if (alive) setConsented(meetingConsentAccepted(s.value)); }).catch(() => {});
     } catch {
       // No socket in this host: the rows show the defaults, as the shortcuts list shows its loading state.
     }
@@ -116,7 +119,12 @@ export function GlobalKeysRows() {
       </li>
       <li className="settings-row" data-setting="assistant-chords"
         title="While this is on, each of these keys pressed with the held key goes to the meeting assistant and not to the app in front.">
-        <div className="settings-row-main"><span className="settings-row-name">Assistant shortcuts</span></div>
+        <div className="settings-row-main">
+          <span className="settings-row-name">Assistant shortcuts</span>
+          {chords && consented === false && (
+            <span className="settings-row-desc">They start working after your first Start in the meeting assistant.</span>
+          )}
+        </div>
         <input type="checkbox" role="switch" className="switch" aria-label="Assistant shortcuts"
           checked={chords} onChange={(e) => changeChords(e.target.checked)} />
       </li>

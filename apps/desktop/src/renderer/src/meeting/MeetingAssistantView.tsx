@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import type { MeetingSummaryOutcome } from "@realm/contracts";
+import { HOLD_KEY_LABEL, type MeetingSummaryOutcome } from "@realm/contracts";
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { useDissolve } from "../components/ScrollFades";
 import { Sheet } from "../components/Sheet";
@@ -117,6 +117,7 @@ export function AssistantBody({ assistant }: { assistant: MeetingAssistant }) {
       )}
       {s.answer && <Answer answer={s.answer} onDismiss={() => assistant.dismissAnswer()} />}
       {s.notes && <NotesLine notes={s.notes} assistant={assistant} />}
+      {s.notice && <p className="meeting-notice" role="status">{s.notice}</p>}
       {s.problem && <p className="meeting-problem" role="alert">{s.problem}</p>}
     </>
   );
@@ -258,6 +259,8 @@ export function AssistantStrip({ assistant, target, onTarget, draft }: {
 
 /** Before the first listen: what listening means, and that telling people is his to do. */
 function ConsentSheet({ assistant }: { assistant: MeetingAssistant }) {
+  const held = useAssistant(assistant).chordsHeld;
+  const key = held && HOLD_KEY_LABEL[held];
   return (
     <Sheet title="Before you start listening" width={340} onClose={() => assistant.dismissSheet()}
       footer={<>
@@ -271,6 +274,7 @@ function ConsentSheet({ assistant }: { assistant: MeetingAssistant }) {
         <li>Each live answer sends the last three minutes of transcript, your custom info and any question you typed to Anthropic, through the Claude CLI on your own Claude account.</li>
         <li>When you stop, the summary sends the transcript, your questions and your custom info to the model chosen for quick chat. If that model runs through an agent other than Claude or Codex, that agent's app keeps its usual copy on the Mac.</li>
         <li>Nothing else leaves the Mac.</li>
+        {key && <li>From any app, {key} R shows the assistant, {key} L listens, {key} G answers and {key} T asks. Turn them off in Settings ▸ Keys.</li>}
       </ul>
     </Sheet>
   );

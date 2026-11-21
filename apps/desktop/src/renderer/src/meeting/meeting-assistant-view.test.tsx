@@ -5,7 +5,7 @@ import { QuickChat } from "../components/QuickChat";
 import { StoreContext, createAppStore, useAppStore } from "../state/store";
 import { appCommands } from "../keys/commands";
 import { fakeApi } from "../state/store.test-fakes";
-import type { AssistantPageAction, LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesResult } from "@realm/contracts";
+import type { AssistantPageAction, HoldKey, LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesResult } from "@realm/contracts";
 import type { LiveAnswersApi } from "../voice/live-answers";
 import type { TranscriptEvents } from "../voice/transcript";
 import { MeetingAssistant } from "./assistant";
@@ -22,7 +22,7 @@ function AssistantPage({ assistant, children }: { assistant: MeetingAssistant; c
   return <>{children}</>;
 }
 
-async function mount(opts: { consented?: boolean; strict?: boolean } = {}) {
+async function mount(opts: { consented?: boolean; strict?: boolean; chordsHeld?: HoldKey | null } = {}) {
   const store = createAppStore(fakeApi());
   await store.getState().boot();
   let events: TranscriptEvents | null = null;
@@ -53,6 +53,7 @@ async function mount(opts: { consented?: boolean; strict?: boolean } = {}) {
     openFile: (space, path) => opened.push([space, path]),
     now: () => 10_000,
     newId: () => "m1",
+    chords: { read: async () => opts.chordsHeld ?? null },
   });
   const page = (
     <StoreContext.Provider value={store}>
@@ -110,6 +111,15 @@ describe("the meeting assistant in the quick chat panel", () => {
     expect(r.consented()).toBe(true);
     expect(r.marks).toEqual([true]);
     expect(screen.queryByRole("dialog", { name: "Before you start listening" })).toBeNull();
+  });
+
+  it("names the assistant's keys with the held key on the sheet, and where to turn them off", async () => {
+    const r = await mount({ chordsHeld: "rightOption" });
+    showAssistant(r.dialog);
+    await act(() => { fireEvent.click(within(r.dialog).getByRole("button", { name: "Start listening" })); });
+    const sheet = await screen.findByRole("dialog", { name: "Before you start listening" });
+    expect([...sheet.querySelectorAll(".meeting-consent li")].at(-1)!.textContent).toBe(
+      "From any app, Right Option R shows the assistant, Right Option L listens, Right Option G answers and Right Option T asks. Turn them off in Settings ▸ Keys.");
   });
 
   it("does not listen when the sheet is put away", async () => {
@@ -304,6 +314,16 @@ describe("the assistant's keys and its auto-answers switch, in the panel", () =>
     expect(r.dialog.querySelector(".quick-chat-title")!.textContent).toBe("Quick chat");
     press("toggle");
     expect(r.dialog.querySelector(".quick-chat-title")!.textContent).toBe("Meeting assistant");
+  });
+
+  it("G with nothing heard says so on the assistant, and asks nothing", async () => {
+    stubBridge();
+    const r = await mount({ consented: true });
+    press("answer");
+    await act(async () => {});
+    expect(r.dialog.querySelector(".quick-chat-title")!.textContent).toBe("Meeting assistant");
+    expect(r.dialog.querySelector(".meeting-notice")?.textContent).toBe("Nothing has been heard yet.");
+    expect(r.asked).toEqual([]);
   });
 
   it("T gives the prompter the keyboard, sending a question", async () => {

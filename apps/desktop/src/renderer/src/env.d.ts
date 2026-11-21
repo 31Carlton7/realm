@@ -30,6 +30,7 @@ interface Window {
       /** The assistant's chords, pressed in any app. */
       onKey?(cb: (action: import("@realm/contracts").AssistantPageAction) => void): () => void;
       keysReady?(): void;
+      setShown?(on: boolean): void;
     };
     /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). Optional like
      *  every bridge: jsdom has none. */

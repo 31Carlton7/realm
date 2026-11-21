@@ -104,6 +104,32 @@ describe("QuickChatPanel", () => {
     expect(panel.window()).toBe(second.win);
   });
 
+  it("opens without the keyboard for the assistant's keys: shown inactive and told, never focused", async () => {
+    const w = fakeWindow();
+    const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));
+    panel.openInactive();
+    expect(panel.isOpen()).toBe(true);
+    await settled();
+    expect(w.calls).toEqual(["protect true", "showInactive", "send quick-chat-panel:shown"]);
+  });
+
+  it("is made ahead for the assistant's chords alone", async () => {
+    let made = 0;
+    const panel = new QuickChatPanel(() => { made++; return { win: fakeWindow().win, ready: Promise.resolve() }; });
+    panel.prepareFor({ chord: false, doubleTap: false, assistant: true }); await settled();
+    expect(made).toBe(1);
+  });
+
+  it("keeps a hidden panel whose page is listening when no key opens it any more", async () => {
+    const w = fakeWindow();
+    const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));
+    panel.openInactive(); await settled();
+    panel.close();
+    panel.prepareFor({ chord: false, doubleTap: false }, true);
+    expect(w.calls).not.toContain("destroy");
+    expect(panel.window()).toBe(w.win);
+  });
+
   it("leaves an open panel on screen when the last key is switched off", async () => {
     const w = fakeWindow();
     const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));
