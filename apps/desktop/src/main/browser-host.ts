@@ -644,6 +644,8 @@ export type ViewHandle = {
   /** The addresses of the popup windows this view's page has open (`windowOpenAction`), its popups'
    *  own included. Read off each window's webContents, never from what a page says. */
   popups(): string[];
+  /** Whether the page was typed into since it last navigated (`TypedSince`). */
+  typed(): boolean;
   /** Where the page is scrolled to, read from the page; null when it cannot be read. */
   readScroll(): Promise<{ x: number; y: number } | null>;
   /** Scroll the page to here once the load that is about to start (or is under way) has finished. */
@@ -1368,9 +1370,16 @@ export class BrowserPaneHost {
 
   /** The addresses of the popup windows this view's pages have open, the one in front's first, then
    *  those of the openers waiting behind it — none when there is no view. */
-  popupsOf(id: string): string[] {
+  popupsOf(id: string): string[] { return this.pagesOf(id).flatMap((page) => page.popups()); }
+
+  /** Whether any of this view's pages was typed into, the one in front or an opener waiting behind it:
+   *  a discard takes them all. False when there is no view. */
+  typedOf(id: string): boolean { return this.pagesOf(id).some((page) => page.typed()); }
+
+  /** This view's pages, the one in front first, then the openers waiting behind it. */
+  private pagesOf(id: string): ViewHandle[] {
     const v = this.views.get(id);
-    return v ? [v.handle, ...v.behind.map((parked) => parked.handle)].flatMap((page) => page.popups()) : [];
+    return v ? [v.handle, ...v.behind.map((parked) => parked.handle)] : [];
   }
 
   /** Every view in one jar, retained or on screen: a deleted profile's panes, which must not go on
