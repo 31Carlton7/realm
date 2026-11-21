@@ -477,9 +477,7 @@ async function meetingsLooks({ app, api }) {
     const clip = await app.page.eval(`(() => { const r = document.querySelector(${js(ROW)}); r.scrollIntoView({ block: "center" });
       const b = r.closest(".settings-list").getBoundingClientRect(); return { x: b.left, y: b.top, width: b.width, height: b.height }; })()`);
     const file = `m3c-settings-${mode}-${look}.png`;
-    const { data } = await app.page.send("Page.captureScreenshot", { format: "png", clip: { ...clip, scale: 2 } });
-    fs.writeFileSync(path.join(OUT_DIR, file), Buffer.from(data, "base64"));
-    row("picture", `Settings ▸ General ▸ Meetings, ${mode} ${look}`, file);
+    row("picture", `Settings ▸ General ▸ Meetings, ${mode} ${look}`, file, await shot(app.page, path.join(OUT_DIR, file), { clip: { ...clip, scale: 2 } }));
   }
   await app.page.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true`);
   await until(() => app.page.eval(`!document.querySelector('input[name="settings-page-tab"]')`), 10_000, "Settings to close").catch(() => {});
@@ -828,8 +826,7 @@ try {
     accepted.listening === true && accepted.visible && accepted.focus === 0 && !accepted.focused && accepted.assistant
     && accepted.tray?.title === "Listening" && accepted.tray.destroyed === false);
   const autoPicture = "m3c-auto-started.png";
-  await picture(page, path.join(OUT_DIR, autoPicture));
-  row("picture", "the panel a call starting opened", autoPicture);
+  row("picture", "the panel a call starting opened", autoPicture, await picture(page, path.join(OUT_DIR, autoPicture)));
 
   await clickByText(page, ".meeting-strip", "Stop");
   await until(() => page.eval(`!document.querySelector(".meeting-mark")`), 10_000, "Stop to take the mark down");
