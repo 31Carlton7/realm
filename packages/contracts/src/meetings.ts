@@ -16,9 +16,19 @@ export function isCalendarAccess(v: unknown): v is CalendarAccess {
   return (CALENDAR_ACCESS as readonly unknown[]).includes(v);
 }
 
-/** What started a live answer: the answer key (Fn G), or a question the other side asked. */
-export const LIVE_ANSWER_TRIGGERS = ["key", "question"] as const;
+/** What started a live answer: the answer key (Fn G), a question the other side asked, or the
+ *  screen key (Fn S), which sends a picture of the person's screen with the ask. */
+export const LIVE_ANSWER_TRIGGERS = ["key", "question", "screen"] as const;
 export type LiveAnswerTrigger = (typeof LIVE_ANSWER_TRIGGERS)[number];
+
+/**
+ * A picture of the person's screen for a `screen` answer, base64 in the request and nowhere else:
+ * the server checks it, hands it to the model and keeps no copy. PNG or JPEG, the two a capture
+ * comes out as. `data` is checked for base64 on the server: zod's own check overflows the stack on
+ * a picture of a few megabytes.
+ */
+export const ScreenPictureSchema = z.object({ mediaType: z.enum(["image/png", "image/jpeg"]), data: z.string() }).strict();
+export type ScreenPicture = z.infer<typeof ScreenPictureSchema>;
 
 /**
  * One step of a live answer, sent only to the window that asked for it. `start` comes first and

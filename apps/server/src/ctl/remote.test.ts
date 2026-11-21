@@ -164,6 +164,10 @@ describe("realm --server: a server on another machine", () => {
     try {
       await expect(c.call("meetings.answer", { lines: [], customInfo: "", trigger: "key" })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(c.call("meetings.answer", { lines: [], customInfo: "", trigger: "key", question: "What did we quote them?" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      const screen = { mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC" };
+      await expect(c.call("meetings.answer", { lines: [], customInfo: "", trigger: "screen", screen })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      // Refused as another machine's before the picture is so much as looked at.
+      await expect(c.call("meetings.answer", { lines: [], customInfo: "", trigger: "screen", screen: { mediaType: "image/jpeg", data: "AAAA" } })).rejects.toMatchObject({ code: "FORBIDDEN" });
       for (const method of ["meetings.cancelAnswer", "meetings.prepareAnswers", "meetings.stopAnswers"] as const) {
         await expect(c.call(method, {}), method).rejects.toMatchObject({ code: "FORBIDDEN" });
       }
