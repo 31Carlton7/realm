@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesParams, SaveMeetingNotesResult } from "@realm/contracts";
 import type { LiveAnswersApi } from "../voice/live-answers";
 import type { VoiceAudio } from "../voice/audio-io";
-import { MeetingTranscript, type TranscriptEvents, type TranscriptHelper, type TranscriptLine } from "../voice/transcript";
+import { MeetingTranscript, type TranscriptEvent, type TranscriptEvents, type TranscriptHelper, type TranscriptLine } from "../voice/transcript";
 import { MeetingAssistant, customInfoText, type Listener } from "./assistant";
 
 type Asked = Parameters<LiveAnswersApi["answer"]>[0];
@@ -144,7 +144,7 @@ describe("MeetingAssistant", () => {
     expect(r.asked).toEqual([{ lines: [r.line("them", "How many seats do you need to start?", 2_000)], customInfo: "I sell seats.", trigger: "question" }]);
   });
 
-  it("asks a typed question through the answer key, with the question in that answer's custom info alone", async () => {
+  it("asks a typed question through the answer key, with the question for that answer alone", async () => {
     const r = rig();
     r.assistant.addContext("Budget is fixed.");
     r.assistant.addContext("They want a pilot.");
@@ -153,19 +153,21 @@ describe("MeetingAssistant", () => {
     r.assistant.ask("  What should I say about price?  ");
     expect(r.asked[0]).toEqual({
       lines: [r.line("me", "We can start small.", 2_000)],
-      customInfo: "Budget is fixed.\nThey want a pilot.\n\nMy question now: What should I say about price?",
+      customInfo: "Budget is fixed.\nThey want a pilot.",
       trigger: "key",
+      question: "What should I say about price?",
     });
     expect(r.state().asked).toEqual([{ id: 1, text: "What should I say about price?", at: 1_000 }]);
     r.events().line(r.line("them", "Does that work for you?", 3_000));
-    expect(r.asked[1]!.customInfo).toBe("Budget is fixed.\nThey want a pilot.");
+    expect(r.asked[1]).toMatchObject({ customInfo: "Budget is fixed.\nThey want a pilot.", trigger: "question" });
+    expect(r.asked[1]!.question).toBeUndefined();
   });
 
-  it("sends a typed question alone when there is no custom info", async () => {
+  it("sends a typed question with no custom info when there is none", async () => {
     const r = rig();
     await r.assistant.start();
     r.assistant.ask("Who is on the call?");
-    expect(r.asked[0]!.customInfo).toBe("My question now: Who is on the call?");
+    expect(r.asked[0]).toMatchObject({ customInfo: "", question: "Who is on the call?" });
   });
 
   it("subscribes to the answers for a question typed before listening starts", () => {
@@ -347,6 +349,32 @@ describe("MeetingAssistant", () => {
     expect(r.state()).toMatchObject({ lines: [], asked: [], answer: null, notes: null, startedAt: 6_000 });
   });
 
+  it("keeps a question typed while a second meeting starts, with its answer", async () => {
+    let opened: (() => void) | null = null;
+    let hold = false;
+    const r = rig({
+      listen: (events) => ({
+        start: () => (hold ? new Promise<void>((res) => { opened = res; }) : Promise.resolve()),
+        stop: async () => { events.ended?.(); },
+      }),
+    });
+    r.assistant.ask("Last meeting's question");
+    await r.assistant.start();
+    await r.assistant.stop();
+    r.tick(5_000);
+    hold = true;
+    const starting = r.assistant.start();
+    expect(r.state().phase).toBe("starting");
+    r.assistant.ask("What is the agenda?");
+    r.answer({ answerId: "a2", t: "start", trigger: "key", model: null });
+    opened!();
+    await starting;
+    // THE MUTANT: listening begins by wiping the question typed since this Start, and its answer.
+    expect(r.state().asked.map((q) => q.text)).toEqual(["What is the agenda?"]);
+    expect(r.state().answer).toMatchObject({ id: "a2", state: "streaming" });
+    expect(r.state()).toMatchObject({ phase: "listening", lines: [], startedAt: 6_000 });
+  });
+
   it("drops lines from a run that has ended", async () => {
     const r = rig();
     await r.assistant.start();
@@ -384,6 +412,35 @@ describe("MeetingAssistant", () => {
     expect(r.state().problem).toBe("Realm is not allowed to use the microphone. Turn it on in System Settings ▸ Privacy & Security ▸ Microphone.");
     expect(r.marks).toEqual([true, false]);
     expect(r.state().phase).toBe("idle");
+  });
+
+  it("ends a run main stopped for it, on the real transcript, and saves what it heard", async () => {
+    const subs = new Set<(e: TranscriptEvent) => void>();
+    const helper: TranscriptHelper = {
+      microphone: async () => "granted",
+      start: async () => ({ t: "ready", stt: "analyzer", startedAt: 1_000, systemAudio: "not decided" }),
+      // The helper is hung: it never answers Stop's finish with "stopped".
+      audio: () => {}, systemAudio: () => {}, finish: () => {}, stop: () => {},
+      onEvent: (cb) => { subs.add(cb); return () => subs.delete(cb); },
+    };
+    const helperSays = (e: TranscriptEvent) => { for (const cb of [...subs]) cb(e); };
+    const r = rig({ listen: (events) => new MeetingTranscript({ helper, audio: silentAudio, events, systemAudio: false }) });
+    await r.assistant.start();
+    expect(r.state().phase).toBe("listening");
+    const heard = r.line("them", "Can you send the deck?", 2_000);
+    helperSays({ t: "line", ...heard });
+    const stopping = r.assistant.stop();
+    await new Promise((res) => setTimeout(res, 0));
+    expect(r.state().phase).toBe("stopping");
+    // Main's grace ran out: it ends the helper and tells the page, as an exit would.
+    helperSays({ t: "error", message: "The speech helper stopped." });
+    await stopping;
+    expect(r.state().phase).toBe("idle");
+    expect(r.marks).toEqual([true, false]);
+    expect(r.saved.map((m) => m.lines)).toEqual([[heard]]);
+    await r.assistant.start();
+    expect(r.state().phase).toBe("listening");
+    expect(r.marks).toEqual([true, false, true]);
   });
 
   it("saves nothing and clears nothing for a Start that never got to listen", async () => {
