@@ -135,9 +135,11 @@ describe("TranscriptHelper.endRun (main ends a window's run)", () => {
       expect(sent, JSON.stringify(page)).toEqual([]);
     }
     const { transcript, run, o, sent } = await started();
-    transcript.endRun({ ...owner(2).o, isCrashed: () => false });
+    const other = owner(2);
+    transcript.endRun({ ...other.o, isCrashed: () => false });
     transcript.command(o, { t: "stop" });
     await flush();
+    expect(other.sent).toEqual([]);
     expect(sent).toEqual([]);
     expect(run.written).toEqual([{ t: "stop" }]);
   });
