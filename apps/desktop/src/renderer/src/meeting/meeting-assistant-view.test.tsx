@@ -70,6 +70,7 @@ async function mount(opts: { consented?: boolean; strict?: boolean } = {}) {
     answer: (e: LiveAnswerEvent) => act(() => answerCb!(e)),
     progress: (p: MeetingNotesProgress) => act(() => progressCb!(p)),
     finishSave: (r: SaveMeetingNotesResult) => finishSave!(r),
+    hearingNotes: () => progressCb !== null,
   };
 }
 
@@ -227,6 +228,8 @@ describe("the meeting assistant in the quick chat panel", () => {
     expect(r.dialog.querySelector(".meeting-notes > span")!.textContent).toBe("Writing the summary…");
     expect(within(r.dialog).getByRole("button", { name: path })).toBeTruthy();
     expect(within(r.dialog).getByRole("button", { name: "Cancel summary" })).toBeTruthy();
+    cleanup();
+    expect(r.hearingNotes()).toBe(false);
   });
 
   it("ends the run when the page goes", async () => {
