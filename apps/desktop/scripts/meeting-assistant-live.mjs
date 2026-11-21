@@ -505,7 +505,7 @@ try {
 
   /* ── meetings, auto: before the sheet is accepted ───────────────────────────────────────────── */
   const meetingsRow = await meetingsLooks(current);
-  const watching = await until(() => watchModes().includes("calls") || null, 10_000, "the calls helper").catch(() => false);
+  const watching = await until(async () => watchModes().includes("calls") || null, 10_000, "the calls helper").catch(() => false);
   row("meetings", "the switch turns it on, and the microphone is watched only then", { ...meetingsRow, watching, modes: watchModes() },
     meetingsRow.before === false && meetingsRow.on === true && watching === true);
   row("meetings", "the row's title says a Stop holds", meetingsRow.title, /After you stop it, it does not start again for that call or meeting\./.test(meetingsRow.title));
