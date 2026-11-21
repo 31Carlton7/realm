@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { generateHandoffNotes, generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap, generateSessionTitle } from "@realm/adapters";
-import { billedGenerators } from "./billed-calls";
+import { ClaudeLiveAnswers, generateHandoffNotes, generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap, generateSessionTitle } from "@realm/adapters";
+import { SCRIPTED_LIVE_ANSWER, ScriptedLiveAnswers, billedGenerators, liveAnswerModel } from "./billed-calls";
 
 describe("the server's billed model calls", () => {
   it("are wired for a real launch", () => {
@@ -26,5 +26,22 @@ describe("the server's billed model calls", () => {
       .resolves.toEqual({ summary: "Scripted recap: the user wrote 2 times, ran 1 command.", hint: null });
     // Never outside the scripted agent: a real launch with the flag set still gets the real call.
     expect(billedGenerators({ REALM_FAKE_RECAP: "1" }).summaryGenerator).toBe(generateSessionRecap);
+  });
+
+  it("answer a meeting on his Claude login only outside the scripted agent, or when a live check names it", () => {
+    expect(liveAnswerModel({})).toBeInstanceOf(ClaudeLiveAnswers);
+    // A harness opening the meeting panel must not start a Claude Code process on his login.
+    expect(liveAnswerModel({ REALM_ENABLE_FAKE_AGENT: "1" })).toBeInstanceOf(ScriptedLiveAnswers);
+    expect(liveAnswerModel({ REALM_ENABLE_FAKE_AGENT: "1", REALM_REAL_LIVE_ANSWERS: "1" })).toBeInstanceOf(ClaudeLiveAnswers);
+  });
+
+  it("script a live answer piece by piece, and stop it on cancel", async () => {
+    const got: string[] = [];
+    const live = new ScriptedLiveAnswers(1);
+    await expect(live.answer({ model: null, prompt: "p", signal: new AbortController().signal, onText: (d) => got.push(d) })).resolves.toBe(SCRIPTED_LIVE_ANSWER.join(""));
+    expect(got).toEqual(SCRIPTED_LIVE_ANSWER);
+    const stop = new AbortController();
+    stop.abort();
+    await expect(live.answer({ model: null, prompt: "p", signal: stop.signal, onText: () => {} })).rejects.toThrow("cancelled");
   });
 });

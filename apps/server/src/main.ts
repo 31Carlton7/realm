@@ -5,7 +5,7 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 import { cleanDictation } from "@realm/adapters";
-import { billedGenerators } from "./billed-calls";
+import { billedGenerators, liveAnswerModel } from "./billed-calls";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { createApp } from "./app";
@@ -96,6 +96,9 @@ try {
     ...billedGenerators(),
     // Only ever asked once Settings ▸ Dictation ▸ Clean up dictation is on, and then only for the words.
     dictationCleanup: cleanDictation,
+    // Only ever asked from a meeting's panel, and then only for the transcript's last minutes and the
+    // custom info typed beside it. Scripted under the scripted agent, as the billed calls are.
+    liveAnswers: liveAnswerModel(),
     // The machine's own home, where `~/.agents`, `~/.claude`, `~/.codex` and `~/.cursor` live. Realm's
     // home is not it, and scanning there found nothing: this is the only caller that may name it.
     userHome: homedir(), codexHome: process.env.CODEX_HOME || undefined,
