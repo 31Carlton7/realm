@@ -81,7 +81,6 @@ export class MeetingListening<Page extends ListeningPage> {
 
   constructor(private readonly d: { mark: (on: boolean) => void; stopHelper: (page: Page) => void }) {}
 
-  /** The page says it is listening, or that it has stopped. */
   set(page: Page, on: boolean): void {
     this.watch(page);
     if (on) this.page = page;
@@ -92,7 +91,7 @@ export class MeetingListening<Page extends ListeningPage> {
   /** The mark's Stop: the page ends its run and saves its notes, or main ends the listening without them. */
   stop(): void {
     const page = this.page;
-    if (!page) { this.d.mark(false); return; }
+    if (!page) return;
     if (page.isDestroyed() || page.isCrashed()) { this.end(page); return; }
     page.send("meeting-assistant:stop");
     this.grace ??= setTimeout(() => { this.grace = null; if (this.page === page) this.end(page); }, STOP_GRACE_MS);
