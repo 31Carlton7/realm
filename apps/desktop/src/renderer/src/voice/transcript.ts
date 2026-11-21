@@ -148,9 +148,10 @@ export class MeetingTranscript {
     if (e.t === "stopped" || (e.t === "error" && !e.source && this.ready)) this.teardown();
   }
 
+  /** Said before the end, so it reaches the listener while the run is still its own. */
   private fail(message: string): void {
-    this.teardown();
     this.deps.events.problem(message);
+    this.teardown();
   }
 
   private teardown(): void {

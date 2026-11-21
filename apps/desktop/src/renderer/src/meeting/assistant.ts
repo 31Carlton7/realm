@@ -93,7 +93,8 @@ export class MeetingAssistant {
   /** Answers that have started, so an `error` for one that never started is still shown. */
   private started = new Set<string>();
   private wrapUp: Promise<void> = Promise.resolve();
-  private offProgress: () => void;
+  /** The run that got as far as listening. One that never did is no meeting: it saves and clears nothing. */
+  private heard: Listener | null = null;
 
   constructor(private readonly deps: AssistantDeps) {
     this.answers = new MeetingAnswers({
@@ -103,7 +104,11 @@ export class MeetingAssistant {
         return this.typed === null ? info : [info, `My question now: ${this.typed}`].filter(Boolean).join("\n\n");
       },
     });
-    this.offProgress = deps.notes.onProgress((p) => {
+  }
+
+  /** Hear how Stop's notes are coming along; the returned function stops hearing. */
+  watchNotes(): () => void {
+    return this.deps.notes.onProgress((p) => {
       const n = this.state.notes;
       if (n?.meetingId === p.meetingId && n.stage !== "saved") this.set({ notes: { ...n, path: p.path, stage: p.stage } });
     });
@@ -186,7 +191,6 @@ export class MeetingAssistant {
   /** The panel's page is going: nothing is left listening. */
   dispose(): void {
     void this.answers.stop();
-    this.offProgress();
     void this.run?.stop();
     if (this.run) this.deps.setListening(false);
     this.run = null;
@@ -195,9 +199,8 @@ export class MeetingAssistant {
 
   private async begin(): Promise<void> {
     if (this.state.phase !== "idle") return;
-    // A Start after a Stop is a new meeting; what was typed before the first Start belongs to this one.
-    const fresh = this.state.stoppedAt !== null ? { lines: [], asked: [], answer: null } : {};
-    this.set({ ...fresh, notes: null, phase: "starting", startedAt: this.deps.now(), stoppedAt: null, partial: {}, systemAudio: null, problem: null });
+    const startedAt = this.deps.now();
+    this.set({ phase: "starting", partial: {}, systemAudio: null, problem: null });
     // The mark goes up before the microphone opens, so there is no moment it is heard without it.
     this.deps.setListening(true);
     this.answers.start();
@@ -216,7 +219,11 @@ export class MeetingAssistant {
     });
     this.run = run;
     await run.start();
-    if (this.run === run && this.getState().phase === "starting") this.set({ phase: "listening" });
+    if (this.run !== run || this.getState().phase !== "starting") return;
+    this.heard = run;
+    // A Start after a Stop is a new meeting; what was typed before the first Start belongs to this one.
+    const fresh = this.state.stoppedAt !== null ? { lines: [], asked: [], answer: null } : {};
+    this.set({ ...fresh, notes: null, phase: "listening", startedAt, stoppedAt: null });
   }
 
   /** The run is over, by Stop or on its own: the mark comes down, the answers end, the notes are saved. */
@@ -224,10 +231,17 @@ export class MeetingAssistant {
     if (this.run !== run) return;
     this.run = null;
     this.deps.setListening(false);
+    if (this.heard !== run) {
+      this.set({ phase: "idle", partial: {} });
+      this.wrapUp = this.answers.stop();
+      return;
+    }
+    this.heard = null;
     this.set({ phase: "idle", stoppedAt: this.deps.now(), partial: {} });
     const { lines, asked, customInfo, startedAt, stoppedAt } = this.state;
     this.wrapUp = this.answers.stop().then(() => {
-      if (lines.length === 0 && asked.length === 0 && customInfo.length === 0) return;
+      // The notes file holds the lines and the questions; custom info alone would make an empty one.
+      if (lines.length === 0 && asked.length === 0) return;
       return this.save({
         title: MEETING_DEFAULT_TITLE, startedAt: startedAt ?? stoppedAt!, endedAt: stoppedAt!, lines: [...lines],
         notes: asked.map((q) => `- Asked the assistant: ${q.text}`).join("\n"), customInfo: customInfoText(customInfo),

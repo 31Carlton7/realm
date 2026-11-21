@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { LiveAnswerEvent, MeetingNotesProgress, SaveMeetingNotesParams, SaveMeetingNotesResult } from "@realm/contracts";
 import type { LiveAnswersApi } from "../voice/live-answers";
-import type { TranscriptEvents, TranscriptLine } from "../voice/transcript";
+import type { VoiceAudio } from "../voice/audio-io";
+import { MeetingTranscript, type TranscriptEvents, type TranscriptHelper, type TranscriptLine } from "../voice/transcript";
 import { MeetingAssistant, customInfoText, type Listener } from "./assistant";
 
 type Asked = Parameters<LiveAnswersApi["answer"]>[0];
 
-function rig(opts: { consented?: boolean; space?: string | null; save?: (p: SaveMeetingNotesParams) => Promise<SaveMeetingNotesResult> } = {}) {
+function rig(opts: {
+  consented?: boolean; space?: string | null; save?: (p: SaveMeetingNotesParams) => Promise<SaveMeetingNotesResult>;
+  listen?: (events: TranscriptEvents) => Listener;
+} = {}) {
   const calls: string[] = [];
   const marks: boolean[] = [];
   const asked: Asked[] = [];
@@ -30,6 +34,7 @@ function rig(opts: { consented?: boolean; space?: string | null; save?: (p: Save
     listen: (e): Listener => {
       events = e;
       calls.push("listen");
+      if (opts.listen) return opts.listen(e);
       return {
         start: async () => { calls.push("start"); },
         stop: async () => { calls.push("stop"); e.ended?.(); },
@@ -51,6 +56,7 @@ function rig(opts: { consented?: boolean; space?: string | null; save?: (p: Save
     now: () => now,
     newId: () => `m${++ids}`,
   });
+  assistant.watchNotes();
   const line = (source: "me" | "them", text: string, at: number): TranscriptLine => ({ source, text, start: at - 1_000, end: at - 500, at });
   return {
     assistant, calls, marks, asked, saved, cancelledSummaries, opened, answerSubs, progressSubs,
@@ -61,6 +67,15 @@ function rig(opts: { consented?: boolean; space?: string | null; save?: (p: Save
     state: () => assistant.getState(),
   };
 }
+
+/** The helper on a Mac where Realm may not use the microphone. */
+function deniedHelper(): TranscriptHelper {
+  return {
+    microphone: async () => "denied", start: async () => ({ t: "unavailable", reason: "unused" }),
+    audio: () => {}, systemAudio: () => {}, finish: () => {}, stop: () => {}, onEvent: () => () => {},
+  };
+}
+const silentAudio: VoiceAudio = { start: async () => {}, stop: () => {} };
 
 describe("MeetingAssistant", () => {
   it("puts up the first-run sheet on a Start before it was accepted, and listens to nothing", async () => {
@@ -344,7 +359,7 @@ describe("MeetingAssistant", () => {
     expect(r.asked).toEqual([]);
   });
 
-  it("takes the mark down, ends the answers and stops hearing progress when the page goes", async () => {
+  it("takes the mark down and ends the answers when the page goes", async () => {
     const r = rig();
     await r.assistant.start();
     r.assistant.dispose();
@@ -352,7 +367,60 @@ describe("MeetingAssistant", () => {
     expect(r.marks).toEqual([true, false]);
     expect(r.calls).toContain("stop answers");
     expect(r.calls).toContain("stop");
-    expect(r.progressSubs.size).toBe(0);
+  });
+
+  it("hears the notes' progress from watchNotes until its own off", () => {
+    const r = rig();
+    const before = r.progressSubs.size;
+    const off = r.assistant.watchNotes();
+    expect(r.progressSubs.size).toBe(before + 1);
+    off();
+    expect(r.progressSubs.size).toBe(before);
+  });
+
+  it("says why a Start failed, on the real transcript, and takes the mark down", async () => {
+    const r = rig({ listen: (events) => new MeetingTranscript({ helper: deniedHelper(), audio: silentAudio, events, systemAudio: true }) });
+    await r.assistant.start();
+    expect(r.state().problem).toBe("Realm is not allowed to use the microphone. Turn it on in System Settings ▸ Privacy & Security ▸ Microphone.");
+    expect(r.marks).toEqual([true, false]);
+    expect(r.state().phase).toBe("idle");
+  });
+
+  it("saves nothing and clears nothing for a Start that never got to listen", async () => {
+    let deny = true;
+    const r = rig({
+      listen: (events) => deny
+        ? new MeetingTranscript({ helper: deniedHelper(), audio: silentAudio, events, systemAudio: true })
+        : { start: async () => {}, stop: async () => { events.ended?.(); } },
+    });
+    r.assistant.addContext("They want a pilot.");
+    r.assistant.ask("Before the call");
+    await r.assistant.start();
+    await Promise.resolve(); await Promise.resolve();
+    expect(r.saved).toEqual([]);
+    expect(r.state()).toMatchObject({ stoppedAt: null, notes: null, customInfo: ["They want a pilot."] });
+    expect(r.state().asked.map((q) => q.text)).toEqual(["Before the call"]);
+    // The retry is the same meeting: the question typed before the first Start is still in it.
+    deny = false;
+    await r.assistant.start();
+    expect(r.state().asked.map((q) => q.text)).toEqual(["Before the call"]);
+    await r.assistant.stop();
+    expect(r.saved.map((m) => m.notes)).toEqual(["- Asked the assistant: Before the call"]);
+    // After that meeting, a Start that fails leaves its words and its notes on screen.
+    deny = true;
+    await r.assistant.start();
+    expect(r.state().asked).toHaveLength(1);
+    expect(r.state().notes).toMatchObject({ meetingId: "m1", stage: "saved" });
+    expect(r.saved).toHaveLength(1);
+  });
+
+  it("saves nothing for a run with custom info and no words", async () => {
+    const r = rig();
+    r.assistant.addContext("I am pitching the stub plan.");
+    await r.assistant.start();
+    await r.assistant.stop();
+    expect(r.saved).toEqual([]);
+    expect(r.state().notes).toBeNull();
   });
 
   it("ends the answers a question asked them for when the page goes, with nothing listening", async () => {
