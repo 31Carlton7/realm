@@ -30,10 +30,12 @@ describe("Start the assistant when a call starts", () => {
     expect(r.calls).toEqual(["watchCalls true", "watchCalls false"]);
   });
 
-  it("starts nothing while it is off", async () => {
-    const r = rig();
+  it("starts nothing while it is off, and does not ask the server about consent", async () => {
+    let reads = 0;
+    const r = rig({ consented: async () => { reads++; return true; } });
     await r.auto.callStarted();
     expect(r.calls).toEqual([]);
+    expect(reads).toBe(0);
   });
 
   it("starts nothing before the first-run sheet was accepted", async () => {
