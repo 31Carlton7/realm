@@ -414,6 +414,21 @@ describe("MeetingAssistant", () => {
     expect(r.saved).toHaveLength(1);
   });
 
+  it("saves nothing for a run stopped before it got to listen", async () => {
+    let opened!: () => void;
+    const r = rig({ listen: (events) => ({ start: () => new Promise<void>((res) => { opened = res; }), stop: async () => { events.ended?.(); } }) });
+    await r.assistant.load();
+    r.assistant.ask("Before the call");
+    const starting = r.assistant.start();
+    expect(r.state().phase).toBe("starting");
+    await r.assistant.stop();
+    opened();
+    await starting;
+    expect(r.saved).toEqual([]);
+    expect(r.state()).toMatchObject({ phase: "idle", stoppedAt: null });
+    expect(r.state().asked).toHaveLength(1);
+  });
+
   it("saves nothing for a run with custom info and no words", async () => {
     const r = rig();
     r.assistant.addContext("I am pitching the stub plan.");
