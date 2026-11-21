@@ -484,6 +484,7 @@ async function meetingsLooks({ app, api }) {
     await sleep(400);
     const clip = await app.page.eval(`(() => { const r = document.querySelector(${js(ROW)}); r.scrollIntoView({ block: "center" });
       const b = r.closest(".settings-list").getBoundingClientRect(); return { x: b.left, y: b.top, width: b.width, height: b.height }; })()`);
+    await pointerAway(app.page);
     const file = `m3c-settings-${mode}-${look}.png`;
     row("picture", `Settings ▸ General ▸ Meetings, ${mode} ${look}`, file, await shot(app.page, path.join(OUT_DIR, file), { clip: { ...clip, scale: 2 } }));
   }
