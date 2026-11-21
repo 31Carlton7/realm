@@ -5,11 +5,11 @@ import { useApp } from "../state/store";
 import type { TranscriptLine, TranscriptSource } from "../voice/transcript";
 import type { AssistantQuestion, AssistantState, MeetingAssistant } from "./assistant";
 
-export function useAssistant(assistant: MeetingAssistant): AssistantState {
+function useAssistant(assistant: MeetingAssistant): AssistantState {
   return useSyncExternalStore(assistant.subscribe, assistant.getState);
 }
 
-export function isListening(s: AssistantState): boolean {
+function isListening(s: AssistantState): boolean {
   return s.phase !== "idle";
 }
 
@@ -91,7 +91,7 @@ type FeedItem =
   | { kind: "question"; q: AssistantQuestion; at: number };
 
 /** Lines and questions in the order they happened, with what each side is saying now at the foot. */
-export function feed(s: AssistantState): FeedItem[] {
+function feed(s: AssistantState): FeedItem[] {
   const items: FeedItem[] = [
     ...s.lines.map((line, i) => ({ kind: "line" as const, line, i, at: line.at })),
     ...s.questions.map((q) => ({ kind: "question" as const, q, at: q.at })),
@@ -128,7 +128,7 @@ function Question({ q }: { q: AssistantQuestion }) {
   );
 }
 
-export function AnswerStream({ q }: { q: AssistantQuestion }) {
+function AnswerStream({ q }: { q: AssistantQuestion }) {
   if (q.state === "unanswered") return <p className="meeting-answer" data-state="none">Live answers are not built yet.</p>;
   if (q.state === "failed") return <p className="meeting-answer" data-state="failed" role="alert">{q.error || "The answer did not come."}</p>;
   return (

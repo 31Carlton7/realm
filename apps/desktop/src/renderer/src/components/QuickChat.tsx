@@ -124,7 +124,7 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
      prompter's own send, as in every prompter, and this leaves it alone. */
   const nothingTyped = draft.trim() === "" && attachments.length === 0;
   useEffect(() => {
-    if (!answered || !nothingTyped) return;
+    if (!answered || !nothingTyped || showing) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Enter" || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
       e.preventDefault(); e.stopPropagation();
@@ -132,7 +132,7 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [answered, nothingTyped, saveAndOpen]);
+  }, [answered, nothingTyped, showing, saveAndOpen]);
 
   /* A saved chat is a session in a list, and a click on its row opens it in a pane. A session is on
      screen once, so the window gives way to the pane. */

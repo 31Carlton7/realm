@@ -5,7 +5,6 @@ import type { AnswerEngine, MeetingNote, MeetingSummaryHook } from "./seams";
 export type Listener = { start(): Promise<void>; stop(): Promise<void> };
 
 export type AssistantDeps = {
-  /** Makes the transcript for one run, reporting to `events`. */
   listen: (events: TranscriptEvents) => Listener;
   /** The first-run sheet's answer, kept as a setting (`MEETING_CONSENT_KEY`). */
   consent: { read(): Promise<boolean>; accept(): Promise<void> };
@@ -97,13 +96,11 @@ export class MeetingAssistant {
     this.finish(run);
   }
 
-  /** Something he wants the assistant to keep in mind. */
   addContext(text: string): void {
     const info = text.trim();
     if (info) this.set({ customInfo: [...this.state.customInfo, info] });
   }
 
-  /** A typed question, answered by the engine when one is plugged in. */
   ask(text: string): void {
     const question = text.trim();
     if (!question) return;
