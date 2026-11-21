@@ -241,8 +241,9 @@ function ConsentSheet({ assistant }: { assistant: MeetingAssistant }) {
         <li>Telling the people on the call is your job. Tell the room puts a notice on your clipboard.</li>
         <li>In California, everyone on the call has to agree before it is recorded.</li>
         <li>Realm keeps the words only. No audio is saved.</li>
-        <li>The summary call sends the transcript, the notes and the custom info to the model chosen for quick chat, and nothing else is sent anywhere. When that model runs through an agent other than Claude or Codex, that agent's own app keeps its usual copy of the conversation on the Mac.</li>
-        <li>Transcript text leaves the Mac in one place only: the live-answer request to Anthropic's Messages API, sent by the Claude CLI on your own Claude account. That request carries the last three minutes of transcript and the custom info you typed, and nothing else.</li>
+        <li>While it listens, each live answer sends the last three minutes of transcript and your custom info to Anthropic, through the Claude CLI on your own Claude account.</li>
+        <li>When you stop, the summary sends the transcript, your questions and your custom info to the model chosen for quick chat. If that model runs through an agent other than Claude or Codex, that agent's app keeps its usual copy on the Mac.</li>
+        <li>Nothing else leaves the Mac.</li>
       </ul>
     </Sheet>
   );

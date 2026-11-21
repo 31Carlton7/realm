@@ -87,7 +87,7 @@ describe("the meeting assistant in the quick chat panel", () => {
     expect(within(dialog).queryByRole("button", { name: "Meeting assistant" })).toBeNull();
   });
 
-  it("asks for the first-run sheet before it listens, with the five things it says", async () => {
+  it("asks for the first-run sheet before it listens, with the six things it says", async () => {
     const r = await mount();
     showAssistant(r.dialog);
     await act(() => { fireEvent.click(within(r.dialog).getByRole("button", { name: "Start listening" })); });
@@ -100,8 +100,9 @@ describe("the meeting assistant in the quick chat panel", () => {
       "Telling the people on the call is your job. Tell the room puts a notice on your clipboard.",
       "In California, everyone on the call has to agree before it is recorded.",
       "Realm keeps the words only. No audio is saved.",
-      "The summary call sends the transcript, the notes and the custom info to the model chosen for quick chat, and nothing else is sent anywhere. When that model runs through an agent other than Claude or Codex, that agent's own app keeps its usual copy of the conversation on the Mac.",
-      "Transcript text leaves the Mac in one place only: the live-answer request to Anthropic's Messages API, sent by the Claude CLI on your own Claude account. That request carries the last three minutes of transcript and the custom info you typed, and nothing else.",
+      "While it listens, each live answer sends the last three minutes of transcript and your custom info to Anthropic, through the Claude CLI on your own Claude account.",
+      "When you stop, the summary sends the transcript, your questions and your custom info to the model chosen for quick chat. If that model runs through an agent other than Claude or Codex, that agent's app keeps its usual copy on the Mac.",
+      "Nothing else leaves the Mac.",
     ]);
     expect(r.marks).toEqual([]);
     await act(() => { fireEvent.click(within(sheet).getByRole("button", { name: "Start listening" })); });
