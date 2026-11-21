@@ -4,7 +4,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { sessionEvent } from "@realm/contracts";
+import { NOTIFICATIONS_SLACK_WEBHOOK_KEY, sessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { SessionEventsStore } from "../store/sessions";
 import type { Simctl } from "../simulators/simctl";
@@ -239,6 +239,16 @@ describe("rpc methods", () => {
       { key: "ui.theme", value: "dark" },
     ]);
     window.close();
+    c.close();
+  });
+  it("settings.set tells no socket of a setting no window applies live, so a webhook never goes out to the CLI's token", async () => {
+    const { c } = await boot();
+    const listener = await client(app.port);
+    await c.call("settings.set", { key: NOTIFICATIONS_SLACK_WEBHOOK_KEY, value: "https://hooks.example/secret" });
+    await c.call("settings.set", { key: "ui.look", value: "glass" });
+    await waitFor(() => listener.events.some((e) => e.event === "settings.changed"));
+    expect(listener.events.filter((e) => e.event === "settings.changed").map((e) => e.payload)).toEqual([{ key: "ui.look", value: "glass" }]);
+    listener.close();
     c.close();
   });
   it("spaces.folderFor names the folder spaces.create then makes — the -2 included — and makes nothing itself", async () => {
