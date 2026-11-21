@@ -152,7 +152,7 @@ export class MeetingAssistant {
     });
     this.run = run;
     await run.start();
-    if (this.run === run && this.state.phase === "starting") this.set({ phase: "listening" });
+    if (this.run === run && this.getState().phase === "starting") this.set({ phase: "listening" });
   }
 
   /** The run is over, by Stop or on its own: the mark comes down and the record goes to the hook. */

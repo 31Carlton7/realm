@@ -67,6 +67,7 @@ describe("MeetingAssistant", () => {
 
   it("puts the mark up before the microphone opens and takes it down on Stop", async () => {
     const r = rig();
+    await r.assistant.load();
     const started = r.assistant.start();
     // listen() ran synchronously, start() is in flight: the mark is already up.
     expect(r.marks).toEqual([true]);
