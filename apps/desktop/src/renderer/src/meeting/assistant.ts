@@ -140,7 +140,6 @@ export class MeetingAssistant {
     this.set({ consented, autoAnswers });
   }
 
-  /** Show the assistant in the panel, or the chat. */
   show(on: boolean): void {
     this.set({ shown: on });
   }
