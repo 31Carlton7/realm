@@ -8,8 +8,7 @@ import { useApp } from "../../state/store";
 
 /**
  * The quick chat panel's two settings: the key that opens it from any app, and whether it is left
- * out of screen shares (main/quick-chat-panel.ts). Each is a row of Keys ▸ From anywhere, the chord
- * first among the keys that open it and the screen-share row last, after them (KeybindingsPanel).
+ * out of screen shares (main/quick-chat-panel.ts). Each is a row of Keys ▸ From anywhere.
  *
  * The key is recorded here rather than written in keybindings.json, because main registers it with
  * the system and the answer can be no. What the system did with it is asked of main, never assumed

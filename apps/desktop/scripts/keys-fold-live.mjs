@@ -208,7 +208,7 @@ try {
       await sleep(600);
     }
     row("open", `launch ${n}: no chord ${js(chord)}, double-tap on; first, second and third open`, times,
-      chord.chord === null && times.every((t) => t.shownMs !== null));
+      chord.chord === null && times[0].madeBefore && times.every((t) => t.shownMs !== null));
     if (n < LAUNCHES) await stop();
   }
 
@@ -248,7 +248,6 @@ try {
   process.exitCode = 1;
   console.error(`FAIL ${err.stack ?? err}`);
   console.error(`windows: ${js(await current?.app.main.eval(`require("electron").BrowserWindow.getAllWindows().map((w) => ({ id: w.id, resizable: w.isResizable(), url: w.webContents.getURL(), visible: w.isVisible() }))`).catch((e) => e.message))}`);
-  console.error(`page: ${await Promise.race([current?.app.page.eval(`location.href + " | " + document.body?.innerText.slice(0, 300)`).catch((e) => `eval failed: ${e.message}`), sleep(3000).then(() => "eval hung")])}`);
 } finally {
   fs.writeFileSync(path.join(OUT_DIR, "rows.txt"), rows.map((r) => `${r.ok === undefined ? "    " : r.ok ? "PASS" : "FAIL"} ${r.group.padEnd(9)} ${r.name}  ${js(r.value)}`).join("\n") + "\n");
   await stop().catch(() => {});

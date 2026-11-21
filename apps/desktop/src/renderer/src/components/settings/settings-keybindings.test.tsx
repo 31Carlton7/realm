@@ -61,6 +61,7 @@ describe("the keybindings panel", () => {
     await mount();
     expect(document.querySelector('[data-setting="quick-chat-shortcut"]')).toBeNull();
     expect(document.querySelector('[data-setting="quick-chat-hide"]')).toBeNull();
+    expect([...document.querySelectorAll(".settings-panel > .field > span")].map((s) => s.textContent)).not.toContain("From anywhere");
   });
 
   it("lists every catalogued command with the chord that currently runs it", async () => {

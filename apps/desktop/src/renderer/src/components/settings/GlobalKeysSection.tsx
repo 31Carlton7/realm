@@ -10,8 +10,7 @@ import { useApp } from "../../state/store";
 const DOUBLE_TAP_LIT_MS = 1200;
 
 /**
- * Settings ▸ Keys ▸ From anywhere: the keys Realm answers while another app is in front. These are
- * its rows after the quick chat's chord and before its screen-share row (KeybindingsPanel).
+ * Settings ▸ Keys ▸ From anywhere: the keys Realm answers while another app is in front.
  *
  * Main owns the helper that sees them and this page only reports it. While the page is up it watches,
  * so "Try it" can show a double-tap and the held key arriving: a keyboard that handles Fn itself
