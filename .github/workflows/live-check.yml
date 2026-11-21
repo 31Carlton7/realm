@@ -23,7 +23,6 @@ on:
         options:
           - meeting-assistant-live.mjs
           - schedule-mode-live.mjs
-  pull_request:
 
 permissions:
   contents: read
@@ -34,33 +33,33 @@ env:
 
 jobs:
   live:
-    name: Live (${{ inputs.script || 'schedule-mode-live.mjs' }})
+    name: Live (${{ inputs.script }})
     runs-on: ${{ vars.RUNNER_MACOS || 'macos-latest' }}
     timeout-minutes: 15
     env:
-      SCRIPT: ${{ inputs.script || 'schedule-mode-live.mjs' }}
+      SCRIPT: ${{ inputs.script }}
       OUT: ${{ github.workspace }}/live-out
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: ./.github/actions/setup
         with:
           hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
 
-      # The setup wrote the Hugeicons token to ~/.npmrc for the install. The check runs a branch's code,
-      # so nothing it can read, and nothing it can put in the artifact, may hold a secret.
+      # The setup wrote the Hugeicons token to ~/.npmrc for the install (and checkout keeps no token in
+      # .git/config). The check runs a branch's code, so nothing it can read, and nothing it can put in the
+      # artifact, may hold a secret.
       - name: Remove the Hugeicons token
         run: |
-          test -f ~/.npmrc || exit 0
           sed -i '' '/_authToken/d' ~/.npmrc
           if grep -q '_authToken' ~/.npmrc; then echo "::error::~/.npmrc still holds a token"; exit 1; fi
 
       - run: pnpm build
 
-      # The checks read their output folder from either name, so both are set.
+      # Some checks read LIVE_OUT and others LIVE_OUT_DIR, so both name the one folder.
       - name: Run ${{ env.SCRIPT }}
         env:
           LIVE_OUT: ${{ env.OUT }}
@@ -75,4 +74,3 @@ jobs:
         with:
           name: live-${{ env.SCRIPT }}
           path: live-out
-          if-no-files-found: warn
