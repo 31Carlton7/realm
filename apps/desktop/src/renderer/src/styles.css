@@ -2748,6 +2748,42 @@ button.panel-title:hover { background: var(--rl-hover); }
 }
 
 
+/* The meeting assistant, the quick chat panel's other view (meeting/MeetingAssistantView.tsx).
+   The red mark is a state, so it takes the state's red: a dot and the word, beside the bar's title,
+   in either view, for as long as it listens. */
+.meeting-mark { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+  font-weight: var(--fw-label); color: var(--rl-text-bright); white-space: nowrap; }
+.meeting-mark-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+.meeting-empty { padding: 0 32px; }
+/* The words, as they come: one column read top to bottom, the speaker and the time beside each line. */
+.meeting-feed { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 10px;
+  --fade-top-h: 16px; --fade-h: 20px; }
+.meeting-context { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
+  background: var(--stripe); font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.meeting-context > p { margin: 0; }
+.meeting-lines { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.meeting-line { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; column-gap: 8px; align-items: baseline;
+  font-size: 13px; line-height: 18px; }
+.meeting-who { font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.meeting-line[data-source="me"] .meeting-who { color: var(--rl-text-bright); }
+.meeting-words { min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.meeting-line[data-partial] .meeting-words { color: var(--rl-text-dim); }
+.meeting-time { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.meeting-question { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--stripe); }
+.meeting-asked { margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.meeting-answer { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); white-space: pre-wrap; }
+.meeting-answer:is([data-state="none"], [data-state="streaming"]:empty) { color: var(--rl-text-dim); }
+.meeting-answer[data-state="failed"] { color: var(--rl-danger); }
+.meeting-stopped { margin: 0; font-size: 12px; color: var(--rl-text-dim); text-align: center; }
+.meeting-problem { flex: none; margin: 0; padding: 6px 14px; font-size: 12px; line-height: 16px; color: var(--rl-danger); }
+/* Over the prompter, on the window's own ground: what it sends, then the notice and Start or Stop. */
+.meeting-strip { flex: none; display: flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 10px; }
+.meeting-tell { flex: none; margin-left: auto; }
+.meeting-start, .meeting-stop { flex: none; }
+.meeting-stop { color: var(--rl-danger); }
+.meeting-consent { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0 0 0 18px;
+  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+
 /* No ground of its own. The pane's shows through — the one translucent sheet `.main` lays under every
    pane, the transcript included — so a shell reads as the same surface as the chat beside it, where
    a fill of the same token painted over that sheet was a darker slab. xterm's own background is

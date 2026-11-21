@@ -58,6 +58,8 @@ export type TranscriptEvents = {
   partial(source: TranscriptSource, text: string): void;
   systemAudio(state: SystemAudioState, message?: string): void;
   problem(message: string): void;
+  /** Listening is over, by Stop or because it could not go on. Called once. */
+  ended?(): void;
 };
 
 /** A tenth of a second of audio per message to the helper, as dictation sends it. */
@@ -152,6 +154,7 @@ export class MeetingTranscript {
   }
 
   private teardown(): void {
+    const first = !this.finished;
     this.finished = true;
     for (const off of this.offs) off();
     this.offs = [];
@@ -159,5 +162,6 @@ export class MeetingTranscript {
     this.deps.helper.stop();
     this.settle?.();
     this.settle = null;
+    if (first) this.deps.events.ended?.();
   }
 }

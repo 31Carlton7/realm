@@ -419,7 +419,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueTurn = null, queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, goalActive = false, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything", dictation = null }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueTurn = null, queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, goalActive = false, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, bare = false, placeholder = "Ask anything", dictation = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -434,6 +434,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    * this prompter's "+" too, and the row above the card is where it is seen.
    */
   compact?: boolean;
+  /** Words only: no "+" and no model picker, for a prompter whose words go to something that is not
+   *  the session's agent (the quick chat panel's meeting assistant). */
+  bare?: boolean;
   /** What the empty box says. The media viewer's prompter names the file it is asking about. */
   placeholder?: string;
   /**
@@ -1500,13 +1503,13 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
           <div className="composer-opts">
             {/* The "+" opens the add menu now (Plan 12 W1) — its Add files… reaches the SAME picker
                 through the same handler the bare attach button used to call directly. */}
-            <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
+            {!bare && <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
               onSkills={() => setSkillPickerOpen(true)} canSkills={allSkills.length > 0}
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
               onAddSubAgent={session.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind) ? null : () => setSubAgentOpen(true)}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
-              modeRows={modeRows} btnRef={plusRef} compact={compact} />
+              modeRows={modeRows} btnRef={plusRef} compact={compact} />}
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it
@@ -1569,10 +1572,10 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             {/* ONE chip, not two. A harness is only ever chosen FOR a model, so that choice lives on
                 the model's own row in the picker, where there is one. The chip still wears the
                 harness's mark, so nothing a harness chip said is lost. */}
-            <ModelPicker kind={kind} model={session.model} agentProbe={agentProbe} ran={ran} effort={effort} rows={rows} info={modelInfo}
+            {!bare && <ModelPicker kind={kind} model={session.model} agentProbe={agentProbe} ran={ran} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
               onPick={onPickModel} fast={fast} eggs={eggs} account={account}
-              switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />
+              switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />}
             {dictation && (
               <button type="button" className="icon-btn composer-attach composer-dictate" aria-pressed={dictate.live !== null}
                 aria-label={dictate.live ? "Stop dictation" : "Dictate"} title={dictate.live ? "Stop dictation (Esc)" : "Dictate"}

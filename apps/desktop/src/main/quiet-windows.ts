@@ -67,6 +67,23 @@ export function quietKeyable(w: BrowserWindow): void {
 }
 const takesKey = (w: BrowserWindow) => process.env.REALM_QUIET_REAL_KEY === "1" && (w as Keyable)[KEYABLE] === true;
 
+/** A menu-bar item quiet mode keeps out of the menu bar: what it would say, and its picture as a PNG,
+ *  kept under its name on `globalThis[Symbol.for("realm.quietTrays")]` for a check to read over
+ *  `--inspect`. Global because this module may be loaded twice. */
+export type QuietTrayRecord = { title: string; toolTip: string; menu: string[]; png: string; destroyed: boolean };
+export function quietTray(name: string, image: { toPNG(): Buffer }) {
+  const g = globalThis as { [k: symbol]: Record<string, QuietTrayRecord> | undefined };
+  const all = (g[Symbol.for("realm.quietTrays")] ??= {});
+  const record: QuietTrayRecord = { title: "", toolTip: "", menu: [], png: image.toPNG().toString("base64"), destroyed: false };
+  all[name] = record;
+  return {
+    setTitle: (t: string) => { record.title = t; },
+    setToolTip: (t: string) => { record.toolTip = t; },
+    setContextMenu: (template: { label?: string }[]) => { record.menu = template.flatMap((i) => (i.label ? [i.label] : [])); },
+    destroy: () => { record.destroyed = true; },
+  };
+}
+
 /** Once per process, though the module may be loaded twice: a live check's wrapper loads its own
  *  build of this file before Realm's main, which carries another. */
 const INSTALLED = Symbol.for("realm.quietWindows");

@@ -34,6 +34,16 @@ contextBridge.exposeInMainWorld("realm", {
    *  (main/quick-chat-panel.ts); undefined in a Realm window. */
   surface: arg("realm-surface") || undefined,
   /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). */
+  /** The quick chat panel's meeting assistant (main/listening-mark.ts): the menu bar's red mark while
+   *  it listens, and the Stop on the mark's menu. Answered only for the panel's own page. */
+  meetingAssistant: {
+    setListening: (on: boolean): void => ipcRenderer.send("meeting-assistant:listening", on),
+    onStop: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("meeting-assistant:stop", handler);
+      return () => ipcRenderer.removeListener("meeting-assistant:stop", handler);
+    },
+  },
   quickChatPanel: {
     /** Put the panel away. Answered only for the panel's own page. */
     hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),

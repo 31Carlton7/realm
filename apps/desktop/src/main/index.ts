@@ -63,7 +63,8 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
-import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietWindowsOn } from "./quiet-windows";
+import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
+import { ListeningMark, listeningDot } from "./listening-mark";
 import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
@@ -789,6 +790,34 @@ ipcMain.on("quick-chat:changed", (e) => {
   for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send("quick-chat:changed");
 });
 app.on("will-quit", () => quickChatShortcut.release());
+
+/** The menu bar's red mark while the panel's meeting assistant listens (listening-mark.ts). */
+const listeningMark = new ListeningMark({
+  createTray: () => {
+    const { buffer, ...size } = listeningDot();
+    const image = nativeImage.createFromBitmap(buffer, size);
+    // A live check's app keeps the item out of the person's menu bar and says what it would show.
+    if (quiet) return quietTray("listening", image);
+    const tray = new Tray(image);
+    return {
+      setTitle: (t) => tray.setTitle(t),
+      setToolTip: (t) => tray.setToolTip(t),
+      setContextMenu: (template) => tray.setContextMenu(Menu.buildFromTemplate(template)),
+      destroy: () => tray.destroy(),
+    };
+  },
+  actions: {
+    show: () => quickChatPanel.open(),
+    stop: () => quickChatPanel.window()?.webContents.send("meeting-assistant:stop"),
+  },
+});
+const listeningPages = new WeakSet<WebContents>();
+ipcMain.on("meeting-assistant:listening", (e, on: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  if (!listeningPages.has(e.sender)) { listeningPages.add(e.sender); e.sender.once("destroyed", () => listeningMark.set(false)); }
+  listeningMark.set(on === true);
+});
+app.on("will-quit", () => listeningMark.set(false));
 
 /**
  * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
