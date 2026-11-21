@@ -23,6 +23,7 @@ on:
         options:
           - meeting-assistant-live.mjs
           - schedule-mode-live.mjs
+          - settings-set-live.mjs
 
 permissions:
   contents: read
