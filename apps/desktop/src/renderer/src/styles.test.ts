@@ -6273,3 +6273,13 @@ it("draws a space's page in tints that thin with the pane, on the app's own pain
   // One checkout a row, through the fold's own wrapper: a two-column grid folds after six, not three.
   expect(bodiesFor(".env-field .env-list").join(" ")).toContain("grid-template-columns: minmax(0, 1fr)");
 });
+
+describe("the quick chat panel", () => {
+  it("puts a sheet opened in the panel over the card that fills it", () => {
+    const z = (body: string) => Number(/z-index:\s*(\d+)/.exec(body)?.[1] ?? NaN);
+    const card = Math.max(...bodiesFor(".quick-chat").map(z).filter(Number.isFinite));
+    const sheet = Math.max(...bodiesFor(':root[data-surface="quick-chat"] .sheet-backdrop').map(z).filter(Number.isFinite));
+    // THE MUTANT: the panel's sheet left at the window's 40, under the card's 70.
+    expect(sheet).toBeGreaterThan(card);
+  });
+});

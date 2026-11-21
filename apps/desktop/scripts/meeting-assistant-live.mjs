@@ -247,11 +247,12 @@ try {
   const hidden = { contentProtected: await app.main.eval(`${panelOf}.isContentProtected?.() ?? null`),
     mark: await page.eval(`!!document.querySelector(".quick-chat-bar .meeting-mark")`) };
   row("hidden", "hidden from screen sharing while listening, and the mark still drawn", hidden, hidden.contentProtected !== false && hidden.mark);
+  await everyLook(current, page, "listening");
+  // After the pictures: its toast would stand over the strip in them.
   await clickByText(page, ".meeting-strip", "Tell the room");
   await sleep(200);
   const copied = await page.eval(`window.__copied`);
   row("room", "Tell the room puts the notice on the clipboard", copied, copied.length === 1 && /transcribe this call/.test(copied[0]));
-  await everyLook(current, page, "listening");
 
   /* ── stop ──────────────────────────────────────────────────────────────────────────────────── */
   await clickByText(page, ".meeting-strip", "Stop");
@@ -262,6 +263,7 @@ try {
   row("stop", "Stop takes both marks down and keeps the words", stopped, stopped.lines === LINES.length && stopped.tray?.destroyed === true && stopped.again);
   const consent = (await api.call("settings.get", { key: CONSENT_KEY })).value;
   row("consent", "the acceptance kept as the setting", consent, typeof consent === "number" && consent > 0);
+  await until(() => page.eval(`!document.querySelector(".toast")`), 20_000, "the toast to leave").catch(() => {});
   await everyLook(current, page, "stopped");
   page.close();
 } catch (err) {
