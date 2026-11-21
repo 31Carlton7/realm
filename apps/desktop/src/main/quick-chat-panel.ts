@@ -95,6 +95,14 @@ export class QuickChatPanel<W extends PanelWindow> {
     if (made) void made.ready.catch(() => this.forget(made));
   }
 
+  /** Made ahead while a key opens it from another app: its chord, or a double-tap of Command. With
+   *  neither, a window made ahead is destroyed rather than kept hidden, so no renderer is held for a
+   *  panel nothing can open; one that is open is left to be put away. */
+  prepareFor(keys: { chord: boolean; doubleTap: boolean }): void {
+    if (keys.chord || keys.doubleTap) this.prepare();
+    else if (this.made && !this.isOpen()) this.forget(this.made);
+  }
+
   /** The window is made on the first open, unless `prepare` made it already, and kept, so the next
    *  one does not wait on a page load. */
   open(): void {

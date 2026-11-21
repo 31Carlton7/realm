@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PairRequestSchema, PairingWindowSchema, RemoteStatusSchema } from "./remote";
+import { LIVE_ANSWER_TRIGGERS, LiveAnswerEventSchema } from "./meetings";
 import type { CliJobStart, CliStatus } from "./cli";
 import { DICTATION_MAX } from "./voice";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema, QueueTurnSchema } from "./entities";
@@ -50,6 +51,7 @@ import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema, PendingMoveSchema 
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
+import { MeetingNotesListSchema, MeetingNotesProgressSchema, MeetingTranscriptLineSchema, SaveMeetingNotesParamsSchema, SaveMeetingNotesResultSchema } from "./meeting-notes";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
 import { TerminalProgramSchema, TerminalStatusSchema } from "./terminal-programs";
@@ -1033,6 +1035,20 @@ export const Methods = {
    *  documents pane, and answer with everything the store needs to arrange the panes. */
   "lectures.start": { params: z.object({ spaceId: IdSchema, title: z.string().default("") }), result: StartLectureResultSchema },
   "lectures.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ lectures: z.array(LectureSchema) }) },
+  /** A meeting ended: write its notes as one Markdown file under the space's `meetings/` folder. The
+   *  file goes to disk with the person's notes and the transcript before the model is asked for
+   *  anything, so no failure of the summary costs the transcript. Answers once the file is final;
+   *  `meetings.notesProgress` says where it has got to meanwhile. The transcript, the notes and the
+   *  custom info go to the Quick chat model for the summary. Realm keeps them nowhere but the file;
+   *  Claude and Codex are asked to keep no session file of the turn, and any other agent keeps what
+   *  its own app always keeps. */
+  "meetings.saveNotes": { params: SaveMeetingNotesParamsSchema, result: SaveMeetingNotesResultSchema },
+  /** Stop the summary `meetings.saveNotes` is waiting on. The file keeps its notes and transcript and
+   *  says the summary was cancelled. `cancelled` is false when no summary was being written. */
+  "meetings.cancelSummary": { params: z.object({ meetingId: z.string() }), result: z.object({ cancelled: z.boolean() }) },
+  /** The Markdown files in a space's `meetings/` folder, the newest meeting first, and the folder
+   *  their paths are relative to. */
+  "meetings.list": { params: z.object({ spaceId: IdSchema }), result: MeetingNotesListSchema },
   /** Plynn's meetings folder, newest first. `available` is false when the folder does not exist —
    *  Plynn not installed, or no meeting recorded yet — which the sheet says instead of showing an
    *  empty list that looks like a bug. A pure read. */
@@ -1146,6 +1162,22 @@ export const Methods = {
    *  both hand back the raw words. */
   "dictation.clean": { params: z.object({ text: z.string().min(1).max(DICTATION_MAX) }).strict(),
     result: z.object({ outcome: z.enum(["off", "cleaned", "kept", "failed"]), text: z.string(), reason: z.string().optional() }) },
+
+  /** A meeting's live answer (`apps/server/src/meetings/live-answers.ts`). The transcript's last few
+   *  minutes and the prompter's custom info go to the quick chat model, and nothing else does:
+   *  `.strict()`, and only Realm's own app may ask. It answers at once with the answer's id; the text
+   *  streams to the asking window as `meetings.answer` events. `customInfo` has no bound: a long brief
+   *  is warned about beside the prompter, not refused. */
+  "meetings.answer": { params: z.object({ lines: z.array(MeetingTranscriptLineSchema).max(5_000), customInfo: z.string(), trigger: z.enum(LIVE_ANSWER_TRIGGERS) }).strict(),
+    result: z.object({ answerId: z.string() }) },
+  /** Stop the answer in flight, if any: its window gets `cancelled`. */
+  "meetings.cancelAnswer": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
+  /** Start the model's engine for the first answer, as listening starts, so it does not wait on a
+   *  cold start. Sends nothing to the model. */
+  "meetings.prepareAnswers": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
+  /** The meeting is over: stop the answer in flight and let the started engine go now, not when it
+   *  idles out. */
+  "meetings.stopAnswers": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
 
   /* The execution sandbox: what an agent CLI or a shell in this space is allowed to touch.
      Deliberately NOT `settings.get`/`settings.set` on a raw key, even though that is where the rows
@@ -2427,6 +2459,8 @@ export const Events = {
    * pane would fight its own autosave.
    */
   "documents.fileChanged": z.object({ environmentId: IdSchema, path: z.string(), hash: z.string().nullable() }),
+  /** Where `meetings.saveNotes` has got to with one meeting's file. */
+  "meetings.notesProgress": MeetingNotesProgressSchema,
   /** `documents.openPath` ran (Plan 22): a mounted pane over this workspace opens the tab, and the
    *  store puts the item on screen if the space is active. Carries the item so the store need not
    *  re-list. `openedBy` is the session whose agent asked, which is the session whose side pane the
@@ -2442,6 +2476,8 @@ export const Events = {
    *  (null). Whole state, like every broadcast but `terminal.data` — a client that missed one reads
    *  `terminals.programs` and is current again. */
   "terminal.program": z.object({ terminalId: IdSchema, program: TerminalProgramSchema.nullable() }),
+  /** A step of a live answer, sent only to the window that asked (`meetings.answer`). */
+  "meetings.answer": LiveAnswerEventSchema,
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),

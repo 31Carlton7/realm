@@ -59,6 +59,7 @@ import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
 import type { QuickChatEngines } from "../sessions/quick-chat";
+import type { LiveAnswers } from "../meetings/live-answers";
 import type { NotificationsService } from "../notifications/service";
 import type { UsageService } from "../usage/service";
 import type { GraphifyService } from "../graphify/service";
@@ -79,6 +80,7 @@ import type { ForkService } from "../sessions/fork";
 import type { FailoverService } from "../sessions/failover";
 import type { ImportService } from "../import/service";
 import type { LectureService } from "../school/lectures";
+import type { MeetingNotesService } from "../meetings/service";
 import type { PlynnService } from "../school/plynn";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
@@ -106,7 +108,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; quickChats: QuickChatEngines; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; tabContext: TabContextReader; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService; dictation: DictationCleaner;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; quickChats: QuickChatEngines; liveAnswers: LiveAnswers; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; tabContext: TabContextReader; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; meetingNotes: MeetingNotesService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService; dictation: DictationCleaner;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -332,6 +334,21 @@ export function registerMethods(d: Deps): void {
   reg("accounts.remove", async (p) => { await d.accounts.remove(p.id); return { ok: true as const }; });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("dictation.clean", (p) => d.dictation.clean(p.text));
+  // A meeting's live answers are the app's alone: the owner's `token:<id>` socket on another machine
+  // may not start an engine, cancel an answer or end the meeting here. Raw `rpc.register` for the
+  // answer, like `browserHost.register`: it streams to the asking socket alone, so no other window,
+  // phone or CLI ever receives the words.
+  const fromTheApp = (ctx: CallContext) => {
+    if (!ctx.client || ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only Realm's own app can ask for live answers");
+    return ctx.client;
+  };
+  rpc.register("meetings.answer", Methods["meetings.answer"].params, async (p, ctx) => {
+    const client = fromTheApp(ctx);
+    return d.liveAnswers.ask(p, (e) => { if (!rpc.sendTo(client, "meetings.answer", e) && e.t !== "cancelled") d.liveAnswers.cancel(); });
+  });
+  reg("meetings.cancelAnswer", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.cancel(); return { ok: true as const }; });
+  reg("meetings.prepareAnswers", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.prepare(); return { ok: true as const }; });
+  reg("meetings.stopAnswers", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.stop(); return { ok: true as const }; });
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
     // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output
@@ -1019,6 +1036,9 @@ export function registerMethods(d: Deps): void {
   reg("documents.progressStorage", (p) => d.documents.progressStorage(p));
   reg("lectures.start", (p) => d.lectures.start(p));
   reg("lectures.list", async (p) => ({ lectures: await d.lectures.list(p.spaceId) }));
+  reg("meetings.saveNotes", (p) => d.meetingNotes.save(p));
+  reg("meetings.cancelSummary", (p) => ({ cancelled: d.meetingNotes.cancelSummary(p.meetingId) }));
+  reg("meetings.list", (p) => d.meetingNotes.list(p.spaceId));
   reg("plynn.list", () => d.plynn.list());
   reg("plynn.import", (p) => d.plynn.import(p));
 

@@ -1,4 +1,4 @@
-import { generateHandoffNotes, generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap, generateSessionTitle } from "@realm/adapters";
+import { ClaudeLiveAnswers, type LiveAnswerModel, type LiveAnswerRequest, generateHandoffNotes, generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap, generateSessionTitle } from "@realm/adapters";
 
 /**
  * The server's own billed model calls — a model-written sidebar title on a session's first message,
@@ -28,4 +28,36 @@ export function billedGenerators(env: NodeJS.ProcessEnv = process.env): {
 
 async function scriptedRecap({ facts }: { facts: string }): Promise<{ summary: string; hint: string | null }> {
   return { summary: `Scripted recap: ${facts.split("\n").map((l) => l.replace(/^- /, "")).join(", ")}.`, hint: null };
+}
+
+/**
+ * What a meeting's live answers run on: the person's Claude login, or under the scripted agent a
+ * scripted answer, so a live check that opens the meeting panel neither starts a Claude Code process
+ * nor sends a transcript anywhere. A live check that needs the real engine (pointed at a stand-in
+ * API) asks for it with `REALM_REAL_LIVE_ANSWERS=1`.
+ */
+export function liveAnswerModel(env: NodeJS.ProcessEnv = process.env): LiveAnswerModel {
+  if (env.REALM_ENABLE_FAKE_AGENT === "1" && env.REALM_REAL_LIVE_ANSWERS !== "1") return new ScriptedLiveAnswers();
+  return new ClaudeLiveAnswers();
+}
+
+export const SCRIPTED_LIVE_ANSWER = ["Scripted answer: ", "twelve seats ", "to start, ", "on the annual plan."];
+
+export class ScriptedLiveAnswers implements LiveAnswerModel {
+  constructor(private readonly tickMs = 30) {}
+
+  prepare(): void {}
+
+  async answer(req: LiveAnswerRequest): Promise<string> {
+    for (const piece of SCRIPTED_LIVE_ANSWER) {
+      await new Promise((r) => setTimeout(r, this.tickMs));
+      if (req.signal.aborted) throw new Error("cancelled");
+      req.onText(piece);
+    }
+    return SCRIPTED_LIVE_ANSWER.join("");
+  }
+
+  release(): void {}
+
+  close(): void {}
 }

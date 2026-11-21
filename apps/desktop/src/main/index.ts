@@ -760,10 +760,10 @@ async function readQuickChatPanelSettings(): Promise<void> {
   } catch { /* the bridge dropped; the next connection reads them */ }
 }
 /** The panel's window is made ahead of the first press, hidden, once there is a key that opens it.
- *  With no chord there is nothing to open it from another app, and a renderer kept for it would be
- *  memory spent on nothing. */
+ *  With no chord and no double-tap there is nothing to open it from another app, and a renderer kept
+ *  for it would be memory spent on nothing. */
 function preparePanel(): void {
-  if (quickChatShortcut.current().registered) quickChatPanel.prepare();
+  quickChatPanel.prepareFor({ chord: quickChatShortcut.current().registered, doubleTap: realmKeys.doubleTapOn });
 }
 ipcMain.handle("quick-chat-panel:shortcut", (): QuickChatShortcutState => quickChatShortcut.current());
 ipcMain.handle("quick-chat-panel:set-shortcut", (_e, chord: unknown): QuickChatShortcutState => {
@@ -2161,10 +2161,11 @@ async function readKeysPreferences() {
     const [doubleTap, hold] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
     if (isHoldKey(hold?.value)) realmKeys.setHoldKey(hold.value);
     realmKeys.setDoubleTap(typeof doubleTap?.value === "boolean" ? doubleTap.value : KEYS_DOUBLE_TAP_DEFAULT);
+    preparePanel();
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
 ipcMain.handle("keys:state", () => realmKeys.state);
-ipcMain.handle("keys:set-double-tap", (_e, on: unknown) => { realmKeys.setDoubleTap(on === true); });
+ipcMain.handle("keys:set-double-tap", (_e, on: unknown) => { realmKeys.setDoubleTap(on === true); preparePanel(); });
 ipcMain.handle("keys:set-hold", (_e, key: unknown) => { if (isHoldKey(key)) realmKeys.setHoldKey(key); });
 ipcMain.on("keys:watch", (e, on: unknown) => {
   const contents = e.sender;

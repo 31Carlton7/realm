@@ -1660,7 +1660,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   shorter than it should be has to say why. The toolbar rides under the page's head, in the column,
   and scrolls away with it.
 - A documents pane with nothing open is a home, not a void: what this session made and was given,
-  then the Library's, under one search that also reaches the checkout's own names, and a New that
+  then the space's meetings, then the Library's, under one search that also reaches the checkout's
+  own names, and a New that
   says what every kind it writes is — a code file among them, since nothing else on screen says a
   `.py` is a document the pane can write. Finding a file is that search; a palette that found one
   and opened it somewhere else was a second door to the same room.

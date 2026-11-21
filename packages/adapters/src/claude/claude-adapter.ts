@@ -510,6 +510,11 @@ export class ClaudeAdapter implements AgentAdapter {
         ? { resumeSessionAt: opts.resumeAt, resumeDropsTurn: opts.resumeDropsTurn }
         : {}),
       systemPrompt: opts.systemContext ? { type: "preset", preset: "claude_code", append: opts.systemContext } : undefined,
+      ...(opts.persistSession === false ? { persistSession: false } : {}),
+      // `tools: []` and not `allowedTools: []`, which leaves every built-in tool defined. Without
+      // `settingSources: []` the CLI loads the person's own settings, and whatever those already
+      // allow runs with no permission request for anyone to refuse.
+      ...(opts.answerOnly ? { tools: [], settingSources: [], strictMcpConfig: true } : {}),
       // A RECORD keyed by name, not an array: `sdk.d.ts` `mcpServers?: Record<string, McpServerConfig>`.
       // Some documentation shows an array; disk wins.
       mcpServers: claudeMcpServers(opts.mcpServers) as Options["mcpServers"],
@@ -759,9 +764,10 @@ export class ClaudeAdapter implements AgentAdapter {
         // block and an `apiKeyHelper`-minted key — has to reach the CLI through the child env
         // instead. Carried between `process.env` and `opts.env`, so Realm's own values still win.
         // Here rather than beside the `env` above because `start` is synchronous and the helper is a
-        // child process; the first prompt waits on the input queue either way. ONLY the skills case:
+        // child process; the first prompt waits on the input queue either way. ONLY the skills case and
+        // an answer-only turn, the two that pass `settingSources: []`:
         // everyone else's CLI reads the file itself, and their env must stay byte-for-byte what it was.
-        if (opts.skills) options.env = { ...MCP_OUTPUT_ENV, ...CLAUDE_LISTING_ENV, ...process.env, ...(await carrySettingsAuth({ env: { ...process.env, ...opts.env }, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
+        if (opts.skills || opts.answerOnly) options.env = { ...MCP_OUTPUT_ENV, ...CLAUDE_LISTING_ENV, ...process.env, ...(await carrySettingsAuth({ env: { ...process.env, ...opts.env }, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
         if (disposed) return; // dispose stopped waiting mid-carry; a dead session must not spawn a CLI
         q = this.queryFn({ prompt: input, options });
         qSpawned();

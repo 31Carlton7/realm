@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { tempDir } from "@realm/test-utils";
-import { sessionEvent } from "@realm/contracts";
+import { sessionEvent, type MemoryPressure } from "@realm/contracts";
 import type { ActObservation, ObservedElement } from "../mcp/act-observer";
 import { LayaClient } from "./client";
 import { DecisionLog } from "./log";
@@ -27,7 +27,7 @@ const SETTINGS = [
   el("4", "General"), el("5", "Display & Brightness"), el("6", ""), el("7", "Search", "AXTextField"),
 ];
 
-async function setup(o: { ready?: boolean; server?: Parameters<typeof fakeLayaServer>[0]; nextStepWindowMs?: number; requestTimeoutMs?: number } = {}) {
+async function setup(o: { pressure?: MemoryPressure; ready?: boolean; server?: Parameters<typeof fakeLayaServer>[0]; nextStepWindowMs?: number; requestTimeoutMs?: number } = {}) {
   server = await fakeLayaServer(o.server);
   const client = new LayaClient({ baseUrl: `http://127.0.0.1:${server.port}`, apiKey: "k" });
   let ready = o.ready ?? true;
@@ -35,7 +35,7 @@ async function setup(o: { ready?: boolean; server?: Parameters<typeof fakeLayaSe
   const log = new DecisionLog({ path });
   let logged = 0;
   const shadow = new LayaShadow({
-    laya: { client: () => (ready ? client : null), checkpoint: () => (ready ? "english@55cf4c4" : null) },
+    laya: { client: () => (ready ? client : null), checkpoint: () => (ready ? "english@55cf4c4" : null), pressure: () => o.pressure ?? "normal" },
     log, onLogged: () => { logged++; },
     nextStepWindowMs: o.nextStepWindowMs ?? 60_000,
     requestTimeoutMs: o.requestTimeoutMs ?? 1_000,
@@ -285,6 +285,53 @@ describe("never in the way", () => {
     await shadow.close();
     expect(rows()).toHaveLength(1);
     expect(shadow.observe(step())).toBeUndefined();
+  });
+});
+
+describe("under memory pressure", () => {
+  /** Laya asleep and able to start, as Shadow leaves it between bursts, at the pressure given. */
+  const asleep = (pressure: MemoryPressure) => {
+    let starts = 0;
+    const path = join(tempDir("realm-laya-shadow-"), "decisions.jsonl");
+    const log = new DecisionLog({ path });
+    let logged = 0;
+    const shadow = new LayaShadow({
+      laya: { client: () => null, checkpoint: () => null, startable: () => true, acquire: async () => { starts++; return null; }, pressure: () => pressure },
+      log, onLogged: () => { logged++; },
+    });
+    return { shadow, log, starts: () => starts, logged: () => logged, rows: () => readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as ShadowRow) };
+  };
+
+  for (const pressure of ["warn", "critical"] as const) {
+    it(`starts nothing at ${pressure}, and still logs the step with its truth and why it was not asked`, async () => {
+      // THE MUTANT: a check that misses one level. laya-serve is 2.4 GB; at either it must not load.
+      const s = asleep(pressure);
+      s.shadow.observe(step())?.([]);
+      await s.shadow.flush();
+      expect(s.starts()).toBe(0);
+      // Counted where the shadow's numbers are kept, so a hard case is a row and not a gap.
+      expect(s.logged()).toBe(1);
+      expect(s.log.count()).toBe(1);
+      const [row] = s.rows();
+      expect(row!.laya.errors).toEqual([`skipped: memory pressure is ${pressure}`]);
+      expect(row!.truth.target).toEqual({ id: "2", source: "agent" });
+    });
+  }
+
+  it("starts Laya for a step at normal pressure", async () => {
+    const s = asleep("normal");
+    s.shadow.observe(step());
+    await s.shadow.flush();
+    expect(s.starts()).toBe(1);
+    expect(s.rows()[0]!.laya.errors).toEqual(["skipped: Laya did not start"]);
+  });
+
+  it("asks a Laya already up nothing at warn, so its idle window can run out", async () => {
+    const { shadow, server: s, rows } = await setup({ pressure: "warn" });
+    shadow.observe(step())?.([]);
+    await shadow.flush();
+    expect(s.asked).toEqual([]);
+    expect(rows()[0]!.laya.errors).toEqual(["skipped: memory pressure is warn", "verify: skipped, memory pressure is warn"]);
   });
 });
 

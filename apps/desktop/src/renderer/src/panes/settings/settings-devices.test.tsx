@@ -194,14 +194,16 @@ describe("pairing", () => {
       document.documentElement.dataset.mode = mode;
       fireEvent.click(screen.getByRole("button", { name: "Pair an iPhone" }));
       const code = await screen.findByRole("img", { name: "Pairing code" });
+      // The code lands outside act, so the sheet's focus and Escape listener come a task after it does;
+      // a loaded machine can get here in between, and an Escape sent then is lost.
+      await waitFor(() => expect(screen.getByRole("dialog")).toContainElement(document.activeElement as HTMLElement));
       expect(code.querySelector("rect")!.getAttribute("fill")).toBe("#ffffff");
       expect(code.querySelector("path")!.getAttribute("fill")).toBe("#000000");
       // 85 modules, four of them quiet on each side, three pixels each.
       expect(code.getAttribute("viewBox")).toBe("0 0 85 85");
       expect(code.getAttribute("width")).toBe("255");
       fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-      // The sheet animates out; a loaded CI Mac has taken past testing-library's one-second default.
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4000 });
+      expect(screen.queryByRole("dialog")).toBeNull();
     }
     delete document.documentElement.dataset.mode;
   });

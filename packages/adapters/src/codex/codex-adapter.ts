@@ -257,7 +257,8 @@ export class CodexAdapter implements AgentAdapter {
   readonly kind = "codex" as const;
   private readonly bin?: string;
   private readonly args?: string[];
-  /** Overridable for tests. Bounds every boot call: initialize, thread/start and thread/resume. */
+  /** Overridable for tests. Bounds thread/start and thread/resume. initialize keeps the connection's own
+   *  bound, so a slow spawn cannot spend the thread call's budget. */
   private readonly bootTimeoutMs?: number;
   /** The process new sessions join, one per account folder (`SharedProcess.home`) — none for a
    *  folder with nothing up, or whose process was retired. */
@@ -357,7 +358,6 @@ export class CodexAdapter implements AgentAdapter {
         bin: await this.resolveBin(),
         args: this.args,
         cwd: process.cwd(),
-        initializeTimeoutMs: this.bootTimeoutMs,
         probe: true,
       }));
       const models: CodexModel[] = [];
@@ -395,7 +395,6 @@ export class CodexAdapter implements AgentAdapter {
           cwd: opts.cwd,
           env: opts.env,
           onLog: opts.onLog,
-          initializeTimeoutMs: this.bootTimeoutMs,
         })),
         refs: 0,
         home,
@@ -755,6 +754,8 @@ export class CodexAdapter implements AgentAdapter {
         const start = (): Promise<unknown> => c.request("thread/start", {
           ...common,
           ...(opts.systemContext ? { developerInstructions: opts.systemContext } : {}),
+          // An ephemeral thread is "not materialized on disk" (the binary's own schema): no rollout file.
+          ...(opts.persistSession === false ? { ephemeral: true } : {}),
           sessionStartSource: "startup",
         }, bootMs);
         /**
