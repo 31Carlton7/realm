@@ -228,6 +228,19 @@ describe("rpc methods", () => {
     expect((await c.call("spaces.update", { id: a.id, color: "red" })).ok).toBe(false);
     c.close();
   });
+  it("settings.set tells every open window, so a theme or look set over rpc shows without a reload", async () => {
+    const { c } = await boot();
+    const window = await client(app.port);
+    await c.call("settings.set", { key: "ui.look", value: "glass" });
+    await c.call("settings.set", { key: "ui.theme", value: "dark" });
+    await waitFor(() => window.events.filter((e) => e.event === "settings.changed").length === 2);
+    expect(window.events.filter((e) => e.event === "settings.changed").map((e) => e.payload)).toEqual([
+      { key: "ui.look", value: "glass" },
+      { key: "ui.theme", value: "dark" },
+    ]);
+    window.close();
+    c.close();
+  });
   it("spaces.folderFor names the folder spaces.create then makes — the -2 included — and makes nothing itself", async () => {
     /* The New space sheet prints this as where a space without a folder will work. THE mutants: an
        answer that drifts from create's (a second slugify, a forgotten collision), or an ask that
