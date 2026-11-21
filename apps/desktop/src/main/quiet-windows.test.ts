@@ -30,6 +30,7 @@ class FakeWindow extends EventEmitter {
   constructor() { super(); FakeWindow.all.push(this); app.emit("browser-window-created", {}, this); }
   show() { this.calls.push("show"); this.visible = true; }
   showInactive() { this.calls.push("showInactive"); this.visible = true; }
+  hide() { this.calls.push("hide"); this.visible = false; }
   focus() { this.calls.push("focus"); }
   blur() { this.calls.push("blur"); }
   isFocused() { return true; }
@@ -151,6 +152,19 @@ describe("installQuietWindows", () => {
     expect(b.isFocused()).toBe(true);
     b.close();
     expect((FakeWindow as unknown as { getFocusedWindow(): FakeWindow | null }).getFocusedWindow()).toBeNull();
+  });
+
+  it("takes key from a window it hides, as AppKit does, so a panel shown inactive after is not key", () => {
+    const main = new FakeWindow();
+    const panel = new FakeWindow();
+    main.show();
+    panel.show();
+    panel.hide();
+    expect([main.isFocused(), panel.isFocused()]).toEqual([true, false]);
+    panel.showInactive();
+    expect(panel.isFocused()).toBe(false);
+    main.close();
+    panel.close();
   });
 
   it("never goes full screen or flashes the Dock", () => {

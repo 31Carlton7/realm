@@ -174,6 +174,7 @@ export class MeetingAssistant {
    *  (`chat`). Every chord but scrolling shows the assistant. Listen goes through Start and Stop, so
    *  an unaccepted first-run sheet is put up, never accepted by a key. */
   key(action: AssistantPageAction): void {
+    if (action === "autoStart") { void this.autoStart(); return; }
     if (action === "scrollDown" || action === "scrollUp") {
       for (const cb of [...this.scrollers]) cb(action === "scrollDown" ? 1 : -1);
       return;
@@ -207,6 +208,16 @@ export class MeetingAssistant {
     if (this.state.consented === null) await this.load();
     if (!this.state.consented) { this.set({ sheet: true }); return; }
     await this.begin();
+  }
+
+  /** A call started, with "Start the assistant when a call starts" on: the same Start as the button,
+   *  once the first-run sheet has been accepted. Before that it does nothing, not even the sheet. */
+  async autoStart(): Promise<void> {
+    if (this.state.phase !== "idle") return;
+    if (this.state.consented === null) await this.load();
+    if (!this.state.consented) return;
+    this.show(true);
+    await this.start();
   }
 
   /** The sheet's button: kept once, then the Start that asked for it goes ahead. */
