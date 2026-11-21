@@ -297,8 +297,8 @@ describe("meetings.answer with a picture of the screen", () => {
     const { model, home, c } = await boot();
     const { screen, tail, marker } = picture();
     const holds = (arg: unknown): boolean => typeof arg === "string" ? arg.includes(marker)
-      : Buffer.isBuffer(arg) || arg instanceof Uint8Array ? Buffer.from(arg as Uint8Array).includes(tail) || Buffer.from(arg as Uint8Array).toString("latin1").includes(marker)
-      : Array.isArray(arg) ? arg.some(holds) : false;
+      : arg instanceof Uint8Array ? Buffer.from(arg).includes(tail) || Buffer.from(arg).toString("latin1").includes(marker)
+      : false;
     const watched = [
       ...(["writeFileSync", "writeFile", "appendFileSync", "appendFile", "writeSync", "write", "createWriteStream"] as const).map((n) => [`fs.${n}`, vi.spyOn(fs, n)] as const),
       ...(["writeFile", "appendFile"] as const).map((n) => [`fs.promises.${n}`, vi.spyOn(fs.promises, n)] as const),

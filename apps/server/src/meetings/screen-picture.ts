@@ -22,7 +22,7 @@ export function checkScreenPicture(picture: ScreenPicture): { bytes: number; wid
   const padding = picture.data.endsWith("==") ? 2 : picture.data.endsWith("=") ? 1 : 0;
   const bytes = (picture.data.length / 4) * 3 - padding;
   if (bytes > SCREEN_PICTURE_MAX_BYTES) {
-    throw new RpcError("BAD_REQUEST", `The screen picture is ${megabytes(bytes)} MB, and the Claude API takes pictures up to 7.5 MB (10 MB once base64-encoded). Scale it down or send it as a JPEG, then ask again.`);
+    throw new RpcError("BAD_REQUEST", `The screen picture is ${megabytes(bytes)} MB, and the Claude API takes pictures up to ${SCREEN_PICTURE_MAX_BYTES / 1_000_000} MB (10 MB once base64-encoded). Scale it down or send it as a JPEG, then ask again.`);
   }
   const b = Buffer.from(picture.data, "base64");
   const kind = PNG.every((x, i) => b[i] === x) ? "image/png" : b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff ? "image/jpeg" : null;
