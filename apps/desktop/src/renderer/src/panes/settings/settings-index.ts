@@ -1,6 +1,6 @@
 import type { IconName } from "@realm/ui";
 import {
-  AGENT_META, CARET_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
+  AGENT_META, ASSISTANT_CHORDS, CARET_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
   TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_STYLE_COPY, TERMINALS_HISTORY_COPY, type NotificationCategory,
 } from "@realm/contracts";
 import { capabilities } from "../../platform";
@@ -170,10 +170,13 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "quick-chat-shortcut", tab: "keys", section: "From anywhere", label: "Open the quick chat from any app", terms: "global shortcut hotkey popup panel anywhere system-wide",
     available: () => capabilities().quickChatPanel },
   { id: "double-tap-command", tab: "keys", section: "From anywhere", label: "Double-tap Command opens the quick chat", terms: "global hotkey shortcut cmd popup anywhere", available: () => capabilities().accessibility },
-  { id: "assistant-hold-key", tab: "keys", section: "From anywhere", label: "Hold for assistant shortcuts", terms: "fn globe right option command modifier meeting hotkey", available: () => capabilities().accessibility },
-  { id: "keys-try", tab: "keys", section: "From anywhere", label: "Try it", terms: "test keyboard fn double-tap", available: () => capabilities().accessibility },
   { id: "quick-chat-hide", tab: "keys", section: "From anywhere", label: "Hide the quick chat from screen sharing", terms: "screen share recording capture zoom meet private",
     available: () => capabilities().quickChatPanel },
+  { id: "assistant-hold-key", tab: "keys", section: "From anywhere", label: "Hold for assistant shortcuts", terms: "fn globe right option command modifier meeting hotkey", available: () => capabilities().accessibility },
+  { id: "assistant-chords", tab: "keys", section: "From anywhere", label: "Assistant shortcuts", terms: "meeting fn hotkey chord keys listen answer", available: () => capabilities().accessibility },
+  ...ASSISTANT_CHORDS.map(({ key, label }): SettingEntry => ({ id: `assistant-chord:${key}`, tab: "keys", section: "From anywhere", label, terms: "meeting assistant fn shortcut",
+    available: () => capabilities().accessibility })),
+  { id: "keys-try", tab: "keys", section: "From anywhere", label: "Try it", terms: "test keyboard fn double-tap", available: () => capabilities().accessibility },
   // Keys: every command a chord can be bound to, under the group the page lists it in.
   { id: "keys", tab: "keys", label: "Shortcuts", terms: "keyboard keybindings hotkeys chord" },
   ...KEY_COMMANDS.map((c): SettingEntry => ({ id: `key:${c.id}`, tab: "keys", section: c.group, label: c.label, terms: "shortcut keyboard" })),
