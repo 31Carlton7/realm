@@ -71,10 +71,31 @@ export function quietElectronBinary() {
   return binary;
 }
 
-/** Quiet mode, and the app's RPC token written to `<home>/live-app-token` for the check to dial
- *  with (`lib/daemon-token.mjs`). */
+/**
+ * A stand-in for the `meetingwatch` helper. Main starts `meetingwatch calendar` at launch, and the
+ * real one reads the calendar of whoever runs the check. This one says access was never asked for,
+ * then waits for its stdin to close as the helper does, so Settings' "Ask macOS" goes nowhere.
+ */
+export function noCalendarHelper() {
+  const helper = path.join(desktopRoot, "node_modules/.cache/realm-live-app/meetingwatch");
+  fs.mkdirSync(path.dirname(helper), { recursive: true });
+  const staging = `${helper}.tmp-${process.pid}`;
+  fs.writeFileSync(staging, `#!/bin/bash\necho '{"access":"notDetermined"}'\ncat > /dev/null\n`, { mode: 0o755 });
+  fs.renameSync(staging, helper);
+  return helper;
+}
+
+/** Quiet mode, the app's RPC token written to `<home>/live-app-token` for the check to dial with
+ *  (`lib/daemon-token.mjs`), and no calendar unless `env` names a helper of its own. */
 export function quietEnv(env = process.env) {
-  return { ...env, REALM_QUIET_WINDOWS: "1", REALM_LIVE_APP_TOKEN: "1" };
+  return { ...env, REALM_MEETINGWATCH_BIN: env.REALM_MEETINGWATCH_BIN || noCalendarHelper(), REALM_QUIET_WINDOWS: "1", REALM_LIVE_APP_TOKEN: "1" };
+}
+
+/** What `spawnLiveElectron` starts the app with: `quietEnv`, less quiet mode for a check that is seen. */
+export function liveEnv(env, seen) {
+  const out = { ...quietEnv(env), REALM_QUIET_MAIN: quietMain };
+  if (seen) delete out.REALM_QUIET_WINDOWS;
+  return out;
 }
 
 /* ── Teardown ─────────────────────────────────────────────────────────────────────────────── */
@@ -154,8 +175,7 @@ function hookExit() {
 export function spawnLiveElectron(args, { visible, frontApp, ...options } = {}) {
   if (visible) process.stderr.write(`[live-app] this check is seen on screen: ${visible}\n`);
   if (frontApp) process.stderr.write(`[live-app] this check is the front app for a moment: ${frontApp}\n`);
-  const env = { ...quietEnv(options.env ?? process.env), REALM_QUIET_MAIN: quietMain };
-  if (visible || frontApp) delete env.REALM_QUIET_WINDOWS;
+  const env = liveEnv(options.env ?? process.env, Boolean(visible || frontApp));
   const child = visible
     ? spawn(electronBinary(), args, { ...options, env })
     : spawn(quietElectronBinary(), frontApp ? args : ["-r", quietPreload, ...args], { ...options, env });
