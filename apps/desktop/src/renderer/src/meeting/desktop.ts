@@ -1,4 +1,7 @@
-import { MEETING_AUTO_ANSWERS_DEFAULT, MEETING_AUTO_ANSWERS_KEY, MEETING_CONSENT_KEY, VOICE_PREFS_KEY, meetingConsentAccepted, newId } from "@realm/contracts";
+import {
+  HOLD_KEY_DEFAULT, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_HOLD_KEY, MEETING_AUTO_ANSWERS_DEFAULT, MEETING_AUTO_ANSWERS_KEY, MEETING_CONSENT_KEY,
+  VOICE_PREFS_KEY, isHoldKey, meetingConsentAccepted, newId,
+} from "@realm/contracts";
 import { rpc } from "../rpc/client";
 import { WebVoiceAudio } from "../voice/audio-io";
 import { desktopLiveAnswers } from "../voice/live-answers";
@@ -40,5 +43,13 @@ export function desktopMeetingAssistant(spaceId: () => string | null): MeetingAs
       },
       write: async (on) => { await rpc().call("settings.set", { key: MEETING_AUTO_ANSWERS_KEY, value: on }); },
     },
+    chords: {
+      read: async () => {
+        const [on, hold] = await Promise.all([KEYS_ASSISTANT_KEY, KEYS_HOLD_KEY].map(async (key) => (await rpc().call("settings.get", { key })).value));
+        if (!(typeof on === "boolean" ? on : KEYS_ASSISTANT_DEFAULT)) return null;
+        return isHoldKey(hold) ? hold : HOLD_KEY_DEFAULT;
+      },
+    },
+    onShown: (on) => bridge.setShown?.(on),
   });
 }

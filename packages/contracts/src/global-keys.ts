@@ -38,7 +38,9 @@ export type GlobalKeysEvent = { t: "doubleTap" } | { t: "hold"; down: boolean };
 
 /**
  * Whether the assistant's chords are taken from the app in front. On unless turned off: they were
- * asked for. Off, no chord is registered and the helper keeps no key from any app.
+ * asked for. Off, no chord is registered and the helper keeps no key from any app. On, none is
+ * registered either until the assistant's first-run sheet has been accepted once
+ * (`MEETING_CONSENT_KEY`): a registered chord puts an active tap in the path of every key.
  */
 export const KEYS_ASSISTANT_KEY = "keys.assistantChords";
 export const KEYS_ASSISTANT_DEFAULT = true;
@@ -59,6 +61,7 @@ export const ASSISTANT_CHORDS = [
   { key: ".", action: "moveRight", label: "Move the panel right" },
 ] as const;
 export type AssistantAction = (typeof ASSISTANT_CHORDS)[number]["action"];
-/** What the panel's page is told to do; moving the panel is main's own. `autoStart` is a call
- *  starting (Settings ▸ General ▸ Meetings), not a key. */
-export type AssistantPageAction = Exclude<AssistantAction, "moveLeft" | "moveRight"> | "autoStart";
+/** What the panel's page is told to do; moving the panel is main's own. `chat` is the quick chat
+ *  keys turning the panel to the chat, and `autoStart` a call starting (Settings ▸ General ▸
+ *  Meetings); neither is a chord. */
+export type AssistantPageAction = Exclude<AssistantAction, "moveLeft" | "moveRight"> | "chat" | "autoStart";

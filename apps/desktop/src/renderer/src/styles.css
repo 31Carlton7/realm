@@ -2791,6 +2791,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   text-align: left; overflow-wrap: anywhere; }
 .meeting-notes-path:hover { text-decoration: underline; }
 .meeting-problem { flex: none; margin: 0; padding: 6px 14px; font-size: 12px; line-height: 16px; color: var(--rl-danger); }
+.meeting-notice { flex: none; margin: 0; padding: 6px 14px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 /* Past 20,000 characters of custom info: said once, beside the prompter, and nothing is refused. */
 .meeting-long { flex: none; margin: 0; padding: 0 14px 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 /* Over the prompter, on the window's own ground: what it sends, then the notice and Start or Stop. */

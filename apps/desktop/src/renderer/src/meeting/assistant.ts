@@ -1,5 +1,5 @@
 import {
-  MEETING_AUTO_ANSWERS_DEFAULT, MEETING_DEFAULT_TITLE, type AssistantPageAction, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
+  MEETING_AUTO_ANSWERS_DEFAULT, MEETING_DEFAULT_TITLE, type AssistantPageAction, type HoldKey, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingNotesProgress, type MeetingSummaryOutcome,
   type MeetingTranscriptLine, type SaveMeetingNotesParams, type SaveMeetingNotesResult,
 } from "@realm/contracts";
 import { MeetingAnswers, type LiveAnswersApi } from "../voice/live-answers";
@@ -31,6 +31,10 @@ export type AssistantDeps = {
   newId: () => string;
   /** The auto-answers switch, kept as a setting (`MEETING_AUTO_ANSWERS_KEY`). Unset, it starts on and is not kept. */
   autoAnswers?: { read(): Promise<boolean>; write(on: boolean): Promise<void> };
+  /** The held key of the assistant's chords, or null while Settings has them off. */
+  chords?: { read(): Promise<HoldKey | null> };
+  /** Tells main which view the panel shows, so its keys know whether to open it or put it away. */
+  onShown?: (on: boolean) => void;
 };
 
 /** Past this many characters of custom info the prompter says that every answer sends all of it. */
@@ -73,6 +77,10 @@ export type AssistantState = {
   notes: MeetingNotesState | null;
   systemAudio: SystemAudioState | null;
   problem: string | null;
+  /** A quiet line under the words: the answer key pressed before anything was heard. */
+  notice: string | null;
+  /** The held key of the assistant's chords, for the first-run sheet. Null while they are off. */
+  chordsHeld: HoldKey | null;
   /** The panel shows the assistant rather than the chat. */
   shown: boolean;
   /** Questions the other side asks are answered without a key. */
@@ -84,7 +92,7 @@ export type AssistantState = {
 const INITIAL: AssistantState = {
   consented: null, sheet: false, phase: "idle", startedAt: null, stoppedAt: null,
   lines: [], partial: {}, customInfo: [], asked: [], answer: null, notes: null, systemAudio: null, problem: null,
-  shown: false, autoAnswers: MEETING_AUTO_ANSWERS_DEFAULT, typeKeyPresses: 0,
+  notice: null, chordsHeld: null, shown: false, autoAnswers: MEETING_AUTO_ANSWERS_DEFAULT, typeKeyPresses: 0,
 };
 
 /** Which way the scroll keys move the words: down (Fn J) or up (Fn K). */
@@ -127,16 +135,19 @@ export class MeetingAssistant {
   };
 
   async load(): Promise<void> {
-    const [consented, autoAnswers] = await Promise.all([
+    const [consented, autoAnswers, chordsHeld] = await Promise.all([
       this.deps.consent.read().catch(() => false),
       this.deps.autoAnswers?.read().catch(() => MEETING_AUTO_ANSWERS_DEFAULT) ?? MEETING_AUTO_ANSWERS_DEFAULT,
+      this.deps.chords?.read().catch(() => null) ?? null,
     ]);
     this.answers.setAuto(autoAnswers);
-    this.set({ consented, autoAnswers });
+    this.set({ consented, autoAnswers, chordsHeld });
   }
 
   show(on: boolean): void {
+    if (on === this.state.shown) return;
     this.set({ shown: on });
+    this.deps.onShown?.(on);
   }
 
   /** The auto-answers switch. Off, only the answer key and a typed question ask for an answer. */
@@ -159,19 +170,31 @@ export class MeetingAssistant {
     return () => this.scrollers.delete(cb);
   }
 
-  /** An assistant chord, pressed in any app (main/assistant-keys.ts). Every one but scrolling shows
-   *  the assistant. Listen goes through Start and Stop, so an unaccepted first-run sheet is put up,
-   *  never accepted by a key. */
+  /** An assistant chord, pressed in any app (main/assistant-keys.ts), or the quick chat keys
+   *  (`chat`). Every chord but scrolling shows the assistant. Listen goes through Start and Stop, so
+   *  an unaccepted first-run sheet is put up, never accepted by a key. */
   key(action: AssistantPageAction): void {
     if (action === "autoStart") { void this.autoStart(); return; }
     if (action === "scrollDown" || action === "scrollUp") {
       for (const cb of [...this.scrollers]) cb(action === "scrollDown" ? 1 : -1);
       return;
     }
+    if (action === "chat") { this.show(false); return; }
     this.show(true);
     if (action === "listen") void (this.state.phase === "idle" ? this.start() : this.stop());
-    else if (action === "answer") this.answerNow();
+    else if (action === "answer") this.answerKey();
     else if (action === "type") this.set({ typeKeyPresses: this.state.typeKeyPresses + 1 });
+  }
+
+  /** The answer key asks only about what this run has heard: with no line yet, it says so and
+   *  sends nothing. */
+  private answerKey(): void {
+    if (this.state.phase !== "listening" || this.state.lines.length === 0) {
+      this.set({ notice: "Nothing has been heard yet." });
+      return;
+    }
+    this.set({ notice: null });
+    this.answerNow();
   }
 
   /** Start listening, or put up the first-run sheet when it has not been accepted. */
@@ -255,7 +278,7 @@ export class MeetingAssistant {
   private async begin(): Promise<void> {
     if (this.state.phase !== "idle") return;
     const startedAt = this.deps.now();
-    this.set({ phase: "starting", partial: {}, systemAudio: null, problem: null });
+    this.set({ phase: "starting", partial: {}, systemAudio: null, problem: null, notice: null });
     // The mark goes up before the microphone opens, so there is no moment it is heard without it.
     this.deps.setListening(true);
     this.answers.start();
@@ -264,7 +287,7 @@ export class MeetingAssistant {
         if (this.run !== run) return;
         const partial = { ...this.state.partial };
         delete partial[line.source];
-        this.set({ lines: [...this.state.lines, line], partial });
+        this.set({ lines: [...this.state.lines, line], partial, notice: null });
         this.answers.line(line);
       },
       partial: (source, text) => { if (this.run === run) this.set({ partial: { ...this.state.partial, [source]: text } }); },
