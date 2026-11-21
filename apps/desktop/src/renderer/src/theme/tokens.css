@@ -922,7 +922,7 @@ a {
   --glass-specular: conic-gradient(from -45deg, rgb(255 255 255 / .34), rgb(255 255 255 / .06) 25%, rgb(255 255 255 / .18) 50%, rgb(255 255 255 / .06) 75%, rgb(255 255 255 / .34));
   --glass-rim: inset 1px 1px 0 rgb(255 255 255 / .2), inset -1px -1px 0 rgb(255 255 255 / .1);
   --glass-bead: rgb(255 255 255 / .12);
-  --glass-knob: rgb(255 255 255 / .6);
+  --glass-knob: #fff;
   /* A well and a lit row inside a see-through picker (Glass, or Plain over a picture) and in the
      account switcher in either look (styles.css): tints of the ink, the row a rung more. */
   --well-tint: var(--overlay-lighten-300);

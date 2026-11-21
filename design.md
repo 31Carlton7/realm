@@ -311,7 +311,9 @@ Rules:
 - Glass is a material a person chooses, once, for the whole app: Settings > Appearance > Controls,
   Plain by default (the owner, 11-17: he turned the prompter's glass on, saw nothing, and asked for it
   "throughout the app"). It goes on what floats or is pressed: the prompter, its pickers, the
-  selection bar, the selected segment of a segmented control and a switch's knob. What is read stays
+  selection bar, the selected segment of a segmented control and a switch's knob. The knob is solid
+  white in both faces, as macOS draws it, and its glass is the rim round it: at 60% white the accent
+  came through and the knob read pale blue (11-20). What is read stays
   plain (a page of settings, a sheet, the transcript, the sidebar, the palette, toasts), because glass
   there costs contrast and shows nothing. Glass is a lens, a slight blur and a highlight, never a fill
   of ours: over a picture it lays no surface and no shadow, only a dim, so it carries the picture's

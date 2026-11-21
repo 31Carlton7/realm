@@ -7214,7 +7214,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --glass-bezel: var(--glass-control-bezel); --glass-bend: var(--glass-control-bend); --glass-frost-px: var(--glass-control-blur);
   position: relative; background: var(--glass-bead); box-shadow: none;
   backdrop-filter: var(--glass-lens, saturate(1)) saturate(var(--glass-saturate)); }
-/* A switch's knob is a drop of glass over its track: lit, it bends the accent and carries it. */
+/* A switch's knob is solid white, as macOS's glass switch draws it, with the glass rim round it. */
 :root[data-glass] .switch { --glass-bezel: var(--glass-control-bezel); --glass-bend: var(--glass-control-bend); --glass-frost-px: 0px; }
 :root[data-glass] .switch::after {
   background: var(--glass-knob); box-shadow: var(--glass-rim), 0 1px 2px #0000003d;
