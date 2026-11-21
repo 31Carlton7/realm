@@ -5733,6 +5733,12 @@ describe("segmented controls", () => {
     for (const sel of [".mp-row", ".mention-row", ".mp-bolt", ".skill-picker-row"])
       expect(bodiesFor(sel).join(" "), sel).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);");
   });
+
+  it("draws a lit switch's knob solid white in Glass, as Plain does, in both faces", () => {
+    // At 60% white the accent came through and the knob read pale blue, where macOS's is white (11-20).
+    expect([...tokensCss.matchAll(/--glass-knob: ([^;]+);/g)].map((m) => m[1])).toEqual(["#fff"]);
+    expect(bodiesFor(":root[data-glass] .switch::after").join(" ")).toContain("background: var(--glass-knob)");
+  });
 });
 
 /* The documents grid's card held its well 6px in on a 14px corner, but its own box was the half-curve
