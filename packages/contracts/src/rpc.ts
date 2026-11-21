@@ -1167,8 +1167,9 @@ export const Methods = {
    *  minutes and the prompter's custom info go to the quick chat model, and nothing else does:
    *  `.strict()`, and only Realm's own app may ask. It answers at once with the answer's id; the text
    *  streams to the asking window as `meetings.answer` events. `customInfo` has no bound: a long brief
-   *  is warned about beside the prompter, not refused. */
-  "meetings.answer": { params: z.object({ lines: z.array(MeetingTranscriptLineSchema).max(5_000), customInfo: z.string(), trigger: z.enum(LIVE_ANSWER_TRIGGERS) }).strict(),
+   *  is warned about beside the prompter, not refused. `question` is one the person typed (the
+   *  panel's prompter, Fn T), answered from the transcript and the custom info; unbounded likewise. */
+  "meetings.answer": { params: z.object({ lines: z.array(MeetingTranscriptLineSchema).max(5_000), customInfo: z.string(), trigger: z.enum(LIVE_ANSWER_TRIGGERS), question: z.string().optional() }).strict(),
     result: z.object({ answerId: z.string() }) },
   /** Stop the answer in flight, if any: its window gets `cancelled`. */
   "meetings.cancelAnswer": { params: z.object({}).strict(), result: z.object({ ok: z.literal(true) }) },
