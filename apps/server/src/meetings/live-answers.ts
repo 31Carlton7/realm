@@ -1,9 +1,11 @@
-import { newId, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingTranscriptLine } from "@realm/contracts";
+import { newId, type LiveAnswerEvent, type LiveAnswerTrigger, type MeetingTranscriptLine, type ScreenPicture } from "@realm/contracts";
 import { liveAnswerPrompt, type LiveAnswerModel } from "@realm/adapters";
 import { LIVE_ANSWER_WINDOW_MS, answerWindow, type QuickChatModel } from "@realm/view";
+import { RpcError } from "../store/rows";
+import { checkScreenPicture } from "./screen-picture";
 
 type Asked = { id: string; abort: AbortController; send: (e: LiveAnswerEvent) => void };
-type Ask = { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string };
+type Ask = { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigger: LiveAnswerTrigger; question?: string; screen?: ScreenPicture };
 
 /**
  * A meeting's live answers: the transcript's last few minutes and the prompter's custom info, sent to
@@ -15,6 +17,10 @@ type Ask = { lines: readonly MeetingTranscriptLine[]; customInfo: string; trigge
  *
  * Claude only for now: the answer is one turn with no tools on the person's Claude login. A setting
  * that names another agent is said back as an error, rather than answered on a model nobody chose.
+ *
+ * A `screen` ask carries a picture of the person's screen. It is checked before anything else
+ * happens, so one the model cannot take is refused without cancelling the answer in flight; then it
+ * goes to the model with the words and is kept nowhere: not on disk, not in a log, not in an event.
  */
 export class LiveAnswers {
   private asked: Asked | null = null;
@@ -22,6 +28,9 @@ export class LiveAnswers {
   constructor(private readonly d: { model(): QuickChatModel; engine: LiveAnswerModel | null; windowMs?: number }) {}
 
   ask(input: Ask, send: (e: LiveAnswerEvent) => void): { answerId: string } {
+    if (input.trigger === "screen" && !input.screen) throw new RpcError("BAD_REQUEST", "A screen answer needs the picture of the screen.");
+    if (input.screen && input.trigger !== "screen") throw new RpcError("BAD_REQUEST", "A picture of the screen goes only with the screen trigger.");
+    if (input.screen) checkScreenPicture(input.screen);
     this.cancel();
     const asked: Asked = { id: newId(), abort: new AbortController(), send };
     this.asked = asked;
@@ -70,6 +79,7 @@ export class LiveAnswers {
       const text = await this.d.engine.answer({
         model: m.model,
         prompt: liveAnswerPrompt({ lines, customInfo: input.customInfo, trigger: input.trigger, question: input.question }),
+        ...(input.screen ? { screen: input.screen } : {}),
         signal: asked.abort.signal,
         onText: (delta) => { if (this.asked === asked) asked.send({ answerId: id, t: "delta", text: delta }); },
       });
