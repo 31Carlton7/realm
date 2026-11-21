@@ -351,6 +351,9 @@ export function registerMethods(d: Deps): void {
   reg("meetings.stopAnswers", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.stop(); return { ok: true as const }; });
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
+    // Every window is told, as `settings_set` tells them: a value written by a script, the CLI or
+    // another window would otherwise reach this one only at its next reload.
+    rpc.broadcast("settings.changed", { key: p.key, value: p.value });
     // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output
     // on disk is not an off switch, and the thing being kept is whatever a shell printed.
     if (p.key === TERMINALS_HISTORY_KEY && p.value !== true) d.terminals.purgeHistory();
