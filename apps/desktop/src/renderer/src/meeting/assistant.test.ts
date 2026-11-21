@@ -176,7 +176,9 @@ describe("MeetingAssistant", () => {
     const old = r.events();
     await r.assistant.stop();
     old.line(r.line("them", "Late.", 3_000));
+    old.partial("them", "Late");
     expect(r.assistant.getState().lines).toEqual([]);
+    expect(r.assistant.getState().partial).toEqual({});
   });
 
   it("takes the mark down and cancels answers when the page goes", async () => {

@@ -186,4 +186,21 @@ describe("MeetingTranscript", () => {
     await denied.t.start();
     expect(denied.seen.ended).toBe(1);
   });
+
+  it("says it ended once when the helper stops while the microphone is failing to open", async () => {
+    let ended = 0;
+    let emit: (e: TranscriptEvent) => void = () => {};
+    const helper: TranscriptHelper = {
+      microphone: async () => "granted",
+      start: async () => ({ t: "ready", stt: "analyzer", startedAt: 0, systemAudio: "not decided" }),
+      audio: () => {}, systemAudio: () => {}, finish: () => {}, stop: () => {},
+      onEvent: (cb) => { emit = cb; return () => {}; },
+    };
+    const audio = { start: async () => { emit({ t: "stopped" }); throw new Error("no device"); }, stop: () => {} } as unknown as VoiceAudio;
+    const t = new MeetingTranscript({ helper, audio, systemAudio: false,
+      events: { line: () => {}, partial: () => {}, systemAudio: () => {}, problem: () => {}, ended: () => { ended++; } } });
+    await t.start();
+    // THE MUTANT: every teardown says it ended.
+    expect(ended).toBe(1);
+  });
 });
