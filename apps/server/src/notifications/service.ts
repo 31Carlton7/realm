@@ -29,7 +29,7 @@ const SETTLE_WORD: Record<string, string> = { idle: "Finished a turn", ended: "E
  * still carry `spaceId` so the page can say where a thing happened and jump there.
  *
  * **`session_done` architecture.** The server cannot know renderer focus, so it writes a row for EVERY
- * settle; the RENDERER — the one honest holder of focus — immediately marks the row read when the
+ * settle it tells (all of them under "After every turn", the one that ends the work by default); the RENDERER — the one honest holder of focus — immediately marks the row read when the
  * settled session is the pane the user is looking at (it gets the row in the `notifications.changed`
  * payload, so there is no refetch race). Failure modes, stated: a settle while the session is focused
  * but the user is away from the machine is auto-read (under-reports); a settle while no renderer is
@@ -207,8 +207,7 @@ export class NotificationsService {
   private leadDone(child: Session): void {
     const lead = this.d.sessions?.get(child.dispatchedBy!.sessionId!);
     if (!lead || lead.status !== "idle" || this.keepsGoing(lead.id, false, child.id)) return;
-    this.notify({ category: "session_done", spaceId: lead.spaceId, sessionId: lead.id, refId: lead.id,
-      title: lead.title, body: SETTLE_WORD.idle!, acted: true });
+    this.workDone(lead);
   }
 
   /** The goal loop stopped a goal after the settle that ran its last turn (`GoalService.stop`). That
@@ -218,7 +217,12 @@ export class NotificationsService {
     if (this.whenDone() !== "done") return;
     const session = this.d.sessions?.get(sessionId);
     if (!session || session.status !== "idle" || this.keepsGoing(sessionId, false)) return;
-    this.notify({ category: "session_done", spaceId: session.spaceId, sessionId, refId: sessionId,
+    this.workDone(session);
+  }
+
+  /** The row for an idle session whose work ended after its own settle was passed over. */
+  private workDone(session: Session): void {
+    this.notify({ category: "session_done", spaceId: session.spaceId, sessionId: session.id, refId: session.id,
       title: session.title, body: SETTLE_WORD.idle!, acted: true });
   }
 

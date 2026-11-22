@@ -9,7 +9,7 @@ import { IdSchema } from "./ids";
  * - `permission`      — a session entered `waiting_permission` (one row per request; pending until the
  *                       request is answered, from ANY surface).
  * - `session_done`    — a session's turn settled (running → idle/ended/error). The server writes one for
- *                       EVERY settle — it cannot know renderer focus — and the renderer immediately marks
+ *                       every settle it tells (`NOTIFICATIONS_SESSION_DONE_KEY`) — it cannot know renderer focus — and the renderer immediately marks
  *                       the row read when the settled session was the focused pane, so only unfocused
  *                       settles surface as unread. See NotificationsService's doc comment.
  * - `mcp_health`      — a hub connection entered `error`/`circuit_open`. One open row per server until
