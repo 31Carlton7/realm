@@ -413,13 +413,22 @@ async function settingsLooks({ app, api }, state, waiting) {
     const file = `m3b-settings-${state}-${mode}-${look}.png`;
     row("picture", `Settings ▸ Keys, ${state}, ${mode} ${look}`, file, await shot(app.page, path.join(OUT_DIR, file), { clip: { ...clip, scale: 2 } }));
     if (state !== "after-consent") continue;
-    const group = await app.page.eval(`(() => { const field = document.querySelector('[data-setting="quick-chat-shortcut"]').closest(".field"); field.scrollIntoView({ block: "start" });
+    const measureGroup = () => app.page.eval(`(() => { const field = document.querySelector('[data-setting="quick-chat-shortcut"]').closest(".field"); field.scrollIntoView({ block: "start" });
       const r = field.getBoundingClientRect();
       return { x: r.left, y: r.top, width: r.width, height: r.height, cut: r.top < 0 || r.bottom > window.innerHeight }; })()`);
+    let group = await measureGroup();
+    const tall = group.cut;
+    if (tall) {
+      const width = await app.page.eval(`window.innerWidth`);
+      await app.page.send("Emulation.setDeviceMetricsOverride", { width, height: Math.ceil(group.height) + 240, deviceScaleFactor: 0, mobile: false });
+      await sleep(400);
+      group = await measureGroup();
+    }
     await pointerAway(app.page);
     const groupFile = `m3b-keys-from-anywhere-${mode}-${look}.png`;
     const groupFlat = await shot(app.page, path.join(OUT_DIR, groupFile), { clip: { x: group.x, y: group.y, width: group.width, height: group.height, scale: 2 } });
-    row("picture", `Settings ▸ Keys ▸ From anywhere, ${mode} ${look}`, { file: groupFile, cut: group.cut }, groupFlat && !group.cut);
+    if (tall) await app.page.send("Emulation.clearDeviceMetricsOverride");
+    row("picture", `Settings ▸ Keys ▸ From anywhere, ${mode} ${look}`, { file: groupFile, cut: group.cut, tall }, groupFlat && !group.cut);
   }
   await app.page.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true`);
   await until(() => app.page.eval(`!document.querySelector('input[name="settings-page-tab"]')`), 10_000, "Settings to close").catch(() => {});
@@ -514,7 +523,8 @@ try {
   await click(page, '.meeting-strip input[value="ask"]');
   await watchTexts(page, "__answers", ".meeting-answer-text");
   await typeAndSend(page, "How many seats should I offer?");
-  await until(() => page.eval(`document.querySelector(".meeting-answer")?.dataset.state === "done"`), 15_000, "the typed question's answer");
+  await until(() => page.eval(`(() => { const seen = window.__answers, at = seen.lastIndexOf("Answering…");
+    return at >= 0 && at < seen.length - 1 && seen.at(-1) === ${js(SCRIPTED_ANSWER)} && document.querySelector(".meeting-answer")?.dataset.state === "done"; })()`), 15_000, "the typed question's answer");
   const streamed = await page.eval(`window.__answers`);
   // The watch starts on the answer already up (the other side's question); the typed one starts at "Answering…".
   const pieces = streamed.slice(streamed.lastIndexOf("Answering…") + 1);
