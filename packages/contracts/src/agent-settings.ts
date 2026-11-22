@@ -37,3 +37,16 @@ export const AGENT_SETTINGS = {
 } as const satisfies Record<string, AgentSetting>;
 export type AgentSettingName = keyof typeof AGENT_SETTINGS;
 export const AGENT_SETTING_NAMES = Object.keys(AGENT_SETTINGS) as AgentSettingName[];
+
+/** The app's floating controls' look, plain or glass. The renderer owns its values (glass/look.ts). */
+export const SETTING_LOOK = "ui.look";
+
+/** The settings an open window applies the moment they change (the store's `applySettingChanged`),
+ *  and so the only ones `settings.set` announces. A broadcast reaches every socket, the CLI's token
+ *  included, which may not read settings; some settings hold a webhook or a phone number. */
+export const LIVE_SETTINGS: ReadonlySet<string> = new Set([
+  ...AGENT_SETTING_NAMES.map((n) => AGENT_SETTINGS[n].key),
+  SETTING_THEME_NAME.light,
+  SETTING_THEME_NAME.dark,
+  SETTING_LOOK,
+]);

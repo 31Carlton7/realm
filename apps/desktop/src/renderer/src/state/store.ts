@@ -2884,8 +2884,9 @@ export type AppState = TeammatesSlice & {
    *  (the first window is the one whose space the server reads back). With `firstSession` (a space
    *  `space_create` just made) it lands where the New space sheet does, on a new session there. */
   applySpaceSwitchRequested(payload: { spaceId: string; firstSession?: { projectId: string | null } }, typing: boolean): Promise<void>;
-  /** The `settings.changed` handler: an agent's `settings_set`, taken as if this window's own Settings
-   *  had made it — for the keys on `AGENT_SETTINGS` and no other, and only a value the app offers. */
+  /** The `settings.changed` handler: an agent's `settings_set`, or any `settings.set` over RPC, taken
+   *  as if this window's own Settings had made it — for the keys on `AGENT_SETTINGS` and the look, and
+   *  only a value the app offers. */
   applySettingChanged(payload: { key: string; value?: unknown }): void;
   /** The `session.openRequested` handler: a session an agent's `session_open` made for the user goes
    *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
@@ -8269,6 +8270,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           case AGENT_SETTINGS.submitKey.key: if (isSubmitKey(value)) set({ submitKey: value }); return;
           case AGENT_SETTINGS.midTurnMode.key: set({ midTurnMode: resolveMidTurnMode(value) }); return;
           case AGENT_SETTINGS.terminalCursorBlink.key: if (typeof value === "boolean") set({ terminalCursorBlink: value }); return;
+          case LOOK_SETTING: if (isLook(value)) set({ look: value }); return;
           /* `theme_import` wears the theme it just imported. The themes are read again first, for
              `refreshCustomThemes`'s reason: a name the registry does not hold yet would fall back to
              Realm's own palette, which is the frame this would otherwise paint. */

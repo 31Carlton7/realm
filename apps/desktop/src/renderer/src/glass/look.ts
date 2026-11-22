@@ -18,9 +18,11 @@
  * the owner's Mac, where Low power is on for good (11-18).
  */
 
+import { SETTING_LOOK } from "@realm/contracts";
+
 export type Look = "plain" | "glass";
 
-export const LOOK_SETTING = "ui.look";
+export const LOOK_SETTING = SETTING_LOOK;
 export const DEFAULT_LOOK: Look = "plain";
 
 export function isLook(v: unknown): v is Look {
