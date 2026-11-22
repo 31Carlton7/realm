@@ -1,4 +1,4 @@
-import { AGENT_META, NOTIFICATIONS_DISABLED_KEY, formatUsd, type McpServerStatus, type Notification, type NotificationCategory, type Session, type SessionEvent } from "@realm/contracts";
+import { AGENT_META, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SESSION_DONE_KEY, formatUsd, sessionDoneWhen, type Goal, type McpServerStatus, type Notification, type NotificationCategory, type Session, type SessionEvent } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SettingsStore } from "../store/settings";
@@ -54,8 +54,13 @@ export class NotificationsService {
      *  before, naming the session and not where it lives. */
     spaces?: { get(id: string): { name: string } | null };
     /** Session rows, for a sub-agent's lead: its request is titled "<lead> › <sub-agent>", because the
-     *  person started the lead and may never have heard the child's name. Optional, as `spaces` is. */
-    sessions?: { get(id: string): Session | null } }) {}
+     *  person started the lead and may never have heard the child's name. Optional, as `spaces` is.
+     *  The sessions a session started are how "done" knows a sub-agent of it is still running. */
+    sessions?: { get(id: string): Session | null; listDispatchedBy(id: string): Session[] };
+    /** A session's goal, and whether a message is waiting in its queue: the other two things that
+     *  start another turn of a session on their own. Optional: without them a settle is done. */
+    goals?: { get(sessionId: string): Goal | null };
+    queued?: (sessionId: string) => boolean }) {}
 
   list(p: { cursor: string | null; limit: number }): { notifications: Notification[]; nextCursor: string | null; unread: number } {
     const { notifications, nextCursor } = this.d.store.list(p);
@@ -168,10 +173,53 @@ export class NotificationsService {
           if (open.refId) this.resolveOpen("permission", open.refId, "The session ended before this was answered");
         }
       }
+      if (ev.payload.status === "idle" && this.whenDone() === "done") {
+        // A sub-agent's finish is its lead's news: the person started the lead.
+        if (this.isChild(session)) { this.leadDone(session); return; }
+        if (this.keepsGoing(session.id, ev.payload.interrupted === true)) return;
+      }
       this.notify({ category: "session_done", spaceId: session.spaceId, sessionId: session.id, refId: session.id,
         title: session.title, body: SETTLE_WORD[ev.payload.status] ?? "Settled", acted: true,
         ...(ev.payload.status === "error" ? { hint: { kind: "failed" as const } } : {}) });
+      if (this.whenDone() === "done" && this.isChild(session)) this.leadDone(session);
     }
+  }
+
+  private whenDone() { return sessionDoneWhen(this.d.settings.get(NOTIFICATIONS_SESSION_DONE_KEY)); }
+
+  private isChild(session: Session): boolean {
+    return !!session.dispatchedBy?.sessionId && CHILD_ORIGINS.has(session.dispatchedBy.kind);
+  }
+
+  /** Whether something will start another turn of this session on its own. A Stop parks the queue
+   *  and pauses the goal, so after one only a running sub-agent still counts. `settling` is a
+   *  sub-agent whose row still says running because its settle is the event being handled. */
+  private keepsGoing(sessionId: string, interrupted: boolean, settling?: string): boolean {
+    const children = this.d.sessions?.listDispatchedBy(sessionId) ?? [];
+    if (children.some((c) => c.id !== settling && this.isChild(c) && SETTLED_FROM.has(c.status))) return true;
+    if (interrupted) return false;
+    return this.d.goals?.get(sessionId)?.status === "active" || (this.d.queued?.(sessionId) ?? false);
+  }
+
+  /** A sub-agent settled. Its lead is done if the lead is not mid-turn and this was the last thing
+   *  that would start another turn of it: nothing wakes a lead when a sub-agent it did not wait on
+   *  finishes, so its last settle went untold and this is the moment its work is done. */
+  private leadDone(child: Session): void {
+    const lead = this.d.sessions?.get(child.dispatchedBy!.sessionId!);
+    if (!lead || lead.status !== "idle" || this.keepsGoing(lead.id, false, child.id)) return;
+    this.notify({ category: "session_done", spaceId: lead.spaceId, sessionId: lead.id, refId: lead.id,
+      title: lead.title, body: SETTLE_WORD.idle!, acted: true });
+  }
+
+  /** The goal loop stopped a goal after the settle that ran its last turn (`GoalService.stop`). That
+   *  settle found the goal active and said nothing, so in done mode this is where the work is done.
+   *  A goal stopped under a running turn is left to that turn's settle. */
+  goalStopped(sessionId: string): void {
+    if (this.whenDone() !== "done") return;
+    const session = this.d.sessions?.get(sessionId);
+    if (!session || session.status !== "idle" || this.keepsGoing(sessionId, false)) return;
+    this.notify({ category: "session_done", spaceId: session.spaceId, sessionId, refId: sessionId,
+      title: session.title, body: SETTLE_WORD.idle!, acted: true });
   }
 
   /** Who a request is from, as its row says it: the session, or — for a sub-agent — its lead and then

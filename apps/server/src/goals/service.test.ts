@@ -13,7 +13,7 @@ import type { Goal } from "@realm/contracts";
 const dbs: Db[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); });
 
-function bring(opts: { queued?: boolean; closeWith?: string | null } = {}) {
+function bring(opts: { queued?: boolean; closeWith?: string | null; stopped?: boolean } = {}) {
   const db = openDatabase(join(tempDir("realm-goal-"), "realm.db"));
   dbs.push(db);
   // The FK is to `sessions`, which this test never creates — SQLite enforces it on write, so the row
@@ -31,7 +31,7 @@ function bring(opts: { queued?: boolean; closeWith?: string | null } = {}) {
     queued: () => queued,
     dropQueued: (sessionId) => { calls.push(`drop:${sessionId}`); },
     notifyTools: async (sessionId) => { calls.push(`notify:${sessionId}`); },
-    stopped: (sessionId) => { calls.push(`stopped:${sessionId}`); },
+    ...(opts.stopped ? { stopped: (sessionId: string) => { calls.push(`stopped:${sessionId}`); } } : {}),
     ...(opts.closeWith !== undefined ? { closeWith: () => opts.closeWith! } : {}),
   });
   return { service, sent, events, calls, setQueued: (v: boolean) => { queued = v; }, db };
@@ -284,7 +284,7 @@ describe("an agent that already has its tool list", () => {
     /* A `/goal` typed mid-conversation reaches an agent that listed its tools long ago. THE mutant
        notifies after `deliver` (or not at all): the turn that starts the goal is planned against the
        old list. */
-    const { service, calls } = bring();
+    const { service, calls } = bring({ stopped: true });
     await service.start("s1", "ship it", null);
     expect(calls).toEqual(["notify:s1", "deliver:goal-start"]);
     service.set("s1", "paused", "You paused it.");
@@ -402,7 +402,7 @@ describe("telling the feed a goal stopped itself", () => {
   it("says so when the loop stops it after a settle, and not for a person's pause or the agent's own update_goal", async () => {
     // The settle that ran the goal's last turn found it still active and said nothing; this is the
     // moment the work is done.
-    const { service, calls } = bring();
+    const { service, calls } = bring({ stopped: true });
     await service.start("s1", "ship it", null);
     await settle(service, { toolCalls: 4, finalText: "GOAL BLOCKED: no access to the registry." });
     expect(calls.filter((c) => c.startsWith("stopped:"))).toEqual(["stopped:s1"]);

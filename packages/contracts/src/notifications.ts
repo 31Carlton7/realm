@@ -77,6 +77,16 @@ export const NOTIFICATIONS_DISABLED_KEY = "notifications.disabledCategories";
  */
 export const NOTIFICATIONS_DESKTOP_KEY = "notifications.desktop";
 /**
+ * When a session finishing is a `session_done` row: once its work is DONE (the default), or after
+ * every turn. Done means the turn settled and nothing will start another turn of it on its own — no
+ * sub-agent of it still running, no goal on it still active, no message waiting in its queue — and a
+ * sub-agent's own finish is its lead's to tell. A failure or an end is told in both. Anything but
+ * "turn" reads as "done", so an unset key is the default.
+ */
+export const NOTIFICATIONS_SESSION_DONE_KEY = "notifications.sessionDone";
+export type SessionDoneWhen = "done" | "turn";
+export function sessionDoneWhen(raw: unknown): SessionDoneWhen { return raw === "turn" ? "turn" : "done"; }
+/**
  * Where a notification is RELAYED beyond this Mac, for the moments an agent needs a person who is
  * not at the keyboard: an iMessage handle (phone number or Apple ID email, sent through the `mac`
  * CLI's Messages bridge) and a Slack incoming-webhook URL. Either empty means "don't". Only the
