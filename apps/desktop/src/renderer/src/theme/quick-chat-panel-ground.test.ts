@@ -54,6 +54,11 @@ describe("the quick chat panel's Glass ground", () => {
     expect(misses(() => 0.62).some((m) => m.face === "realm/dark" && m.behind === "white")).toBe(true);
   });
 
+  it("carries the prompter on the panel's ground, with no fill of its own over it", () => {
+    expect(styles).toMatch(/:root\[data-surface="quick-chat"\] \.quick-chat \.composer \{ --prompter-alpha: 0%; \}/);
+    expect(styles).toMatch(/\.composer \{[^}]*background: color-mix\(in srgb, var\(--surface\) var\(--prompter-alpha\), transparent\);/);
+  });
+
   it("shows the light face's window less than the dark one's, as the panes do", () => {
     expect(glassAlpha("light")).toBeGreaterThan(glassAlpha("dark"));
     expect(glassAlpha("dark")).toBeLessThan(1);
