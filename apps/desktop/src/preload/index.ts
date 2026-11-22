@@ -150,6 +150,7 @@ contextBridge.exposeInMainWorld("realm", {
    *  that makes macOS ask, and only the page's button makes it. */
   meetings: {
     setOpenWhenStarts: (on: boolean): Promise<void> => ipcRenderer.invoke("meetings:open-when-starts", on),
+    setStartAssistantWithCall: (on: boolean): Promise<void> => ipcRenderer.invoke("meetings:start-assistant-with-call", on),
     calendarAccess: (): Promise<CalendarAccess | null> => ipcRenderer.invoke("meetings:calendar-access"),
     askForCalendar: (): Promise<void> => ipcRenderer.invoke("meetings:ask-for-calendar"),
     openCalendarSettings: (): Promise<void> => ipcRenderer.invoke("meetings:open-calendar-settings"),

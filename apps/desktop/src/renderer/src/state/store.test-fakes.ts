@@ -1864,6 +1864,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
     setPreventSleep: async (on) => { calls.push(`setPreventSleep:${on}`); },
     setOpensMeetings: async (on) => { calls.push(`setOpensMeetings:${on}`); opensMeetings = on; },
+    setStartsAssistant: async (on) => { calls.push(`setStartsAssistant:${on}`); },
     // Main's rule: with the switch off no helper runs, so there is nobody to say.
     calendarAccess: async () => { calls.push("calendarAccess"); return opensMeetings ? data.calendarAccess : null; },
     onCalendarAccess: (cb) => { calendarWatchers.add(cb); return () => { calendarWatchers.delete(cb); }; },

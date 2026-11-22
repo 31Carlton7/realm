@@ -62,5 +62,6 @@ export const ASSISTANT_CHORDS = [
 ] as const;
 export type AssistantAction = (typeof ASSISTANT_CHORDS)[number]["action"];
 /** What the panel's page is told to do; moving the panel is main's own. `chat` is the quick chat
- *  keys turning the panel to the chat. */
-export type AssistantPageAction = Exclude<AssistantAction, "moveLeft" | "moveRight"> | "chat";
+ *  keys turning the panel to the chat, and `autoStart` a call starting (Settings ▸ General ▸
+ *  Meetings); neither is a chord. */
+export type AssistantPageAction = Exclude<AssistantAction, "moveLeft" | "moveRight"> | "chat" | "autoStart";

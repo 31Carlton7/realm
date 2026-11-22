@@ -118,6 +118,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "open-links-in", tab: "general", section: "Links", label: "Open links in", terms: "web url browser default safari chrome realm click command" },
   { id: "open-meetings", tab: "general", section: "Meetings", label: "Open the meeting when it starts", terms: "calendar join call zoom meet teams webex facetime link notification auto",
     available: () => capabilities().meetings },
+  { id: "start-assistant", tab: "general", section: "Meetings", label: "Start the assistant when a call starts", terms: "meeting assistant listen auto microphone zoom meet teams facetime slack discord transcribe",
+    available: () => capabilities().meetings },
   { id: "sidebar-activity-order", tab: "general", section: "Sidebar", label: "Sort spaces by activity", terms: "order drag strip" },
   { id: "confirm-delete", tab: "general", section: "Deleting", label: "Ask before deleting", terms: "confirm delete trash" },
   { id: "terminal-history", tab: "general", section: "Terminals", label: TERMINALS_HISTORY_COPY.label, terms: "output history restart" },

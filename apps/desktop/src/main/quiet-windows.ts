@@ -17,7 +17,7 @@ import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, 
  *     `--disable-backgrounding-occluded-windows` (measured: browser-do-live's pane never settled
  *     while the person's own window covered it), so a quiet window is never covered: it floats above
  *     everything, on every Space, at an alpha nobody can see and with the mouse passing through;
- *   - the window main last showed or focused is KEY, as AppKit would have it, through `isFocused`,
+ *   - the window main last showed or focused is KEY until it is hidden or closed, as AppKit would have it, through `isFocused`,
  *     `getFocusedWindow` and the `focus`/`blur` events; the renderer's page is focus-emulated, so it
  *     draws as it does in use (not dimmed into `data-quiet`);
  *   - the webContents main last focused holds the keyboard, through `isFocused` and
@@ -120,6 +120,7 @@ export function installQuietWindows(): void {
   /* ── Windows ─────────────────────────────────────────────────────────────────────────────── */
   const proto = BrowserWindow.prototype;
   const showInactive = proto.showInactive;
+  const hide = proto.hide;
   const focus = proto.focus;
   const order: BrowserWindow[] = [];
   let key: BrowserWindow | null = null;
@@ -153,6 +154,11 @@ export function installQuietWindows(): void {
   proto.focus = function (this: BrowserWindow) {
     if (takesKey(this)) focus.call(this);
     if (this.isVisible()) setKey(this);
+  };
+  // AppKit takes key from a window it orders out, and hands it to the one in front.
+  proto.hide = function (this: BrowserWindow) {
+    hide.call(this);
+    if (live(key) === this) setKey([...order].reverse().find((o) => o !== this && !o.isDestroyed() && o.isVisible()) ?? null);
   };
   proto.blur = function (this: BrowserWindow) {
     if (live(key) === this) setKey(null);

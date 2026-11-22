@@ -22,7 +22,7 @@ import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
-import { BROWSER_KEEP_HIDDEN_DEFAULT, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
@@ -30,6 +30,7 @@ import { startBackdropState } from "./backdrop-state";
 import { MeetingWatch, meetingWatchPath, startMeetingWatchHelper } from "./meeting-watch";
 import { RealmKeys } from "./realm-keys";
 import { AssistantKeys, onPageGone, PageInbox } from "./assistant-keys";
+import { AssistantAutoStart } from "./assistant-auto-start";
 import { readFileRange, readTextFile } from "./read-text";
 import {
   addBackgrounds, backgroundImageUrl, backgroundLoopFile, listBackgrounds, removeBackground, setBackgroundPoster, updateBackground, type FirstFrame, type Reencode,
@@ -364,6 +365,9 @@ async function readMeetingsPreference() {
   try {
     const stored = await bridgeClient?.call("settings.get", { key: MEETINGS_OPEN_KEY });
     meetingWatch.setOpensMeetings((stored as { value?: unknown } | null)?.value !== false);
+    const autoStart = (await bridgeClient?.call("settings.get", { key: MEETING_AUTO_START_KEY }) as { value?: unknown } | null)?.value;
+    assistantAutoStart.set(typeof autoStart === "boolean" ? autoStart : MEETING_AUTO_START_DEFAULT);
+    preparePanel();
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
 
@@ -761,11 +765,14 @@ async function readQuickChatPanelSettings(): Promise<void> {
   } catch { /* the bridge dropped; the next connection reads them */ }
 }
 /** The panel's window is made ahead of the first press, hidden, once there is a key that opens it.
- *  With no chord, no double-tap and no assistant chord there is nothing to open it from another app,
- *  and a renderer kept for it would be memory spent on nothing. */
+ *  With no chord, no double-tap, no assistant chord and no auto-start there is nothing to open it
+ *  from another app, and a renderer kept for it would be memory spent on nothing. */
 function preparePanel(): void {
   quickChatPanel.prepareFor(
-    { chord: quickChatShortcut.current().registered, doubleTap: realmKeys.doubleTapOn, assistant: assistantKeys.live },
+    {
+      chord: quickChatShortcut.current().registered, doubleTap: realmKeys.doubleTapOn, assistant: assistantKeys.live,
+      autoStart: assistantAutoStart.enabled,
+    },
     meetingListening.listening,
   );
 }
@@ -824,7 +831,11 @@ const listeningMark = new ListeningMark({
 });
 // `transcript`, the meeting transcript's helper, is made further down.
 const meetingListening = new MeetingListening<WebContents>({
-  mark: (on) => listeningMark.set(on),
+  mark: (on) => {
+    listeningMark.set(on);
+    // A run that ends holds auto-start off for its call (assistant-auto-start.ts).
+    assistantAutoStart.listeningChanged(meetingListening.listening);
+  },
   stopHelper: (page) => transcript.endRun(page),
 });
 ipcMain.on("meeting-assistant:listening", (e, on: unknown) => {
@@ -1656,7 +1667,7 @@ app.on("will-quit", () => voice.stop());
 // ── Meetings ─────────────────────────────────────────────────────────────────────────────────────
 // Knowing when a meeting or a call starts (meeting-watch.ts). With Settings ▸ General ▸ Meetings on,
 // a meeting's link is opened by the system at its start, with a notification two minutes before.
-// Nothing listens for calls yet.
+// With "Start the assistant when a call starts" on, a call starting starts the panel's assistant.
 const saidMeetingsFile = () => join(app.getPath("userData"), "meetings-said.json");
 // Held so the click still lands: a notification nothing refers to can be collected before it.
 let meetingNotification: Notification | null = null;
@@ -1689,6 +1700,20 @@ const meetingWatch = new MeetingWatch({
 });
 /** The renderer's half of the Meetings switch, as `power:prevent-sleep` is the sleep preference's. */
 ipcMain.handle("meetings:open-when-starts", (_e, on: unknown) => { meetingWatch.setOpensMeetings(on === true); });
+/** "Start the assistant when a call starts" (assistant-auto-start.ts). The page's Start is the one
+ *  the button runs, so the mark goes up the same way. */
+const assistantAutoStart = new AssistantAutoStart({
+  watchCalls: (on) => meetingWatch.watchCalls(on),
+  consented: async () => meetingConsentAccepted((await bridgeClient?.call("settings.get", { key: MEETING_CONSENT_KEY }) as { value?: unknown } | null)?.value),
+  listening: () => meetingListening.listening,
+  panel: quickChatPanel,
+  start: () => assistantInbox.send(quickChatPanel.window()?.webContents ?? null, "autoStart"),
+  now: () => Date.now(),
+});
+meetingWatch.on("meetingStarted", (meeting) => void assistantAutoStart.meetingStarted(meeting));
+meetingWatch.on("callStarted", (app) => void assistantAutoStart.appCallStarted(app));
+meetingWatch.on("callEnded", (app) => assistantAutoStart.appCallEnded(app));
+ipcMain.handle("meetings:start-assistant-with-call", (_e, on: unknown) => { assistantAutoStart.set(on === true); preparePanel(); });
 /** Read again each time it is asked for, so a grant changed in System Settings shows on the page. */
 ipcMain.handle("meetings:calendar-access", () => { meetingWatch.checkCalendar(); return meetingWatch.access; });
 /** The one place Realm asks macOS for the calendar on its own account: the button in Settings. */

@@ -142,7 +142,7 @@ export class MeetingWatch {
     }
   }
 
-  /** Whether anything wants `callStarted` and `callEnded`. Nothing does yet: the assistant will. */
+  /** Whether anything wants `callStarted` and `callEnded`: the assistant's auto start (assistant-auto-start.ts). */
   watchCalls(on: boolean): void {
     if (on && !this.microphone) {
       this.microphone = this.d.startHelper("calls", (line) => {
