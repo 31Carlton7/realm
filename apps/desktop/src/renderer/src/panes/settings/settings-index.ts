@@ -192,6 +192,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "relay-iphone", tab: "notifications", label: "Notify my iPhone", terms: "phone push mobile relay",
     available: (facts) => facts.phonesPaired },
   ...NOTIFICATION_CATEGORIES.map((c): SettingEntry => ({ id: `notify:${c}`, tab: "notifications", section: "Notify me about", label: CATEGORY_COPY[c].label })),
+  { id: "session-done-when", tab: "notifications", section: "Notify me about", label: "Tell me", terms: "sessions finishing work done every turn" },
 
   // Dictation
   { id: "dictation-microphone", tab: "dictation", label: "Microphone", terms: "input device mic airpods headset voice" },

@@ -24,7 +24,7 @@ import {
   forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SESSION_DONE_KEY, sessionDoneWhen, type SessionDoneWhen, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
@@ -1507,7 +1507,7 @@ export type AppState = TeammatesSlice & {
    *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
    *  mount, and a null renders as loading rather than as every-toggle-on lies. */
   /** `quickChatModel` is the stored value as read; `quickChatModelOf` says what it means. */
-  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string; quickChatModel: unknown } | null;
+  settingsPrefs: { disabledCategories: NotificationCategory[]; sessionDoneWhen: SessionDoneWhen; defaultPermissionMode: string; quickChatModel: unknown } | null;
   /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
    *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
    *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
@@ -2970,6 +2970,9 @@ export type AppState = TeammatesSlice & {
   /** Flip ONE category's off switch and persist the whole disabled set under
    *  `NOTIFICATIONS_DISABLED_KEY`. Disabling stops NEW rows only — the service's contract. */
   setNotificationCategoryEnabled(category: NotificationCategory, enabled: boolean): Promise<void>;
+  /** When a session finishing notifies (`NOTIFICATIONS_SESSION_DONE_KEY`): once its work is done, or
+   *  after every turn. Read by the server, which writes the rows. */
+  setSessionDoneWhen(when: SessionDoneWhen): Promise<void>;
   /** Persist the default permission mode for new sessions (`DEFAULT_PERMISSION_MODE_KEY`) —
    *  consumed server-side at `sessions.create`. The bypass confirm lives in the page, not here:
    *  by the time this runs the user has already said it twice. */
@@ -8398,15 +8401,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       memoryLibraryCreate(input) { return api.memoryLibraryCreate(input); },
       memoryLibraryDelete(id, confirmExternal) { return api.memoryLibraryDelete(id, confirmExternal); },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone, quickChatModel] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone, quickChatModel, rawSessionDone] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
           api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY), api.getSetting(MID_TURN_MODE_KEY),
-          api.getSetting(NOTIFICATIONS_IPHONE_KEY), api.getSetting(QUICK_CHAT_MODEL_SETTING),
+          api.getSetting(NOTIFICATIONS_IPHONE_KEY), api.getSetting(QUICK_CHAT_MODEL_SETTING), api.getSetting(NOTIFICATIONS_SESSION_DONE_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode, quickChatModel }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
+        set({ settingsPrefs: { disabledCategories, sessionDoneWhen: sessionDoneWhen(rawSessionDone), defaultPermissionMode, quickChatModel }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
           soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume), iphoneNotifications: rawIphone !== false });
       },
       async refreshModelFavorites() {
@@ -8466,6 +8469,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           : [...prefs.disabledCategories.filter((c) => c !== category), category];
         await api.setSetting(NOTIFICATIONS_DISABLED_KEY, disabledCategories);
         set({ settingsPrefs: { ...prefs, disabledCategories } });
+      },
+      async setSessionDoneWhen(when) {
+        const prefs = get().settingsPrefs; if (!prefs) return;
+        await api.setSetting(NOTIFICATIONS_SESSION_DONE_KEY, when);
+        set({ settingsPrefs: { ...prefs, sessionDoneWhen: when } });
       },
       async setDefaultPermissionMode(mode) {
         const prefs = get().settingsPrefs; if (!prefs) return;

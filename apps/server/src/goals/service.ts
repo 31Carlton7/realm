@@ -47,6 +47,8 @@ export type GoalServiceDeps = {
    *  reach it — then the continuation teaches the `GOAL COMPLETE:` line instead. Absent: the
    *  gateway's own name. */
   closeWith?: (sessionId: string) => string | null;
+  /** The loop stopped the goal itself, after the settle that ran its last turn. */
+  stopped?: (sessionId: string) => void;
   log?: (line: string) => void;
 };
 
@@ -296,6 +298,7 @@ export class GoalService {
     this.d.log?.(`[goal] ${sessionId} → ${status}: ${note}`);
     this.d.dropQueued?.(sessionId);
     this.publish(this.d.goals.update(sessionId, { status, note })!);
+    this.d.stopped?.(sessionId);
   }
 
   private continuation(sessionId: string, goal: Goal): string {

@@ -22,6 +22,7 @@ on:
         type: choice
         options:
           - meeting-assistant-live.mjs
+          - notify-done-live.mjs
           - schedule-mode-live.mjs
           - settings-set-live.mjs
 
