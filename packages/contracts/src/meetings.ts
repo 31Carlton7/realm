@@ -28,6 +28,10 @@ export function meetingConsentAccepted(stored: unknown): boolean {
   return typeof stored === "number" && Number.isFinite(stored) && stored > 0;
 }
 
+/** Whether the assistant answers a question the other side asks without a key. On unless turned off. */
+export const MEETING_AUTO_ANSWERS_KEY = "meetings.autoAnswers";
+export const MEETING_AUTO_ANSWERS_DEFAULT = true;
+
 /** What started a live answer: the answer key (Fn G), a question the other side asked, or the
  *  screen key (Fn S), which sends a picture of the person's screen with the ask. */
 export const LIVE_ANSWER_TRIGGERS = ["key", "question", "screen"] as const;

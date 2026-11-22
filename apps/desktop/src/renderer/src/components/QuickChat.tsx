@@ -13,7 +13,9 @@ import { useFileDrop } from "./use-file-drop";
 import { complementOf } from "../state/no-overlay";
 import { MediaSessionContext } from "./viewer/open";
 import type { MeetingAssistant } from "../meeting/assistant";
-import { ASSISTANT_PLACEHOLDER, AssistantBody, AssistantStrip, ListeningMark, type AssistantTarget } from "../meeting/MeetingAssistantView";
+import {
+  ASSISTANT_PLACEHOLDER, AssistantBody, AssistantStrip, AutoAnswersSwitch, ListeningMark, useAssistantState, type AssistantTarget,
+} from "../meeting/MeetingAssistantView";
 
 /** The window's size. Fixed rather than resizable: it is a corner of the screen you ask something
  *  in, and a chat you want to size is a chat that wanted a pane. */
@@ -99,11 +101,20 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
   const said = transcript.blocks.length > 0;
   const [confirming, setConfirming] = useState(false);
   /* The assistant is the same window's other view: the chat stays as it was under it, and a run that
-     is listening goes on while the chat is shown. */
-  const [view, setView] = useState<"chat" | "assistant">("chat");
+     is listening goes on while the chat is shown. Which one is up is the assistant's, so a key
+     pressed in another app can turn it to the assistant before this chat has mounted. */
+  const assistantState = useAssistantState(assistant);
+  const view = assistantState?.shown ? "assistant" : "chat";
   const [target, setTarget] = useState<AssistantTarget>("ask");
   const [assistantDraft, setAssistantDraft] = useState("");
   const showing = assistant && view === "assistant" ? assistant : null;
+  /* Fn T: the prompter takes the keyboard, and what it sends is a question. */
+  const typeKeyPresses = assistantState?.typeKeyPresses ?? 0;
+  useEffect(() => {
+    if (typeKeyPresses === 0) return;
+    setTarget("ask");
+    document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input")?.focus();
+  }, [typeKeyPresses]);
   /* Saving is offered once there is an answer to keep, and from then on: a second question does not
      take the row away while it runs. */
   const answered = transcript.blocks.some((b) => b.kind === "assistant" && !b.streaming);
@@ -171,10 +182,11 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
             the server to tell anyone about, and its question is under the bar already. */}
         <span className="quick-chat-title">{showing ? "Meeting assistant" : keptIn ? session.title : "Quick chat"}</span>
         {assistant && <ListeningMark assistant={assistant} />}
+        {showing && <AutoAnswersSwitch assistant={showing} />}
         {assistant && (
           <button type="button" className="icon-btn" aria-label="Meeting assistant" aria-pressed={view === "assistant"}
             title={view === "assistant" ? "Back to the chat" : "Meeting assistant"}
-            onClick={() => setView((v) => (v === "assistant" ? "chat" : "assistant"))}>
+            onClick={() => assistant.show(view !== "assistant")}>
             <Icon name="mic" size={14} />
           </button>
         )}

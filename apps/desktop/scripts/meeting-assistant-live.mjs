@@ -30,7 +30,26 @@
  *   reload    a reload of the panel's page while it listens stops the stand-in helper and takes the
  *             menu bar's mark down
  *   consent   the acceptance is kept as the setting M3c reads
- *   picture   the panel in dark and light, Plain and Glass, in each of the three states
+ *   picture   the panel in dark and light, Plain and Glass, in each of the three states. Every capture
+ *             is laid over an opaque ground, and a row fails when its ground is not
+ *
+ * The assistant's keys (M3b), through a key helper stand-in (`REALM_KEYS_BIN`) that taps nothing: it
+ * logs how main started it and what main told it, and says the chord lines this script writes.
+ *
+ *   register  no chord is registered, and no helper started able to swallow, before the sheet is
+ *             accepted; after the accept every chord is, with no relaunch
+ *   settings  Settings ▸ Keys: the switch says the keys wait on the first Start until then, and the
+ *             rows in dark and light, Plain and Glass, before and after; after, the whole From anywhere
+ *             group in each look too
+ *   order     the From anywhere rows in the order settings-keybindings.test.tsx pins
+ *   bar       the bar's title, mark, Auto-answer switch and mic button side by side at 380 pt, in
+ *             dark and light, Plain and Glass
+ *   keys      each chord does what it names: R shows the assistant and puts it away, G answers, T
+ *             types, J and K scroll, , and . move the panel, L starts and stops; R, L and G leave the
+ *             keyboard where it was and T takes it
+ *   chat      the quick chat chord and a double-tap of Command open on the chat, after an assistant key
+ *   heard     G after a reload says the assistant is not listening and names Fn L, and asks nothing
+ *   reloaded  a key pressed after a reload reaches the reloaded page
  *   glass-held in place of a Glass picture, why the app draws chosen glass plain on this machine
  *             (Reduce Transparency, Low Power Mode, or no backdrop-filter url())
  */
@@ -48,6 +67,15 @@ const SUMMARY = "## Summary\n\nThe pilot runs four weeks with two teams, priced 
 const js = (v) => JSON.stringify(v);
 const CHORD = "mod+ctrl+alt+shift+f19";
 const CONSENT_KEY = "meetings.assistantConsentAt";
+/** The key codes the helper says for each chord (main/realm-keys.ts's CHORD_KEY_CODES). */
+const CODES = { R: 15, L: 37, G: 5, T: 17, J: 38, K: 40, ",": 43, ".": 47 };
+
+/** The From anywhere rows' order, as the unit test pins it. */
+const PINNED_ORDER = (() => {
+  const test = fs.readFileSync(path.join(desktopRoot, "src/renderer/src/components/settings/settings-keybindings.test.tsx"), "utf8");
+  const pin = test.slice(test.indexOf("keeps the keys that work from another app in one group"));
+  return [...pin.slice(pin.indexOf(".toEqual(["), pin.indexOf("]);")).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+})();
 
 /** What the stand-in helper says, after the first audio arrives: `wait` ms after the line before. */
 const LINES = [
@@ -126,6 +154,33 @@ process.stdin.on("data", (d) => {
 process.stdin.on("end", () => process.exit(0));
 `, { mode: 0o755 });
 
+/** A stand-in for realmkeys: no tap. It logs its arguments and each line main sends, says it may
+ *  swallow, and writes out whatever is added to `say` after it started. */
+const keysDir = path.join(tools, "keys");
+fs.mkdirSync(keysDir);
+const keysBin = path.join(keysDir, "realmkeys");
+const keysSay = path.join(keysDir, "say");
+const keysLog = path.join(keysDir, "log.jsonl");
+fs.writeFileSync(keysSay, "");
+fs.writeFileSync(keysBin, `#!${process.execPath}
+const fs = require("node:fs");
+const log = (e) => fs.appendFileSync(${js(keysLog)}, JSON.stringify(e) + "\\n");
+log({ argv: process.argv.slice(2) });
+console.log(JSON.stringify({ ready: true, active: true }));
+let said = fs.readFileSync(${js(keysSay)}, "utf8").length;
+setInterval(() => { const all = fs.readFileSync(${js(keysSay)}, "utf8"); process.stdout.write(all.slice(said)); said = all.length; }, 100);
+let buf = "";
+process.stdin.on("data", (d) => {
+  buf += d;
+  let i;
+  while ((i = buf.indexOf("\\n")) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); try { log({ config: JSON.parse(line) }); } catch {} }
+});
+process.stdin.on("end", () => process.exit(0));
+`, { mode: 0o755 });
+const keysLogged = () => (fs.existsSync(keysLog) ? fs.readFileSync(keysLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
+const chord = (key) => fs.appendFileSync(keysSay, `${js({ t: "chord", code: CODES[key] })}\n`);
+const doubleTap = () => fs.appendFileSync(keysSay, `${js({ t: "doubleTap" })}\n`);
+
 let web = null;
 let rendererUrl = null;
 let current = null;
@@ -141,7 +196,7 @@ async function launch() {
   const calendar = noCalendar();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "realm-meeting-home-"));
   const app = await launchLiveApp({ name: "meeting-assistant", inspect: true, rendererUrl,
-    env: { ...calendar.env, HOME: home, REALM_VOICE_BIN: voiceBin, REALM_FAKE_SCRIPT: scriptFile, REALM_FAKE_STANDS_IN: "claude", REALM_REAL_LIVE_ANSWERS: "" } });
+    env: { ...calendar.env, HOME: home, REALM_KEYS_BIN: keysBin, REALM_VOICE_BIN: voiceBin, REALM_FAKE_SCRIPT: scriptFile, REALM_FAKE_STANDS_IN: "claude", REALM_REAL_LIVE_ANSWERS: "" } });
   const stopApp = app.stop;
   app.stop = async () => { await stopApp(); fs.rmSync(home, { recursive: true, force: true }); };
   const api = rpc(app.ports.server, await daemonToken(app.home));
@@ -167,7 +222,29 @@ const panelOf = `require("electron").BrowserWindow.getAllWindows().find((w) => !
 const panelVisible = (app) => app.main.eval(`${panelOf}?.isVisible() === true`);
 const press = (app) => app.main.eval(`globalThis.__quickChatChord.press(); true`);
 const openPanel = async (app) => { if (!(await panelVisible(app))) await press(app); await until(() => panelVisible(app), 10_000, "the panel to open"); };
-const closePanel = async (app) => { if (await panelVisible(app)) await press(app); await until(async () => !(await panelVisible(app)), 10_000, "the panel to close"); };
+/** The panel's own Escape path: the quick chat chord turns a panel on the assistant to the chat. */
+const closePanel = async (app, page) => {
+  if (await panelVisible(app)) await page.eval(`window.realm.quickChatPanel.hide(); true`);
+  await until(async () => !(await panelVisible(app)), 10_000, "the panel to close");
+};
+const onAssistant = (page) => page.eval(`!!document.querySelector(".meeting-strip")`);
+/** The quick chat keys open on the chat; the mic button turns it back to the assistant. */
+const showAssistant = async (page) => {
+  if (!(await onAssistant(page))) await page.eval(`document.querySelector('.quick-chat-bar button[aria-label="Meeting assistant"]').click(); true`);
+  await until(() => onAssistant(page), 10_000, "the assistant view");
+};
+/** Counts main's calls that give the panel the keyboard, on the panel's own window and page. */
+const countFocus = (app) => app.main.eval(`(() => { const w = ${panelOf};
+  if (!w.__focusCounted) {
+    w.__focusCounted = true;
+    const focus = w.focus.bind(w), pageFocus = w.webContents.focus.bind(w.webContents);
+    w.focus = () => { globalThis.__panelFocus++; return focus(); };
+    w.webContents.focus = () => { globalThis.__panelFocus++; return pageFocus(); };
+  }
+  globalThis.__panelFocus = 0; return true; })()`);
+const focusCalls = (app) => app.main.eval(`globalThis.__panelFocus`);
+const panelX = (app) => app.main.eval(`${panelOf}.getPosition()[0]`);
+const workArea = (app) => app.main.eval(`(() => { const w = ${panelOf}; return require("electron").screen.getDisplayMatching(w.getBounds()).workArea; })()`);
 const running = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const quietTray = (app) => app.main.eval(`globalThis[Symbol.for("realm.quietTrays")]?.listening ?? null`);
 
@@ -182,12 +259,30 @@ async function attachPanel(app) {
   }, 20_000, "the panel's page");
 }
 
+/** Every capture goes through here. The window is see-through, so a capture keeps the panes' alpha and a
+ *  viewer would draw it over its own white or grey: `lay` puts the image on a canvas over a ground, by
+ *  default the theme's page colour. True when the ground came out opaque. */
+async function shot(c, file, { clip, lay = OVER_PAGE } = {}) {
+  const { data } = await c.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip } : {}) });
+  const { png, alpha } = await c.eval(`(async () => {
+    const img = new Image(); img.src = "data:image/png;base64,${data}"; await img.decode();
+    const cv = (${lay})(img);
+    return { png: cv.toDataURL("image/png").split(",")[1], alpha: cv.getContext("2d").getImageData(0, 0, 1, 1).data[3] };
+  })()`);
+  fs.writeFileSync(file, Buffer.from(png, "base64"));
+  return alpha === 255;
+}
+const OVER_PAGE = `(img) => {
+  const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+  const g = cv.getContext("2d");
+  g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--page").trim() || getComputedStyle(document.body).backgroundColor;
+  g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0);
+  return cv; }`;
+
 /** The page's capture laid over a busy backdrop and over a white one, side by side (as #609's check). */
 async function picture(page, file) {
   await sleep(500);
-  const { data } = await page.send("Page.captureScreenshot", { format: "png" });
-  const out = await page.eval(`(async () => {
-    const img = new Image(); img.src = "data:image/png;base64,${data}"; await img.decode();
+  return shot(page, file, { lay: `(img) => {
     const w = img.width, h = img.height, gap = 16;
     const cv = document.createElement("canvas"); cv.width = w * 2 + gap; cv.height = h;
     const g = cv.getContext("2d");
@@ -198,9 +293,7 @@ async function picture(page, file) {
     g.fillStyle = "#ffffff"; g.fillRect(w + gap, 0, w, h);
     g.clearRect(w, 0, gap, h);
     g.drawImage(img, 0, 0); g.drawImage(img, w + gap, 0);
-    return cv.toDataURL("image/png").split(",")[1];
-  })()`);
-  fs.writeFileSync(file, Buffer.from(out, "base64"));
+    return cv; }` });
 }
 
 /** Why the page draws chosen glass plain: the conditions `plainReason` reads, in its order, read as
@@ -211,24 +304,135 @@ const PLAIN_REASON = `(() => {
   if (!(typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("backdrop-filter", "url(#a)"))) return "no-backdrop-url";
   return null; })()`;
 
+/** Waits for the page to draw `look` in `mode`. When it draws chosen glass plain, writes a glass-held
+ *  row naming why and returns true, so the caller skips that look's picture. */
+async function lookHeld(page, mode, look, what, waiting) {
+  const shown = await until(() => page.eval(`(() => {
+    if (document.documentElement.dataset.mode !== ${js(mode)}) return null;
+    if (document.documentElement.hasAttribute("data-glass") === ${look === "glass"}) return { held: null };
+    const held = ${look === "glass" ? PLAIN_REASON : "null"};
+    return held ? { held } : null; })()`), 15_000, waiting).catch(async (err) => {
+    const had = await page.eval(`({ mode: document.documentElement.dataset.mode ?? null, glass: document.documentElement.hasAttribute("data-glass"),
+      visibility: document.visibilityState, plainReason: ${PLAIN_REASON} })`).catch((e) => ({ unread: e.message }));
+    throw new Error(`${err.message}; the root had ${js(had)}`);
+  });
+  if (shown.held) row("glass-held", `${what} glass drawn plain, so no picture`, shown.held);
+  return !!shown.held;
+}
+
 async function everyLook({ app, api }, page, state) {
   for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
     await api.call("settings.set", { key: "ui.theme", value: mode });
     await api.call("settings.set", { key: "ui.look", value: look });
-    await closePanel(app); await openPanel(app);
-    const shown = await until(() => page.eval(`(() => {
-      if (document.documentElement.dataset.mode !== ${js(mode)}) return null;
-      if (document.documentElement.hasAttribute("data-glass") === ${look === "glass"}) return { held: null };
-      const held = ${look === "glass" ? PLAIN_REASON : "null"};
-      return held ? { held } : null; })()`), 15_000, `the panel in ${mode} ${look}`);
-    if (shown.held) {
-      row("glass-held", `${state}, ${mode} glass drawn plain, so no picture`, shown.held);
-      continue;
-    }
+    await closePanel(app, page); await openPanel(app); await showAssistant(page);
+    if (await lookHeld(page, mode, look, `${state}, ${mode}`, `the panel in ${mode} ${look}`)) continue;
     const file = `m3a-${state}-${mode}-${look}.png`;
-    await picture(page, path.join(OUT_DIR, file));
-    row("picture", `${state}, ${mode} ${look}`, file);
+    const flat = await picture(page, path.join(OUT_DIR, file));
+    row("picture", `${state}, ${mode} ${look}`, file, flat);
   }
+}
+
+/** The bar at the panel's width: the title, the mark, the Auto-answer switch and the mic button each
+ *  whole, side by side and inside it, and a capture of the bar alone. */
+async function barLooks({ app, api }, page) {
+  for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
+    await api.call("settings.set", { key: "ui.theme", value: mode });
+    await api.call("settings.set", { key: "ui.look", value: look });
+    await closePanel(app, page); await openPanel(app); await showAssistant(page);
+    if (await lookHeld(page, mode, look, `the bar, ${mode}`, `the bar in ${mode} ${look}`)) continue;
+    await sleep(400);
+    const fit = await page.eval(`(() => {
+      const bar = document.querySelector(".quick-chat-bar"), b = bar.getBoundingClientRect();
+      const parts = { title: ".quick-chat-title", mark: ".meeting-mark", auto: ".meeting-auto", mic: 'button[aria-label="Meeting assistant"]' };
+      // An icon button's scroll box takes in its ::after hit area (styles.css), so it is measured by its icon.
+      const clipped = (el, r) => { const icon = el.matches(".icon-btn") ? el.querySelector("svg")?.getBoundingClientRect() : null;
+        return icon ? icon.left < r.left || icon.right > r.right || icon.top < r.top || icon.bottom > r.bottom : el.scrollWidth > el.clientWidth; };
+      const rects = Object.fromEntries(Object.entries(parts).map(([k, sel]) => { const el = bar.querySelector(sel); const r = el?.getBoundingClientRect();
+        return [k, r ? { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), clipped: clipped(el, r) } : null]; }));
+      const order = ["title", "mark", "auto", "mic"].map((k) => rects[k]);
+      const inside = order.every((r) => r && r.left >= b.left && r.right <= b.right && r.top >= b.top && r.bottom <= b.bottom);
+      const apart = order.every((r, i) => i === 0 || (r && order[i - 1] && order[i - 1].right <= r.left));
+      return { width: Math.round(window.innerWidth), bar: { x: b.left, y: b.top, width: b.width, height: b.height }, rects, inside, apart };
+    })()`);
+    const file = `m3b-bar-${mode}-${look}.png`;
+    const flat = await shot(page, path.join(OUT_DIR, file), { clip: { ...fit.bar, scale: 2 } });
+    row("bar", `title, mark, Auto-answer and mic at ${fit.width} pt, ${mode} ${look}`, { ...fit, file },
+      flat && fit.width === 380 && fit.inside && fit.apart && Object.values(fit.rects).every((r) => r && !r.clipped));
+  }
+}
+
+/** Puts the pointer in the window's corner: a titled row scrolled under where it was would show its tooltip
+ *  over the capture. */
+async function pointerAway(page) {
+  await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+  await sleep(200);
+}
+
+/** Reloads the Realm window, which comes back on its space or on the Settings it was showing. */
+async function reloadWindow(app) {
+  await app.page.send("Page.reload");
+  await until(() => app.page.eval(`document.readyState === "complete" && (document.body.innerText.includes("Stub space") || !!document.querySelector('input[name="settings-page-tab"]'))`), 30_000, "the window back after its reload")
+    .catch(async (error) => {
+      const shown = await app.page.eval(`document.readyState + ": " + document.body.innerText.replace(/\\s+/g, " ").trim().slice(0, 300)`).catch(() => "unread");
+      throw new Error(`${error.message}; the window showed ${js(shown)}`);
+    });
+}
+
+/** Settings ▸ Keys in the Realm window: the assistant's rows, read and captured in each look. */
+async function settingsLooks({ app, api }, state, waiting) {
+  const openKeys = async () => {
+    await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).webContents.send("app:command", "settings.open"); true`);
+    await until(() => app.page.eval(`!!document.querySelector('input[name="settings-page-tab"][value="keys"]')`), 10_000, "Settings");
+    await app.page.eval(`document.querySelector('input[name="settings-page-tab"][value="keys"]').click(); true`);
+    await until(() => app.page.eval(`!!document.querySelector('[data-setting="assistant-chord:."]')`), 10_000, "Settings ▸ Keys");
+    // The note shows once Settings has read the acceptance; with no note to wait on, the read is given a moment.
+    if (waiting) await until(() => app.page.eval(`document.querySelector('[data-setting="assistant-chords"]').innerText.includes(${js(waiting)})`), 5000, "the note that the keys wait").catch(() => {});
+    else await sleep(1000);
+  };
+  await openKeys();
+  const said = await app.page.eval(`document.querySelector('[data-setting="assistant-chords"]').innerText.replace(/\\s+/g, " ").trim()`);
+  if (state === "after-consent") {
+    const shown = await app.page.eval(`(() => { const field = document.querySelector('[data-setting="quick-chat-shortcut"]').closest(".field");
+      return { heading: field.querySelector(":scope > span").textContent, rows: [...field.querySelectorAll("[data-setting]")].map((r) => ({
+        setting: r.dataset.setting, label: r.querySelector(".settings-row-name")?.textContent ?? null })) }; })()`);
+    const settings = shown.rows.map((r) => r.setting);
+    row("order", "Settings ▸ Keys ▸ From anywhere: the rows in the order settings-keybindings.test.tsx pins", { ...shown, pinned: PINNED_ORDER },
+      shown.heading === "From anywhere" && js(settings) === js(PINNED_ORDER));
+  }
+  for (const mode of ["dark", "light"]) for (const look of ["plain", "glass"]) {
+    await api.call("settings.set", { key: "ui.theme", value: mode });
+    await api.call("settings.set", { key: "ui.look", value: look });
+    await reloadWindow(app);
+    await openKeys();
+    if (await lookHeld(app.page, mode, look, `Settings ▸ Keys, ${state}, ${mode}`, `Settings in ${mode} ${look}`)) continue;
+    await sleep(400);
+    const clip = await app.page.eval(`(() => { const first = document.querySelector('[data-setting="assistant-chords"]'); first.scrollIntoView({ block: "start" });
+      const a = first.getBoundingClientRect(), z = document.querySelector('[data-setting="assistant-chord:."]').getBoundingClientRect();
+      return { x: a.left, y: a.top, width: a.width, height: z.bottom - a.top }; })()`);
+    await pointerAway(app.page);
+    const file = `m3b-settings-${state}-${mode}-${look}.png`;
+    row("picture", `Settings ▸ Keys, ${state}, ${mode} ${look}`, file, await shot(app.page, path.join(OUT_DIR, file), { clip: { ...clip, scale: 2 } }));
+    if (state !== "after-consent") continue;
+    const measureGroup = () => app.page.eval(`(() => { const field = document.querySelector('[data-setting="quick-chat-shortcut"]').closest(".field"); field.scrollIntoView({ block: "start" });
+      const r = field.getBoundingClientRect();
+      return { x: r.left, y: r.top, width: r.width, height: r.height, cut: r.top < 0 || r.bottom > window.innerHeight }; })()`);
+    let group = await measureGroup();
+    const tall = group.cut;
+    if (tall) {
+      const width = await app.page.eval(`window.innerWidth`);
+      await app.page.send("Emulation.setDeviceMetricsOverride", { width, height: Math.ceil(group.height) + 240, deviceScaleFactor: 0, mobile: false });
+      await sleep(400);
+      group = await measureGroup();
+    }
+    await pointerAway(app.page);
+    const groupFile = `m3b-keys-from-anywhere-${mode}-${look}.png`;
+    const groupFlat = await shot(app.page, path.join(OUT_DIR, groupFile), { clip: { x: group.x, y: group.y, width: group.width, height: group.height, scale: 2 } });
+    if (tall) await app.page.send("Emulation.clearDeviceMetricsOverride");
+    row("picture", `Settings ▸ Keys ▸ From anywhere, ${mode} ${look}`, { file: groupFile, cut: group.cut, tall }, groupFlat && !group.cut);
+  }
+  await app.page.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true`);
+  await until(() => app.page.eval(`!document.querySelector('input[name="settings-page-tab"]')`), 10_000, "Settings to close").catch(() => {});
+  return said;
 }
 
 /** No real microphone: a silent stream stands in for it. No real clipboard: the page keeps what it is
@@ -277,9 +481,18 @@ try {
   await openPanel(app);
   const page = await attachPanel(app);
   await until(() => page.eval(`!!document.querySelector(".quick-chat .composer-input")`), 20_000, "the panel's prompter");
-  // On this document now, and on any the page loads after it.
+  // On this document now, and on any the page loads after it. A page agent not enabled runs no script on a new document.
+  await page.send("Page.enable");
   await page.send("Page.addScriptToEvaluateOnNewDocument", { source: STAND_INS });
   await page.eval(STAND_INS);
+
+  /* ── register, settings: before the sheet is accepted ─────────────────────────────────────── */
+  const WAITING = "They start working after your first Start in the meeting assistant.";
+  const saidBefore = await settingsLooks(current, "before-consent", WAITING);
+  row("settings", "before the first Start, the switch says the keys wait on it", saidBefore, saidBefore.includes(WAITING));
+  const unregistered = keysLogged();
+  row("register", "before the sheet is accepted: no chord registered, no helper able to swallow", unregistered,
+    unregistered.length > 0 && unregistered.every((e) => (e.argv ? !e.argv.includes("--swallow") : e.config.chords.length === 0)));
 
   /* ── sheet ─────────────────────────────────────────────────────────────────────────────────── */
   await click(page, '.quick-chat-bar button[aria-label="Meeting assistant"]');
@@ -289,6 +502,9 @@ try {
   await clickByText(page, ".meeting-strip", "Start listening");
   await until(() => page.eval(`!!document.querySelector('.sheet[aria-label="Before you start listening"]')`), 10_000, "the first-run sheet");
   await sleep(600);
+  const sheetKeys = await page.eval(`[...document.querySelectorAll(".meeting-consent li")].at(-1).textContent`);
+  row("sheet", "the sheet names the keys with the held key, and where to turn them off", sheetKeys,
+    sheetKeys === "From any app, Fn R shows the assistant, Fn L listens, Fn G answers and Fn T asks. Turn them off in Settings ▸ Keys.");
   const sheetState = { consentBefore, mark: await page.eval(`!!document.querySelector(".meeting-mark")`), tray: await quietTray(app),
     text: await page.eval(`document.querySelector(".meeting-consent").innerText`) };
   row("sheet", "Start before acceptance: the sheet, and nothing listening", sheetState,
@@ -307,7 +523,8 @@ try {
   await click(page, '.meeting-strip input[value="ask"]');
   await watchTexts(page, "__answers", ".meeting-answer-text");
   await typeAndSend(page, "How many seats should I offer?");
-  await until(() => page.eval(`document.querySelector(".meeting-answer")?.dataset.state === "done"`), 15_000, "the typed question's answer");
+  await until(() => page.eval(`(() => { const seen = window.__answers, at = seen.lastIndexOf("Answering…");
+    return at >= 0 && at < seen.length - 1 && seen.at(-1) === ${js(SCRIPTED_ANSWER)} && document.querySelector(".meeting-answer")?.dataset.state === "done"; })()`), 15_000, "the typed question's answer");
   const streamed = await page.eval(`window.__answers`);
   // The watch starts on the answer already up (the other side's question); the typed one starts at "Answering…".
   const pieces = streamed.slice(streamed.lastIndexOf("Answering…") + 1);
@@ -323,6 +540,72 @@ try {
   row("listen", "Me and Them from the file, the mark in the bar and in the menu bar", listening,
     js(listening.lines) === js(LINES.map((l) => `${l.source === "me" ? "Me" : "Them"}: ${l.text}`)) && listening.mark === "Listening"
     && listening.tray?.title === "Listening" && listening.tray.menu.includes("Stop listening") && listening.tray.destroyed === false);
+  const registered = await until(async () => {
+    const log = keysLogged();
+    const swallows = log.some((e) => e.argv?.includes("--swallow"));
+    const chords = log.filter((e) => e.config).at(-1)?.config.chords ?? [];
+    return swallows && chords.length === Object.keys(CODES).length ? { swallows, chords } : null;
+  }, 10_000, "the chords registered after the accept").catch(() => null);
+  row("register", "after the accept, every chord registered, with no relaunch", registered,
+    !!registered && Object.values(CODES).every((c) => registered.chords.includes(c)));
+  await barLooks(current, page);
+
+  /* ── keys: R, the quick chat keys, G and T ──────────────────────────────────────────────────── */
+  await closePanel(app, page);
+  await countFocus(app);
+  chord("R");
+  await until(() => panelVisible(app), 10_000, "R to open the panel");
+  await until(() => onAssistant(page), 10_000, "R to show the assistant");
+  const rFocus = await focusCalls(app);
+  row("keys", "R opens the panel on the assistant, keyboard left where it was", { focus: rFocus }, rFocus === 0);
+  chord("R");
+  const rAway = await until(async () => !(await panelVisible(app)), 10_000, "R to put the panel away").catch(() => false);
+  row("keys", "R from the assistant puts the panel away", { hidden: rAway }, rAway === true);
+
+  await countFocus(app);
+  await press(app);
+  await until(() => panelVisible(app), 10_000, "the quick chat chord to open the panel");
+  await sleep(300);
+  const chatAfterKey = { assistant: await onAssistant(page), focus: await focusCalls(app) };
+  row("chat", "after an assistant key, the quick chat chord opens on the chat, with the keyboard", chatAfterKey, !chatAfterKey.assistant && chatAfterKey.focus > 0);
+  chord("R");
+  await until(() => onAssistant(page), 10_000, "R to turn the chat to the assistant");
+  const rOnChat = await panelVisible(app);
+  row("keys", "R turns a panel open on the chat to the assistant, and leaves it open", { visible: rOnChat }, rOnChat);
+  await press(app);
+  await until(async () => !(await onAssistant(page)), 10_000, "the quick chat chord to turn the assistant to the chat");
+  const chatOnAssistant = await panelVisible(app);
+  row("chat", "the quick chat chord turns a panel on the assistant to the chat, and leaves it open", { visible: chatOnAssistant }, chatOnAssistant);
+  await closePanel(app, page);
+  chord("G");
+  await until(() => panelVisible(app), 10_000, "G to open the panel");
+  await closePanel(app, page);
+  doubleTap();
+  await until(() => panelVisible(app), 10_000, "a double-tap to open the panel");
+  await sleep(300);
+  const tapOnAssistant = await onAssistant(page);
+  row("chat", "after an assistant key, a double-tap of Command opens on the chat", { assistant: tapOnAssistant }, !tapOnAssistant);
+
+  await closePanel(app, page);
+  await click(page, ".meeting-answer-dismiss");
+  await countFocus(app);
+  chord("G");
+  await until(() => panelVisible(app), 10_000, "G to open the panel");
+  const gAnswer = await until(() => page.eval(`document.querySelector(".meeting-answer")?.dataset.state ?? null`), 15_000, "G's answer").catch(() => null);
+  const gState = { assistant: await onAssistant(page), answer: gAnswer, focus: await focusCalls(app) };
+  row("keys", "G opens on the assistant and answers from what was heard, keyboard left where it was", gState,
+    gState.assistant && !!gState.answer && gState.focus === 0);
+
+  await closePanel(app, page);
+  await click(page, '.meeting-strip input[value="context"]');
+  await countFocus(app);
+  chord("T");
+  await until(() => panelVisible(app), 10_000, "T to open the panel");
+  await until(() => page.eval(`document.activeElement?.classList.contains("composer-input") === true`), 10_000, "T to focus the prompter").catch(() => {});
+  const tState = { focus: await focusCalls(app), prompter: await page.eval(`document.activeElement?.classList.contains("composer-input") === true`),
+    ask: await page.eval(`document.querySelector('.meeting-strip input[value="ask"]')?.checked === true`) };
+  row("keys", "T opens the panel with the keyboard, the prompter focused and set to Ask", tState, tState.focus > 0 && tState.prompter && tState.ask);
+
   const trayPng = await quietTray(app).then((t) => t?.png);
   if (trayPng) fs.writeFileSync(path.join(OUT_DIR, "m3a-tray-mark.png"), Buffer.from(trayPng, "base64"));
   const hidden = { contentProtected: await app.main.eval(`${panelOf}.isContentProtected?.() ?? null`),
@@ -372,6 +655,7 @@ try {
 
   /* ── long ──────────────────────────────────────────────────────────────────────────────────── */
   await openPanel(app);
+  await showAssistant(page);
   await click(page, '.meeting-strip input[value="context"]');
   // The draft counts with what is already kept, joined by a newline: this brings the whole to 20,000 exactly.
   const keptBefore = await page.eval(`[...document.querySelectorAll(".meeting-context > p")].map((p) => p.textContent).join("\\n").length`);
@@ -382,13 +666,32 @@ try {
   await sleep(200);
   const past = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
   const longPicture = "m3a-long.png";
-  await picture(page, path.join(OUT_DIR, longPicture));
+  const longFlat = await picture(page, path.join(OUT_DIR, longPicture));
   await page.eval(`document.querySelector(".quick-chat .composer-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
   await sleep(300);
   const kept = await page.eval(`document.querySelector(".meeting-context")?.textContent.length ?? 0`);
   const after = await page.eval(`document.querySelector(".meeting-long")?.textContent ?? null`);
   row("long", "past 20,000 characters the prompter warns, and the words still send", { atLimit, past, kept, after, picture: longPicture },
-    atLimit === null && /^Every answer sends all 20,\d{3} characters of custom info\.$/.test(past ?? "") && kept > 20_000 && after !== null);
+    longFlat && atLimit === null && /^Every answer sends all 20,\d{3} characters of custom info\.$/.test(past ?? "") && kept > 20_000 && after !== null);
+
+  /* ── keys: J and K, , and . ─────────────────────────────────────────────────────────────────── */
+  await page.eval(`document.querySelector(".meeting-feed").scrollTop = 0; true`);
+  const top = () => page.eval(`Math.round(document.querySelector(".meeting-feed").scrollTop)`);
+  const onePage = await page.eval(`document.querySelector(".meeting-feed").clientHeight`);
+  chord("J");
+  // Wrapped, as `until` waits on while it reads 0, the top of the words and the left of the display.
+  const afterJ = await until(async () => { const t = await top(); return t > 0 ? { t } : null; }, 5000, "J to scroll down").then((v) => v.t, () => 0);
+  chord("K");
+  const afterK = await until(async () => { const t = await top(); return t < afterJ ? { t } : null; }, 5000, "K to scroll up").then((v) => v.t, () => afterJ);
+  row("keys", "J scrolls the words a page down and K a page up", { page: onePage, afterJ, afterK }, afterJ > 0 && afterK < afterJ);
+  const area = await workArea(app);
+  const x0 = await panelX(app);
+  chord(",");
+  const afterComma = await until(async () => { const x = await panelX(app); return x !== x0 ? { x } : null; }, 5000, ", to move the panel").then((v) => v.x, () => x0);
+  chord(".");
+  const afterDot = await until(async () => { const x = await panelX(app); return x !== afterComma ? { x } : null; }, 5000, ". to move the panel").then((v) => v.x, () => afterComma);
+  row("keys", ", moves the panel left and . moves it right, along its display", { area, x0, afterComma, afterDot },
+    afterComma < x0 && afterComma >= area.x && afterDot > afterComma && afterDot + 380 <= area.x + area.width);
 
   /* ── reload ────────────────────────────────────────────────────────────────────────────────── */
   fs.rmSync(helperPidFile, { force: true });
@@ -404,6 +707,39 @@ try {
   row("reload", "a reload while listening stops the helper and takes the menu bar's mark down", { pid, before: reloadBefore, after: reloadAfter },
     reloadBefore.running && reloadBefore.tray?.destroyed === false && gone && !reloadAfter.running
     && (reloadAfter.tray === null || reloadAfter.tray.destroyed === true));
+
+  /* ── heard, reloaded, keys: L ──────────────────────────────────────────────────────────────── */
+  await until(() => page.eval(`!!document.querySelector(".quick-chat .composer-input")`), 20_000, "the reloaded panel's prompter");
+  await closePanel(app, page);
+  await countFocus(app);
+  chord("G");
+  await until(() => panelVisible(app), 10_000, "G to open the reloaded panel");
+  const heard = await until(() => page.eval(`document.querySelector(".meeting-notice")?.textContent ?? null`), 10_000, "the notice").catch(() => null);
+  await sleep(1000);
+  const heardState = { notice: heard, answer: await page.eval(`!!document.querySelector(".meeting-answer")`),
+    asked: await page.eval(`document.querySelectorAll(".meeting-asked").length`), focus: await focusCalls(app) };
+  row("heard", "G after a reload says the assistant is not listening and Fn L starts it, and asks nothing", heardState,
+    heard === "The assistant is not listening. Fn L starts it." && !heardState.answer && heardState.asked === 0 && heardState.focus === 0);
+  row("reloaded", "a key pressed after a reload reaches the reloaded page", { notice: heard }, heard !== null);
+
+  await closePanel(app, page);
+  await standInStill(page, "microphone");
+  await countFocus(app);
+  chord("L");
+  await until(() => panelVisible(app), 10_000, "L to open the panel");
+  const lStarted = await until(() => page.eval(`!!document.querySelector(".quick-chat-bar .meeting-mark")`), 10_000, "L to start listening").catch(() => false);
+  const lFocus = await focusCalls(app);
+  row("keys", "L opens the panel and starts listening, keyboard left where it was", { listening: lStarted, focus: lFocus }, lStarted === true && lFocus === 0);
+  await closePanel(app, page);
+  chord("L");
+  const lStopped = await until(() => page.eval(`!document.querySelector(".meeting-mark")`), 10_000, "L to stop").catch(() => false);
+  await sleep(500);
+  const lVisible = await panelVisible(app);
+  row("keys", "L while listening stops the run and leaves the panel put away", { stopped: lStopped, visible: lVisible }, lStopped === true && !lVisible);
+
+  /* ── settings: after the accept ─────────────────────────────────────────────────────────────── */
+  const saidAfter = await settingsLooks(current, "after-consent", null);
+  row("settings", "after the first Start, the switch no longer says the keys wait", saidAfter, !saidAfter.includes(WAITING));
   page.close();
 } catch (err) {
   process.exitCode = 1;

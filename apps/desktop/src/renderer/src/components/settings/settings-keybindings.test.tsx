@@ -47,12 +47,18 @@ describe("the keybindings panel", () => {
     expect(document.querySelector('[data-setting="quick-chat-hide"]')).not.toBeNull();
   });
 
-  it("keeps the keys that work from another app in one group: how the quick chat opens, then who can see it", async () => {
+  it("keeps the keys that work from another app in one group: how the quick chat opens, then who can see it, then the assistant's keys", async () => {
     await mount();
     const group = document.querySelector('[data-setting="quick-chat-shortcut"]')!.closest(".field")!;
     expect(group.querySelector(":scope > span")).toHaveTextContent("From anywhere");
     expect([...group.querySelectorAll("[data-setting]")].map((r) => r.getAttribute("data-setting")))
-      .toEqual(["quick-chat-shortcut", "double-tap-command", "assistant-hold-key", "keys-try", "quick-chat-hide"]);
+      .toEqual([
+        "quick-chat-shortcut", "double-tap-command", "quick-chat-hide",
+        "assistant-hold-key", "assistant-chords",
+        "assistant-chord:R", "assistant-chord:L", "assistant-chord:G", "assistant-chord:T",
+        "assistant-chord:J", "assistant-chord:K", "assistant-chord:,", "assistant-chord:.",
+        "keys-try",
+      ]);
     expect([...document.querySelectorAll(".settings-panel > .field > span")].map((s) => s.textContent)).not.toContain("Quick chat");
   });
 
