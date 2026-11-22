@@ -31,6 +31,7 @@ function bring(opts: { queued?: boolean; closeWith?: string | null } = {}) {
     queued: () => queued,
     dropQueued: (sessionId) => { calls.push(`drop:${sessionId}`); },
     notifyTools: async (sessionId) => { calls.push(`notify:${sessionId}`); },
+    stopped: (sessionId) => { calls.push(`stopped:${sessionId}`); },
     ...(opts.closeWith !== undefined ? { closeWith: () => opts.closeWith! } : {}),
   });
   return { service, sent, events, calls, setQueued: (v: boolean) => { queued = v; }, db };
@@ -394,5 +395,21 @@ describe("the reply line", () => {
     const { service } = bring();
     await service.start("s1", "ship it", null);
     expect(await settle(service, { toolCalls: 4, finalText: "When it is all done I will write GOAL COMPLETE: and stop." })).toBe("continued");
+  });
+});
+
+describe("telling the feed a goal stopped itself", () => {
+  it("says so when the loop stops it after a settle, and not for a person's pause or the agent's own update_goal", async () => {
+    // The settle that ran the goal's last turn found it still active and said nothing; this is the
+    // moment the work is done.
+    const { service, calls } = bring();
+    await service.start("s1", "ship it", null);
+    await settle(service, { toolCalls: 4, finalText: "GOAL BLOCKED: no access to the registry." });
+    expect(calls.filter((c) => c.startsWith("stopped:"))).toEqual(["stopped:s1"]);
+    // `set` is the person's pause and the agent's `update_goal`, both mid-turn or by hand: the
+    // settle after it already sees a goal that is not running.
+    await service.resume("s1");
+    service.set("s1", "complete", "done");
+    expect(calls.filter((c) => c.startsWith("stopped:"))).toEqual(["stopped:s1"]);
   });
 });

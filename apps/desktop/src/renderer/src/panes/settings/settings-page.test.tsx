@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, CARET_COPY, CARET_KEY, CARET_SHAPES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS, GENERATED_CREDENTIAL_NOTE, type BrowserCredential } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, CARET_COPY, CARET_KEY, CARET_SHAPES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SESSION_DONE_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS, GENERATED_CREDENTIAL_NOTE, type BrowserCredential } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, macRow, notification, profile, space, type FakeData } from "../../state/store.test-fakes";
@@ -596,6 +596,27 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     // Re-enable removes only session_done; the pre-existing disable survives.
     fireEvent.click(screen.getByRole("switch", { name: "Sessions finishing" }));
     await waitFor(() => expect(api.data.settings[NOTIFICATIONS_DISABLED_KEY]).toEqual(["mcp_health"]));
+  });
+
+  it("sessions finishing tell you when the work is done by default, and every turn is one choice away", async () => {
+    const { api } = await openPage("Notifications");
+    const when = await screen.findByRole("combobox", { name: "Tell me" });
+    expect(when).toHaveValue("done");
+    expect(within(when).getByRole("option", { name: "When the work is done" })).toBeInTheDocument();
+    fireEvent.change(when, { target: { value: "turn" } });
+    await waitFor(() => expect(api.data.settings[NOTIFICATIONS_SESSION_DONE_KEY]).toBe("turn"));
+    expect(screen.getByRole("combobox", { name: "Tell me" })).toHaveValue("turn");
+    // The switch above is a different key, and stays as it was.
+    expect(api.data.settings[NOTIFICATIONS_DISABLED_KEY]).toBeUndefined();
+  });
+
+  it("a stored every-turn choice renders, and the choice is inert while sessions finishing is off", async () => {
+    await openPage("Notifications", { settings: { [NOTIFICATIONS_SESSION_DONE_KEY]: "turn", [NOTIFICATIONS_DISABLED_KEY]: ["session_done"] } });
+    const when = await screen.findByRole("combobox", { name: "Tell me" });
+    expect(when).toHaveValue("turn");
+    expect(when).toBeDisabled();
+    fireEvent.click(screen.getByRole("switch", { name: "Sessions finishing" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Tell me" })).not.toBeDisabled());
   });
 
   it("default permission mode: reads the stored key, and a plain choice (Accept edits) writes it immediately", async () => {
