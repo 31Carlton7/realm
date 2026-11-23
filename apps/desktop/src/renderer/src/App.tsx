@@ -522,7 +522,7 @@ export function Main() {
   useEffect(() => {
     if (!booted) return;
     dismissBootSplash();
-    requestAnimationFrame(() => window.realm.windows?.drawn());
+    requestAnimationFrame(() => window.realm?.windows?.drawn?.());
   }, [booted]);
   // Every space's teammates, once the spaces are known and again when they change (a space made, a
   // profile switched); `teammates.changed` keeps each one current after that.
