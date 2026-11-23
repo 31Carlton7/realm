@@ -169,6 +169,27 @@ describe("bringing a simulator up", () => {
     expect(calls).not.toContain("start:UDID-1");
   });
 
+  it("adopts a stream started on this boot, and replaces one left from an earlier boot (#638)", async () => {
+    // serve-sim's daemon outlives `simctl shutdown` and `--list` still names it, but booted again the
+    // device never publishes its tree through it. THE MUTANTS: adopt it anyway, or replace every one.
+    const udid = "D94F0FDE-7C84-42F1-A328-97EF12A91866";
+    const at = 1_800_000_000_000;
+    const table = (daemonAt: number | null) => async () => [
+      { pid: 700, ppid: 1, tty: null, residentBytes: 1, startedAt: at, command: `launchd_sim /U/Library/Developer/CoreSimulator/Devices/${udid}/data/var/run/launchd_bootstrap.plist` },
+      ...(daemonAt === null ? [] : [{ pid: 99, ppid: 1, tty: null, residentBytes: 1, startedAt: daemonAt, command: "node serve-sim --detach -q" }]),
+    ];
+    const replaced = ["find", `kill:${udid}`, `start:${udid}`, "screen"];
+    // Started on this boot; started on an earlier one; and gone from the process table altogether.
+    for (const [daemonAt, expected] of [[at + 5_000, ["find", "screen"]], [at - 30 * 60_000, replaced], [null, replaced]] as const) {
+      const { service, spaceId, calls } = bring({ serveSim: { find: async () => { calls.push("find"); return STREAM; } } });
+      Object.assign((service as unknown as { d: object }).d, { processes: table(daemonAt) });
+      const { simulatorId } = service.create({ spaceId, name: "Simulator" });
+      service.start(simulatorId, udid);
+      await settle(() => service.stateOf(simulatorId).status === "running");
+      expect(calls.filter((c) => c !== `boot:${udid}`)).toEqual(expected);
+    }
+  });
+
   it("waits for a frame rather than showing a 0×0 screen", async () => {
     // serve-sim answers {"width":0} until the capture engine has one, and `parseScreen` turns that
     // into null. The walk polls; the pane stays on `serving` in the meantime.

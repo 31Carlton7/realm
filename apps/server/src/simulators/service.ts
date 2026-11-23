@@ -527,12 +527,55 @@ export class SimulatorService {
       return tree;
     }
     const stream = this.served.get(simulatorId);
-    if (!row.udid || !stream) throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
+    if (!row.udid || !stream) {
+      const { status } = this.stateOf(simulatorId);
+      if (status === "booting" || status === "serving") throw new RpcError("UNAVAILABLE", "the simulator's stream is still starting");
+      throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
+    }
     const tree = await this.stream.ax(stream, row.udid);
+    if (tree) return tree;
+    const fit = await this.streamFit(row.udid, stream);
+    if (fit === "down") {
+      this.served.delete(simulatorId);
+      this.set(OFF(simulatorId, row.udid));
+      throw new RpcError("FAILED", "the device was shut down outside Realm, so its pane has stopped streaming it");
+    }
+    if (fit === "stale") {
+      // Never ready, however long it is asked: a fresh stream is the only way to this boot's tree.
+      this.served.delete(simulatorId);
+      this.start(simulatorId);
+      throw new RpcError("UNAVAILABLE", "the pane's stream was from before the device last booted, so Realm is starting a fresh one. Try again in a few seconds.");
+    }
     // A 503 from the daemon means the device's AX framework is still warming up after a boot, which
     // is a "not yet" rather than a "cannot" — the pane says so and offers to look again.
-    if (!tree) throw new RpcError("UNAVAILABLE", "the device has not published its accessibility tree yet");
-    return tree;
+    throw new RpcError("UNAVAILABLE", "the device has not published its accessibility tree yet");
+  }
+
+  /** Whether a pane Realm calls running streams a simulator's current boot. False when it cannot tell. */
+  async staleStream(simulatorId: string): Promise<boolean> {
+    const row = this.get(simulatorId);
+    const stream = this.served.get(simulatorId);
+    if (row.physical || row.platform !== "ios" || !row.udid || !stream) return false;
+    const fit = await this.streamFit(row.udid, stream);
+    return fit === "stale" || fit === "down";
+  }
+
+  /**
+   * Whether a serve-sim stream belongs to the device's current boot. The daemon outlives a
+   * `simctl shutdown`, and `--list` keeps naming it, but it stays attached to the boot it started on:
+   * booted again, the device never publishes a tree through it. So a daemon that is gone, or started
+   * before the device's launchd, is `stale`; a device with no launchd is `down`; null is "cannot tell".
+   */
+  private async streamFit(udid: string, stream: ServeSimStream): Promise<"current" | "stale" | "down" | null> {
+    const table = await this.d.processes?.().catch(() => null);
+    if (!table || table.length === 0 || stream.pid === null) return null;
+    const launchd = table.find((p) => simulatorLaunchd(p.command)?.toUpperCase() === udid.toUpperCase());
+    if (!launchd) return "down";
+    const daemon = table.find((p) => p.pid === stream.pid);
+    if (!daemon) return "stale";
+    if (daemon.startedAt === null || launchd.startedAt === null) return null;
+    // Strictly before: a stream wrongly called stale costs one restart, a stale one kept costs the tree.
+    return daemon.startedAt < launchd.startedAt ? "stale" : "current";
   }
 
   /** Everything installed on the device. Asked fresh: an app can be installed while a pane watches. */
@@ -966,6 +1009,11 @@ export class SimulatorService {
       this.set({ ...OFF(simulatorId, udid), status: "serving" });
       let stream = await this.stream.find(udid);
       if (!current()) return;
+      if (stream.streamUrl && (await this.streamFit(udid, stream)) === "stale") {
+        await this.stream.kill(udid).catch(() => {});
+        if (!current()) return;
+        stream = { ...stream, streamUrl: null };
+      }
       if (!stream.streamUrl) {
         const started = await this.stream.start(udid);
         if (!current()) return;
