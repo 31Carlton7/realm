@@ -1,20 +1,29 @@
 /**
  * What the quick chat panel made ahead of time costs (run with:
- * node apps/desktop/scripts/quick-chat-panel-cost-live.mjs; `pnpm build` first). The BUILT app,
- * quiet, with the scripted agent and stand-ins for the calendar helper, on two scratch homes: one
- * with the double-tap on and no chord (the panel is made ahead), one with the double-tap off and no
- * chord (it is not).
+ * node apps/desktop/scripts/quick-chat-panel-cost-live.mjs <out dir>; `pnpm build` first). The BUILT
+ * app, quiet, with the scripted agent and stand-ins for the calendar helper, on three scratch homes,
+ * one to an arm, each with no chord:
  *
- * Rows, in `rows.txt` under LIVE_OUT_DIR, and each launch as a line of `launches.jsonl`:
+ *   not-prepared         the double-tap off, so nothing opens the panel and it is not made.
+ *   prepared-at-launch   the double-tap on and REALM_QUICK_CHAT_PREPARE_AT_LAUNCH=1: made as soon as
+ *                        main hears the settings, the order before it waited for the draw.
+ *   prepared-after-draw  the double-tap on: made once the main window has drawn.
+ *
+ * The server and DevTools ports are free ones unless LIVE_PORT and LIVE_CDP_PORT pin them (each
+ * launch stops before the next, so one pair serves them all).
+ *
+ * Rows, in `rows.txt` under the out dir, and each launch as a line of `launches.jsonl`:
  *
  *   launch    process start to the main window's prompter drawn: from this script spawning Electron,
  *             and from main's own time origin, to the first frame after the session's composer
- *             input is in the page and laid out. LIVE_LAUNCHES of each home, alternating, with the
- *             load average beside each, and for the prepared home when the panel's window was made.
- *   memory    on the last three launches of each home: `app.getAppMetrics()` and macOS's `footprint`
- *             for the panel's renderer (made ahead, never opened), the main window's renderer, and a
- *             browser pane's (a WebContentsView on a small local page), each found by its
- *             webContents' OS pid. On macOS `getAppMetrics()` has no `privateBytes`.
+ *             input is in the page and laid out. LIVE_LAUNCHES (5) of each arm, taking turns, with
+ *             the load average beside each, and when the panel's window was made against the draw.
+ *   memory    on every launch: `app.getAppMetrics()` and macOS's `footprint` for the panel's
+ *             renderer (made ahead, never opened), the main window's renderer, and a browser pane's
+ *             (a WebContentsView on a small local page), each found by its webContents' OS pid. On
+ *             macOS `getAppMetrics()` has no `privateBytes`.
+ *   summary   per arm: median, min and max of both launch times, and of the working sets, with the
+ *             panel's against the browser pane's and the main window's.
  *
  * The paint time is the page's own clock, not a poll: main runs a probe in each window's page as its
  * document commits, and the row says if the composer was already there (`composerAtInstall`).
@@ -29,8 +38,8 @@ import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs
 import { cdp, freePort, mainEntry, reap, serverEntry, sleep, spawnLiveElectron, until } from "./lib/live-app.mjs";
 import { noCalendar } from "./quick-chat-panel/no-calendar.mjs";
 
-const OUT_DIR = process.env.LIVE_OUT_DIR ?? path.resolve(process.cwd(), ".verify/quick-chat-panel-cost");
-const LAUNCHES = Number(process.env.LIVE_LAUNCHES ?? 6);
+const OUT_DIR = path.resolve(process.argv[2] ?? process.env.LIVE_OUT_DIR ?? ".verify/quick-chat-panel-cost");
+const LAUNCHES = Number(process.env.LIVE_LAUNCHES ?? 5);
 const SETTLE_MS = Number(process.env.LIVE_SETTLE_MS ?? 8000);
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
 const js = (v) => JSON.stringify(v);
@@ -105,25 +114,26 @@ const pageUrl = `http://127.0.0.1:${site.address().port}/pane`;
 
 /** A Realm home, a home of its own, and a userData that stays across its launches (or each launch
  *  after the first reads as an update and opens What's new over the window). */
-function makeHome(label, settings) {
+function makeHome(label, settings, env = {}) {
   const dir = fs.mkdtempSync(path.join(work, `${label}-`));
-  return { label, settings, realm: path.join(dir, "realm"), home: path.join(dir, "home"), userData: path.join(dir, "userData") };
+  return { label, settings, env, realm: path.join(dir, "realm"), home: path.join(dir, "home"), userData: path.join(dir, "userData") };
 }
 const homes = [
-  makeHome("prepared", { "quickChat.shortcut": "", "keys.doubleTapCommand": true }),
   makeHome("not-prepared", { "quickChat.shortcut": "", "keys.doubleTapCommand": false }),
+  makeHome("prepared-at-launch", { "quickChat.shortcut": "", "keys.doubleTapCommand": true }, { REALM_QUICK_CHAT_PREPARE_AT_LAUNCH: "1" }),
+  makeHome("prepared-after-draw", { "quickChat.shortcut": "", "keys.doubleTapCommand": true }),
 ];
 for (const h of homes) fs.mkdirSync(h.home, { recursive: true });
 
 let current = null;
 async function launch(h) {
   const calendar = noCalendar();
-  const ports = { server: await freePort(), cdp: await freePort(), inspect: await freePort() };
+  const ports = { server: Number(process.env.LIVE_PORT) || await freePort(), cdp: Number(process.env.LIVE_CDP_PORT) || await freePort(), inspect: await freePort() };
   const log = fs.openSync(path.join(work, `${h.label}-electron.log`), "a");
   const spawnedAt = Date.now();
   const child = spawnLiveElectron([`--inspect=${ports.inspect}`, wrapper, ...UNTHROTTLED], {
     env: {
-      ...process.env, ...calendar.env,
+      ...process.env, ...calendar.env, ...h.env,
       HOME: h.home, REALM_HOME: h.realm, LIVE_USER_DATA: h.userData,
       REALM_PORT: String(ports.server), REALM_DEVTOOLS_PORT: String(ports.cdp), REALM_SERVER_ENTRY: serverEntry,
       REALM_ENABLE_FAKE_AGENT: "1", REALM_FAKE_STANDS_IN: "claude,codex", REALM_FAKE_SCRIPT: script,
@@ -245,30 +255,43 @@ async function memory(app) {
 }
 
 const watchdog = setTimeout(async () => {
-  console.error("FAIL watchdog: the check ran for twenty minutes");
+  console.error("FAIL watchdog: the check ran for forty minutes");
   if (current) await stop(current).catch(() => {});
   process.exit(9);
-}, 20 * 60_000);
+}, 40 * 60_000);
 
 const summary = (xs) => { const s = [...xs].sort((a, b) => a - b); const mid = s.length >> 1;
-  return { n: s.length, median: s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2), min: s[0], max: s.at(-1) }; };
+  return { n: s.length, median: s.length % 2 ? s[mid] : Math.round(((s[mid - 1] + s[mid]) / 2) * 100) / 100, min: s[0], max: s.at(-1) }; };
 
 try {
   fs.rmSync(path.join(OUT_DIR, "launches.jsonl"), { force: true });
   for (const h of homes) await seed(h);
   const runs = [];
   for (let n = 1; n <= LAUNCHES; n++) {
-    for (const h of n % 2 ? homes : [...homes].reverse()) {
+    // Each arm takes each place in the turn as often as the launches allow.
+    const turn = homes.map((_, i) => homes[(i + n - 1) % homes.length]);
+    for (const h of turn) {
       const { app, out } = await timed(h, n);
+      out.memory = await memory(app);
       runs.push(out);
-      if (n > LAUNCHES - 3) row("memory", `${h.label} #${n}`, await memory(app));
+      row("memory", `${h.label} #${n}`, out.memory);
       await stop(app);
     }
   }
+  const workingSetMB = (m, what) => { const r = m.withPane.rows.find((x) => x.what === what); return r?.memoryKB ? Math.round(r.memoryKB.workingSetSize / 102.4) / 10 : null; };
+  const of = (xs) => (xs.every((x) => x !== null) ? summary(xs) : null);
   for (const h of homes) {
     const mine = runs.filter((r) => r.home === h.label);
-    row("summary", h.label, { fromSpawnMs: summary(mine.map((r) => r.fromSpawnMs)), fromMainOriginMs: summary(mine.map((r) => r.fromMainOriginMs)),
-      panelMade: mine.map((r) => r.panel.made), loadAvg1m: mine.map((r) => r.load[0]) });
+    const panel = mine.map((r) => workingSetMB(r.memory, "panel (made ahead, never opened)"));
+    const pane = mine.map((r) => workingSetMB(r.memory, "browser pane (WebContentsView)"));
+    const main = mine.map((r) => workingSetMB(r.memory, "main window"));
+    row("summary", h.label, {
+      fromSpawnMs: summary(mine.map((r) => r.fromSpawnMs)), fromMainOriginMs: summary(mine.map((r) => r.fromMainOriginMs)),
+      workingSetMB: { panel: of(panel), browserPane: of(pane), mainWindow: of(main) },
+      panelOverPane: of(panel.map((p, i) => (p !== null && pane[i] ? Math.round((p / pane[i]) * 100) / 100 : null))),
+      panelOverMain: of(panel.map((p, i) => (p !== null && main[i] ? Math.round((p / main[i]) * 100) / 100 : null))),
+      panelMadeAfterDrawnMs: mine.map((r) => r.panel.madeAfterDrawnMs ?? null), loadAvg1m: mine.map((r) => r.load[0]),
+    });
   }
 } catch (err) {
   process.exitCode = 1;
