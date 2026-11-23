@@ -71,15 +71,36 @@ export type PanelWindow = {
   webContents: { focus(): void; send(channel: string): void };
 };
 
+/**
+ * Whether the panel made ahead waits for the first Realm window to draw. Made at launch, its renderer
+ * loaded beside the main window's: 157 MB working set against 91 MB for a browser pane (the built
+ * app, 2026-11-20). `REALM_QUICK_CHAT_PREPARE_AT_LAUNCH=1` makes it at launch again, for the live
+ * script that measures the two.
+ */
+export function quickChatPanelWaitsForDraw(env: Record<string, string | undefined>): boolean {
+  return env.REALM_QUICK_CHAT_PREPARE_AT_LAUNCH !== "1";
+}
+
 export class QuickChatPanel<W extends PanelWindow> {
   private made: { win: W; ready: Promise<unknown> } | null = null;
   private wanted = false;
   private hiddenFromSharing = true;
+  private waiting: boolean;
+  private askedAhead = false;
 
   /** `create` makes the window, hidden, and says when its page has loaded. Null while it cannot be
    *  made (no server to connect its page to). Off macOS (`platformCapabilities().quickChatPanel`)
-   *  no window is ever made. */
-  constructor(private readonly create: () => { win: W; ready: Promise<unknown> } | null, private readonly platform = "darwin") {}
+   *  no window is ever made. With `waitForDraw`, nothing is made ahead until `windowDrawn()`. */
+  constructor(private readonly create: () => { win: W; ready: Promise<unknown> } | null, private readonly platform = "darwin", { waitForDraw = false } = {}) {
+    this.waiting = waitForDraw;
+  }
+
+  /** A Realm window has drawn: a panel asked for ahead of time is made now. */
+  windowDrawn(): void {
+    if (!this.waiting) return;
+    this.waiting = false;
+    if (this.askedAhead) this.prepare();
+  }
 
   /** The window, once it has been made and until it is destroyed. */
   window(): W | null {
@@ -101,6 +122,7 @@ export class QuickChatPanel<W extends PanelWindow> {
    *  next (the built app, 2026-11-20). Nothing is shown and no chat is started until it opens. */
   prepare(): void {
     if (!platformCapabilities(this.platform).quickChatPanel || this.window()) return;
+    if (this.waiting) { this.askedAhead = true; return; }
     const made = this.create();
     this.made = made;
     if (made) void made.ready.catch(() => this.forget(made));
@@ -112,8 +134,12 @@ export class QuickChatPanel<W extends PanelWindow> {
    *  panel nothing can open; one that is open is left to be put away, and so is one whose page is
    *  listening, which would end the run and lose its notes. */
   prepareFor(keys: { chord: boolean; doubleTap: boolean; assistant?: boolean; autoStart?: boolean }, listening = false): void {
-    if (keys.chord || keys.doubleTap || keys.assistant || keys.autoStart) this.prepare();
-    else if (this.made && !this.isOpen() && !listening) this.forget(this.made);
+    if (keys.chord || keys.doubleTap || keys.assistant || keys.autoStart) {
+      this.prepare();
+      return;
+    }
+    this.askedAhead = false;
+    if (this.made && !this.isOpen() && !listening) this.forget(this.made);
   }
 
   /** The window is made on the first open, unless `prepare` made it already, and kept, so the next

@@ -486,6 +486,7 @@ contextBridge.exposeInMainWorld("realm", {
     focusSpace: (spaceId: string, sessionId?: string): Promise<boolean> => ipcRenderer.invoke("window:focus-space", spaceId, sessionId ?? null),
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
+    drawn: (): void => ipcRenderer.send("window:drawn"),
   },
   /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
    *  page rather than to the menu (main/app-menu.ts). */

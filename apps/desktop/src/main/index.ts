@@ -67,7 +67,7 @@ import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
 import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
 import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
-import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep } from "./quick-chat-panel";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -745,7 +745,8 @@ function createQuickChatPanelWindow(info: { port: number; home: string; token: s
 /** `quickChatPanel.toggle()` opens the panel over whatever is in front, or puts it away, and
  *  `quickChatPanel.isOpen()` says which. Every key that opens the panel calls those two: the chord
  *  below, and a native key helper when there is one. */
-const quickChatPanel = new QuickChatPanel(() => (serverInfo ? createQuickChatPanelWindow(serverInfo) : null), process.platform);
+const quickChatPanel = new QuickChatPanel(() => (serverInfo ? createQuickChatPanelWindow(serverInfo) : null), process.platform,
+  { waitForDraw: quickChatPanelWaitsForDraw(process.env) });
 
 const quickChatShortcut = new QuickChatShortcut({
   register: (accelerator, press) => globalShortcut.register(accelerator, press),
@@ -3034,6 +3035,8 @@ ipcMain.handle("window:focus-space", (e, spaceId: unknown, sessionId: unknown): 
   if (session) open.webContents.send("realm:open-session", { sessionId: session, spaceId: id });
   return true;
 });
+/** A Realm window's page has booted and drawn its first frame: the panel made ahead waits for it. */
+ipcMain.on("window:drawn", () => quickChatPanel.windowDrawn());
 /** A window's renderer says which space it shows now. The window is titled by it. */
 ipcMain.on("window:set-space", (e, spaceId: unknown) => {
   const win = BrowserWindow.fromWebContents(e.sender);
