@@ -16,8 +16,8 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
   CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
-import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type BrowserCredential, type EditorTheme, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
-import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type BrowserCredential, type SessionDoneWhen, type EditorTheme, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
+import { Fragment, useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { relativeTime } from "../../components/CheckpointsSheet";
@@ -1650,6 +1650,7 @@ function NotificationsTab() {
   const prefs = useApp((s) => s.settingsPrefs);
   const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
   const setNotificationCategoryEnabled = useApp((s) => s.setNotificationCategoryEnabled);
+  const setSessionDoneWhen = useApp((s) => s.setSessionDoneWhen);
   // Not part of `settingsPrefs`: this one is loaded at boot (the first toast can beat a visit here),
   // so it is never null and the row never renders a loading state the others need.
   const desktopNotifications = useApp((s) => s.desktopNotifications);
@@ -1749,14 +1750,29 @@ function NotificationsTab() {
               length of a paragraph — "Permission requests: an agent is waiting on your yes or no" —
               and nine of them were most of the reading on this page. They ride the row now. */}
           {NOTIFICATION_CATEGORIES.map((c) => (
-            <li key={c} className="settings-row" data-setting={`notify:${c}`} title={CATEGORY_COPY[c].desc}>
-              <div className="settings-row-main">
-                <span className="settings-row-name">{CATEGORY_COPY[c].label}</span>
-              </div>
-              <input type="checkbox" role="switch" className="switch" aria-label={CATEGORY_COPY[c].label}
-                checked={!prefs.disabledCategories.includes(c)}
-                onChange={(e) => run(() => setNotificationCategoryEnabled(c, e.target.checked))} />
-            </li>
+            <Fragment key={c}>
+              <li className="settings-row" data-setting={`notify:${c}`} title={CATEGORY_COPY[c].desc}>
+                <div className="settings-row-main">
+                  <span className="settings-row-name">{CATEGORY_COPY[c].label}</span>
+                </div>
+                <input type="checkbox" role="switch" className="switch" aria-label={CATEGORY_COPY[c].label}
+                  checked={!prefs.disabledCategories.includes(c)}
+                  onChange={(e) => run(() => setNotificationCategoryEnabled(c, e.target.checked))} />
+              </li>
+              {/* Nested under its switch and inert while it is off, as the sound is under the desktop
+                  switch: it chooses which finishes count, so with none counting it has nothing to say. */}
+              {c === "session_done" && (
+                <li className="settings-row" data-setting="session-done-when" title="Done means nothing will start another turn of it on its own: no sub-agent still running, no goal still going, no message waiting in its queue. A failure or an end is always told.">
+                  <div className="settings-row-main"><span className="settings-row-name">Tell me</span></div>
+                  <select aria-label="Tell me" value={prefs.sessionDoneWhen}
+                    disabled={prefs.disabledCategories.includes("session_done")}
+                    onChange={(e) => run(() => setSessionDoneWhen(e.target.value as SessionDoneWhen))}>
+                    <option value="done">When the work is done</option>
+                    <option value="turn">After every turn</option>
+                  </select>
+                </li>
+              )}
+            </Fragment>
           ))}
         </ul>
       )}

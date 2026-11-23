@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_PANEL_SIZE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, type PanelWindow } from "./quick-chat-panel";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_PANEL_SIZE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, type PanelWindow } from "./quick-chat-panel";
 
 const DISPLAY = { x: 0, y: 25, width: 1440, height: 875 };
 
@@ -102,6 +102,42 @@ describe("QuickChatPanel", () => {
     expect(panel.window()).toBeNull();
     panel.prepareFor({ chord: true, doubleTap: false }); await settled();
     expect(panel.window()).toBe(second.win);
+  });
+
+  it("opens without the keyboard for the assistant's keys: shown inactive and told, never focused", async () => {
+    const w = fakeWindow();
+    const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));
+    panel.openInactive();
+    expect(panel.isOpen()).toBe(true);
+    await settled();
+    expect(w.calls).toEqual(["protect true", "showInactive", "send quick-chat-panel:shown"]);
+  });
+
+  it("is made ahead for the assistant's chords alone", async () => {
+    let made = 0;
+    const panel = new QuickChatPanel(() => { made++; return { win: fakeWindow().win, ready: Promise.resolve() }; });
+    panel.prepareFor({ chord: false, doubleTap: false, assistant: true }); await settled();
+    expect(made).toBe(1);
+  });
+
+  it("is made ahead, and kept, for starting the assistant when a call starts alone", async () => {
+    const w = fakeWindow();
+    let made = 0;
+    const panel = new QuickChatPanel(() => { made++; return { win: w.win, ready: Promise.resolve() }; });
+    panel.prepareFor({ chord: false, doubleTap: false, autoStart: true }); await settled();
+    panel.prepareFor({ chord: false, doubleTap: false, autoStart: true });
+    expect(made).toBe(1);
+    expect(w.calls).not.toContain("destroy");
+  });
+
+  it("keeps a hidden panel whose page is listening when no key opens it any more", async () => {
+    const w = fakeWindow();
+    const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }));
+    panel.openInactive(); await settled();
+    panel.close();
+    panel.prepareFor({ chord: false, doubleTap: false }, true);
+    expect(w.calls).not.toContain("destroy");
+    expect(panel.window()).toBe(w.win);
   });
 
   it("leaves an open panel on screen when the last key is switched off", async () => {
@@ -267,5 +303,35 @@ describe("QuickChatShortcut", () => {
     shortcut.set("mod+shift+j");
     shortcut.release();
     expect(unregistered).toEqual([]);
+  });
+});
+
+describe("quickChatPanelStep", () => {
+  const area = { x: 0, y: 25, width: 1440, height: 875 };
+  const middle = (1440 - QUICK_CHAT_PANEL_SIZE.width) / 2;
+  const right = 1440 - QUICK_CHAT_PANEL_SIZE.width;
+
+  it("moves from the right edge to the middle, then to the left edge, and stays there", () => {
+    expect(quickChatPanelStep(right, area, -1)).toBe(middle);
+    expect(quickChatPanelStep(middle, area, -1)).toBe(0);
+    expect(quickChatPanelStep(0, area, -1)).toBe(0);
+  });
+
+  it("moves from the left edge to the middle, then to the right edge, and stays there", () => {
+    expect(quickChatPanelStep(0, area, 1)).toBe(middle);
+    expect(quickChatPanelStep(middle, area, 1)).toBe(right);
+    expect(quickChatPanelStep(right, area, 1)).toBe(right);
+  });
+
+  it("goes to the next place in that direction from where it was dragged", () => {
+    expect(quickChatPanelStep(middle + 40, area, -1)).toBe(middle);
+    expect(quickChatPanelStep(middle + 40, area, 1)).toBe(right);
+    expect(quickChatPanelStep(20, area, -1)).toBe(0);
+  });
+
+  it("keeps to the display it is on", () => {
+    const second = { x: 1440, y: 0, width: 1920, height: 1080 };
+    expect(quickChatPanelStep(1440, second, 1)).toBe(1440 + Math.round((1920 - QUICK_CHAT_PANEL_SIZE.width) / 2));
+    expect(quickChatPanelStep(3000, second, 1)).toBe(1440 + 1920 - QUICK_CHAT_PANEL_SIZE.width);
   });
 });

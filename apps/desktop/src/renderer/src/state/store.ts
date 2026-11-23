@@ -24,7 +24,7 @@ import {
   forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SESSION_DONE_KEY, sessionDoneWhen, type SessionDoneWhen, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
@@ -637,6 +637,8 @@ export type Api = TeammatesApi & {
   setPreventSleep(on: boolean): Promise<void>;
   /** Tell main the Meetings switch moved; main reads the calendar only while it is on. */
   setOpensMeetings(on: boolean): Promise<void>;
+  /** Tell main "Start the assistant when a call starts" moved; main watches calls only while it is on. */
+  setStartsAssistant(on: boolean): Promise<void>;
   /** Calendar access as macOS reports it for Realm, read again. Null while nothing is reading it:
    *  the switch is off, or this OS has no calendar to read. Never asks. */
   calendarAccess(): Promise<CalendarAccess | null>;
@@ -1505,7 +1507,7 @@ export type AppState = TeammatesSlice & {
    *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
    *  mount, and a null renders as loading rather than as every-toggle-on lies. */
   /** `quickChatModel` is the stored value as read; `quickChatModelOf` says what it means. */
-  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string; quickChatModel: unknown } | null;
+  settingsPrefs: { disabledCategories: NotificationCategory[]; sessionDoneWhen: SessionDoneWhen; defaultPermissionMode: string; quickChatModel: unknown } | null;
   /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
    *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
    *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
@@ -2882,8 +2884,9 @@ export type AppState = TeammatesSlice & {
    *  (the first window is the one whose space the server reads back). With `firstSession` (a space
    *  `space_create` just made) it lands where the New space sheet does, on a new session there. */
   applySpaceSwitchRequested(payload: { spaceId: string; firstSession?: { projectId: string | null } }, typing: boolean): Promise<void>;
-  /** The `settings.changed` handler: an agent's `settings_set`, taken as if this window's own Settings
-   *  had made it — for the keys on `AGENT_SETTINGS` and no other, and only a value the app offers. */
+  /** The `settings.changed` handler: an agent's `settings_set`, or any `settings.set` over RPC, taken
+   *  as if this window's own Settings had made it — for the keys on `AGENT_SETTINGS` and the look, and
+   *  only a value the app offers. */
   applySettingChanged(payload: { key: string; value?: unknown }): void;
   /** The `session.openRequested` handler: a session an agent's `session_open` made for the user goes
    *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
@@ -2967,6 +2970,9 @@ export type AppState = TeammatesSlice & {
   /** Flip ONE category's off switch and persist the whole disabled set under
    *  `NOTIFICATIONS_DISABLED_KEY`. Disabling stops NEW rows only — the service's contract. */
   setNotificationCategoryEnabled(category: NotificationCategory, enabled: boolean): Promise<void>;
+  /** When a session finishing notifies (`NOTIFICATIONS_SESSION_DONE_KEY`): once its work is done, or
+   *  after every turn. Read by the server, which writes the rows. */
+  setSessionDoneWhen(when: SessionDoneWhen): Promise<void>;
   /** Persist the default permission mode for new sessions (`DEFAULT_PERMISSION_MODE_KEY`) —
    *  consumed server-side at `sessions.create`. The bypass confirm lives in the page, not here:
    *  by the time this runs the user has already said it twice. */
@@ -3084,6 +3090,9 @@ export type AppState = TeammatesSlice & {
   /** Open a calendar meeting's link when it starts (Settings ▸ General ▸ Meetings). On by default. */
   opensMeetings: boolean;
   setOpensMeetings(on: boolean): Promise<void>;
+  /** Start the meeting assistant when a call starts (Settings ▸ General ▸ Meetings). */
+  startsAssistant: boolean;
+  setStartsAssistant(on: boolean): Promise<void>;
   /** Calendar access as macOS reports it for Realm; null until asked, or with the switch off. */
   calendarAccess: CalendarAccess | null;
   refreshCalendarAccess(): Promise<void>;
@@ -4876,7 +4885,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, memoryLearning: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, opensMeetings: MEETINGS_OPEN_DEFAULT, calendarAccess: null, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
+      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, opensMeetings: MEETINGS_OPEN_DEFAULT, startsAssistant: MEETING_AUTO_START_DEFAULT, calendarAccess: null, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
@@ -5036,6 +5045,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const opensMeetings = (await api.getSetting(MEETINGS_OPEN_KEY).catch(() => null)) !== false;
         set({ opensMeetings });
         void api.setOpensMeetings(opensMeetings).catch(() => {});
+        const startsAssistant = await api.getSetting(MEETING_AUTO_START_KEY).catch(() => null);
+        set({ startsAssistant: typeof startsAssistant === "boolean" ? startsAssistant : MEETING_AUTO_START_DEFAULT });
         const linksIn = await api.getSetting(LINKS_OPEN_IN_KEY).catch(() => null);
         const linksOpenIn = isLinksOpenIn(linksIn) ? linksIn : LINKS_OPEN_IN_DEFAULT;
         set({ linksOpenIn });
@@ -8262,6 +8273,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           case AGENT_SETTINGS.submitKey.key: if (isSubmitKey(value)) set({ submitKey: value }); return;
           case AGENT_SETTINGS.midTurnMode.key: set({ midTurnMode: resolveMidTurnMode(value) }); return;
           case AGENT_SETTINGS.terminalCursorBlink.key: if (typeof value === "boolean") set({ terminalCursorBlink: value }); return;
+          case LOOK_SETTING: if (isLook(value)) set({ look: value }); return;
           /* `theme_import` wears the theme it just imported. The themes are read again first, for
              `refreshCustomThemes`'s reason: a name the registry does not hold yet would fall back to
              Realm's own palette, which is the frame this would otherwise paint. */
@@ -8389,15 +8401,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       memoryLibraryCreate(input) { return api.memoryLibraryCreate(input); },
       memoryLibraryDelete(id, confirmExternal) { return api.memoryLibraryDelete(id, confirmExternal); },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone, quickChatModel] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone, quickChatModel, rawSessionDone] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
           api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY), api.getSetting(MID_TURN_MODE_KEY),
-          api.getSetting(NOTIFICATIONS_IPHONE_KEY), api.getSetting(QUICK_CHAT_MODEL_SETTING),
+          api.getSetting(NOTIFICATIONS_IPHONE_KEY), api.getSetting(QUICK_CHAT_MODEL_SETTING), api.getSetting(NOTIFICATIONS_SESSION_DONE_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode, quickChatModel }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
+        set({ settingsPrefs: { disabledCategories, sessionDoneWhen: sessionDoneWhen(rawSessionDone), defaultPermissionMode, quickChatModel }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
           soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume), iphoneNotifications: rawIphone !== false });
       },
       async refreshModelFavorites() {
@@ -8457,6 +8469,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           : [...prefs.disabledCategories.filter((c) => c !== category), category];
         await api.setSetting(NOTIFICATIONS_DISABLED_KEY, disabledCategories);
         set({ settingsPrefs: { ...prefs, disabledCategories } });
+      },
+      async setSessionDoneWhen(when) {
+        const prefs = get().settingsPrefs; if (!prefs) return;
+        await api.setSetting(NOTIFICATIONS_SESSION_DONE_KEY, when);
+        set({ settingsPrefs: { ...prefs, sessionDoneWhen: when } });
       },
       async setDefaultPermissionMode(mode) {
         const prefs = get().settingsPrefs; if (!prefs) return;
@@ -8764,6 +8781,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ opensMeetings: on });
         await Promise.all([api.setSetting(MEETINGS_OPEN_KEY, on), api.setOpensMeetings(on)]);
         await get().refreshCalendarAccess();
+      },
+      async setStartsAssistant(on) {
+        set({ startsAssistant: on });
+        await Promise.all([api.setSetting(MEETING_AUTO_START_KEY, on), api.setStartsAssistant(on)]);
       },
       async refreshCalendarAccess() { set({ calendarAccess: await api.calendarAccess() }); },
       watchCalendarAccess() { return api.onCalendarAccess?.((access) => set({ calendarAccess: access })) ?? (() => {}); },

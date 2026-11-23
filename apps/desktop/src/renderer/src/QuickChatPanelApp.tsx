@@ -3,6 +3,8 @@ import { CaretBridge, PressTrackingBridge, RubberBandBridge, ScrollbarStyleBridg
 import { dismissBootSplash } from "./boot-splash";
 import { QuickChat } from "./components/QuickChat";
 import { Toasts } from "./components/Toasts";
+import { desktopMeetingAssistant } from "./meeting/desktop";
+import { useAssistantPage } from "./meeting/MeetingAssistantView";
 import { rpc } from "./rpc/client";
 import { liveApi } from "./state/live-api";
 import { StoreContext, createAppStore, useApp } from "./state/store";
@@ -22,6 +24,10 @@ export const QUICK_CHAT_SURFACE = "quick-chat";
  */
 export function QuickChatPanelApp() {
   const store = useMemo(() => createAppStore(liveApi()), []);
+  /* The meeting assistant lives on the page, not on the chat: deleting the chat, or putting the
+     panel away, leaves a run listening, and the menu bar's mark says so. */
+  const assistant = useMemo(() => desktopMeetingAssistant(() => store.getState().activeSpaceId), [store]);
+  useAssistantPage(assistant);
   useEffect(() => {
     document.documentElement.dataset.surface = QUICK_CHAT_SURFACE;
     const panel = window.realm?.quickChatPanel;
@@ -83,7 +89,7 @@ export function QuickChatPanelApp() {
       <PressTrackingBridge />
       <TooltipBridge />
       <CaretBridge />
-      <QuickChat />
+      <QuickChat assistant={assistant} />
       <NoSpace />
       <Toasts />
     </StoreContext.Provider>

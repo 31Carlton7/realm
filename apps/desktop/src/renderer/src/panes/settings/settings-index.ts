@@ -1,6 +1,6 @@
 import type { IconName } from "@realm/ui";
 import {
-  AGENT_META, CARET_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
+  AGENT_META, ASSISTANT_CHORDS, CARET_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
   TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_STYLE_COPY, TERMINALS_HISTORY_COPY, type NotificationCategory,
 } from "@realm/contracts";
 import { capabilities } from "../../platform";
@@ -118,6 +118,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "open-links-in", tab: "general", section: "Links", label: "Open links in", terms: "web url browser default safari chrome realm click command" },
   { id: "open-meetings", tab: "general", section: "Meetings", label: "Open the meeting when it starts", terms: "calendar join call zoom meet teams webex facetime link notification auto",
     available: () => capabilities().meetings },
+  { id: "start-assistant", tab: "general", section: "Meetings", label: "Start the assistant when a call starts", terms: "meeting assistant listen auto microphone zoom meet teams facetime slack discord transcribe",
+    available: () => capabilities().meetings },
   { id: "sidebar-activity-order", tab: "general", section: "Sidebar", label: "Sort spaces by activity", terms: "order drag strip" },
   { id: "confirm-delete", tab: "general", section: "Deleting", label: "Ask before deleting", terms: "confirm delete trash" },
   { id: "terminal-history", tab: "general", section: "Terminals", label: TERMINALS_HISTORY_COPY.label, terms: "output history restart" },
@@ -170,10 +172,13 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "quick-chat-shortcut", tab: "keys", section: "From anywhere", label: "Open the quick chat from any app", terms: "global shortcut hotkey popup panel anywhere system-wide",
     available: () => capabilities().quickChatPanel },
   { id: "double-tap-command", tab: "keys", section: "From anywhere", label: "Double-tap Command opens the quick chat", terms: "global hotkey shortcut cmd popup anywhere", available: () => capabilities().accessibility },
-  { id: "assistant-hold-key", tab: "keys", section: "From anywhere", label: "Hold for assistant shortcuts", terms: "fn globe right option command modifier meeting hotkey", available: () => capabilities().accessibility },
-  { id: "keys-try", tab: "keys", section: "From anywhere", label: "Try it", terms: "test keyboard fn double-tap", available: () => capabilities().accessibility },
   { id: "quick-chat-hide", tab: "keys", section: "From anywhere", label: "Hide the quick chat from screen sharing", terms: "screen share recording capture zoom meet private",
     available: () => capabilities().quickChatPanel },
+  { id: "assistant-hold-key", tab: "keys", section: "From anywhere", label: "Hold for assistant shortcuts", terms: "fn globe right option command modifier meeting hotkey", available: () => capabilities().accessibility },
+  { id: "assistant-chords", tab: "keys", section: "From anywhere", label: "Assistant shortcuts", terms: "meeting fn hotkey chord keys listen answer", available: () => capabilities().accessibility },
+  ...ASSISTANT_CHORDS.map(({ key, label }): SettingEntry => ({ id: `assistant-chord:${key}`, tab: "keys", section: "From anywhere", label, terms: "meeting assistant fn shortcut",
+    available: () => capabilities().accessibility })),
+  { id: "keys-try", tab: "keys", section: "From anywhere", label: "Try it", terms: "test keyboard fn double-tap", available: () => capabilities().accessibility },
   // Keys: every command a chord can be bound to, under the group the page lists it in.
   { id: "keys", tab: "keys", label: "Shortcuts", terms: "keyboard keybindings hotkeys chord" },
   ...KEY_COMMANDS.map((c): SettingEntry => ({ id: `key:${c.id}`, tab: "keys", section: c.group, label: c.label, terms: "shortcut keyboard" })),
@@ -187,6 +192,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "relay-iphone", tab: "notifications", label: "Notify my iPhone", terms: "phone push mobile relay",
     available: (facts) => facts.phonesPaired },
   ...NOTIFICATION_CATEGORIES.map((c): SettingEntry => ({ id: `notify:${c}`, tab: "notifications", section: "Notify me about", label: CATEGORY_COPY[c].label })),
+  { id: "session-done-when", tab: "notifications", section: "Notify me about", label: "Tell me", terms: "sessions finishing work done every turn" },
 
   // Dictation
   { id: "dictation-microphone", tab: "dictation", label: "Microphone", terms: "input device mic airpods headset voice" },

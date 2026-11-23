@@ -22,6 +22,16 @@ interface Window {
     landSpaceId?: string;
     /** "quick-chat" in the quick chat panel's page; undefined in a Realm window. */
     surface?: string;
+    /** The quick chat panel's meeting assistant: the menu bar's red mark while it listens, and the
+     *  mark's Stop. Answered for the panel's own page only. */
+    meetingAssistant?: {
+      setListening(on: boolean): void;
+      onStop(cb: () => void): () => void;
+      /** The assistant's chords, pressed in any app. */
+      onKey?(cb: (action: import("@realm/contracts").AssistantPageAction) => void): () => void;
+      keysReady?(): void;
+      setShown?(on: boolean): void;
+    };
     /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). Optional like
      *  every bridge: jsdom has none. */
     quickChatPanel?: {
@@ -32,6 +42,7 @@ interface Window {
       setShortcut(chord: string | null): Promise<import("@realm/contracts").QuickChatShortcutState>;
       setHideFromSharing(on: boolean): void;
       openInRealm(target: { sessionId: string; spaceId: string }): void;
+      openDocument(target: { spaceId: string; path: string }): void;
       chatChanged(): void;
       onChatChanged(cb: () => void): () => void;
     };
@@ -51,6 +62,8 @@ interface Window {
     zoomFactor?(): number;
     /** A session picked from the menu-bar item while the window was closed. */
     onOpenSession(cb: (target: { sessionId: string; spaceId: string | null }) => void): () => void;
+    /** A space's file asked for from the quick chat panel. */
+    onOpenDocument?(cb: (target: { spaceId: string; path: string }) => void): () => void;
     /** Quit Realm and stop every agent. Confirms in main when anything is working. */
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */
@@ -110,6 +123,7 @@ interface Window {
     /** Settings ▸ General ▸ Meetings: the switch, and calendar access as macOS reports it. */
     meetings?: {
       setOpenWhenStarts(on: boolean): Promise<void>;
+      setStartAssistantWithCall?(on: boolean): Promise<void>;
       calendarAccess(): Promise<import("@realm/contracts").CalendarAccess | null>;
       askForCalendar(): Promise<void>;
       openCalendarSettings(): Promise<void>;
@@ -120,6 +134,7 @@ interface Window {
       state(): Promise<import("@realm/contracts").GlobalKeysState>;
       setDoubleTap(on: boolean): Promise<void>;
       setHold(key: import("@realm/contracts").HoldKey): Promise<void>;
+      setAssistant(on: boolean): Promise<void>;
       watch(on: boolean): void;
       onEvent(cb: (event: import("@realm/contracts").GlobalKeysEvent) => void): () => void;
       onState(cb: (state: import("@realm/contracts").GlobalKeysState) => void): () => void;

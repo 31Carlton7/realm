@@ -253,9 +253,9 @@ describe("the index and the pages agree", () => {
   });
 
   it("a search for a Keys row names the group the page draws it in", () => {
-    const sections = ["quick-chat-shortcut", "double-tap-command", "assistant-hold-key", "keys-try", "quick-chat-hide"]
+    const sections = ["quick-chat-shortcut", "double-tap-command", "quick-chat-hide", "assistant-hold-key", "assistant-chords", "assistant-chord:L", "keys-try"]
       .map((id) => SETTINGS_INDEX.find((e) => e.id === id)?.section);
-    expect(sections).toEqual(Array(5).fill("From anywhere"));
+    expect(sections).toEqual(Array(7).fill("From anywhere"));
   });
 
   it("no two entries share an id, so a jump has one row to land on", () => {

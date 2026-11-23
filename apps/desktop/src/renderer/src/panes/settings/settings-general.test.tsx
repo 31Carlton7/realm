@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { FILES_OPEN_IN_KEY, LINKS_OPEN_IN_KEY, MEETINGS_OPEN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY, platformCapabilities } from "@realm/contracts";
+import { FILES_OPEN_IN_KEY, LINKS_OPEN_IN_KEY, MEETING_AUTO_START_KEY, MEETINGS_OPEN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY, platformCapabilities } from "@realm/contracts";
 import { SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
@@ -217,5 +217,36 @@ describe("About", () => {
       // A link leaves through main's window-open handler, which takes it to the browser Links names.
       expect(link).toHaveAttribute("target", "_blank");
     }
+  });
+});
+
+const STARTS_ASSISTANT = "Start the assistant when a call starts";
+
+describe("Start the assistant when a call starts", () => {
+  it("is off until turned on, and turning it on reaches main at once as well as the stored row", async () => {
+    const { api, store } = await general();
+    expect(screen.getByRole("switch", { name: STARTS_ASSISTANT })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("switch", { name: STARTS_ASSISTANT }));
+    await waitFor(() => expect(store.getState().startsAssistant).toBe(true));
+    expect(api.calls).toContain(`setSetting:${MEETING_AUTO_START_KEY}=true`);
+    expect(api.calls).toContain("setStartsAssistant:true");
+  });
+
+  it("stays on when it was saved on", async () => {
+    await general({ settings: { [MEETING_AUTO_START_KEY]: true } });
+    expect(screen.getByRole("switch", { name: STARTS_ASSISTANT })).toBeChecked();
+  });
+
+  it("says a calendar meeting starts it only while Open the meeting when it starts is on", async () => {
+    await general();
+    const row = screen.getByRole("switch", { name: STARTS_ASSISTANT }).closest("li")!;
+    expect(row.title).toContain("or a calendar meeting starts while Open the meeting when it starts is on,");
+    expect(row.title).not.toMatch(/^When a calendar meeting starts/);
+  });
+
+  it("says it waits for the first-run sheet", async () => {
+    await general();
+    const row = screen.getByRole("switch", { name: STARTS_ASSISTANT }).closest("li")!;
+    expect(row.textContent).toContain("Only after you have accepted the assistant's first-run sheet");
   });
 });

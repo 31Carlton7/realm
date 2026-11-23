@@ -30,6 +30,7 @@ import { createSimulatorAgentProvider, loopbackPort, shrinkForModel, SIMULATOR_P
 import type { ScreenMotion } from "./screen-motion";
 import { PhysicalDevices } from "./physical";
 import { FakePhone, PHONE_UDID } from "./phone.test-fakes";
+import type { ProcRow } from "../resources/machine";
 
 /** A picture watcher whose stream is already gone: every walk falls back to reading the tree. */
 const GONE: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "lost", rest: async () => false, close: () => {} };
@@ -140,6 +141,8 @@ function setup(opts: {
   watchScreen?: (url: string) => ScreenMotion;
   /** A real iPhone on the cable, scripted: listed by devicectl and driven through its runner. */
   phone?: FakePhone;
+  /** This Mac's process table, for the checks that read it. Unset, the service cannot tell. */
+  processes?: () => Promise<ProcRow[]>;
 } = {}) {
   const home = tempDir("realm-sim-tools-");
   const db = openDatabase(join(home, "realm.db"));
@@ -171,7 +174,7 @@ function setup(opts: {
     home, devicectl: dc, runners: opts.phone.runners(),
     bridge: async () => ({ streamUrl: "http://127.0.0.1:47001/stream.mjpeg", wsUrl: "ws://127.0.0.1:47001/ws", port: 47001, close: async () => {} }),
   }) : undefined;
-  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel, watchScreen, physical });
+  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel, watchScreen, physical, processes: opts.processes });
   let mode = opts.broker?.mode ?? "default";
   const real: BrowserPermissionBroker | null = opts.broker ? new BrowserPermissionBroker({
     permissionMode: () => mode,
@@ -858,6 +861,128 @@ describe("acting on a point", () => {
       expect(text(r)).toContain("402×874 points");
     }
     expect(dev.calls.sent).toEqual([]);
+  });
+});
+
+/**
+ * A simulator shut down and booted again outside Realm while its pane streams it (#638). serve-sim's
+ * daemon outlives `simctl shutdown` and `--list` keeps naming it, but it stays attached to the boot it
+ * started on: its `/ax` answers 503 for every boot after that one. The fake keeps that rule, and the
+ * process table says when the device's launchd and each daemon started.
+ */
+function rebooted(o: { held?: Promise<void> } = {}) {
+  const udid = "D94F0FDE-7C84-42F1-A328-97EF12A91866";
+  let clock = 1_800_000_000_000;
+  let bootAt: number | null = clock;
+  let daemon: { pid: number; at: number } | null = null;
+  let pid = 99;
+  const served: string[] = [];
+  const streamOf = (d: { pid: number }): ServeSimStream => ({ ...STREAM(udid), pid: d.pid });
+  const dev = setup({
+    simctl: {
+      devices: async () => [{ ...IOS[1]!, udid, state: bootAt === null ? "Shutdown" : "Booted" }],
+      boot: async () => { served.push("boot"); if (bootAt === null) { clock += 30_000; bootAt = clock; } return { ok: true, detail: "" }; },
+    },
+    serveSim: {
+      find: async () => (daemon ? streamOf(daemon) : NOTHING),
+      start: async () => { if (pid > 99) await o.held; clock += 5_000; daemon = { pid: pid++, at: clock }; served.push(`serve:${daemon.pid}`); return { stream: streamOf(daemon), detail: "" }; },
+      kill: async () => { if (daemon) served.push(`kill:${daemon.pid}`); daemon = null; },
+      // The tree, but only from a daemon started on this boot.
+      ax: async (stream) => (daemon && stream.pid === daemon.pid && bootAt !== null && daemon.at >= bootAt ? TREE : null),
+    },
+    processes: async () => [
+      ...(bootAt === null ? [] : [{ pid: 700, ppid: 1, tty: null, residentBytes: 1, startedAt: bootAt, command: `launchd_sim /U/Library/Developer/CoreSimulator/Devices/${udid}/data/var/run/launchd_bootstrap.plist` }]),
+      ...(daemon ? [{ pid: daemon.pid, ppid: 1, tty: null, residentBytes: 1, startedAt: daemon.at, command: "node /U/.npm/_npx/x/node_modules/.bin/serve-sim --detach -q" }] : []),
+    ],
+  });
+  return {
+    ...dev, udid, served,
+    /** `xcrun simctl shutdown`, then a boot half an hour later — from a shell, not from Realm. */
+    shutDown: () => { clock += 60_000; bootAt = null; },
+    bootElsewhere: () => { clock += 30 * 60_000; bootAt = clock; },
+  };
+}
+
+const runningAgain = async (service: SimulatorService, simulatorId: string) => {
+  for (let i = 0; i < 400 && service.stateOf(simulatorId).status !== "running"; i++) await new Promise((r) => setTimeout(r, 5));
+};
+
+describe("a simulator booted again outside Realm under its pane (#638)", () => {
+  it("simulator_open replaces the stream left from the earlier boot, and the tree reads again", async () => {
+    const dev = rebooted();
+    await dev.call("simulator_open", { udid: dev.udid });
+    const [row] = dev.service.list(dev.spaceId);
+    dev.shutDown();
+    dev.bootElsewhere();
+    const r = await dev.call("simulator_open", { udid: dev.udid });
+    expect(r.isError).toBe(false);
+    // THE MUTANT: trust the pane's "running". The old daemon stays, and its tree never comes.
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+    expect(dev.service.list(dev.spaceId)).toHaveLength(1);
+    const elements = await dev.call("simulator_elements", { simulatorId: row!.id });
+    expect(elements.isError).toBe(false);
+    expect(text(elements)).toContain('"General"');
+  });
+
+  it("a read on the earlier boot's stream starts a fresh one and says so, and then reads and taps land", async () => {
+    const dev = rebooted();
+    await dev.call("simulator_open", { udid: dev.udid });
+    const [row] = dev.service.list(dev.spaceId);
+    dev.shutDown();
+    dev.bootElsewhere();
+    const first = await dev.call("simulator_elements", { simulatorId: row!.id });
+    expect(first.isError).toBe(true);
+    // THE MUTANT: the old "not published yet", which is what an agent read for nine minutes.
+    expect(text(first)).toContain("from before the device last booted");
+    await runningAgain(dev.service, row!.id);
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+    expect((await dev.call("simulator_elements", { simulatorId: row!.id })).isError).toBe(false);
+    const tap = await dev.call("simulator_tap", { simulatorId: row!.id, intent: "tap the middle", x: 201, y: 437 });
+    expect(tap.isError).toBe(false);
+    expect(frames(dev.calls.sent).map((f) => [f.type, f.x, f.y])).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("a tap while the fresh stream is still starting says so, rather than asking for a stream", async () => {
+    let release!: () => void;
+    const dev = rebooted({ held: new Promise((r) => { release = r; }) });
+    await dev.call("simulator_open", { udid: dev.udid });
+    const [row] = dev.service.list(dev.spaceId);
+    dev.shutDown();
+    dev.bootElsewhere();
+    const tap = await dev.call("simulator_tap", { simulatorId: row!.id, intent: "tap the middle", x: 201, y: 437 });
+    expect(tap.isError).toBe(true);
+    // THE MUTANT: "start the simulator's stream first", for a stream Realm is in the middle of starting.
+    expect(text(tap)).toContain("still starting");
+    expect(dev.calls.sent).toEqual([]);
+    release();
+    await runningAgain(dev.service, row!.id);
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+  });
+
+  it("simulator_open boots a device shut down under its pane that nothing has read since", async () => {
+    const dev = rebooted();
+    await dev.call("simulator_open", { udid: dev.udid });
+    dev.shutDown();
+    // THE MUTANT: only a stream older than the boot counts. A device with no boot at all stays down.
+    expect((await dev.call("simulator_open", { udid: dev.udid })).isError).toBe(false);
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+  });
+
+  it("a read on a device shut down under its pane says it is off, and simulator_open boots it", async () => {
+    const dev = rebooted();
+    await dev.call("simulator_open", { udid: dev.udid });
+    const [row] = dev.service.list(dev.spaceId);
+    dev.shutDown();
+    const r = await dev.call("simulator_elements", { simulatorId: row!.id });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("shut down outside Realm");
+    expect(text(await dev.call("simulator_elements", { simulatorId: row!.id }))).toContain(`simulator_open with udid "${dev.udid}"`);
+    // No walk from a read: booting a device is simulator_open's, behind its card.
+    expect(dev.served).toEqual(["boot", "serve:99"]);
+    expect(dev.service.stateOf(row!.id).status).toBe("off");
+    expect((await dev.call("simulator_open", { udid: dev.udid })).isError).toBe(false);
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+    expect((await dev.call("simulator_elements", { simulatorId: row!.id })).isError).toBe(false);
   });
 });
 

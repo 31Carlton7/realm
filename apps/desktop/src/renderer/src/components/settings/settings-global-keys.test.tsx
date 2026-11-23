@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, type GlobalKeysEvent, type GlobalKeysState } from "@realm/contracts";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { ASSISTANT_CHORDS, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, MEETING_CONSENT_KEY, type GlobalKeysEvent, type GlobalKeysState } from "@realm/contracts";
 
-/** The section reads and writes its two settings over the socket and holds no store state for them. */
+/** The section reads and writes its three settings, reads the assistant's consent, over the socket and holds no store state for them. */
 const stored: Record<string, unknown> = {};
 const calls: { method: string; params: any }[] = [];
 vi.mock("../../rpc/client", () => ({
@@ -30,6 +30,7 @@ function bridge(state: GlobalKeysState) {
     state: async () => state,
     setDoubleTap: async (on: boolean) => { asked.push(`doubleTap:${on}`); },
     setHold: async (key: string) => { asked.push(`hold:${key}`); },
+    setAssistant: async (on: boolean) => { asked.push(`assistant:${on}`); },
     watch: (on: boolean) => { asked.push(`watch:${on}`); },
     onEvent: (cb: typeof onEvent) => { onEvent = cb; return () => { onEvent = () => {}; }; },
     onState: (cb: typeof onState) => { onState = cb; return () => { onState = () => {}; }; },
@@ -43,7 +44,7 @@ async function mount(api = fakeApi()) {
   const store = createAppStore(api);
   await store.getState().boot();
   const view = render(<StoreContext.Provider value={store}><ul><GlobalKeysRows /></ul></StoreContext.Provider>);
-  await waitFor(() => expect(calls.filter((c) => c.method === "settings.get")).toHaveLength(2));
+  await waitFor(() => expect(calls.filter((c) => c.method === "settings.get")).toHaveLength(4));
   return view;
 }
 
@@ -186,5 +187,64 @@ describe("Settings ▸ Keys ▸ From anywhere", () => {
     becomes("active");
     expect(row("keys-access")).toBeNull();
     expect(tryKey("⌘⌘")).toBeInTheDocument();
+  });
+});
+
+describe("Settings ▸ Keys ▸ the assistant's shortcuts", () => {
+  const chordRows = () => ASSISTANT_CHORDS.map(({ key }) => row(`assistant-chord:${key}`));
+
+  it("is on, and lists every chord with the held key", async () => {
+    bridge("active");
+    await mount();
+    expect(screen.getByRole("switch", { name: "Assistant shortcuts" })).toBeChecked();
+    expect(chordRows().map((r) => r.textContent)).toEqual([
+      "Show or hide the assistantFn R", "Start or stop listeningFn L", "Answer what was just askedFn G", "Type a questionFn T",
+      "Scroll downFn J", "Scroll upFn K", "Move the panel leftFn ,", "Move the panel rightFn .",
+    ]);
+  });
+
+  it("names the held key that was chosen", async () => {
+    stored[KEYS_HOLD_KEY] = "rightCommand";
+    bridge("active");
+    await mount();
+    await waitFor(() => expect(row("assistant-chord:R").textContent).toBe("Show or hide the assistantRight Command R"));
+    fireEvent.click(screen.getByRole("radio", { name: "Right Option" }));
+    expect(row("assistant-chord:G").textContent).toBe("Answer what was just askedRight Option G");
+  });
+
+  it("stores the switch and tells main, and lists no chord while it is off", async () => {
+    const { asked } = bridge("active");
+    await mount();
+    fireEvent.click(screen.getByRole("switch", { name: "Assistant shortcuts" }));
+    await waitFor(() => expect(stored[KEYS_ASSISTANT_KEY]).toBe(false));
+    expect(asked).toContain("assistant:false");
+    expect(chordRows().every((r) => r === null)).toBe(true);
+  });
+
+  it("says the keys wait on the assistant's first Start until its sheet is accepted", async () => {
+    bridge("active");
+    await mount();
+    const waiting = "They start working after your first Start in the meeting assistant.";
+    await waitFor(() => expect(row("assistant-chords").textContent).toContain(waiting));
+    cleanup();
+    stored[MEETING_CONSENT_KEY] = 1_700_000_000_000;
+    await mount();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Assistant shortcuts" })).toBeChecked());
+    expect(row("assistant-chords").textContent).not.toContain(waiting);
+  });
+
+  it("says nothing of the first Start while the switch is off", async () => {
+    stored[KEYS_ASSISTANT_KEY] = false;
+    bridge("active");
+    await mount();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Assistant shortcuts" })).not.toBeChecked());
+    expect(row("assistant-chords").querySelector(".settings-row-desc")).toBeNull();
+  });
+
+  it("shows it off when it was stored off", async () => {
+    stored[KEYS_ASSISTANT_KEY] = false;
+    bridge("active");
+    await mount();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Assistant shortcuts" })).not.toBeChecked());
   });
 });

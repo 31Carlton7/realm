@@ -5733,6 +5733,12 @@ describe("segmented controls", () => {
     for (const sel of [".mp-row", ".mention-row", ".mp-bolt", ".skill-picker-row"])
       expect(bodiesFor(sel).join(" "), sel).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);");
   });
+
+  it("draws a lit switch's knob solid white in Glass, as Plain does, in both faces", () => {
+    // At 60% white the accent came through and the knob read pale blue, where macOS's is white (11-20).
+    expect([...tokensCss.matchAll(/--glass-knob: ([^;]+);/g)].map((m) => m[1])).toEqual(["#fff"]);
+    expect(bodiesFor(":root[data-glass] .switch::after").join(" ")).toContain("background: var(--glass-knob)");
+  });
 });
 
 /* The documents grid's card held its well 6px in on a 14px corner, but its own box was the half-curve
@@ -6272,4 +6278,14 @@ it("draws a space's page in tints that thin with the pane, on the app's own pain
   expect(tokensCss).toContain("--space-head-tint: 28%;");
   // One checkout a row, through the fold's own wrapper: a two-column grid folds after six, not three.
   expect(bodiesFor(".env-field .env-list").join(" ")).toContain("grid-template-columns: minmax(0, 1fr)");
+});
+
+describe("the quick chat panel", () => {
+  it("puts a sheet opened in the panel over the card that fills it", () => {
+    const z = (body: string) => Number(/z-index:\s*(\d+)/.exec(body)?.[1] ?? NaN);
+    const card = Math.max(...bodiesFor(".quick-chat").map(z).filter(Number.isFinite));
+    const sheet = Math.max(...bodiesFor(':root[data-surface="quick-chat"] .sheet-backdrop').map(z).filter(Number.isFinite));
+    // THE MUTANT: the panel's sheet left at the window's 40, under the card's 70.
+    expect(sheet).toBeGreaterThan(card);
+  });
 });

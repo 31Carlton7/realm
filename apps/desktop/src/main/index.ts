@@ -22,13 +22,15 @@ import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
-import { BROWSER_KEEP_HIDDEN_DEFAULT, isHoldKey, isLinksOpenIn, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETINGS_OPEN_KEY, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { startBackdropState } from "./backdrop-state";
 import { MeetingWatch, meetingWatchPath, startMeetingWatchHelper } from "./meeting-watch";
 import { RealmKeys } from "./realm-keys";
+import { AssistantKeys, onPageGone, PageInbox } from "./assistant-keys";
+import { AssistantAutoStart } from "./assistant-auto-start";
 import { readFileRange, readTextFile } from "./read-text";
 import {
   addBackgrounds, backgroundImageUrl, backgroundLoopFile, listBackgrounds, removeBackground, setBackgroundPoster, updateBackground, type FirstFrame, type Reencode,
@@ -63,8 +65,9 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
-import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietWindowsOn } from "./quiet-windows";
-import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace } from "./quick-chat-panel";
+import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
+import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -362,6 +365,9 @@ async function readMeetingsPreference() {
   try {
     const stored = await bridgeClient?.call("settings.get", { key: MEETINGS_OPEN_KEY });
     meetingWatch.setOpensMeetings((stored as { value?: unknown } | null)?.value !== false);
+    const autoStart = (await bridgeClient?.call("settings.get", { key: MEETING_AUTO_START_KEY }) as { value?: unknown } | null)?.value;
+    assistantAutoStart.set(typeof autoStart === "boolean" ? autoStart : MEETING_AUTO_START_DEFAULT);
+    preparePanel();
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
 
@@ -744,7 +750,7 @@ const quickChatPanel = new QuickChatPanel(() => (serverInfo ? createQuickChatPan
 const quickChatShortcut = new QuickChatShortcut({
   register: (accelerator, press) => globalShortcut.register(accelerator, press),
   unregister: (accelerator) => globalShortcut.unregister(accelerator),
-  press: () => quickChatPanel.toggle(),
+  press: () => openQuickChat(),
   platform: process.platform,
 });
 /** The panel's two settings, read from the server once it answers: main registers the chord, so it
@@ -759,10 +765,16 @@ async function readQuickChatPanelSettings(): Promise<void> {
   } catch { /* the bridge dropped; the next connection reads them */ }
 }
 /** The panel's window is made ahead of the first press, hidden, once there is a key that opens it.
- *  With no chord and no double-tap there is nothing to open it from another app, and a renderer kept
- *  for it would be memory spent on nothing. */
+ *  With no chord, no double-tap, no assistant chord and no auto-start there is nothing to open it
+ *  from another app, and a renderer kept for it would be memory spent on nothing. */
 function preparePanel(): void {
-  quickChatPanel.prepareFor({ chord: quickChatShortcut.current().registered, doubleTap: realmKeys.doubleTapOn });
+  quickChatPanel.prepareFor(
+    {
+      chord: quickChatShortcut.current().registered, doubleTap: realmKeys.doubleTapOn, assistant: assistantKeys.live,
+      autoStart: assistantAutoStart.enabled,
+    },
+    meetingListening.listening,
+  );
 }
 ipcMain.handle("quick-chat-panel:shortcut", (): QuickChatShortcutState => quickChatShortcut.current());
 ipcMain.handle("quick-chat-panel:set-shortcut", (_e, chord: unknown): QuickChatShortcutState => {
@@ -784,11 +796,55 @@ ipcMain.on("quick-chat-panel:open-in-realm", (e, target: unknown) => {
   quickChatPanel.close();
   void reattach({ sessionId: t.sessionId, spaceId: t.spaceId });
 });
+ipcMain.on("quick-chat-panel:open-document", (e, target: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  const t = target as { spaceId?: unknown; path?: unknown } | null;
+  if (typeof t?.spaceId !== "string" || typeof t.path !== "string") return;
+  quickChatPanel.close();
+  void reattach({ spaceId: t.spaceId, path: t.path });
+});
 // The quick chat is one chat wherever it is shown, so a page that opened or deleted it tells the rest.
 ipcMain.on("quick-chat:changed", (e) => {
   for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send("quick-chat:changed");
 });
 app.on("will-quit", () => quickChatShortcut.release());
+
+/** The menu bar's red mark while the panel's meeting assistant listens (listening-mark.ts). */
+const listeningMark = new ListeningMark({
+  createTray: () => {
+    const { buffer, ...size } = listeningDot();
+    const image = nativeImage.createFromBitmap(buffer, size);
+    // A live check's app keeps the item out of the person's menu bar and says what it would show.
+    if (quiet) return quietTray("listening", image);
+    const tray = new Tray(image);
+    return {
+      setTitle: (t) => tray.setTitle(t),
+      setToolTip: (t) => tray.setToolTip(t),
+      setContextMenu: (template) => tray.setContextMenu(Menu.buildFromTemplate(template)),
+      destroy: () => tray.destroy(),
+    };
+  },
+  actions: {
+    show: () => quickChatPanel.open(),
+    stop: () => meetingListening.stop(),
+  },
+});
+// `transcript`, the meeting transcript's helper, is made further down.
+const meetingListening = new MeetingListening<WebContents>({
+  mark: (on) => {
+    listeningMark.set(on);
+    // A run that ends holds auto-start off for its call (assistant-auto-start.ts).
+    assistantAutoStart.listeningChanged(meetingListening.listening);
+  },
+  stopHelper: (page) => transcript.endRun(page),
+});
+ipcMain.on("meeting-assistant:listening", (e, on: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  meetingListening.set(e.sender, on === true);
+  // The first listen follows the first-run sheet's accept: the assistant's chords may wait on it.
+  if (on === true) void readAssistantConsent();
+});
+app.on("will-quit", () => listeningMark.set(false));
 
 /**
  * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
@@ -1611,7 +1667,7 @@ app.on("will-quit", () => voice.stop());
 // ── Meetings ─────────────────────────────────────────────────────────────────────────────────────
 // Knowing when a meeting or a call starts (meeting-watch.ts). With Settings ▸ General ▸ Meetings on,
 // a meeting's link is opened by the system at its start, with a notification two minutes before.
-// Nothing listens for calls yet.
+// With "Start the assistant when a call starts" on, a call starting starts the panel's assistant.
 const saidMeetingsFile = () => join(app.getPath("userData"), "meetings-said.json");
 // Held so the click still lands: a notification nothing refers to can be collected before it.
 let meetingNotification: Notification | null = null;
@@ -1644,6 +1700,20 @@ const meetingWatch = new MeetingWatch({
 });
 /** The renderer's half of the Meetings switch, as `power:prevent-sleep` is the sleep preference's. */
 ipcMain.handle("meetings:open-when-starts", (_e, on: unknown) => { meetingWatch.setOpensMeetings(on === true); });
+/** "Start the assistant when a call starts" (assistant-auto-start.ts). The page's Start is the one
+ *  the button runs, so the mark goes up the same way. */
+const assistantAutoStart = new AssistantAutoStart({
+  watchCalls: (on) => meetingWatch.watchCalls(on),
+  consented: async () => meetingConsentAccepted((await bridgeClient?.call("settings.get", { key: MEETING_CONSENT_KEY }) as { value?: unknown } | null)?.value),
+  listening: () => meetingListening.listening,
+  panel: quickChatPanel,
+  start: () => assistantInbox.send(quickChatPanel.window()?.webContents ?? null, "autoStart"),
+  now: () => Date.now(),
+});
+meetingWatch.on("meetingStarted", (meeting) => void assistantAutoStart.meetingStarted(meeting));
+meetingWatch.on("callStarted", (app) => void assistantAutoStart.appCallStarted(app));
+meetingWatch.on("callEnded", (app) => assistantAutoStart.appCallEnded(app));
+ipcMain.handle("meetings:start-assistant-with-call", (_e, on: unknown) => { assistantAutoStart.set(on === true); preparePanel(); });
 /** Read again each time it is asked for, so a grant changed in System Settings shows on the page. */
 ipcMain.handle("meetings:calendar-access", () => { meetingWatch.checkCalendar(); return meetingWatch.access; });
 /** The one place Realm asks macOS for the calendar on its own account: the button in Settings. */
@@ -2108,7 +2178,7 @@ function realmKeysPath(): string | null {
  * decides where the quick chat opens from outside Realm.
  */
 function openQuickChat(): void {
-  quickChatPanel.toggle();
+  assistantKeys.openChat();
 }
 
 /** The Settings pages showing what the keyboard sends (Keys ▸ From anywhere ▸ Try it). */
@@ -2125,19 +2195,64 @@ const realmKeys = new RealmKeys({
 });
 app.on("will-quit", () => realmKeys.stop());
 
+/** The assistant's chords (assistant-keys.ts), told to the panel's page once it says it hears them. */
+const assistantInbox = new PageInbox<WebContents>((page, action) => { if (!page.isDestroyed()) page.send("meeting-assistant:key", action); });
+const assistantKeys = new AssistantKeys({
+  register: (key, run) => realmKeys.registerChord(key, run),
+  panel: {
+    isOpen: () => quickChatPanel.isOpen(),
+    open: () => quickChatPanel.open(),
+    openInactive: () => quickChatPanel.openInactive(),
+    close: () => quickChatPanel.close(),
+    move: (direction) => {
+      const win = quickChatPanel.window();
+      if (!win) return;
+      const [x, y] = win.getPosition();
+      win.setPosition(quickChatPanelStep(x!, screen.getDisplayMatching(win.getBounds()).workArea, direction), y!);
+    },
+  },
+  send: (action) => assistantInbox.send(quickChatPanel.window()?.webContents ?? null, action),
+  listening: () => meetingListening.listening,
+  shown: () => assistantInbox.shown(quickChatPanel.window()?.webContents ?? null),
+});
+const assistantPages = new WeakSet<WebContents>();
+ipcMain.on("meeting-assistant:keys-ready", (e) => {
+  const page = e.sender;
+  if (page !== quickChatPanel.window()?.webContents) return;
+  if (!assistantPages.has(page)) {
+    assistantPages.add(page);
+    onPageGone(page, () => assistantInbox.forget(page));
+  }
+  assistantInbox.pageReady(page);
+});
+ipcMain.on("meeting-assistant:shown", (e, on: unknown) => {
+  if (e.sender === quickChatPanel.window()?.webContents) assistantInbox.setShown(e.sender, on === true);
+});
+
 /** The two settings, read from the server when main (re)connects, as the sleep preference is: a
  *  launch with no window still answers a double-tap. */
 async function readKeysPreferences() {
   try {
-    const [doubleTap, hold] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
+    const [doubleTap, hold, chords, consent] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, KEYS_ASSISTANT_KEY, MEETING_CONSENT_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
     if (isHoldKey(hold?.value)) realmKeys.setHoldKey(hold.value);
+    assistantKeys.setConsented(meetingConsentAccepted(consent?.value));
+    assistantKeys.set(typeof chords?.value === "boolean" ? chords.value : KEYS_ASSISTANT_DEFAULT);
     realmKeys.setDoubleTap(typeof doubleTap?.value === "boolean" ? doubleTap.value : KEYS_DOUBLE_TAP_DEFAULT);
     preparePanel();
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
+/** The assistant's chords wait on the first-run sheet; this hears it was accepted, with no relaunch. */
+async function readAssistantConsent(): Promise<void> {
+  try {
+    const consent = (await bridgeClient?.call("settings.get", { key: MEETING_CONSENT_KEY })) as { value?: unknown } | null;
+    assistantKeys.setConsented(meetingConsentAccepted(consent?.value));
+    preparePanel();
+  } catch { /* the bridge dropped; the next connect reads it */ }
+}
 ipcMain.handle("keys:state", () => realmKeys.state);
 ipcMain.handle("keys:set-double-tap", (_e, on: unknown) => { realmKeys.setDoubleTap(on === true); preparePanel(); });
 ipcMain.handle("keys:set-hold", (_e, key: unknown) => { if (isHoldKey(key)) realmKeys.setHoldKey(key); });
+ipcMain.handle("keys:set-assistant", (_e, on: unknown) => { assistantKeys.set(on === true); preparePanel(); });
 ipcMain.on("keys:watch", (e, on: unknown) => {
   const contents = e.sender;
   if (on !== true) keysWatchers.delete(contents);
@@ -2793,7 +2908,7 @@ function goResident() {
 
 /** Bring a window back, optionally landing on one session — in the window showing that session's
  *  profile when one is open, else the window used last, else a new first window. */
-async function reattach(target?: { sessionId: string; spaceId: string | null }) {
+async function reattach(target?: { sessionId: string; spaceId: string | null } | { spaceId: string; path: string }) {
   // Even with a window up: everything it loads lazily from here on would come from the wrong file.
   if (relaunchIfBundleReplaced()) return;
   if (process.platform === "darwin") app.dock?.show();
@@ -2808,7 +2923,7 @@ async function reattach(target?: { sessionId: string; spaceId: string | null }) 
   }
   sessionTray.hide();
   void bridgeClient?.call("browserHost.register", { hasWindow: true }).catch(() => {});
-  if (target) win?.webContents.send("realm:open-session", target);
+  if (target) win?.webContents.send("sessionId" in target ? "realm:open-session" : "realm:open-document", target);
 }
 
 /** Raise a window in front of everything, the app included. */

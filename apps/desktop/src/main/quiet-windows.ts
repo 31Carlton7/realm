@@ -17,7 +17,7 @@ import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, 
  *     `--disable-backgrounding-occluded-windows` (measured: browser-do-live's pane never settled
  *     while the person's own window covered it), so a quiet window is never covered: it floats above
  *     everything, on every Space, at an alpha nobody can see and with the mouse passing through;
- *   - the window main last showed or focused is KEY, as AppKit would have it, through `isFocused`,
+ *   - the window main last showed or focused is KEY until it is hidden or closed, as AppKit would have it, through `isFocused`,
  *     `getFocusedWindow` and the `focus`/`blur` events; the renderer's page is focus-emulated, so it
  *     draws as it does in use (not dimmed into `data-quiet`);
  *   - the webContents main last focused holds the keyboard, through `isFocused` and
@@ -67,6 +67,23 @@ export function quietKeyable(w: BrowserWindow): void {
 }
 const takesKey = (w: BrowserWindow) => process.env.REALM_QUIET_REAL_KEY === "1" && (w as Keyable)[KEYABLE] === true;
 
+/** A menu-bar item quiet mode keeps out of the menu bar: what it would say, and its picture as a PNG,
+ *  kept under its name on `globalThis[Symbol.for("realm.quietTrays")]` for a check to read over
+ *  `--inspect`. Global because this module may be loaded twice. */
+export type QuietTrayRecord = { title: string; toolTip: string; menu: string[]; png: string; destroyed: boolean };
+export function quietTray(name: string, image: { toPNG(): Buffer }) {
+  const g = globalThis as { [k: symbol]: Record<string, QuietTrayRecord> | undefined };
+  const all = (g[Symbol.for("realm.quietTrays")] ??= {});
+  const record: QuietTrayRecord = { title: "", toolTip: "", menu: [], png: image.toPNG().toString("base64"), destroyed: false };
+  all[name] = record;
+  return {
+    setTitle: (t: string) => { record.title = t; },
+    setToolTip: (t: string) => { record.toolTip = t; },
+    setContextMenu: (template: { label?: string }[]) => { record.menu = template.flatMap((i) => (i.label ? [i.label] : [])); },
+    destroy: () => { record.destroyed = true; },
+  };
+}
+
 /** Once per process, though the module may be loaded twice: a live check's wrapper loads its own
  *  build of this file before Realm's main, which carries another. */
 const INSTALLED = Symbol.for("realm.quietWindows");
@@ -103,6 +120,7 @@ export function installQuietWindows(): void {
   /* ── Windows ─────────────────────────────────────────────────────────────────────────────── */
   const proto = BrowserWindow.prototype;
   const showInactive = proto.showInactive;
+  const hide = proto.hide;
   const focus = proto.focus;
   const order: BrowserWindow[] = [];
   let key: BrowserWindow | null = null;
@@ -136,6 +154,11 @@ export function installQuietWindows(): void {
   proto.focus = function (this: BrowserWindow) {
     if (takesKey(this)) focus.call(this);
     if (this.isVisible()) setKey(this);
+  };
+  // AppKit takes key from a window it orders out, and hands it to the one in front.
+  proto.hide = function (this: BrowserWindow) {
+    hide.call(this);
+    if (live(key) === this) setKey([...order].reverse().find((o) => o !== this && !o.isDestroyed() && o.isVisible()) ?? null);
   };
   proto.blur = function (this: BrowserWindow) {
     if (live(key) === this) setKey(null);

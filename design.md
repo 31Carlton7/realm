@@ -311,7 +311,9 @@ Rules:
 - Glass is a material a person chooses, once, for the whole app: Settings > Appearance > Controls,
   Plain by default (the owner, 11-17: he turned the prompter's glass on, saw nothing, and asked for it
   "throughout the app"). It goes on what floats or is pressed: the prompter, its pickers, the
-  selection bar, the selected segment of a segmented control and a switch's knob. What is read stays
+  selection bar, the selected segment of a segmented control and a switch's knob. The knob is solid
+  white in both faces, as macOS draws it, and its glass is the rim round it: at 60% white the accent
+  came through and the knob read pale blue (11-20). What is read stays
   plain (a page of settings, a sheet, the transcript, the sidebar, the palette, toasts), because glass
   there costs contrast and shows nothing. Glass is a lens, a slight blur and a highlight, never a fill
   of ours: over a picture it lays no surface and no shadow, only a dim, so it carries the picture's
@@ -1287,7 +1289,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - What needs you is said where you already look — the session's own row, Needs you at the head of
   the sidebar, the bell's count — and not on a page of its own. An Agents page once ranked every
   session by what it needed and drew the live ones as a wall and an office; it said again what those
-  rows said, from a second place you had to go to, and the owner removed it (10-05). A relay beyond
+  rows said, from a second place you had to go to, and the owner removed it (10-05). A session
+  finishing is told once its WORK is done, not at each turn on the way (the owner, 11-22: "I just
+  wanna know when it's done"): while a sub-agent it started runs, its goal goes on or a message waits
+  in its queue, it is not done, and a sub-agent's finish is its lead's news. A failure is told
+  whenever it happens, and "After every turn" stays a choice for whoever wants each step. A relay beyond
   the Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
   open condition is sent once. A sub-agent's request is said on its lead's row, as a count with the
   waiting dot, and answered on its card in the lead's Agents tab, because the person started the lead

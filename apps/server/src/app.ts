@@ -937,7 +937,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Space names for the relay line: with no window anywhere, that line is all a person gets, and a
     // session title alone does not say which space to open.
     spaces: { get: (id: string) => spaces.get(id) },
-    sessions: { get: (id: string) => sessionsStore.get(id) ?? null },
+    sessions: { get: (id: string) => sessionsStore.get(id) ?? null, listDispatchedBy: (id: string) => sessionsStore.listDispatchedBy(id) },
+    // Late-bound: the goal loop and the session service's queue are built further down.
+    goals: { get: (id: string) => goals.get(id) },
+    queued: (id: string) => (sessionService?.queuedFor(id).length ?? 0) > 0,
     relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line),
       phone: { wants: () => phonePushes?.wants() ?? false, send: (n) => phonePushes?.send(n) } }) });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
@@ -1436,6 +1439,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       const s = sessionsStore.get(sessionId);
       return s && mcpGateway.realmProvidersFor(sessionId, s.spaceId).includes(GOAL_PROVIDER_NAME) ? goalToolWireName(s.agentKind) : null;
     },
+    stopped: (sessionId) => notifications.goalStopped(sessionId),
     log: (line) => console.log(line),
   });
   // Read once, for system.info and the Move sheet both.

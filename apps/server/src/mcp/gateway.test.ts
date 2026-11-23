@@ -2,6 +2,7 @@ import { describe, expect, it, afterEach } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Agent, get as httpGet } from "node:http";
+import type { Socket } from "node:net";
 import { tempDir } from "@realm/test-utils";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -706,6 +707,27 @@ describe("closing", () => {
     agent.destroy();
     expect(Date.now() - started).toBeLessThan(1_000);
   });
+});
+
+describe("keep-alive", () => {
+  it("keeps an idle connection open for the agent's next call", async () => {
+    const app = await setupApp();
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+    const call = () => new Promise<{ status: number; socket: Socket }>((resolve, reject) => {
+      const req = httpGet({ host: "127.0.0.1", port: app.port, path: "/nope", agent }, (res) => {
+        res.resume();
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, socket: req.socket! }));
+      }).on("error", reject);
+    });
+
+    const first = await call();
+    await new Promise((resolve) => setTimeout(resolve, 7_000));
+    const second = await call();
+    agent.destroy();
+
+    expect(second.status).toBe(404);
+    expect(second.socket).toBe(first.socket);
+  }, 15_000);
 });
 
 describe("in-process providers (Plan 11 W3)", () => {

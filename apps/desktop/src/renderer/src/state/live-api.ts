@@ -266,6 +266,7 @@ export const liveApi = (): Api => ({
   setReducedMotion: (pref) => window.realm.motion?.set(pref) ?? Promise.resolve(),
   setPreventSleep: (on) => window.realm.power?.preventSleep(on) ?? Promise.resolve(),
   setOpensMeetings: (on) => window.realm.meetings?.setOpenWhenStarts(on) ?? Promise.resolve(),
+  setStartsAssistant: (on) => window.realm.meetings?.setStartAssistantWithCall?.(on) ?? Promise.resolve(),
   calendarAccess: () => window.realm.meetings?.calendarAccess() ?? Promise.resolve(null),
   onCalendarAccess: (cb) => window.realm.meetings?.onCalendarAccess(cb) ?? (() => {}),
   askForCalendar: () => window.realm.meetings?.askForCalendar() ?? Promise.resolve(),

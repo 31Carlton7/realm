@@ -783,7 +783,7 @@ export function App() {
     const onTyped = (e: KeyboardEvent) => { if (isEditableTarget(e.target) || (e.target instanceof HTMLElement && e.target.closest(".xterm"))) typedAt = Date.now(); };
     window.addEventListener("keydown", onTyped, true);
     const offSw = rpc().on("space.switchRequested", (p) => { const st = store.getState(); st.run(() => st.applySpaceSwitchRequested(p, Date.now() - typedAt < TYPING_QUIET_MS)); });
-    // A setting an agent changed with `settings_set`, applied in every window.
+    // A setting changed by an agent's `settings_set` or any `settings.set` over RPC, applied in every window.
     const offSet = rpc().on("settings.changed", (p) => store.getState().applySettingChanged(p));
     // A session an agent opened for the user with `session_open`: a pane of its own, beside that agent's.
     const offSO = rpc().on("session.openRequested", (p) => { const st = store.getState(); st.run(() => st.applySessionOpenRequested(p)); });
@@ -831,6 +831,15 @@ export function App() {
         const st = store.getState();
         st.run(() => st.revealSession(sessionId, spaceId));
       });
+    });
+    // A meeting's notes, opened from the quick chat panel: main has brought this window forward.
+    const offOD = window.realm?.onOpenDocument?.(({ spaceId, path }) => {
+      void whenBooted(store).then(() => store.getState().run(async () => {
+        const space = store.getState().spaces.find((sp) => sp.id === spaceId);
+        if (space && space.profileId !== store.getState().activeProfileId) await store.getState().selectProfile(space.profileId);
+        if (store.getState().activeSpaceId !== spaceId) await store.getState().selectSpace(spaceId);
+        await store.getState().openDocumentPath(path, null, spaceId);
+      }));
     });
     // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, a
     // middle-click, or the link's right-click menu): main routed it here, and the tab goes beside the
@@ -906,7 +915,7 @@ export function App() {
       window.removeEventListener("dragover", swallowDrop);
       offEggs();
       window.removeEventListener("drop", swallowDrop);
-      offOS?.(); offLink?.(); offTab?.(); offCloseTab?.();
+      offOS?.(); offOD?.(); offLink?.(); offTab?.(); offCloseTab?.();
     };
   }, [store]);
   return (
