@@ -298,6 +298,10 @@ export class McpGateway {
   /** Binds 127.0.0.1:0 (OS-assigned — see the plan's port-0 amendment) and returns the bound port. */
   async listen(): Promise<number> {
     this.httpServer = createServer((req, res) => void this.handleHttp(req, res));
+    // Never close an idle connection: only the agent may. Its fetch pools the connection between tool
+    // calls, and a call it writes as the gateway closes the connection is reset, which the Claude CLI
+    // does not retry. Node's default closes after 5 s; the CLI pools for 300 s.
+    this.httpServer.keepAliveTimeout = 0;
     await new Promise<void>((resolve, reject) => {
       this.httpServer!.once("error", reject);
       this.httpServer!.listen(0, "127.0.0.1", () => resolve());
