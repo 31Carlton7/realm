@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_PANEL_SIZE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, type PanelWindow } from "./quick-chat-panel";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_PANEL_SIZE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw, type PanelWindow } from "./quick-chat-panel";
 
 const DISPLAY = { x: 0, y: 25, width: 1440, height: 875 };
 
@@ -82,6 +82,42 @@ describe("QuickChatPanel", () => {
       expect(made, JSON.stringify(keys)).toBe(1);
       expect(panel.isOpen()).toBe(false);
     }
+  });
+
+  it("waits for a Realm window to draw before making the panel ahead, for the chord and the double-tap", async () => {
+    for (const keys of [{ chord: true, doubleTap: false }, { chord: false, doubleTap: true }]) {
+      let made = 0;
+      const panel = new QuickChatPanel(() => { made++; return { win: fakeWindow().win, ready: Promise.resolve() }; }, "darwin", { waitForDraw: true });
+      panel.prepareFor(keys); await settled();
+      expect(made, JSON.stringify(keys)).toBe(0);
+      panel.windowDrawn(); await settled();
+      expect(made, JSON.stringify(keys)).toBe(1);
+      expect(panel.isOpen()).toBe(false);
+      panel.windowDrawn();
+      expect(made).toBe(1);
+    }
+  });
+
+  it("makes nothing at the draw when the last key was switched off while it waited", async () => {
+    let made = 0;
+    const panel = new QuickChatPanel(() => { made++; return { win: fakeWindow().win, ready: Promise.resolve() }; }, "darwin", { waitForDraw: true });
+    panel.prepareFor({ chord: false, doubleTap: true });
+    panel.prepareFor({ chord: false, doubleTap: false });
+    panel.windowDrawn(); await settled();
+    expect(made).toBe(0);
+  });
+
+  it("still opens on a press that comes before the draw", async () => {
+    const w = fakeWindow();
+    const panel = new QuickChatPanel(() => ({ win: w.win, ready: Promise.resolve() }), "darwin", { waitForDraw: true });
+    panel.prepareFor({ chord: false, doubleTap: true });
+    panel.open(); await settled();
+    expect(w.calls).toContain("showInactive");
+  });
+
+  it("waits for the draw unless the live script asks for the launch-time order", () => {
+    expect(quickChatPanelWaitsForDraw({})).toBe(true);
+    expect(quickChatPanelWaitsForDraw({ REALM_QUICK_CHAT_PREPARE_AT_LAUNCH: "1" })).toBe(false);
   });
 
   it("makes nothing ahead while no key opens it from another app", async () => {

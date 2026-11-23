@@ -519,7 +519,11 @@ export function Main() {
   // The boot mark in index.html comes down when there is something to show — which is `booted`, not
   // mount: this component renders an empty shell for as long as `boot()` is in flight. Declared
   // above the early returns below, because a hook after a `return` is a hook that stops running.
-  useEffect(() => { if (booted) dismissBootSplash(); }, [booted]);
+  useEffect(() => {
+    if (!booted) return;
+    dismissBootSplash();
+    requestAnimationFrame(() => window.realm.windows?.drawn());
+  }, [booted]);
   // Every space's teammates, once the spaces are known and again when they change (a space made, a
   // profile switched); `teammates.changed` keeps each one current after that.
   const refreshTeammates = useApp((s) => s.refreshTeammates);
