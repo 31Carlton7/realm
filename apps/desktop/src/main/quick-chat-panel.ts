@@ -74,8 +74,8 @@ export type PanelWindow = {
 /**
  * Whether the panel made ahead waits for the first Realm window to draw. Made at launch, its renderer
  * loaded beside the main window's: 104 to 136 MB working set against 77 to 85 MB for a browser pane
- * (the built app, 5 launches, 2026-11-23). `REALM_QUICK_CHAT_PREPARE_AT_LAUNCH=1` makes it at launch again, for the live
- * script that measures the two.
+ * (the built app, 5 launches, 2026-11-23). `REALM_QUICK_CHAT_PREPARE_AT_LAUNCH=1` makes it at launch
+ * again, for the live script that measures the two.
  */
 export function quickChatPanelWaitsForDraw(env: Record<string, string | undefined>): boolean {
   return env.REALM_QUICK_CHAT_PREPARE_AT_LAUNCH !== "1";
