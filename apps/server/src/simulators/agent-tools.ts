@@ -110,7 +110,7 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 export type SimulatorAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   simulators: Pick<SimulatorService,
-    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "app" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
+    "devices" | "list" | "stateOf" | "staleStream" | "create" | "start" | "ax" | "apps" | "app" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
   items: Pick<ItemsStore, "findByRefId">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
@@ -599,7 +599,10 @@ const HANDLERS: Record<string, Handler> = {
     // A pane already streaming, or already on its way, is left to it: `start` re-walks from the top,
     // and the pane would flash back to "Booting" for a device that was up.
     const before = d.simulators.stateOf(opened.simulatorId).status;
-    if (before !== "running" && before !== "booting" && before !== "serving") d.simulators.start(opened.simulatorId, device.udid, device.platform, device.physical);
+    // Unless its device was shut down or booted again outside Realm, which leaves a stream that is dead
+    // or attached to the earlier boot.
+    const stale = before === "running" && await d.simulators.staleStream(opened.simulatorId);
+    if (stale || (before !== "running" && before !== "booting" && before !== "serving")) d.simulators.start(opened.simulatorId, device.udid, device.platform, device.physical);
     // Before the wait, not after it: the pane's own progress is the thing worth watching during a
     // cold boot, and it can only be watched once the pane is in the layout.
     d.rpc.broadcast("simulator.agentOpened", { spaceId: ctx.spaceId, simulatorId: opened.simulatorId, itemId: opened.itemId, openedBy: ctx.sessionId });
