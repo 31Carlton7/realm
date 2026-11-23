@@ -21,6 +21,46 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-22-0",
+    title: "Realm v2.22.0",
+    date: "2026-11-22",
+    version: "v2.22.0",
+    area: "Release",
+    summary:
+      "Claude sessions show their first words without waiting on a slow plan-limits read, and a quick chat can be saved to a space.",
+    short: "Save a quick chat to a space",
+    body: [
+      { kind: "p", text: "Claude sessions show their first words without waiting on a slow plan-limits read, and a quick chat can be saved to a space." },
+      { kind: "h", text: "New" },
+      { kind: "ul", items: [
+        "**The quick chat opens over any app.** On macOS, ⌃⌥Space opens the quick chat in a small panel over whatever app is in front, without bringing Realm forward. Escape or the same key puts it away and keeps the chat. It is the same chat as ⌥⌘N in a window, and its bar reads \"Quick chat\" until you save it. It opens at once, the first time too. In Glass it stays readable over a white window. Change the key in Settings > Keys > From anywhere. \"Hide the quick chat from screen sharing\", on by default: \"Left out of screenshots and screen recordings on this Mac. Not yet checked from the other side of a call.\" macOS only. (#594, #609, #616)",
+        "**Save a quick chat to a space.** A quick chat (⌥⌘N) used to be deleted when it closed. Once the first answer is in, a row under the prompter reads \"Save to\", then the space the chat ran in and your most recently used spaces, up to three, then \"Other…\" for every space. Saving makes the chat a session in that space, with its whole transcript, and Open brings it forward there. Closing a chat that has an answer offers \"Save to\" that space beside \"Delete chat\". A chat saved to a space it didn't run in keeps working in its original folder, and the row says which. (#591)",
+        "**A Quick chat model setting.** Quick chats start on the model set in Settings > General > Sessions > Quick chat model, not on whatever the last pane used. It lists the models your installed CLIs report. Left alone, it picks the newest Haiku when Claude is signed in, and otherwise a small, quick model from the next agent that can run. A quick chat's own picker still changes the model for that chat. After you delete a quick chat, Realm starts an engine for the next one on that model, so it opens on an engine that is already running; that engine stops after 5 minutes unused. (#592)",
+        "**Realm opens your meeting when it starts.** For a calendar event with a Zoom, Google Meet, Microsoft Teams, Webex or FaceTime link that you haven't declined, Realm shows a notification two minutes before and opens the link when the meeting starts, once. It does nothing until Realm can read your calendar; its row, \"Open the meeting when it starts\" in Settings > General > Meetings, says what is missing beside one button. It is on by default, and that row turns it off. macOS only. (#598)",
+        "**Double-tap Command to open the quick chat.** On macOS, a double-tap of either Command key, in any app, opens the quick chat panel over the app in front, and a second double-tap puts it away. It works once macOS lets Realm see keys; until then Settings > Keys > From anywhere says which permission is missing, with a button to that pane. That group has the switch, on by default, \"Try it\", which shows the keys as Realm sees them, and a choice of held key that nothing uses yet. macOS uses the same keys for Siri when Siri is on, and one of the two can be changed. macOS only. (#601, #616)",
+      ] },
+      { kind: "h", text: "Improved" },
+      { kind: "ul", items: [
+        "Quick chats start on the lowest effort their model takes, `low` on Haiku 5.5. The chat's own picker can still raise it. Other sessions are unchanged. (#595)",
+        "The Documents home lists Markdown files in a space's meetings folder under Meetings. (#613)",
+      ] },
+      { kind: "h", text: "Fixed" },
+      { kind: "ul", items: [
+        "A Claude session's first words no longer wait on a slow plan-limits read. When Claude's usage check was slow, every streamed word waited behind it, in every Claude session, not only quick chats. Before, on those turns, a quick chat on Haiku 5.5 took 14 to 18 s to show its first word on our test Mac. After the fix it took 1.4 to 2.6 s. (#595)",
+        "A saved turn card in the Library now casts its shadow from its own rounded shape, so no pale sliver shows at its corners. (#602, fixes #532)",
+        "In the browser pane, when a link opens a page in place of the one that opened it, the first page keeps running behind. If that hidden page navigated, Realm forgot you had typed into the page in front, so the pane could be discarded in the background with your text in it. Realm now remembers what you typed for each page, and what you typed into the page waiting behind is kept from a discard too. (#596, #605, fixes #579 and #611)",
+        "On a narrow Settings page, a segmented strip too wide for the column, such as \"New sessions start in\", ran past it with the last tab cut off, and never scrolled. It now stays inside its row and scrolls sideways there. (#603, fixes #530)",
+        "The blur at the foot of a Settings page now comes in when the page grows under you, whether a section grew or a new one appeared, without needing a scroll first. (#600, #606, fixes #524)",
+        "In Laya's Shadow mode, when memory is short, Laya no longer asks anything or loads its runtime, which takes about 2.4 GB. (#614, fixes #610)",
+        "In Glass, a switch's knob is white, as macOS draws it, where it read pale blue. (#621)",
+        "A theme or look set through Realm's RPC shows in every open window at once, where it waited for a reload. (#633)",
+        "When a simulator was shut down and booted again outside Realm while its pane streamed it, the simulator tools could no longer read its screen or tap by point, and kept saying the device had not published its accessibility tree yet. Realm now sees that the stream belongs to the earlier boot and starts a fresh one. A device shut down this way shows as off until `simulator_open` boots it. (#639, fixes #638)",
+        "A Realm tool call from a Claude session could fail with \"ECONNRESET: The socket connection was closed unexpectedly\", often two parallel calls at once, after the session had sat a few seconds since its last call. Realm's tool server closed a quiet connection after 5 seconds while the Claude CLI kept it for its next call, and the CLI does not retry. Realm now leaves closing it to the CLI. (#640, fixes #637)",
+        "The lit row in the skill picker now has the same rounded corner as the rows in the model, @ and / pickers, where it used to come out as a pill. (#604, fixes #528)",
+      ] },
+    ],
+  },
+  {
     slug: "v2-21-0",
     title: "Realm v2.21.0",
     date: "2026-11-20",
