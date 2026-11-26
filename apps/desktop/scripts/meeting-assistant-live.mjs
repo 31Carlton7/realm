@@ -42,7 +42,7 @@
  *             rows in dark and light, Plain and Glass, before and after; after, the whole From anywhere
  *             group in each look too
  *   order     the From anywhere rows in the order settings-keybindings.test.tsx pins
- *   bar       the card's title, mark and Auto-answer switch side by side, and the mic button beside the
+ *   bar       the card's title, mark and Auto-answer switch side by side, and the mic button in the
  *             capsule, at the panel's 362 pt, in
  *             dark and light, Plain and Glass
  *   keys      each chord does what it names: R shows the assistant and puts it away, G answers, T
@@ -265,7 +265,7 @@ const closePanel = async (app, page) => {
 const onAssistant = (page) => page.eval(`!!document.querySelector(".meeting-strip")`);
 /** The quick chat keys open on the chat; the mic button turns it back to the assistant. */
 const showAssistant = async (page) => {
-  if (!(await onAssistant(page))) await page.eval(`document.querySelector('.quick-chat-side').click(); true`);
+  if (!(await onAssistant(page))) await page.eval(`document.querySelector('.quick-chat-mic').click(); true`);
   await until(() => onAssistant(page), 10_000, "the assistant view");
 };
 /** Counts main's calls that give the panel the keyboard, on the panel's own window and page. */
@@ -384,7 +384,7 @@ async function barLooks({ app, api }, page) {
         return icon ? icon.left < r.left || icon.right > r.right || icon.top < r.top || icon.bottom > r.bottom : el.scrollWidth > el.clientWidth; };
       const rects = Object.fromEntries(Object.entries(parts).map(([k, sel]) => { const el = bar.querySelector(sel); const r = el?.getBoundingClientRect();
         return [k, r ? { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), clipped: clipped(el, r) } : null]; }));
-      const mic = document.querySelector(".quick-chat-side"), m = mic?.getBoundingClientRect();
+      const mic = document.querySelector(".quick-chat-mic"), m = mic?.getBoundingClientRect();
       rects.mic = m ? { left: Math.round(m.left), right: Math.round(m.right), top: Math.round(m.top), bottom: Math.round(m.bottom), clipped: m.right > window.innerWidth } : null;
       const order = ["title", "mark", "auto"].map((k) => rects[k]);
       const inside = order.every((r) => r && r.left >= b.left && r.right <= b.right && r.top >= b.top && r.bottom <= b.bottom);
@@ -393,7 +393,7 @@ async function barLooks({ app, api }, page) {
     })()`);
     const file = `m3b-bar-${mode}-${look}.png`;
     const flat = await shot(page, path.join(OUT_DIR, file), { clip: { ...fit.bar, scale: 2 } });
-    row("bar", `title, mark, Auto-answer and the mic beside the capsule at ${fit.width} pt, ${mode} ${look}`, { ...fit, file },
+    row("bar", `title, mark and Auto-answer in the card, the mic in the capsule, at ${fit.width} pt, ${mode} ${look}`, { ...fit, file },
       flat && fit.width === 362 && fit.inside && fit.apart && Object.values(fit.rects).every((r) => r && !r.clipped));
   }
 }
@@ -587,7 +587,7 @@ try {
   await openPanel(app);
 
   /* ── sheet ─────────────────────────────────────────────────────────────────────────────────── */
-  await click(page, '.quick-chat-side');
+  await click(page, '.quick-chat-mic');
   await until(() => page.eval(`!!document.querySelector(".meeting-strip")`), 10_000, "the assistant view");
   const consentBefore = (await api.call("settings.get", { key: CONSENT_KEY })).value ?? null;
   await standInStill(page, "microphone");

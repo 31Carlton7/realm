@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld("realm", {
   /** "quick-chat" in the quick chat panel's page, which draws the Quick Chat and nothing else
    *  (main/quick-chat-panel.ts); undefined in a Realm window. */
   surface: arg("realm-surface") || undefined,
+  /** In the quick chat panel's page: whether main can cut macOS's material to the panel's shapes
+   *  (main/panel-material.ts). Without it the shapes stand on the page's own ground. */
+  panelMaterial: arg("realm-panel-material") === "1",
   /** The quick chat panel's meeting assistant (main/listening-mark.ts): the menu bar's red mark while
    *  it listens, and the Stop on the mark's menu. Answered only for the panel's own page. */
   meetingAssistant: {
@@ -59,6 +62,8 @@ contextBridge.exposeInMainWorld("realm", {
     hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),
     /** Size the window to shapes this tall, the bar alone or the bar under its conversation. */
     fit: (height: number): void => ipcRenderer.send("quick-chat-panel:fit", height),
+    /** Cut the panel's material to these shapes, measured in a viewport this size. */
+    shapes: (payload: { shapes: unknown[]; width: number; height: number }): void => ipcRenderer.send("quick-chat-panel:shapes", payload),
     /** Whether the panel was opened while its page loaded, rather than made ahead of a press. */
     opening: (): Promise<boolean> => ipcRenderer.invoke("quick-chat-panel:opening"),
     /** The panel has just been opened, with the keyboard or without it. */

@@ -6,11 +6,13 @@
  *
  * Rows, in `rows.txt` under LIVE_OUT_DIR:
  *
- *   bar       the window opens as the bar: 362 × 72 pt, the capsule 40 pt tall inside a 16 pt margin
- *   grown     one exchange grows the window upward, its bottom edge where the bar's was, and the card
- *             sits above the capsule
+ *   bar       the window opens as the bar: 362 × 72 pt, the capsule 40 pt tall inside a 16 pt margin,
+ *             the assistant's mic inside it, and main cutting the material to the shapes
+ *   grown     one exchange grows the window upward, its bottom edge where the bar's was: the answer
+ *             as a pill over a toolbar of new chat, the assistant and expand
+ *   expanded  expand shows the card with the answer and the Save row above the capsule
  *   assistant the meeting assistant fills the panel to its ceiling, above the same capsule
- *   away      Escape narrows the bar away and main hides the window
+ *   away      Escape narrows the shapes away and main hides the window
  *   picture   each state in dark and light, Plain and Glass: the whole page, laid over `--page`
  */
 import { spawn } from "node:child_process";
@@ -111,8 +113,9 @@ async function shot(page, file) {
 /** Where the page's shapes are, in the window's points. */
 const shapes = (page) => page.eval(`(() => {
   const box = (sel) => { const r = document.querySelector(sel)?.getBoundingClientRect(); return r && r.width > 0 ? { x: r.x, y: r.y, width: r.width, height: r.height } : null; };
-  return { window: { width: innerWidth, height: innerHeight }, capsule: box(".quick-chat .composer"), side: box(".quick-chat-side"),
-    card: box(".quick-chat-card"), squircle: document.documentElement.hasAttribute("data-squircle") };
+  return { window: { width: innerWidth, height: innerHeight }, capsule: box(".quick-chat-foot .composer"), mic: box(".quick-chat-mic"),
+    card: box(".quick-chat-card"), answer: box(".quick-chat-answer"), tools: box(".quick-chat-tools"),
+    squircle: document.documentElement.hasAttribute("data-squircle"), material: document.documentElement.hasAttribute("data-panel-material") };
 })()`);
 
 async function everyLook(page, state, prepare) {
@@ -156,9 +159,11 @@ try {
 
   /* ── the bar ─────────────────────────────────────────────────────────────────────────────── */
   const bar = { bounds: await bounds(), shapes: await shapes(page) };
-  row("bar", "opens as the bar alone: 362 × 72, a 40 pt capsule and the round button inside the margin", bar,
-    bar.bounds.width === 362 && bar.bounds.height === 72 && bar.shapes.capsule?.height === 40 && bar.shapes.capsule?.y === 16
-      && bar.shapes.side?.width === 40 && bar.shapes.card === null && bar.shapes.squircle);
+  const inside = (a, b) => a && b && a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height;
+  row("bar", "opens as one 330 × 40 capsule inside the margin, the mic inside it, on the cut material", bar,
+    bar.bounds.width === 362 && bar.bounds.height === 72 && bar.shapes.capsule?.height === 40 && bar.shapes.capsule?.width === 330
+      && bar.shapes.capsule?.y === 16 && inside(bar.shapes.mic, bar.shapes.capsule) && bar.shapes.card === null && bar.shapes.squircle
+      && bar.shapes.material);
   await everyLook(page, "1-bar");
 
   /* ── one exchange ────────────────────────────────────────────────────────────────────────── */
@@ -166,18 +171,35 @@ try {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(el, ${js(QUESTION)});
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
-  await until(() => page.eval(`document.querySelector(".quick-chat-card")?.innerText.includes(${js(ANSWER)}) ?? false`), 30_000, "the scripted answer");
+  await until(() => page.eval(`document.querySelector(".quick-chat-answer")?.innerText.includes(${js(ANSWER)}) ?? false`), 30_000, "the scripted answer");
   await sleep(1000);
   const grown = { before: bar.bounds, after: await bounds(), shapes: await shapes(page) };
   const bottom = (b) => b.y + b.height;
-  row("grown", "the exchange grows the window up out of the bar, bottom edge held, card above the capsule", grown,
+  row("grown", "the answer is a pill over the toolbar, the window grown up out of the bar with its bottom edge held", grown,
     grown.after.height > grown.before.height && bottom(grown.after) === bottom(grown.before) && grown.after.x === grown.before.x
-      && grown.shapes.card !== null && grown.shapes.card.y + grown.shapes.card.height + 8 === grown.shapes.capsule.y);
+      && grown.shapes.card === null && grown.shapes.capsule === null && grown.shapes.answer?.width === 330
+      && grown.shapes.tools !== null && inside(grown.shapes.mic, grown.shapes.tools)
+      && grown.shapes.answer.y + grown.shapes.answer.height + 8 === grown.shapes.tools.y
+      && Math.round(grown.shapes.tools.x + grown.shapes.tools.width) === 346);
   await everyLook(page, "2-grown");
+
+  /* ── expanded ────────────────────────────────────────────────────────────────────────────── */
+  const expand = async () => {
+    await page.eval(`(() => { document.querySelector('.quick-chat-tools [aria-label="Show the whole chat"]')?.click(); return true; })()`);
+    await until(() => page.eval(`!!document.querySelector(".quick-chat[data-expanded] .quick-chat-save")`), 10_000, "the whole chat");
+  };
+  await expand();
+  await sleep(800);
+  const expanded = { bounds: await bounds(), shapes: await shapes(page),
+    answer: await page.eval(`document.querySelector(".quick-chat-card").innerText.includes(${js(ANSWER)})`) };
+  row("expanded", "expand shows the card with the answer and Save to, 8 pt over the capsule", expanded,
+    expanded.answer && expanded.shapes.card !== null && expanded.shapes.answer === null
+      && expanded.shapes.card.y + expanded.shapes.card.height + 8 === expanded.shapes.capsule.y && bottom(expanded.bounds) === bottom(bar.bounds));
+  await everyLook(page, "2b-expanded", expand);
 
   /* ── the meeting assistant ───────────────────────────────────────────────────────────────── */
   const showAssistant = async () => {
-    await page.eval(`(() => { const b = document.querySelector(".quick-chat-side"); if (b.getAttribute("aria-pressed") !== "true") b.click(); return true; })()`);
+    await page.eval(`(() => { const b = document.querySelector(".quick-chat-mic"); if (b.getAttribute("aria-pressed") !== "true") b.click(); return true; })()`);
     await until(() => page.eval(`!!document.querySelector(".meeting-strip")`), 10_000, "the assistant view");
   };
   await showAssistant();
@@ -186,14 +208,14 @@ try {
   row("assistant", "fills the panel to its ceiling above the same capsule", assistant,
     assistant.bounds.height === 520 + 32 && bottom(assistant.bounds) === bottom(bar.bounds) && assistant.shapes.card !== null);
   await everyLook(page, "3-assistant", showAssistant);
-  await page.eval(`document.querySelector(".quick-chat-side").click(); true`);
+  await page.eval(`document.querySelector(".quick-chat-mic").click(); true`);
 
   /* ── put away ────────────────────────────────────────────────────────────────────────────── */
   await page.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true`);
-  const leaving = await page.eval(`document.documentElement.hasAttribute("data-panel-out")`);
+  const leaving = await page.eval(`document.documentElement.dataset.panelTween === "out"`);
   const stillUp = await panelVisible();
   const hidden = await until(async () => !(await panelVisible()), 5000, "Escape to put it away").then(() => true, () => false);
-  row("away", "Escape narrows the bar away first, then main hides the window", { leaving, stillUpAtFirst: stillUp, hidden }, leaving && stillUp && hidden);
+  row("away", "Escape narrows the shapes away first, then main hides the window", { leaving, stillUpAtFirst: stillUp, hidden }, leaving && stillUp && hidden);
   page.close();
 } catch (err) {
   process.exitCode = 1;

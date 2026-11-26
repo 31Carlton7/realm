@@ -7,7 +7,8 @@
 // → the login keychain's passwords are not offered, RealmVoice → dictation is not offered, BackdropState →
 // moving backgrounds do not see Low Power Mode or a covered window, MeetingWatch → no meeting is
 // opened and no call is noticed, RealmKeys → a double-tap of Command and the assistant's held-key
-// chords are not seen outside Realm's windows).
+// chords are not seen outside Realm's windows). The one module loaded INTO main is PanelMaterial →
+// the quick chat panel's shapes have no frosted material of their own, only the page's ground.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -37,6 +38,17 @@ export const HELPERS = [
   ["RealmKeys.swift", "realmkeys", "13.0"],
 ];
 
+/** The quick chat panel's material (main/panel-material.ts): a Node-API module, not a helper process,
+ *  because it adds views to the panel's own window. Built against Node's headers with clang; Node-API's
+ *  ABI is the same in Electron's Node. */
+export const PANEL_MATERIAL = ["PanelMaterial.m", "panelmaterial.node", "13.0"];
+
+/** Where this Node keeps `node_api.h`: beside the binary in a Node install, else node-gyp's cache. */
+export function nodeHeaders(execPath = process.execPath, version = process.versions.node, home = process.env.HOME ?? "") {
+  const candidates = [join(dirname(realpathSync(execPath)), "..", "include", "node"), join(home, "Library", "Caches", "node-gyp", version, "include", "node")];
+  return candidates.find((dir) => existsSync(join(dir, "node_api.h"))) ?? null;
+}
+
 // Imported (by native-helpers.mjs) for the table alone.
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) build();
 
@@ -54,4 +66,14 @@ function build() {
     console.log(`[build-native] compiling ${source}…`);
     execFileSync("swiftc", ["-O", ...(macos ? ["-target", `${arch}-apple-macos${macos}`] : []), "-o", out, src], { stdio: "inherit" });
   }
+
+  const [source, binary, macos] = PANEL_MATERIAL;
+  const src = join(native, source);
+  const out = join(native, "bin", binary);
+  if (existsSync(out) && statSync(out).mtimeMs >= statSync(src).mtimeMs) return;
+  const headers = nodeHeaders();
+  if (!headers) { console.warn("[build-native] no node_api.h for this Node; skipping the panel's material"); return; }
+  console.log(`[build-native] compiling ${source}…`);
+  execFileSync("xcrun", ["clang", "-fobjc-arc", "-O2", "-bundle", "-undefined", "dynamic_lookup", "-framework", "AppKit",
+    "-target", `${arch}-apple-macos${macos}`, "-I", headers, "-o", out, src], { stdio: "inherit" });
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { CaretBridge, PressTrackingBridge, RubberBandBridge, ScrollbarStyleBridge, ThemeBridge, TooltipBridge, subscribeSessionEvents } from "./App";
 import { dismissBootSplash } from "./boot-splash";
 import { QuickChat } from "./components/QuickChat";
@@ -29,6 +29,7 @@ export function QuickChatPanelApp() {
      panel away, leaves a run listening, and the menu bar's mark says so. */
   const assistant = useMemo(() => desktopMeetingAssistant(() => store.getState().activeSpaceId), [store]);
   useAssistantPage(assistant);
+  const newChat = useRef<() => void>(() => {});
   useEffect(() => {
     document.documentElement.dataset.surface = QUICK_CHAT_SURFACE;
     const panel = window.realm?.quickChatPanel;
@@ -49,11 +50,18 @@ export function QuickChatPanelApp() {
       });
       return steps;
     };
+    const focusBar = () => document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input")?.focus();
     const show = () => step(() => store.getState().showQuickChatPanel()).then(() => {
       dismissBootSplash();
       panelCameIn();
-      document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input")?.focus();
+      focusBar();
     });
+    /* New chat, from the toolbar under an answer: this chat goes (kept in its space if it was saved)
+       and an empty bar takes its place, in one step so the panel is not put away in between. */
+    newChat.current = () => void step(async () => {
+      await store.getState().closeQuickChat();
+      await store.getState().showQuickChatPanel();
+    }).then(() => requestAnimationFrame(focusBar));
     /* Main's first "shown" can arrive before this listens, so a page loaded to be opened shows at
        once. One made ahead of the first press waits for it: showing would start a chat nobody asked for. */
     void (panel?.opening() ?? Promise.resolve(true)).then((opening) => { if (opening) void show(); });
@@ -91,7 +99,7 @@ export function QuickChatPanelApp() {
       <PressTrackingBridge />
       <TooltipBridge />
       <CaretBridge />
-      <QuickChat assistant={assistant} />
+      <QuickChat assistant={assistant} onNewChat={() => newChat.current()} />
       <NoSpace />
       <Toasts />
     </StoreContext.Provider>

@@ -2595,39 +2595,49 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* From the corner it opens in, and only a little: it is a small window arriving, not a sheet. */
 @keyframes rl-quick-chat-in { from { translate: 0 10px; scale: 0.98; opacity: 0; } to { translate: 0 0; scale: 1; opacity: 1; } }
 /* The quick chat panel (main/quick-chat-panel.ts) is laid out after ChatGPT's companion bar, as the
-   owner asked (11-25): a capsule 40px tall that opens on its own, and a card that grows up out of it
-   once there is a conversation. The window is transparent and sized to the shapes by main, which
-   holds the bar's bottom edge, so the card grows upward and the bar never moves. The card's own
-   drag is replaced by the window's, so its inline place is overridden rather than restated.
+   owner asked (11-25): one capsule 40px tall that opens on its own; once a question is answered, the
+   answer as a pill over it and the capsule turned into a toolbar (new chat, the assistant, expand);
+   expanded, a card that grows up out of the bar with the whole chat and its Save row. The window is
+   transparent and sized to the shapes by main, which holds the bottom edge, so everything grows
+   upward and the bar never moves. The card's own drag is replaced by the window's, so its inline
+   place is overridden rather than restated.
 
-   The window has no material of its own: macOS's is a rectangle and cannot take a capsule's shape.
-   So the ground is ours, the card's `--surface` in Plain, and in Glass that surface thinned to the
-   panes' reading point and no further, 84% and the light face's 92% (tokens.css): whatever app is
-   behind it is the desktop a pane is measured against, and at 62% the dark face's body ink came to
-   4.0:1 over a white window. Glass's part is the rim, its light round the edge.
+   Each shape stands on macOS's own frosted material, cut to its outline by main
+   (main/panel-material.ts, from the rects quick-chat-panel-frame.ts measures), so the desktop's colour
+   comes through it as it does through ChatGPT's. Over it, Plain lays the card's `--surface` at the
+   panes' reading point, 84% and the light face's 92% (tokens.css): what is behind is a desktop nobody
+   chose. Glass lays no fill at all, only its rim of light, because the material is the frost. Where
+   the material cannot be cut (no module, or Reduce Transparency, which `data-panel-material` follows),
+   Glass keeps Plain's ground, and Reduce Transparency takes it solid.
 
    `--panel-inset` is main's QUICK_CHAT_PANEL_INSET, the clear margin that holds the shadow;
    quick-chat-panel-ground.test.ts holds the two together. */
 :root[data-surface="quick-chat"] {
   --panel-inset: 16px;
-  --panel-ground: var(--surface);
+  --panel-ground: color-mix(in srgb, var(--surface) 84%, transparent);
   --panel-rim: var(--window-ring);
   --panel-rim-w: var(--hairline-w);
+  --panel-shine: 0 0 #0000;
+  /* The way in and out, set a frame at a time by quick-chat-panel-frame.ts. */
+  --panel-reveal: 1;
+  --panel-alpha: 1;
 }
-:root[data-surface="quick-chat"][data-glass] { --panel-ground: color-mix(in srgb, var(--surface) 84%, transparent);
-  --panel-rim: var(--glass-bead); --panel-rim-w: 1px; }
-:root[data-surface="quick-chat"][data-mode="light"][data-glass] { --panel-ground: color-mix(in srgb, var(--surface) 92%, transparent); }
+:root[data-surface="quick-chat"][data-mode="light"] { --panel-ground: color-mix(in srgb, var(--surface) 92%, transparent); }
+:root[data-surface="quick-chat"][data-glass] { --panel-rim: var(--glass-bead); --panel-rim-w: 1px; --panel-shine: var(--glass-rim); }
+:root[data-surface="quick-chat"][data-glass][data-panel-material] { --panel-ground: transparent; }
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-surface="quick-chat"] { --panel-ground: var(--surface); }
+}
 :root[data-surface="quick-chat"] .quick-chat { inset: 0 !important; width: auto !important; height: auto !important;
   padding: var(--panel-inset); gap: 8px; justify-content: flex-end; overflow: visible;
   background: none; border-radius: 0; box-shadow: none; animation: none; }
 :root[data-surface="quick-chat"] .quick-chat:hover { box-shadow: none; }
-/* The card: the conversation above the bar, as tall as what it holds (design.md: a panel is as tall
-   as its content). It is not there until there is something to show. */
+/* The card: the whole chat above the bar, as tall as what it holds (design.md: a panel is as tall as
+   its content). It is not there until it is asked for, or the assistant is up. */
 :root[data-surface="quick-chat"] .quick-chat-card { position: relative; flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column;
   background: var(--panel-ground); border-radius: var(--r-squircle-card);
-  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift);
-  animation: rl-quick-chat-grow var(--dur-base) var(--spring-smooth); }
-:root[data-surface="quick-chat"] .quick-chat:not([data-grown]) .quick-chat-card { display: none; }
+  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
+:root[data-surface="quick-chat"] .quick-chat:not([data-expanded]) .quick-chat-card { display: none; }
 :root[data-surface="quick-chat"] .quick-chat-empty { display: none; }
 :root[data-surface="quick-chat"] .quick-chat-body,
 :root[data-surface="quick-chat"] .quick-chat .transcript-wrap { flex: 0 1 auto; }
@@ -2639,12 +2649,29 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The card's head moves the window there, through the system. */
 :root[data-surface="quick-chat"] .quick-chat-bar { min-height: 36px; padding: 0 6px 0 14px; -webkit-app-region: drag; }
 :root[data-surface="quick-chat"] .quick-chat-bar :is(button, label) { -webkit-app-region: no-drag; }
-/* The foot: the capsule and, where ChatGPT keeps its round buttons, the assistant's. */
-:root[data-surface="quick-chat"] .quick-chat-foot { flex: none; display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+/* The answer: a pill the bar's width over the toolbar, the mark of how the turn stands, the question
+   as its title and two lines of what came back. A click shows the whole chat. */
+.quick-chat-answer { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 6px; align-items: center;
+  min-height: 40px; padding: 8px 18px; border-radius: var(--r-pill); text-align: start; color: var(--rl-text-dim);
+  background: var(--panel-ground); box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift);
+  -webkit-app-region: no-drag; }
+.quick-chat-answer-mark { grid-column: 1; color: var(--rl-text-dim); }
+.quick-chat-answer[data-state="done"] .quick-chat-answer-mark { color: var(--green); }
+.quick-chat-answer[data-state="failed"] .quick-chat-answer-mark { color: var(--rl-danger); }
+.quick-chat-answer-title { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-strong); color: var(--rl-text-bright); }
+.quick-chat-answer-text { grid-column: 1 / -1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+/* The foot: the capsule, or once there is an answer the toolbar at its right end. */
+:root[data-surface="quick-chat"] .quick-chat-foot { flex: none; display: flex; align-items: flex-end; justify-content: flex-end; min-width: 0; }
 :root[data-surface="quick-chat"] .quick-chat .composer-dock { flex: 1; min-width: 0; }
-/* The capsule: + on the left, the words, the model's mark and send on the right, one row 40px tall
-   that grows with what is typed and keeps its controls on the bottom edge. Its ground is the card's,
-   and so is its edge; it has no seam to the card because there is a gap between them. */
+.quick-chat-tools { display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 4px; border-radius: var(--r-pill);
+  background: var(--panel-ground); box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
+.quick-chat-tools > .icon-btn { width: 32px; height: 32px; border-radius: 50%; }
+.quick-chat-tools .quick-chat-closing,
+.quick-chat-tools > .quick-chat-confirm { padding: 0 6px; }
+/* The capsule: + on the left, the words, then the model's mark, the assistant and send on the right,
+   one row 40px tall that grows with what is typed and keeps its controls on the bottom edge. */
 :root[data-surface="quick-chat"] .quick-chat .composer {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end;
   min-height: 40px; padding: 0 6px; border-radius: var(--r-pill);
@@ -2653,12 +2680,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 }
 :root[data-surface="quick-chat"] .quick-chat .composer,
 :root[data-surface="quick-chat"] .quick-chat .composer:focus-within {
-  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift); }
+  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
 :root[data-surface="quick-chat"] .quick-chat .composer > * { grid-column: 1 / -1; }
 :root[data-surface="quick-chat"] .quick-chat .composer-bar { display: contents; }
 :root[data-surface="quick-chat"] .quick-chat .composer-opts { grid-column: 1; grid-row: 9; margin-bottom: 6px; -webkit-app-region: no-drag; }
 :root[data-surface="quick-chat"] .quick-chat .composer-editor { grid-column: 2; grid-row: 9; -webkit-app-region: no-drag; }
-:root[data-surface="quick-chat"] .quick-chat .composer-actions { grid-column: 3; grid-row: 9; margin-bottom: 6px; -webkit-app-region: no-drag; }
+:root[data-surface="quick-chat"] .quick-chat .composer-actions { grid-column: 3; grid-row: 9; margin-bottom: 6px; gap: 2px; -webkit-app-region: no-drag; }
 :root[data-surface="quick-chat"] .quick-chat .composer-dictation-fetching { grid-row: 10; }
 :root[data-surface="quick-chat"] .quick-chat .composer-input { min-height: 40px; padding: 10px 8px; line-height: 20px; }
 :root[data-surface="quick-chat"] .quick-chat .composer-highlight { padding: 10px 8px; line-height: 20px; }
@@ -2668,6 +2695,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 :root[data-surface="quick-chat"] .quick-chat .composer-attach { border-radius: 50%; background: var(--rl-hover); }
 :root[data-surface="quick-chat"] .quick-chat .composer-send { width: 28px; height: 28px; }
 :root[data-surface="quick-chat"] .quick-chat .composer-send:disabled { background: var(--rl-accent-fill); color: var(--rl-accent-contrast); opacity: 0.45; }
+/* The meeting assistant, in the capsule or the toolbar: one round control, red-dotted while it
+   listens. */
+.quick-chat-mic { position: relative; width: 28px; height: 28px; border-radius: 50%; }
+.quick-chat-mic[aria-pressed="true"] { color: var(--accent-ink); }
+.quick-chat-mic[data-listening]::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--red); }
 /* The painted curve is the card's. The capsule has no corner for the painter to shape: its ends are
    half circles, as ChatGPT's are, and painted at radius 20 on a 40px box they read as a rounded
    rectangle beside the reference. So it keeps `border-radius` and gives up the prompter's painted
@@ -2683,29 +2716,16 @@ button.panel-title:hover { background: var(--rl-hover); }
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer,
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer:focus-within {
   border-radius: var(--r-pill); background: var(--panel-ground);
-  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift);
+  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift);
 }
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer::before,
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer::after { display: none; }
-/* The round button beside the capsule: the meeting assistant. */
-.quick-chat-side { position: relative; flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-pill);
-  background: var(--panel-ground); color: var(--rl-text-dim);
-  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift); }
-.quick-chat-side:hover { color: var(--rl-text-bright); }
-.quick-chat-side[aria-pressed="true"] { color: var(--accent-ink); }
-.quick-chat-side[data-listening]::after { content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px;
-  border-radius: 50%; background: var(--red); }
-/* In: the capsule widens out of its right end, ChatGPT's 200ms. Out: it narrows back into it and
-   fades, and main hides the window when it has gone (quick-chat-panel-frame.ts). The card grows up
-   out of the bar. */
-:root[data-surface="quick-chat"][data-panel-in] .quick-chat-foot { animation: rl-quick-chat-bar-in var(--dur-base) var(--spring-smooth); }
-:root[data-surface="quick-chat"][data-panel-out] .quick-chat > * { animation: rl-quick-chat-out var(--dur-base) var(--ease-out-strong) forwards; }
-@keyframes rl-quick-chat-bar-in { from { clip-path: inset(0 0 0 calc(100% - 120px) round 20px); opacity: 0.4; } to { clip-path: inset(-16px round 20px); opacity: 1; } }
-@keyframes rl-quick-chat-out { to { clip-path: inset(0 0 0 calc(100% - 120px) round 20px); opacity: 0; } }
-@keyframes rl-quick-chat-grow { from { translate: 0 8px; scale: 0.98; opacity: 0; } }
-@media (prefers-reduced-motion: reduce) {
-  :root[data-surface="quick-chat"] :is(.quick-chat-card, .quick-chat-foot, .quick-chat > *) { animation: none !important; }
-}
+/* In: the shapes widen out of their right end, ChatGPT's 200ms. Out: they narrow back into it and
+   fade, and main hides the window when they have gone. The page drives both a frame at a time
+   (quick-chat-panel-frame.ts), because the material under each shape is a native view that a CSS
+   animation cannot move: the clip here and the material's frame read the same two numbers. */
+:root[data-surface="quick-chat"][data-panel-tween] .quick-chat > * {
+  clip-path: inset(0 0 0 calc((1 - var(--panel-reveal)) * max(0px, 100% - 120px)) round 20px); opacity: var(--panel-alpha); }
 /* Outside the panel the card and the foot are no boxes at all, and the Save row keeps its place
    under the prompter. */
 :root:not([data-surface="quick-chat"]) :is(.quick-chat-card, .quick-chat-foot) { display: contents; }

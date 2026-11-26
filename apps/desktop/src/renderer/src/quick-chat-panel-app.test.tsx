@@ -63,7 +63,7 @@ describe("the quick chat panel's page", () => {
     await screen.findByRole("dialog", { name: "Quick chat" });
     fireEvent.keyDown(document.body, { key: "Escape" });
     // It narrows into its right end first, as ChatGPT's bar does, and then main hides the window.
-    expect(document.documentElement.dataset.panelOut).toBe("");
+    expect(document.documentElement.dataset.panelTween).toBe("out");
     expect(main.hide).not.toHaveBeenCalled();
     await waitFor(() => expect(main.hide).toHaveBeenCalledTimes(1));
     expect(deleted()).toBe(0);

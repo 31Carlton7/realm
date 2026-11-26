@@ -88,6 +88,7 @@ for (const [binary, missing] of mac ? [
   ["backdropstate", "a moving background does not hold still in Low Power Mode or in a covered window"],
   ["meetingwatch", "no meeting is opened when it starts and no call is noticed"],
   ["realmkeys", "a double-tap of Command and the assistant's chords are not seen outside Realm"],
+  ["panelmaterial.node", "the quick chat panel's shapes have no frosted material"],
 ] : []) {
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));
