@@ -42,6 +42,10 @@ const OUT = process.env.SWITCH_OUT ?? null;
 const FRAMES = process.env.SWITCH_FRAMES ?? null;
 const SCRATCH_HOME = process.env.SWITCH_HOME_DIR ?? null;
 const PROFILE = process.env.SWITCH_PROFILE ?? null;
+const BEHAVIOUR = process.env.SWITCH_BEHAVIOUR === "1";
+/** Only the screencasts: one launch that opens every target once and films a warm switch, then a
+ *  launch that films a cold one. */
+const FRAMES_ONLY = Boolean(FRAMES) && process.env.SWITCH_FRAMES_ONLY === "1";
 
 /* ── The renderer over http, so the paint worklet draws as it does in the real app ─────────── */
 
@@ -178,6 +182,9 @@ function topSelf(profile, drawnMs) {
   return `${top}\n    under: ${stages}`;
 }
 
+/** A fresh userData opens on the What's new sheet; the frames are of the panes, so it is put away. */
+const DISMISS_WHATS_NEW = `(() => { const done = [...document.querySelectorAll("[role=dialog] button")].find((b) => b.textContent.trim() === "Done"); done?.click(); return !!done; })()`;
+
 /* ── The home ─────────────────────────────────────────────────────────────────────────────── */
 
 function freshHome() {
@@ -236,6 +243,7 @@ async function oneLaunch(n, renderer, targets) {
     };
     // Rotate which target opens first, so no one target always pays the app's first-switch warm-up.
     const order = targets.map((_, i) => targets[(i + n) % targets.length]);
+    if (FRAMES_ONLY) { for (const t of order) await page.eval(MEASURE(t.selector, t.label)); await captureFrames(app, targets); return runs; }
     for (const t of order) await click(t, "cold");
     for (let round = 0; round < ROUNDS; round++) for (const t of order) await click(t, "warm");
     if (FRAMES && n === 0) await captureFrames(app, targets);
@@ -253,6 +261,7 @@ async function captureFrames(app, targets, label = "warm") {
   const dir = path.join(FRAMES, label);
   fs.mkdirSync(dir, { recursive: true });
   const [a, b] = targets;
+  await page.eval(DISMISS_WHATS_NEW);
   // Land on the other target first, so the click below is a switch.
   await page.eval(MEASURE(b.selector, b.label));
   await sleep(800);
@@ -283,6 +292,8 @@ async function coldFrames(renderer, targets) {
     await until(() => page.eval(`[...document.querySelectorAll(${JSON.stringify(targets[0].selector)})].some((b) => (b.getAttribute("aria-label") ?? "").startsWith(${JSON.stringify(targets[0].label)}))`), 120_000, "the sidebar rows");
     await page.eval(INSTRUMENT);
     await sleep(4000);
+    await page.eval(DISMISS_WHATS_NEW);
+    await sleep(600);
     const dir = path.join(FRAMES, "cold");
     fs.mkdirSync(dir, { recursive: true });
     const frames = [];
@@ -307,6 +318,63 @@ async function coldFrames(renderer, targets) {
   }
 }
 
+/**
+ * What a switch must not change, besides its speed: where the reader was in a log, the draft in a
+ * prompter, and a reply streaming into a session while another is on screen. The reply comes from
+ * the fake agent's paced script, so nothing is billed; `SWITCH_DB`'s sessions must be `agent_kind`
+ * fake (the targets' short session is the one that runs).
+ */
+async function behaviour(renderer, targets) {
+  const [long, , short] = targets;
+  const where = freshHome();
+  const app = await launchLiveApp({ name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000, env: { REALM_HOME: where.home, HOME: where.user } });
+  const fails = [];
+  const check = (ok, what, seen) => { console.log(`  ${ok ? "ok  " : "FAIL"} ${what}${seen === undefined ? "" : `: ${JSON.stringify(seen)}`}`); if (!ok) fails.push(what); };
+  try {
+    const { page } = app;
+    await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+    await until(() => page.eval(`[...document.querySelectorAll(${JSON.stringify(short.selector)})].some((b) => (b.getAttribute("aria-label") ?? "").startsWith(${JSON.stringify(short.label)}))`), 120_000, "the sidebar rows");
+    await page.eval(INSTRUMENT);
+    const open = async (t) => { const r = await page.eval(MEASURE(t.selector, t.label)); if (r.error) throw new Error(r.error); await sleep(400); return r; };
+    const shown = (expr) => page.eval(`(() => { const pane = document.querySelector(".pane-slot:not([hidden]) .session-pane"); const log = pane?.querySelector(".transcript"); const input = pane?.querySelector(".composer-input"); return ${expr}; })()`);
+
+    // Where the reader was: half way up the long log.
+    await open(long);
+    const top = await shown(`(() => { log.scrollTop = Math.round((log.scrollHeight - log.clientHeight) / 2); log.dispatchEvent(new Event("scroll")); return log.scrollTop; })()`);
+    await sleep(400);
+    // A draft in the short session's prompter.
+    await open(short);
+    await shown(`(input.focus(), true)`);
+    await page.send("Input.insertText", { text: "a draft kept across a switch" });
+    await sleep(300);
+    await open(long);
+    const back = await shown(`log.scrollTop`);
+    check(Math.abs(back - top) <= 2, "the long log is where the reader left it", { left: top, back });
+    await open(short);
+    const draft = await shown(`input.value ?? input.textContent`);
+    check(draft.includes("a draft kept across a switch"), "the short session's draft is kept", draft);
+
+    // A reply streaming while the other session is on screen.
+    await shown(`(input.focus(), input.select?.(), true)`);
+    await page.send("Input.insertText", { text: "Add the font-size picker" });
+    await page.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await sleep(500);
+    await open(long);
+    const REPLY = "Added the font-size picker beside the theme.";
+    // The short session's pane is hidden now; its reply keeps arriving into it.
+    await until(() => page.eval(`[...document.querySelectorAll(".pane-slot[hidden] .session-pane")].some((p) => p.textContent.includes(${JSON.stringify(REPLY)}))`), 15_000, "the reply in the hidden pane").then(() => check(true, "the reply streamed on while its session was hidden"), () => check(false, "the reply streamed on while its session was hidden"));
+    const r = await open(short);
+    check((await shown(`pane.textContent.includes(${JSON.stringify(REPLY)})`)) === true, "the reply is there on going back", { firstPaint: r.firstPaint });
+    check((await shown(`log.scrollHeight - log.scrollTop - log.clientHeight`)) < 4, "the short log is at its end, with the reply in view");
+  } finally {
+    await app.stop();
+    await stopDaemons(where.home);
+    if (!SCRATCH_HOME) fs.rmSync(where.dir, { recursive: true, force: true });
+  }
+  return fails.length > 0;
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────────────────────── */
 
 if (!SOURCE_DB) {
@@ -325,6 +393,11 @@ if (targets.some((t) => !t.label)) { console.error("a target has no title:", tar
 
 const server = await serveRenderer();
 const renderer = `http://127.0.0.1:${server.address().port}/`;
+if (BEHAVIOUR) {
+  let failed;
+  try { failed = await behaviour(renderer, targets); } finally { server.close(); }
+  process.exit(failed ? 1 : 0);
+}
 const all = [];
 console.log(`session-switch-live: ${LAUNCHES} launches, ${ROUNDS} warm rounds, start ${JSON.stringify(load())}`);
 try {

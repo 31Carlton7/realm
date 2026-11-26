@@ -1,16 +1,10 @@
 /**
- * The sessions a pane keeps drawn after it stops showing them.
+ * The sessions a main pane keeps mounted, hidden, after it stops showing them, so going back to one
+ * shows the tree it has (its scroll, its draft, no fetch) instead of building it again.
  *
- * A session pane is expensive to build: its transcript's markdown and tool cards, the backdrop's
- * canvas, a dozen reads for the prompter. Rebuilding it on every click in the sidebar was most of
- * the wait in a switch, a quarter of a second on a warm one. So a pane keeps the last few sessions it
- * showed mounted and hidden, as the side panel keeps its browser tabs, and going back to one shows
- * the tree it already has: no fetch, no render, its scroll and its draft as they were.
- *
- * `recent` is the order they were shown, the newest last, and says which one goes when there are too
- * many. `order` is the order they are mounted in, which never changes for the ones that stay: React
- * moves a keyed child by taking it out of the document and putting it back, and that loses the
- * scroll offset of everything inside it.
+ * `recent` is the order they were shown, newest last, and decides which one goes past the cap.
+ * `order` is the order they are mounted in and never changes for the ones that stay: React moves a
+ * keyed child by taking it out of the document, and that loses every scroll offset inside it.
  */
 export type WarmPanes = { order: readonly string[]; recent: readonly string[] };
 
