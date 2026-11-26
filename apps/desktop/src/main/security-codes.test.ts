@@ -6,8 +6,9 @@ import { SECURITY_CODE_WINDOW_MS } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
 import {
   SecurityCodes, SecurityCodesSetting, codeSourcesFor, extractCode, fakeCodeSource, mailSource, messagesSource,
-  parseMailList, pickLatestCode, textOfAttributedBody, type CodeMessage, type CodeSource,
+  notificationsSource, parseMailList, pickLatestCode, textOfAttributedBody, type CodeMessage, type CodeSource,
 } from "./security-codes";
+import { bplist } from "./plist.test-fakes";
 
 /**
  * The mutants:
@@ -104,7 +105,7 @@ describe("SecurityCodes and its switch", () => {
     await new SecurityCodes({ setting: new SecurityCodesSetting(file), sources: [source], now: () => 1_000 }).setEnabled(true);
     const relaunched = new SecurityCodes({ setting: new SecurityCodesSetting(file), sources: [source], now: () => 1_000 });
     expect(await relaunched.latest("https://example.com")).toEqual({ code: "123456", source: "Messages" });
-    expect(await relaunched.status()).toEqual({ enabled: true, sources: { Messages: "ok", Mail: "missing" } });
+    expect(await relaunched.status()).toEqual({ enabled: true, sources: { Messages: "ok", Mail: "missing", Notifications: "missing" } });
   });
 
   it("treats a file that says anything but true as off", () => {
@@ -166,6 +167,63 @@ describe("the Messages source", () => {
   });
 });
 
+describe("the Notifications source", () => {
+  const now = Date.UTC(2026, 10, 10, 12);
+  /** Notification Center's tables as `usernoted` creates them on macOS 27, holding synthetic rows. */
+  function notificationDb(rows: { data: Uint8Array | null; at: number }[]): string {
+    const path = join(scratch(), "db");
+    const db = new DatabaseSync(path);
+    db.exec(`
+      CREATE TABLE dbinfo (key VARCHAR, value VARCHAR);
+      CREATE TABLE app (app_id INTEGER PRIMARY KEY, identifier VARCHAR, badge INTEGER NULL);
+      CREATE TABLE record (rec_id INTEGER PRIMARY KEY, app_id INTEGER, uuid BLOB, data BLOB, request_date REAL, request_last_date REAL, delivered_date REAL, presented Bool, style INTEGER, snooze_fire_date REAL);
+      CREATE TABLE requests (app_id INTEGER PRIMARY KEY, list BLOB);
+      CREATE TABLE delivered (app_id INTEGER PRIMARY KEY, list BLOB);
+      CREATE TABLE displayed (app_id INTEGER PRIMARY KEY, list BLOB);
+      CREATE TABLE categories (app_id INTEGER PRIMARY KEY, categories BLOB);
+      INSERT INTO app (app_id, identifier) VALUES (1, 'com.example.app');
+    `);
+    const insert = db.prepare("INSERT INTO record (app_id, data, request_date, delivered_date, presented, style) VALUES (1, ?, ?, ?, 1, 1)");
+    for (const r of rows) {
+      const seconds = (r.at - 978_307_200_000) / 1000;
+      insert.run(r.data, seconds, seconds);
+    }
+    db.close();
+    return path;
+  }
+  const note = (req: Record<string, string>) => bplist({ app: "com.example.app", req });
+
+  it("reads the title, subtitle and body of notifications delivered since the moment asked, newest first", async () => {
+    const path = notificationDb([
+      { data: note({ titl: "Example", body: "Your code is 111111" }), at: now - 10 * 60_000 },
+      { data: note({ titl: "Example", subt: "Sign in", body: "Your code is 222222" }), at: now - 90_000 },
+      { data: note({ titl: "+1 (555) 010-0000", body: "Your verification code is 333333" }), at: now - 30_000 },
+    ]);
+    expect(await notificationsSource(path).recent(now - SECURITY_CODE_WINDOW_MS)).toEqual([
+      { source: "Notifications", at: now - 30_000, text: "+1 (555) 010-0000\nYour verification code is 333333" },
+      { source: "Notifications", at: now - 90_000, text: "Example\nSign in\nYour code is 222222" },
+    ]);
+    expect(await notificationsSource(path).state()).toBe("ok");
+  });
+
+  it("reads a row without a request, or whose data is not a plist, as no words", async () => {
+    const path = notificationDb([{ data: bplist({ app: "com.example.app" }), at: now - 1_000 }, { data: new Uint8Array([1, 2, 3]), at: now - 2_000 }, { data: null, at: now - 3_000 }]);
+    expect((await notificationsSource(path).recent(now - SECURITY_CODE_WINDOW_MS)).map((r) => r.text)).toEqual(["", "", ""]);
+  });
+
+  it("hands the newest code to a fill, named as a notification's", async () => {
+    const setting = new SecurityCodesSetting(join(scratch(), "security-codes.json"));
+    setting.setEnabled(true);
+    const path = notificationDb([{ data: note({ titl: "Example", body: "Your code is 123456" }), at: now - 60_000 }]);
+    const codes = new SecurityCodes({ setting, sources: [notificationsSource(path)], now: () => now });
+    expect(await codes.latest("https://example.com")).toEqual({ code: "123456", source: "Notifications" });
+  });
+
+  it("says a missing database is missing", async () => {
+    expect(await notificationsSource(join(scratch(), "db")).state()).toBe("missing");
+  });
+});
+
 describe("the Mail source", () => {
   const now = Date.UTC(2026, 10, 10, 12);
   const iso = (ago: number) => new Date(now - ago).toISOString();
@@ -203,9 +261,13 @@ describe("codeSourcesFor", () => {
     const file = join(scratch(), "codes.json");
     writeFileSync(file, JSON.stringify([{ source: "Mail", at: 5_000, text: "Your code is 123456" }]));
     const sources = codeSourcesFor({ packaged: false, env: { REALM_ENABLE_FAKE_AGENT: "1", REALM_LIVE_CODES: file } });
-    expect(sources.map((s) => s.name)).toEqual(["Messages", "Mail"]);
+    expect(sources.map((s) => s.name)).toEqual(["Messages", "Mail", "Notifications"]);
     expect(await sources[1]!.recent(0)).toEqual([{ source: "Mail", at: 5_000, text: "Your code is 123456" }]);
     expect(await sources[0]!.recent(0)).toEqual([]);
+  });
+
+  it("gives a packaged build Messages, Mail and Notifications", () => {
+    expect(codeSourcesFor({ packaged: true, env: {} }).map((s) => s.name)).toEqual(["Messages", "Mail", "Notifications"]);
   });
 
   it("reads a rewritten stand-in file on the next ask", async () => {
