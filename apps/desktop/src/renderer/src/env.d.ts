@@ -52,7 +52,7 @@ interface Window {
       focusProfile(profileId: string): Promise<boolean>;
       setProfile(profileId: string | null): void;
       openSpace(spaceId: string): Promise<void>;
-      focusSpace(spaceId: string, sessionId?: string): Promise<boolean>;
+      focusSpace(spaceId: string, sessionId?: string, by?: "agent"): Promise<boolean>;
       setSpace(spaceId: string | null): void;
       newWindow(): Promise<boolean>;
       /** Once booted, at the next frame: the quick chat panel made ahead waits for it. */
