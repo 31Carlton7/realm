@@ -31,11 +31,10 @@ const UNRESOLVED_FOR_MS = 60 * 1000;
 
 /**
  * The path of the `serve-sim` binary in npx's cache, installing the latest first if it has to — or
- * null when npx could not say. One npx call buys every call after it: `npx serve-sim@latest` asks
- * the registry for the latest version each time, MEASURED at 0.9 s on an idle Mac and 2.5–3.3 s on
- * a busy one, where the binary itself answers `--list` in under 0.1 s.
+ * null when npx could not say. `npx serve-sim@latest` asks the registry on every call (0.9 s on an
+ * idle Mac, 2.5–3.3 s on a busy one); the binary itself answers `--list` in under 0.1 s.
  */
-export async function resolveServeSimBin(exec: ServeSimExec): Promise<string | null> {
+async function resolveServeSimBin(exec: ServeSimExec): Promise<string | null> {
   const r = await exec("npx", ["--yes", "--package", "serve-sim@latest", "--call", "command -v serve-sim"], 180_000);
   const path = r.stdout.trim().split("\n").pop()?.trim() ?? "";
   return r.code === 0 && isAbsolute(path) ? path : null;
