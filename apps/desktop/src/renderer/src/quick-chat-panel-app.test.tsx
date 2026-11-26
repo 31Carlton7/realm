@@ -12,15 +12,16 @@ import { QuickChatPanelApp } from "./QuickChatPanelApp";
 function mount(overrides: FakeData = {}, { opening = true } = {}) {
   api = fakeApi(overrides);
   const hide = vi.fn();
+  const fit = vi.fn();
   let shown = () => {};
   let changed = () => {};
   (window as any).realm = { surface: "quick-chat", quickChatPanel: {
-    hide, chatChanged: () => {}, opening: async () => opening,
+    hide, fit, chatChanged: () => {}, opening: async () => opening,
     onShown: (cb: () => void) => { shown = cb; return () => {}; },
     onChatChanged: (cb: () => void) => { changed = cb; return () => {}; },
   } };
   render(<QuickChatPanelApp />);
-  return { hide, shown: () => act(async () => { shown(); }), changed: () => act(async () => { changed(); }) };
+  return { hide, fit, shown: () => act(async () => { shown(); }), changed: () => act(async () => { changed(); }) };
 }
 
 const made = () => api.calls.filter((c) => c.startsWith("startQuickChat:")).length;
@@ -61,8 +62,10 @@ describe("the quick chat panel's page", () => {
     const main = mount();
     await screen.findByRole("dialog", { name: "Quick chat" });
     fireEvent.keyDown(document.body, { key: "Escape" });
-    expect(main.hide).toHaveBeenCalledTimes(1);
-    await act(async () => {});
+    // It narrows into its right end first, as ChatGPT's bar does, and then main hides the window.
+    expect(document.documentElement.dataset.panelOut).toBe("");
+    expect(main.hide).not.toHaveBeenCalled();
+    await waitFor(() => expect(main.hide).toHaveBeenCalledTimes(1));
     expect(deleted()).toBe(0);
     expect(screen.getByRole("dialog", { name: "Quick chat" })).toBeInTheDocument();
   });
@@ -96,6 +99,26 @@ describe("the quick chat panel's page", () => {
     await main.shown();
     expect(await screen.findByRole("dialog", { name: "Quick chat" })).toBeInTheDocument();
     expect(made()).toBe(2);
+  });
+
+  it("tells main how tall its shapes are, so the window is the bar until there is more", async () => {
+    const main = mount();
+    await screen.findByRole("dialog", { name: "Quick chat" });
+    await waitFor(() => expect(main.fit).toHaveBeenCalled());
+    expect(screen.getByRole("dialog", { name: "Quick chat" }).dataset.grown).toBeUndefined();
+  });
+
+  it("puts the empty bar away when the keyboard leaves it, and keeps one with something typed", async () => {
+    const main = mount();
+    await screen.findByRole("dialog", { name: "Quick chat" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "half a question" } });
+    fireEvent.blur(window);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    expect(main.hide).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "" } });
+    fireEvent.blur(window);
+    await waitFor(() => expect(main.hide).toHaveBeenCalledTimes(1));
+    expect(deleted()).toBe(0);
   });
 
   it("stays up to say why, in a home with no space to run a chat in", async () => {

@@ -67,7 +67,7 @@ import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
 import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
 import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
-import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelFit, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -715,9 +715,9 @@ function createQuickChatPanelWindow(info: { port: number; home: string; token: s
     screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
   const win = new BrowserWindow({
     ...QUICK_CHAT_PANEL_OPTIONS, ...place,
-    // A non-activating panel: it can hold the keyboard while another app stays in front. Its ground
-    // is the system's material, which the page covers in Plain and shows through in Glass.
-    ...(process.platform === "darwin" ? { type: "panel", vibrancy: "popover" as const, visualEffectState: "active" as const, backgroundColor: "#00000000" } : {}),
+    // A non-activating panel: it can hold the keyboard while another app stays in front. It has no
+    // material of its own: macOS's is a rectangle, and the page draws a capsule and a card.
+    ...(process.platform === "darwin" ? { type: "panel" as const } : {}),
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       ...(quiet ? { backgroundThrottling: false } : {}),
       additionalArguments: [...windowArguments({ ...info, profileId: null, spaceId: null, land: null }), `--realm-surface=${QUICK_CHAT_SURFACE}`] },
@@ -786,6 +786,14 @@ ipcMain.handle("quick-chat-panel:set-shortcut", (_e, chord: unknown): QuickChatS
 // Whether the panel's page was loaded to be opened, or made ahead of time and is to wait for a press.
 ipcMain.handle("quick-chat-panel:opening", (e): boolean => e.sender === quickChatPanel.window()?.webContents && quickChatPanel.isOpen());
 ipcMain.on("quick-chat-panel:set-hide-from-sharing", (_e, on: unknown) => quickChatPanel.setHiddenFromSharing(on !== false));
+// The page says how tall its shapes are, and the window takes that height with its bottom edge held.
+ipcMain.on("quick-chat-panel:fit", (e, height: unknown) => {
+  const win = quickChatPanel.window();
+  if (!win || e.sender !== win.webContents || typeof height !== "number") return;
+  const next = quickChatPanelFit(win.getBounds(), height, screen.getDisplayMatching(win.getBounds()).workArea);
+  const now = win.getBounds();
+  if (next.y !== now.y || next.height !== now.height) win.setBounds(next);
+});
 // Only the panel's own page puts it away: Escape there, or its chat being deleted.
 ipcMain.on("quick-chat-panel:hide", (e) => { if (e.sender === quickChatPanel.window()?.webContents) quickChatPanel.close(); });
 // "Open" on a chat the panel saved to a space: the session opens in a Realm window, as one picked

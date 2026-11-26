@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { CaretBridge, PressTrackingBridge, RubberBandBridge, ScrollbarStyleBridge, ThemeBridge, TooltipBridge, subscribeSessionEvents } from "./App";
 import { dismissBootSplash } from "./boot-splash";
 import { QuickChat } from "./components/QuickChat";
+import { panelCameIn, putPanelAway } from "./components/quick-chat-panel-frame";
 import { Toasts } from "./components/Toasts";
 import { desktopMeetingAssistant } from "./meeting/desktop";
 import { useAssistantPage } from "./meeting/MeetingAssistantView";
@@ -50,6 +51,7 @@ export function QuickChatPanelApp() {
     };
     const show = () => step(() => store.getState().showQuickChatPanel()).then(() => {
       dismissBootSplash();
+      panelCameIn();
       document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input")?.focus();
     });
     /* Main's first "shown" can arrive before this listens, so a page loaded to be opened shows at
@@ -73,7 +75,7 @@ export function QuickChatPanelApp() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.stopImmediatePropagation();
-      if (!e.defaultPrevented) panel?.hide();
+      if (!e.defaultPrevented && panel) putPanelAway(() => panel.hide());
     };
     window.addEventListener("keydown", onKey);
     return () => {

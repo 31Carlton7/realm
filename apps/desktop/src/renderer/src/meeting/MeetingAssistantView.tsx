@@ -40,7 +40,7 @@ export function useAssistantPage(assistant: MeetingAssistant | null): void {
   }, [assistant]);
 }
 
-function isListening(s: AssistantState): boolean {
+export function isListening(s: AssistantState): boolean {
   return s.phase !== "idle";
 }
 

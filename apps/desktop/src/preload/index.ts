@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld("realm", {
   quickChatPanel: {
     /** Put the panel away. Answered only for the panel's own page. */
     hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),
+    /** Size the window to shapes this tall, the bar alone or the bar under its conversation. */
+    fit: (height: number): void => ipcRenderer.send("quick-chat-panel:fit", height),
     /** Whether the panel was opened while its page loaded, rather than made ahead of a press. */
     opening: (): Promise<boolean> => ipcRenderer.invoke("quick-chat-panel:opening"),
     /** The panel has just been opened, with the keyboard or without it. */

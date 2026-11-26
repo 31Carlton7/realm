@@ -2594,30 +2594,127 @@ button.panel-title:hover { background: var(--rl-hover); }
 .quick-chat:hover { box-shadow: 0 0 0 var(--hairline-w) var(--window-ring-hover), var(--shadow-overlay); }
 /* From the corner it opens in, and only a little: it is a small window arriving, not a sheet. */
 @keyframes rl-quick-chat-in { from { translate: 0 10px; scale: 0.98; opacity: 0; } to { translate: 0 0; scale: 1; opacity: 1; } }
-/* The quick chat panel (main/quick-chat-panel.ts) is the same card in a window of its own, and there
-   the window is the card: it has the place, the corner, the shadow and the entrance, so the card
-   fills it and gives those up. The place is set inline by the card's own drag (QuickChat.tsx), which
-   is why it is overridden rather than restated. In Plain the card is the surface it always was; in
-   Glass its ground thins and the window's material, which is macOS's own, shows through it.
-   It thins to the panes' reading point and no further, 84% and the light face's 92% (tokens.css):
-   whatever app is behind it is the desktop a pane is measured against, and at 62% the dark face's
-   body ink came to 4.0:1 over a white window and its hints to 1.1:1. */
+/* The quick chat panel (main/quick-chat-panel.ts) is laid out after ChatGPT's companion bar, as the
+   owner asked (11-25): a capsule 40px tall that opens on its own, and a card that grows up out of it
+   once there is a conversation. The window is transparent and sized to the shapes by main, which
+   holds the bar's bottom edge, so the card grows upward and the bar never moves. The card's own
+   drag is replaced by the window's, so its inline place is overridden rather than restated.
+
+   The window has no material of its own: macOS's is a rectangle and cannot take a capsule's shape.
+   So the ground is ours, the card's `--surface` in Plain, and in Glass that surface thinned to the
+   panes' reading point and no further, 84% and the light face's 92% (tokens.css): whatever app is
+   behind it is the desktop a pane is measured against, and at 62% the dark face's body ink came to
+   4.0:1 over a white window. Glass's part is the rim, its light round the edge.
+
+   `--panel-inset` is main's QUICK_CHAT_PANEL_INSET, the clear margin that holds the shadow;
+   quick-chat-panel-ground.test.ts holds the two together. */
+:root[data-surface="quick-chat"] {
+  --panel-inset: 16px;
+  --panel-ground: var(--surface);
+  --panel-rim: var(--window-ring);
+  --panel-rim-w: var(--hairline-w);
+}
+:root[data-surface="quick-chat"][data-glass] { --panel-ground: color-mix(in srgb, var(--surface) 84%, transparent);
+  --panel-rim: var(--glass-bead); --panel-rim-w: 1px; }
+:root[data-surface="quick-chat"][data-mode="light"][data-glass] { --panel-ground: color-mix(in srgb, var(--surface) 92%, transparent); }
 :root[data-surface="quick-chat"] .quick-chat { inset: 0 !important; width: auto !important; height: auto !important;
-  border-radius: 0; box-shadow: none; animation: none; }
-:root[data-surface="quick-chat"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 84%, transparent); }
-:root[data-surface="quick-chat"][data-mode="light"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 92%, transparent); }
-/* The prompter is the window's foot, so it stands on the window's ground and paints none of its own.
-   Its solid `--surface` read as a slab under a panel thinned in Glass. The ink keeps the solid
-   card's, since `--prompter-thin` is read on the dock and the ground is at the reading point. */
-:root[data-surface="quick-chat"] .quick-chat .composer { --prompter-alpha: 0%; }
-/* The bar moves the window there, through the system, so a drag never reaches the card's own. */
-:root[data-surface="quick-chat"] .quick-chat-bar { -webkit-app-region: drag; }
+  padding: var(--panel-inset); gap: 8px; justify-content: flex-end; overflow: visible;
+  background: none; border-radius: 0; box-shadow: none; animation: none; }
+:root[data-surface="quick-chat"] .quick-chat:hover { box-shadow: none; }
+/* The card: the conversation above the bar, as tall as what it holds (design.md: a panel is as tall
+   as its content). It is not there until there is something to show. */
+:root[data-surface="quick-chat"] .quick-chat-card { position: relative; flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column;
+  background: var(--panel-ground); border-radius: var(--r-squircle-card);
+  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift);
+  animation: rl-quick-chat-grow var(--dur-base) var(--spring-smooth); }
+:root[data-surface="quick-chat"] .quick-chat:not([data-grown]) .quick-chat-card { display: none; }
+:root[data-surface="quick-chat"] .quick-chat-empty { display: none; }
+:root[data-surface="quick-chat"] .quick-chat-body,
+:root[data-surface="quick-chat"] .quick-chat .transcript-wrap,
+:root[data-surface="quick-chat"] .quick-chat .transcript { flex: 0 1 auto; }
+:root[data-surface="quick-chat"] .quick-chat .transcript { padding: 12px 14px 16px; }
+:root[data-surface="quick-chat"] .quick-chat .transcript-wrap { --fade-top-h: 12px; --fade-h: 16px; }
+/* The meeting assistant has its own column, sized to the panel's ceiling rather than to its words. */
+:root[data-surface="quick-chat"] .quick-chat[data-roomy] .quick-chat-card { flex: 1 1 auto; }
+:root[data-surface="quick-chat"] .quick-chat[data-roomy] .quick-chat-body { flex: 1 1 auto; }
+/* The card's head moves the window there, through the system. */
+:root[data-surface="quick-chat"] .quick-chat-bar { min-height: 36px; padding: 0 6px 0 14px; -webkit-app-region: drag; }
 :root[data-surface="quick-chat"] .quick-chat-bar :is(button, label) { -webkit-app-region: no-drag; }
-/* The card fills the panel at its own z-index, so a sheet opened in the panel (the meeting
-   assistant's first-run sheet) stands over it rather than under it. */
+/* The foot: the capsule and, where ChatGPT keeps its round buttons, the assistant's. */
+:root[data-surface="quick-chat"] .quick-chat-foot { flex: none; display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+:root[data-surface="quick-chat"] .quick-chat .composer-dock { flex: 1; min-width: 0; }
+/* The capsule: + on the left, the words, the model's mark and send on the right, one row 40px tall
+   that grows with what is typed and keeps its controls on the bottom edge. Its ground is the card's,
+   and so is its edge; it has no seam to the card because there is a gap between them. */
+:root[data-surface="quick-chat"] .quick-chat .composer {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end;
+  min-height: 40px; padding: 0 6px; border-radius: 20px;
+  background: var(--panel-ground);
+  -webkit-app-region: drag;
+}
+:root[data-surface="quick-chat"] .quick-chat .composer,
+:root[data-surface="quick-chat"] .quick-chat .composer:focus-within {
+  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift); }
+:root[data-surface="quick-chat"] .quick-chat .composer > * { grid-column: 1 / -1; }
+:root[data-surface="quick-chat"] .quick-chat .composer-bar { display: contents; }
+:root[data-surface="quick-chat"] .quick-chat .composer-opts { grid-column: 1; grid-row: 9; margin-bottom: 6px; -webkit-app-region: no-drag; }
+:root[data-surface="quick-chat"] .quick-chat .composer-editor { grid-column: 2; grid-row: 9; -webkit-app-region: no-drag; }
+:root[data-surface="quick-chat"] .quick-chat .composer-actions { grid-column: 3; grid-row: 9; margin-bottom: 6px; -webkit-app-region: no-drag; }
+:root[data-surface="quick-chat"] .quick-chat .composer-dictation-fetching { grid-row: 10; }
+:root[data-surface="quick-chat"] .quick-chat .composer-input { min-height: 40px; padding: 10px 8px; line-height: 20px; }
+:root[data-surface="quick-chat"] .quick-chat .composer-highlight { padding: 10px 8px; line-height: 20px; }
+/* The model is the harness's mark alone, as a round button; its name is the button's tooltip. */
+:root[data-surface="quick-chat"] .quick-chat .model-chip :is(.chip-label, .chip-effort, .chip-fast, .chip-caret) { display: none; }
+:root[data-surface="quick-chat"] .quick-chat .model-chip { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; }
+:root[data-surface="quick-chat"] .quick-chat .composer-attach { border-radius: 50%; background: var(--rl-hover); }
+:root[data-surface="quick-chat"] .quick-chat .composer-send { width: 28px; height: 28px; }
+:root[data-surface="quick-chat"] .quick-chat .composer-send:disabled { background: var(--rl-accent-fill); color: var(--rl-accent-contrast); opacity: 0.45; }
+/* The painted curve, on the card and the capsule, the capsule's radius being half its height. The
+   shadow is drawn by the capsule's own lift layer, a box rounded to half the curve's radius, which
+   the curve holds (the prompter's rule further down). */
+:root[data-surface="quick-chat"][data-squircle] .quick-chat-card {
+  border-radius: 0; background: paint(rl-squircle); box-shadow: none;
+  --sq-fill: var(--panel-ground); --sq-ring: var(--panel-rim); --sq-ring-w: var(--panel-rim-w);
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card);
+}
+:root[data-surface="quick-chat"][data-squircle] .quick-chat-card::before { content: ""; position: absolute; inset: 0; z-index: -1;
+  pointer-events: none; border-radius: calc(var(--r-squircle-card) / 2); box-shadow: var(--prompter-lift); }
+:root[data-surface="quick-chat"][data-squircle] .quick-chat .composer,
+:root[data-surface="quick-chat"][data-squircle] .quick-chat .composer:focus-within {
+  border-radius: 0; background: none; box-shadow: none;
+  --sq-fill: var(--panel-ground); --sq-ring: var(--panel-rim); --sq-ring-w: var(--panel-rim-w);
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card);
+}
+:root[data-surface="quick-chat"][data-squircle] .quick-chat .composer::before {
+  border-radius: calc(var(--r-squircle-card) / 2); box-shadow: var(--prompter-lift); opacity: 1; }
+/* The round button beside the capsule: the meeting assistant. */
+.quick-chat-side { position: relative; flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  background: var(--panel-ground); color: var(--rl-text-dim);
+  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift); }
+.quick-chat-side:hover { color: var(--rl-text-bright); }
+.quick-chat-side[aria-pressed="true"] { color: var(--accent-ink); }
+.quick-chat-side[data-listening]::after { content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--red); }
+/* In: the capsule widens out of its right end, ChatGPT's 200ms. Out: it narrows back into it and
+   fades, and main hides the window when it has gone (quick-chat-panel-frame.ts). The card grows up
+   out of the bar. */
+:root[data-surface="quick-chat"][data-panel-in] .quick-chat-foot { animation: rl-quick-chat-bar-in var(--dur-base) var(--spring-smooth); }
+:root[data-surface="quick-chat"][data-panel-out] .quick-chat > * { animation: rl-quick-chat-out var(--dur-base) var(--ease-out-strong) forwards; }
+@keyframes rl-quick-chat-bar-in { from { clip-path: inset(0 0 0 calc(100% - 120px) round 20px); opacity: 0.4; } to { clip-path: inset(-24px round 20px); opacity: 1; } }
+@keyframes rl-quick-chat-out { to { clip-path: inset(0 0 0 calc(100% - 120px) round 20px); opacity: 0; } }
+@keyframes rl-quick-chat-grow { from { translate: 0 8px; scale: 0.98; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-surface="quick-chat"] :is(.quick-chat-card, .quick-chat-foot, .quick-chat > *) { animation: none !important; }
+}
+/* Outside the panel the card and the foot are no boxes at all, and the Save row keeps its place
+   under the prompter. */
+:root:not([data-surface="quick-chat"]) :is(.quick-chat-card, .quick-chat-foot) { display: contents; }
+:root:not([data-surface="quick-chat"]) .quick-chat-save { order: 1; }
+/* A sheet opened in the panel (the meeting assistant's first-run sheet) stands over the card. */
 :root[data-surface="quick-chat"] .sheet-backdrop { z-index: 80; }
-.quick-chat-panel-note { position: fixed; inset: 0; display: grid; place-items: center; margin: 0; padding: 0 24px;
-  text-align: center; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); background: var(--surface); -webkit-app-region: drag; }
+.quick-chat-panel-note { position: fixed; inset: var(--panel-inset, 0); display: grid; place-items: center; margin: 0; padding: 0 16px;
+  text-align: center; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); background: var(--panel-ground, var(--surface));
+  border-radius: 20px; -webkit-app-region: drag; }
 /* The bar IS the handle, so it takes the grab cursor and gives up text selection — a drag across a
    title that highlighted the title behind the moving window would look like a broken drag. */
 .quick-chat-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 4px 0 12px;
