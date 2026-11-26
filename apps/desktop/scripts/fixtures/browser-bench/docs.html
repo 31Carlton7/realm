@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Docs — Northwind</title>
+<style>
+  body { font: 14px/1.5 -apple-system, sans-serif; margin: 0; color: #1d1d1f; display: grid; grid-template-columns: 260px 1fr; }
+  header { grid-column: 1 / -1; padding: 12px 24px; border-bottom: 1px solid #ddd; display: flex; gap: 20px; }
+  nav { padding: 12px 16px; border-right: 1px solid #eee; }
+  nav button { display: block; width: 100%; text-align: left; font: 600 14px -apple-system, sans-serif; background: none; border: 0; padding: 6px 0; }
+  nav ul { list-style: none; margin: 0 0 6px; padding-left: 12px; }
+  nav li { margin: 2px 0; }
+  main { padding: 16px 32px; }
+</style>
+</head>
+<body>
+<header><a href="#">Northwind</a><a href="#overview">Docs</a><a href="#">API</a><a href="#">Blog</a></header>
+<nav id="nav"></nav>
+<main><h1 id="title">Overview</h1><p id="body">Pick a page on the left.</p></main>
+<script>
+  // Five sections, about forty pages. Only Overview starts open: the rest open from their headings.
+  const SECTIONS = [
+    ["Overview", ["Overview", "What's new", "Concepts", "Glossary", "FAQ"]],
+    ["Guides", ["Installation", "Getting started", "Getting started with plugins", "Configuration", "Deploying", "Upgrading", "Migrating from v1", "Testing"]],
+    ["Reference", ["CLI", "Config file", "Environment variables", "HTTP API", "Webhooks", "Events", "Errors", "Limits", "Regions"]],
+    ["Integrations", ["GitHub", "GitLab", "Slack", "Linear", "Sentry", "Datadog", "Vercel"]],
+    ["Help", ["Troubleshooting", "Status", "Support", "Security", "Changelog", "Contact"]],
+  ];
+  const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  const nav = document.getElementById("nav");
+  SECTIONS.forEach(([section, pages], i) => {
+    const list = document.createElement("ul");
+    list.hidden = i !== 0;
+    const toggle = document.createElement("button");
+    toggle.textContent = section;
+    toggle.setAttribute("aria-expanded", String(!list.hidden));
+    toggle.addEventListener("click", () => { list.hidden = !list.hidden; toggle.setAttribute("aria-expanded", String(!list.hidden)); });
+    for (const page of pages) {
+      const li = document.createElement("li");
+      li.innerHTML = `<a href="#${slug(page)}"></a>`;
+      li.firstChild.textContent = page;
+      list.append(li);
+    }
+    nav.append(toggle, list);
+  });
+  const show = () => {
+    const page = SECTIONS.flatMap(([, p]) => p).find((p) => slug(p) === location.hash.slice(1)) ?? "Overview";
+    document.getElementById("title").textContent = page;
+    document.getElementById("body").textContent = page === "Getting started" ? "Install the CLI, then run it once to write its settings." : `All about ${page}.`;
+    document.title = `${page} — Northwind docs`;
+  };
+  addEventListener("hashchange", show);
+  show();
+</script>
+</body>
+</html>
