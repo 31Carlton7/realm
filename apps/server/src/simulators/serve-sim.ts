@@ -24,6 +24,15 @@ export function serveSimCommand(env: NodeJS.ProcessEnv = process.env): { bin: st
   return { bin: "npx", prefix: ["--yes", "serve-sim@latest"] };
 }
 
+/** How long a tree read waits for the daemon. */
+export const AX_READ_TIMEOUT_MS = 8_000;
+
+/** A tree read the daemon did not answer in time. Unlike a 503 this is not "not yet": asking again
+ *  waits the whole timeout again. */
+export class AxReadTimedOut extends Error {
+  constructor() { super(`serve-sim did not answer the accessibility tree read within ${AX_READ_TIMEOUT_MS / 1000} s`); }
+}
+
 /** One running stream, as `--list` describes it. The URLs are loopback and already inside the
  *  renderer's `img-src`/`connect-src`, which is why they can be handed to the pane verbatim. */
 export type ServeSimStream = { running: boolean; device: string | null; url: string | null; streamUrl: string | null; wsUrl: string | null; port: number | null; pid: number | null };
@@ -226,7 +235,8 @@ export type ServeSim = {
   /** A CoreAnimation debug overlay on or off. */
   caDebug(udid: string, option: string, on: boolean): Promise<{ ok: boolean; detail: string }>;
   /** The foreground app's accessibility tree — what is actually on screen, by name rather than by
-   *  pixel. Null when the daemon has no answer yet (the AX framework warms up after a boot). */
+   *  pixel. Null when the daemon has no answer yet (the AX framework warms up after a boot); an
+   *  `AxReadTimedOut` when it gave no answer at all in time. */
   ax(stream: ServeSimStream, udid: string): Promise<SimulatorAxTree | null>;
   /** Grant, revoke or reset one permission for one app. */
   permission(udid: string, action: string, permission: string, bundleId: string): Promise<{ ok: boolean; detail: string }>;
@@ -303,9 +313,12 @@ export function serveSim(env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof
       try {
         // Scoped to the device, like `/config`: the unscoped `/ax` answers with an SSE keepalive and
         // no tree, which reads as "no elements" rather than as "wrong route".
-        const res = await fetchImpl(`${stream.url}/helper/${encodeURIComponent(udid)}/ax`, { signal: AbortSignal.timeout(8_000) });
+        const res = await fetchImpl(`${stream.url}/helper/${encodeURIComponent(udid)}/ax`, { signal: AbortSignal.timeout(AX_READ_TIMEOUT_MS) });
         return res.ok ? parseAxTree(await res.text()) : null;
-      } catch { return null; }
+      } catch (e) {
+        if (e instanceof Error && e.name === "TimeoutError") throw new AxReadTimedOut();
+        return null;
+      }
     },
     async permission(udid, action, permission, bundleId) {
       const r = await run(bin, [...prefix, "permissions", action, permission, bundleId, "-d", udid], 60_000);
