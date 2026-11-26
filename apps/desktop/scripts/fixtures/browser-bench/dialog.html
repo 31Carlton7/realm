@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Field notes — Northwind</title>
+<style>
+  body { font: 15px/1.5 -apple-system, sans-serif; margin: 0; color: #1d1d1f; }
+  header { padding: 12px 24px; border-bottom: 1px solid #ddd; display: flex; gap: 18px; }
+  main { width: 680px; margin: 0 auto; padding: 16px; }
+  aside li { margin: 2px 0; }
+  dialog { width: 420px; border: 0; border-radius: 12px; padding: 20px 24px; }
+  dialog::backdrop { background: rgb(0 0 0 / 0.4); }
+  dialog .close { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: 0; background: none; }
+  dialog label { display: block; margin: 6px 0; }
+  dialog menu { display: flex; gap: 8px; padding: 0; margin: 16px 0 0; }
+</style>
+</head>
+<body>
+<header><a href="#">Northwind</a><a href="#">Journal</a><a href="#">Shop</a><a href="#">About</a><input type="search" placeholder="Search"></header>
+<main>
+  <h1>Field notes from the coast</h1>
+  <p>Three weeks along the northern shore, with a notebook and a borrowed camera.</p>
+  <p>The fog came in every afternoon at four. <a href="#">Read the tide tables</a> or <a href="#">see the route</a>.</p>
+  <aside>
+    <h2>More notes</h2>
+    <ul>
+      <li><a href="#">Week one: the harbour</a></li><li><a href="#">Week two: the dunes</a></li>
+      <li><a href="#">Week three: the lighthouse</a></li><li><a href="#">Packing list</a></li>
+      <li><a href="#">Maps</a></li><li><a href="#">Photos</a></li>
+    </ul>
+  </aside>
+  <form><label>Get the next note by email <input type="email" placeholder="you@example.com"></label> <button type="button">Subscribe</button></form>
+</main>
+<dialog id="consent" aria-labelledby="consent-title">
+  <button class="close" aria-label="Close">✕</button>
+  <h2 id="consent-title">Cookie preferences</h2>
+  <p>We use cookies to keep you signed in and, if you allow it, to count visits.</p>
+  <label><input type="checkbox" checked disabled> Needed to run the site</label>
+  <label><input type="checkbox"> Count visits</label>
+  <label><input type="checkbox"> Personalise ads</label>
+  <menu>
+    <button>Accept all</button>
+    <button>Reject all</button>
+    <button>Save choices</button>
+  </menu>
+</dialog>
+<script>document.getElementById("consent").showModal();</script>
+</body>
+</html>
