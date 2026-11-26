@@ -23,7 +23,7 @@ import type { InputChannel, InputStep } from "./device-input";
 import { createApp, type App } from "../app";
 import { SimulatorService, toolchainAvailable } from "./service";
 import type { Simctl } from "./simctl";
-import type { ServeSim, ServeSimStream } from "./serve-sim";
+import { serveSim as realServeSim, type ServeSim, type ServeSimStream } from "./serve-sim";
 import type { Android } from "./android";
 import type { AndroidStream } from "./android-stream";
 import { createSimulatorAgentProvider, loopbackPort, shrinkForModel, SIMULATOR_PROVIDER_NAME } from "./agent-tools";
@@ -823,6 +823,31 @@ describe("acting on an element", () => {
     // THE MUTANT: retry everything. An answer that will not change costs every step the retry budget.
     expect(text(r)).toContain("socket hang up");
     expect(asked).toBe(1);
+  });
+
+  it("does not ask again when the read timed out — another read waits as long (#645)", async () => {
+    // serve-sim's own read, against a daemon that never answers: each read waits out its timeout
+    // (shortened here) and then aborts, the way `AbortSignal.timeout` aborts the real fetch.
+    const TIMEOUT_MS = 500;
+    let asked = 0, stuck = false;
+    const daemon = (async () => {
+      asked++;
+      if (!stuck) return new Response(JSON.stringify([{ AXLabel: "Settings", type: "Application", enabled: true, frame: { x: 0, y: 0, width: 402, height: 874 }, children: [] }]));
+      await new Promise((r) => setTimeout(r, TIMEOUT_MS));
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    }) as typeof fetch;
+    const dev = setup({ serveSim: { ax: realServeSim({}, daemon).ax } });
+    const simulatorId = await dev.running();
+    stuck = true; asked = 0;
+    const started = Date.now();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open Settings", x: 100, y: 100 });
+    const took = Date.now() - started;
+    // THE MUTANT: a timeout read as "not yet" — three reads and two pauses, ~3× the timeout per step.
+    expect(asked).toBe(1);
+    expect(took).toBeLessThan(TIMEOUT_MS * 2);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("did not arrive within 8 s");
+    expect(dev.calls.sent).toEqual([]);
   });
 
   it("looks for the element on the screen as it is once the card is answered — a card can wait minutes", async () => {

@@ -337,8 +337,9 @@ export function android(env: NodeJS.ProcessEnv = process.env): Android {
       /* Detached and unwaited on purpose: the emulator runs for as long as the device is up, so
          awaiting it would hang until someone closed the phone. `-no-snapshot` because a snapshot
          restores a device that may be in any state, and the pane's contract is a device that just
-         booted. */
-      const child = execFile(emulator, ["-avd", avd, "-no-audio", "-no-boot-anim", "-no-snapshot"], () => {});
+         booted. `-no-window` because the pane's picture is `adb screencap`, so the emulator's own
+         window would only pop up over whatever else is on screen. */
+      const child = execFile(emulator, ["-avd", avd, "-no-window", "-no-audio", "-no-boot-anim", "-no-snapshot"], () => {});
       child.unref?.();
       return { ok: true, detail: "" };
     },

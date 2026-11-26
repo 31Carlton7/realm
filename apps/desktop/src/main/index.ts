@@ -996,7 +996,7 @@ const agentHost = new BrowserAgentHost({
   readFile: async (path) => new Uint8Array(await readFile(path)),
   codes: {
     enabled: () => codes()?.enabled() ?? false,
-    latest: async (origin) => (await codes()?.latest(origin)) ?? null,
+    waitFor: async (origin, o) => (await codes()?.waitFor(origin, o)) ?? { found: null, cancelled: false, miss: { Messages: "missing", Mail: "missing", Notifications: "missing" } },
   },
   coverShot: coverJpeg,
 });

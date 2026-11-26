@@ -12,6 +12,9 @@
 /** How far back a message may have arrived and still be offered. */
 export const SECURITY_CODE_WINDOW_MS = 5 * 60_000;
 
+/** How long an agent's fill waits for a code that has not arrived yet. */
+export const SECURITY_CODE_WAIT_MS = 90_000;
+
 /** Where a code came from, as the menu row and the card name it. */
 export type SecurityCodeSourceName = "Messages" | "Mail" | "Notifications";
 
