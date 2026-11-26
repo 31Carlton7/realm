@@ -436,7 +436,7 @@ export type MemoryEdit =
   | { op: "remove"; match: string };
 
 export type MemoryEditResult =
-  | { ok: true; content: string; changed: boolean }
+  | { ok: true; content: string; changed: boolean; old?: string }
   | { ok: false; error: string };
 
 /**
@@ -447,7 +447,7 @@ export type MemoryEditResult =
  *   needs) and at the end of any other file. A fact already there word for word is not added twice.
  * - `replace` and `remove` find the ONE entry whose text is `match` exactly, or failing that the one
  *   whose text contains it. None, or more than one, is an error that says which, so the agent can
- *   quote more rather than change the wrong line.
+ *   quote more rather than change the wrong line. `old` is the line they replaced or removed.
  */
 export function applyMemoryEdit(content: string, edit: MemoryEdit, o: { isIndex: boolean; title: string }): MemoryEditResult {
   const lines = content === "" ? [] : content.replace(/\n$/, "").split("\n");
@@ -478,10 +478,11 @@ export function applyMemoryEdit(content: string, edit: MemoryEdit, o: { isIndex:
   if (hits.length === 0) return { ok: false, error: `no entry matches "${wanted}"` };
   if (hits.length > 1) return { ok: false, error: `${hits.length} entries match "${wanted}" — quote more of the one you mean:\n${hits.map((h) => lines[h.i]).join("\n")}` };
   const i = hits[0]!.i;
+  const old = lines[i]!;
   if (edit.op === "remove") {
     lines.splice(i, 1);
     // The last fact of a run leaves the blank lines that framed it; keep one.
     if (i > 0 && lines[i - 1]?.trim() === "" && lines[i]?.trim() === "") lines.splice(i, 1);
   } else lines[i] = formatMemoryEntry(edit.entry);
-  return { ok: true, content: lines.length > 0 ? `${lines.join("\n")}\n` : "", changed: true };
+  return { ok: true, content: lines.length > 0 ? `${lines.join("\n")}\n` : "", changed: true, old };
 }
