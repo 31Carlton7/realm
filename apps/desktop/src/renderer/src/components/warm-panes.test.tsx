@@ -89,7 +89,7 @@ describe("switching back to a session the pane showed", () => {
     await act(async () => { await store.getState().revealSession("b", "s1"); });
     await waitFor(() => expect(shownPane()?.textContent).toContain("Answered in Bravo"));
 
-    act(() => store.getState().applySessionEvent({ seq: 3, sessionId: "a", event: sessionEvent("assistant_text", { messageId: "m-a2", text: "Streamed while hidden" }) }));
+    act(() => store.getState().applySessionEvent({ seq: 3, sessionId: "a", event: sessionEvent("assistant_text", { messageId: "m-a2", text: "Streamed while hidden" }), ephemeral: false }));
     expect(alpha?.closest(".pane-slot")?.hasAttribute("hidden")).toBe(true);
     expect(alpha?.textContent).toContain("Streamed while hidden");
 

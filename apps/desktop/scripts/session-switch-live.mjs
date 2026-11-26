@@ -10,7 +10,7 @@
  * from the same data. Never point it at a running app's database: take a copy with
  * `sqlite3 <db> "VACUUM INTO '<copy>'"`, and in the copy disable schedules and set running sessions
  * idle. The targets are named by `SWITCH_SESSIONS` (two session ids) and `SWITCH_TEAMMATES` (two
- * teammate names), long first. Without `SWITCH_DB` the check seeds its own fake sessions.
+ * teammate names), long first. All three are required.
  *
  * Each click is timed in the page: `performance.now()` at the click, then every animation frame
  * until the focused pane's transcript stops changing. "First paint" is the first frame showing the
@@ -21,7 +21,9 @@
  * The check fails when a warm switch's median first paint is over `SWITCH_BUDGET_MS` (100). Set
  * `SWITCH_ASSERT=0` to only measure, `SWITCH_LAUNCHES` (5) and `SWITCH_ROUNDS` (2) for the sample,
  * `SWITCH_OUT` for a JSON of every run, and `SWITCH_FRAMES=<dir>` to also screencast one cold and one
- * warm switch, frame by frame.
+ * warm switch, frame by frame (`SWITCH_FRAMES_ONLY=1` for just those). `SWITCH_PROFILE=<dir>` saves a
+ * CPU profile of every click and prints where its time went. `SWITCH_BEHAVIOUR=1` checks instead that
+ * a switch keeps the reader's scroll, the draft and a streaming reply.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -208,10 +210,10 @@ const load = () => {
 /* ── One launch ───────────────────────────────────────────────────────────────────────────── */
 
 async function oneLaunch(n, renderer, targets) {
-  const where = SOURCE_DB ? freshHome() : null;
+  const where = freshHome();
   const app = await launchLiveApp({
     name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000,
-    env: where ? { REALM_HOME: where.home, HOME: where.user } : {},
+    env: { REALM_HOME: where.home, HOME: where.user },
   });
   const runs = [];
   try {
@@ -249,28 +251,24 @@ async function oneLaunch(n, renderer, targets) {
     if (FRAMES && n === 0) await captureFrames(app, targets);
   } finally {
     await app.stop();
-    if (where) { await stopDaemons(where.home); if (!SCRATCH_HOME) fs.rmSync(where.dir, { recursive: true, force: true }); }
+    await stopDaemons(where.home);
+    if (!SCRATCH_HOME) fs.rmSync(where.dir, { recursive: true, force: true });
   }
   return runs;
 }
 
-/** A screencast of a warm switch (between the two long targets already opened) — run after the
- *  measured clicks, so every target has been opened once. A cold one comes from the next launch. */
-async function captureFrames(app, targets, label = "warm") {
-  const { page } = app;
+/** Film a click on `target` into `FRAMES/<label>`, one PNG per screencast frame, named by its
+ *  milliseconds from the click. Screencast time runs behind the page's own clock, which is why the
+ *  in-page measurement is saved beside the frames. */
+async function film(page, label, target) {
   const dir = path.join(FRAMES, label);
   fs.mkdirSync(dir, { recursive: true });
-  const [a, b] = targets;
-  await page.eval(DISMISS_WHATS_NEW);
-  // Land on the other target first, so the click below is a switch.
-  await page.eval(MEASURE(b.selector, b.label));
-  await sleep(800);
   const frames = [];
   page.on("Page.screencastFrame", (f) => { frames.push(f); page.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {}); });
   await page.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
   await sleep(400);
   const t0 = await page.eval("Date.now() / 1000");
-  const r = await page.eval(MEASURE(a.selector, a.label));
+  const r = await page.eval(MEASURE(target.selector, target.label));
   await sleep(300);
   await page.send("Page.stopScreencast");
   let i = 0;
@@ -283,9 +281,20 @@ async function captureFrames(app, targets, label = "warm") {
   console.log(`  frames: ${i} in ${dir} (paint ${r.firstPaint?.toFixed(0)} ms, drawn ${r.drawn.toFixed(0)} ms)`);
 }
 
+/** A warm switch between the two long targets, in a launch that has opened every target once. */
+async function captureFrames(app, targets) {
+  const [a, b] = targets;
+  await app.page.eval(DISMISS_WHATS_NEW);
+  // Land on the other target first, so the filmed click is a switch.
+  await app.page.eval(MEASURE(b.selector, b.label));
+  await sleep(800);
+  await film(app.page, "warm", a);
+}
+
+/** A cold switch: the first open of the long session in a fresh launch. */
 async function coldFrames(renderer, targets) {
-  const where = SOURCE_DB ? freshHome() : null;
-  const app = await launchLiveApp({ name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000, env: where ? { REALM_HOME: where.home, HOME: where.user } : {} });
+  const where = freshHome();
+  const app = await launchLiveApp({ name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000, env: { REALM_HOME: where.home, HOME: where.user } });
   try {
     const { page } = app;
     await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
@@ -294,27 +303,11 @@ async function coldFrames(renderer, targets) {
     await sleep(4000);
     await page.eval(DISMISS_WHATS_NEW);
     await sleep(600);
-    const dir = path.join(FRAMES, "cold");
-    fs.mkdirSync(dir, { recursive: true });
-    const frames = [];
-    page.on("Page.screencastFrame", (f) => { frames.push(f); page.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {}); });
-    await page.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
-    await sleep(400);
-    const t0 = await page.eval("Date.now() / 1000");
-    const r = await page.eval(MEASURE(targets[0].selector, targets[0].label));
-    await sleep(300);
-    await page.send("Page.stopScreencast");
-    let i = 0;
-    for (const f of frames) {
-      const ms = Math.round((f.metadata.timestamp - t0) * 1000);
-      if (ms < -100) continue;
-      fs.writeFileSync(path.join(dir, `${String(i++).padStart(3, "0")}_${ms >= 0 ? "+" : ""}${ms}ms.png`), Buffer.from(f.data, "base64"));
-    }
-    fs.writeFileSync(path.join(dir, "measure.json"), JSON.stringify(r, null, 2));
-    console.log(`  frames: ${i} in ${dir} (paint ${r.firstPaint?.toFixed(0)} ms, drawn ${r.drawn.toFixed(0)} ms)`);
+    await film(page, "cold", targets[0]);
   } finally {
     await app.stop();
-    if (where) { await stopDaemons(where.home); if (!SCRATCH_HOME) fs.rmSync(where.dir, { recursive: true, force: true }); }
+    await stopDaemons(where.home);
+    if (!SCRATCH_HOME) fs.rmSync(where.dir, { recursive: true, force: true });
   }
 }
 
