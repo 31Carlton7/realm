@@ -80,4 +80,37 @@ describe("switching back to a session the pane showed", () => {
     const reads = api.calls.slice(from).filter((c) => /^(sessionEvents|sessionEventsBefore|getSession|sessionStreaming)\b/.test(c));
     expect(reads).toEqual([]);
   });
+
+  it("draws a reply that arrives while its session is hidden, and shows it on going back", async () => {
+    const { store } = await mount();
+    await act(async () => { await store.getState().revealSession("a", "s1"); });
+    await waitFor(() => expect(shownPane()?.textContent).toContain("Answered in Alpha"));
+    const alpha = shownPane();
+    await act(async () => { await store.getState().revealSession("b", "s1"); });
+    await waitFor(() => expect(shownPane()?.textContent).toContain("Answered in Bravo"));
+
+    act(() => store.getState().applySessionEvent({ seq: 3, sessionId: "a", event: sessionEvent("assistant_text", { messageId: "m-a2", text: "Streamed while hidden" }) }));
+    expect(alpha?.closest(".pane-slot")?.hasAttribute("hidden")).toBe(true);
+    expect(alpha?.textContent).toContain("Streamed while hidden");
+
+    act(() => { void store.getState().revealSession("a", "s1"); });
+    expect(shownPane()).toBe(alpha);
+  });
+
+  it("mounts no more than WARM_SESSIONS session panes in a leaf", async () => {
+    const ids = ["a", "b", "c", "d", "e", "f"];
+    const api = fakeApi({
+      items: { s1: ids.map((id) => item(`i${id}`, "s1", { kind: "session", refId: id, title: id })) },
+      sessions: ids.map((id) => session(id, "s1", { status: "idle" })),
+      sessionEvents: Object.fromEntries(ids.map((id) => [id, said(id, id)])),
+    });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><Main /></StoreContext.Provider>);
+    for (const id of ids) {
+      await act(async () => { await store.getState().revealSession(id, "s1"); });
+      await waitFor(() => expect(shownPane()?.textContent).toContain(`Answered in ${id}`));
+    }
+    expect(document.querySelectorAll(".session-pane")).toHaveLength(WARM_SESSIONS);
+  });
 });
