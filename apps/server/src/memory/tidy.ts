@@ -28,19 +28,33 @@ export const TIDY_COMMIT_MESSAGE = "Tidy memory";
 export const TIDY_BACKOFF_MS = 6 * 60 * 60_000;
 /** …and after this many such passes in a day, it waits for the weekly slot. */
 export const TIDY_OVERTAKEN_PER_DAY = 2;
+
+/** A pass that took less than this share off the indexes did not tidy them: the early trigger waits
+ *  for the weekly slot after it, unless the indexes have grown by as much again since. */
+export const TIDY_SHRINK_MIN = 0.02;
 const DAY_MS = 24 * 60 * 60_000;
 
 const TIDY_TICK_MS = 60 * 60_000;
-/** What of each fact file the model is shown, and of the store in all. Whole folders are shown or none,
- *  so duplicates inside a folder are always seen together. */
+/** What of each fact file the model is shown, and of the fact files in all. A folder that fits is shown
+ *  whole, so duplicates inside it are seen together; a larger one is shown a page at a time, in name
+ *  order so files on one subject sit on one page, each pass taking the page after the last. */
 const TIDY_FILE_SHOWN_MAX = 1_500;
 const TIDY_SHOWN_MAX = 60_000;
+export const TIDY_PAGE_MAX = 20_000;
+/** What of the indexes the model is shown — a budget of their own, so long indexes never leave the
+ *  fact files no room. */
+const TIDY_INDEXES_SHOWN_MAX = 120_000;
+const ARCHIVE_NAME = "ARCHIVE";
 const OPERATIONS_MAX = 20;
 
 const tidiedAtKey = (profileId: string): string => `memory.tidiedAt:${profileId}`;
 /** `{ overtaken, notBefore }`: when recent passes were overtaken, and the soonest the next may call the
  *  model. Cleared by a pass that writes. */
 const backoffKey = (profileId: string): string => `memory.tidyBackoff:${profileId}`;
+/** `{ before, after }`: the indexes' size around the last pass, for `TIDY_SHRINK_MIN`. */
+const shrinkKey = (profileId: string): string => `memory.tidyShrink:${profileId}`;
+/** Folder → the name of the fact the next page of that folder starts at. */
+const pagesKey = (profileId: string): string => `memory.tidyPages:${profileId}`;
 const WRITTEN_SINCE = "a file it would change was written after the plan was made";
 
 /** Thrown inside the store's lock when files the pass would change were written while it was planned. */
@@ -137,6 +151,8 @@ const linksFolder = (line: string): boolean => linksIn(line).some((l) => /^space
 /** Whether a line links this fact: its folder index by file name, the root by its path from the top. */
 const linksFact = (line: string, fact: { folder: string; name: string }, from: "index" | "root"): boolean =>
   linksIn(line).some((l) => (from === "index" ? l === `${fact.name}.md` : l === `spaces/${fact.folder}/${fact.name}` || l === `spaces/${fact.folder}/${fact.name}.md`));
+
+const withoutMd = (link: string): string => link.replace(/\.md$/, "");
 
 const oneLine = (s: string): string => s.replace(/\s+/g, " ").replace(/[[\]]/g, "").trim();
 
@@ -267,6 +283,27 @@ export class TidyDraft {
     return null;
   }
 
+  /**
+   * The deterministic step's other half: an index line whose every link ARCHIVE.md in the same folder
+   * already links was archived once, and its copy in the index left behind. The line goes; the file
+   * stays, linked from the archive.
+   */
+  unindexArchived(): number {
+    let dropped = 0;
+    for (const f of this.snap.folders) {
+      const archive = f.facts.find((x) => x.name === ARCHIVE_NAME);
+      if (!archive || this.recent(f.index.path) || this.recent(archive.path)) continue;
+      const archived = new Set(archive.text.split("\n").flatMap(linksIn).map(withoutMd));
+      this.editLines(f.index.path, (l) => {
+        const links = linksIn(l).map(withoutMd);
+        if (links.length === 0 || links.includes(ARCHIVE_NAME) || !links.every((x) => archived.has(x))) return l;
+        dropped++;
+        return null;
+      });
+    }
+    return dropped;
+  }
+
   /** One operation of the model's plan, or the reason it was dropped. */
   apply(op: TidyOp): string | null {
     if (op.op === "line") return this.line(op);
@@ -370,31 +407,68 @@ function applyAll(draft: TidyDraft, ops: readonly TidyOp[]): { applied: number; 
   return { applied, dropped };
 }
 
+const bySize = (snap: TidySnapshot) => [...snap.folders].sort((a, b) => b.facts.length - a.facts.length || a.folder.localeCompare(b.folder));
+
 /**
- * The files the model is shown: whole folders, largest first, while the budget lasts, with the indexes
- * counted against the same budget. A file longer than `TIDY_FILE_SHOWN_MAX` is shown cut, for context,
- * and left out of `whole` — the files a plan may act on.
+ * The fact files the model is shown, largest folder first, while `TIDY_SHOWN_MAX` lasts: a folder
+ * that fits whole, or else a page of it up to `TIDY_PAGE_MAX`, starting at the fact `pages` names for
+ * it and wrapping round. `pages` comes back naming where each paged folder's next page starts. A file
+ * longer than `TIDY_FILE_SHOWN_MAX` is shown cut, for context, and left out of `whole` — the files a
+ * plan may act on.
  */
-export function shownFiles(snap: TidySnapshot, indexChars: number): { files: TidyFile[]; whole: string[] } {
-  let room = TIDY_SHOWN_MAX - indexChars;
+export function shownFiles(snap: TidySnapshot, pages: Readonly<Record<string, string>> = {}): { files: TidyFile[]; whole: string[]; pages: Record<string, string> } {
+  let room = TIDY_SHOWN_MAX;
   const files: TidyFile[] = [];
   const whole: string[] = [];
-  for (const f of [...snap.folders].sort((a, b) => b.facts.length - a.facts.length || a.folder.localeCompare(b.folder))) {
+  const next: Record<string, string> = {};
+  const sizeOf = (x: TidyFile): number => x.path.length + x.text.length;
+  for (const f of bySize(snap)) {
     const shown = f.facts.map((x) => ({ path: x.path, text: x.text.length > TIDY_FILE_SHOWN_MAX ? `${x.text.slice(0, TIDY_FILE_SHOWN_MAX)}\n[cut]` : x.text }));
-    const size = shown.reduce((n, x) => n + x.path.length + x.text.length, 0);
-    if (size > room) continue;
-    files.push(...shown);
-    whole.push(...f.facts.filter((x) => x.text.length <= TIDY_FILE_SHOWN_MAX).map((x) => x.path));
-    room -= size;
+    const size = shown.reduce((n, x) => n + sizeOf(x), 0);
+    let take: number[];
+    if (size <= room) take = shown.map((_, i) => i);
+    else {
+      const start = Math.max(0, f.facts.findIndex((x) => x.name >= (pages[f.folder] ?? "")));
+      let page = Math.min(room, TIDY_PAGE_MAX);
+      take = [];
+      for (let k = 0; k < shown.length; k++) {
+        const i = (start + k) % shown.length;
+        if (sizeOf(shown[i]!) > page) break;
+        page -= sizeOf(shown[i]!);
+        take.push(i);
+      }
+      if (take.length === 0) continue;
+      next[f.folder] = f.facts[(start + take.length) % f.facts.length]!.name;
+    }
+    for (const i of take) {
+      files.push(shown[i]!);
+      if (f.facts[i]!.text.length <= TIDY_FILE_SHOWN_MAX) whole.push(f.facts[i]!.path);
+      room -= sizeOf(shown[i]!);
+    }
   }
-  return { files, whole };
+  return { files, whole, pages: next };
+}
+
+/** The indexes the model is shown: the root, then each folder's, largest folder first, while
+ *  `TIDY_INDEXES_SHOWN_MAX` lasts. */
+function shownIndexes(snap: TidySnapshot, draft: TidyDraft): TidyFile[] {
+  const root = { path: MEMORY_REPO_INDEX_FILE, text: draft.get(MEMORY_REPO_INDEX_FILE) ?? "" };
+  let room = TIDY_INDEXES_SHOWN_MAX - root.text.length;
+  const out = [root];
+  for (const f of bySize(snap)) {
+    const text = draft.get(f.index.path) ?? "";
+    if (text.length > room) continue;
+    out.push({ path: f.index.path, text });
+    room -= text.length;
+  }
+  return out;
 }
 
 // ─── The pass, and when it runs ───────────────────────────────────────────────────────────────────
 
 export type TidyOutcome =
   | { ran: false; why: string }
-  | { ran: true; writes: Map<string, string | null>; promoted: number; applied: number; dropped: { op: TidyOp; why: string }[]; rejected?: string; sha: string | null };
+  | { ran: true; writes: Map<string, string | null>; promoted: number; unindexed: number; applied: number; dropped: { op: TidyOp; why: string }[]; rejected?: string; sha: string | null };
 
 export type MemoryTidierDeps = {
   profileIds: () => string[];
@@ -417,8 +491,9 @@ const isoDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
 /**
  * Keeps each profile's memory repo tidy: about once a week, or sooner once the indexes a session is
- * handed grow past `TIDY_INDEX_MAX`. One pass is a deterministic step — facts about the person,
- * promoted to the root so every space sees them — then one model call proposing merges, rewrites,
+ * handed grow past `TIDY_INDEX_MAX` (unless the last pass could not shrink them, `TIDY_SHRINK_MIN`).
+ * One pass is a deterministic step — facts about the person promoted to the root so every space sees
+ * them, and index lines ARCHIVE.md already links dropped — then one model call proposing merges, rewrites,
  * deletions and shorter index lines, validated against the disk and applied with the first step as
  * ONE commit, "Tidy memory". That commit is the undo, and the Memory page's log shows it.
  *
@@ -462,16 +537,27 @@ export class MemoryTidier {
     const last = this.d.settings.get(tidiedAtKey(profileId));
     if (typeof last !== "number") { this.d.settings.set(tidiedAtKey(profileId), now); return; }
     const since = now - last;
-    const due = since >= TIDY_EVERY_MS || (since >= TIDY_SOONEST_MS && this.indexChars(profileId) > TIDY_INDEX_MAX);
+    const due = since >= TIDY_EVERY_MS || (since >= TIDY_SOONEST_MS && this.earlyIsWorthIt(profileId));
     if (due) void this.tidy(profileId).catch((e) => this.fail(profileId, e));
   }
 
   /** The longest set of indexes one of the profile's sessions is handed: the root and its space's folder. */
-  indexChars(profileId: string): number {
-    const places = this.places(profileId);
+  indexChars(profileId: string): number { return this.indexCharsOf(this.places(profileId)); }
+
+  private indexCharsOf(places: readonly SpaceFolder[]): number {
     if (places.length === 0) return 0;
     const size = (path: string): number => { try { return readFileSync(path, "utf8").length; } catch { return 0; } };
     return size(join(places[0]!.repoPath, MEMORY_REPO_INDEX_FILE)) + Math.max(0, ...places.map((p) => size(join(p.dir, MEMORY_REPO_INDEX_FILE))));
+  }
+
+  /** The indexes are past `TIDY_INDEX_MAX`, and the last pass shrank them by `TIDY_SHRINK_MIN` or
+   *  more — or they have grown by that much since it. */
+  private earlyIsWorthIt(profileId: string): boolean {
+    const chars = this.indexChars(profileId);
+    if (chars <= TIDY_INDEX_MAX) return false;
+    const v = this.d.settings.get(shrinkKey(profileId)) as { before?: unknown; after?: unknown } | null;
+    if (typeof v?.before !== "number" || typeof v.after !== "number") return true;
+    return v.before - v.after >= TIDY_SHRINK_MIN * v.before || chars > v.after * (1 + TIDY_SHRINK_MIN);
   }
 
   /** One pass. `dryRun` plans everything and writes nothing — not even the time of the attempt. */
@@ -486,6 +572,7 @@ export class MemoryTidier {
     const { owner, repoPath } = places[0]!;
     const now = this.now();
     const lastClock = this.d.settings.get(tidiedAtKey(profileId));
+    const before = this.indexCharsOf(places);
     this.inFlight.add(profileId);
     try {
       // The attempt is the clock, whatever comes of it: a pass that fails must not be retried hourly.
@@ -500,10 +587,12 @@ export class MemoryTidier {
       const snap = readSnapshot(repoPath, folders);
       const draft = new TidyDraft(snap, now, today);
       const promoted = draft.promote();
+      const unindexed = draft.unindexArchived();
       // The model sees the indexes as the deterministic step left them, so it can tidy those lines too.
-      const indexView = [MEMORY_REPO_INDEX_FILE, ...snap.folders.map((f) => f.index.path)].map((path) => ({ path, text: draft.get(path) ?? "" }));
-      const { files, whole } = shownFiles(snap, indexView.reduce((n, f) => n + f.text.length, 0));
+      const indexView = shownIndexes(snap, draft);
+      const { files, whole, pages } = shownFiles(snap, this.pages(profileId));
       draft.showOnly(whole);
+      if (!o.dryRun) this.d.settings.set(pagesKey(profileId), pages);
 
       let rejected: string | undefined;
       let ops: TidyOp[] = [];
@@ -516,8 +605,11 @@ export class MemoryTidier {
         if (plan.ok) ops = plan.operations; else rejected = plan.error;
       }
       if (rejected) this.d.onError?.(`[memory] tidy for profile ${profileId}: the plan was refused (${rejected}); only the deterministic step applies`);
-      let pass = { draft, promoted, ...applyAll(draft, ops), writes: draft.changes() };
-      if (o.dryRun || pass.writes.size === 0) return { ran: true, writes: pass.writes, promoted, applied: pass.applied, dropped: pass.dropped, rejected, sha: null };
+      let pass = { draft, promoted, unindexed, ...applyAll(draft, ops), writes: draft.changes() };
+      if (o.dryRun || pass.writes.size === 0) {
+        if (!o.dryRun) this.d.settings.set(shrinkKey(profileId), { before, after: before });
+        return { ran: true, writes: pass.writes, promoted, unindexed, applied: pass.applied, dropped: pass.dropped, rejected, sha: null };
+      }
       let written = await this.commit(owner, pass.draft, pass.writes);
       if ("moved" in written) {
         // Once more, at once, on the files as they are — with the same plan, never a second call. An
@@ -527,8 +619,9 @@ export class MemoryTidier {
         if ("moved" in written) return this.overtaken(profileId, lastClock, written.moved);
       }
       this.d.settings.set(backoffKey(profileId), null);
+      this.d.settings.set(shrinkKey(profileId), { before, after: this.indexCharsOf(places) });
       this.d.onTidied?.(owner);
-      return { ran: true, writes: pass.writes, promoted: pass.promoted, applied: pass.applied, dropped: pass.dropped, rejected, sha: written.sha };
+      return { ran: true, writes: pass.writes, promoted: pass.promoted, unindexed: pass.unindexed, applied: pass.applied, dropped: pass.dropped, rejected, sha: written.sha };
     } finally {
       this.inFlight.delete(profileId);
     }
@@ -559,8 +652,9 @@ export class MemoryTidier {
     const draft = new TidyDraft(fresh, this.now(), today);
     draft.planSaw(saw);
     const promoted = draft.promote();
+    const unindexed = draft.unindexArchived();
     draft.showOnly(whole);
-    return { draft, promoted, ...applyAll(draft, ops), writes: draft.changes() };
+    return { draft, promoted, unindexed, ...applyAll(draft, ops), writes: draft.changes() };
   }
 
   /**
@@ -578,6 +672,11 @@ export class MemoryTidier {
     this.d.settings.set(backoffKey(profileId), { overtaken, notBefore: now + (capped ? TIDY_EVERY_MS : TIDY_BACKOFF_MS) });
     this.d.onError?.(`[memory] tidy for profile ${profileId}: ${moved.join(", ")} changed while the pass was planned, and it could not be written on the files as they are now; nothing written, next try ${capped ? "at the weekly slot" : "in six hours at the soonest"}`);
     return { ran: false, why: `memory changed during the pass: ${moved.join(", ")}` };
+  }
+
+  private pages(profileId: string): Record<string, string> {
+    const v = this.d.settings.get(pagesKey(profileId));
+    return v && typeof v === "object" ? Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string")) : {};
   }
 
   private backoff(profileId: string): { overtaken: number[]; notBefore: number } {
