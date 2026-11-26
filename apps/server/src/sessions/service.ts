@@ -29,6 +29,7 @@ import type { SkillsService } from "../skills/service";
 import type { McpGateway } from "../mcp/gateway";
 import { capabilitiesContext } from "../mcp/capabilities";
 import type { MemoryService } from "../memory/service";
+import { indexQuery } from "../memory/context-budget";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { AppViewRef, MemorySources } from "@realm/contracts";
@@ -894,7 +895,7 @@ export class SessionService {
     // the conversation in the mode the old one could not switch to.
     if (this.restartOwed.delete(id)) void this.reap(id);
     await this.reaping.get(id);
-    const handle = this.ensureLive(id);
+    const handle = this.ensureLive(id, undefined, msg.text);
     // A start that carried a restore's fork can be refused at fork time, before the model sees a word
     // of this message — so the message is held until that boot proves itself, and re-sent plainly if it
     // does not. Only on this path: `deliverInterjection` and `resendTurn` do their own bookkeeping, and
@@ -965,7 +966,7 @@ export class SessionService {
     if (!this.d.sessions.get(id)) return; // deleted while a backoff was pending
     await this.ensurePorts(id);
     await this.reaping.get(id);
-    const handle = this.ensureLive(id);
+    const handle = this.ensureLive(id, undefined, msg.text);
     this.noteRealmTurn(id);
     this.written.add(id);
     if (msg.byPerson === true) this.personTurns.add(id); else this.personTurns.delete(id);
@@ -1086,7 +1087,7 @@ export class SessionService {
     const wasLive = this.live.has(id);
     await this.ensurePorts(id);
     await this.reaping.get(id);
-    const handle = this.ensureLive(id);
+    const handle = this.ensureLive(id, undefined, msg.text);
     const interrupted = wasLive && opts.interruptFirst;
     if (interrupted) await this.interruptAndSettle(id, handle);
     // After the interrupt, not before: the turn it stopped is measured from that settle, and this
@@ -2321,8 +2322,10 @@ export class SessionService {
     this.ensureLive(id);
   }
 
-  /** `at` starts it somewhere other than the row's environment — a move's boot, before the row moves. */
-  private ensureLive(id: string, at?: Environment): AgentHandle {
+  /** `at` starts it somewhere other than the row's environment — a move's boot, before the row moves.
+   *  `sending` is the message this start is for, which is the session's first prompt when it has none
+   *  stored yet. */
+  private ensureLive(id: string, at?: Environment, sending?: string): AgentHandle {
     const existing = this.live.get(id); if (existing) return existing.handle;
     // The load-bearing refusal of a drain (Plan 26 Phase 8). A handle that is ALREADY running is
     // fine: the child has exec'd, and the inode survives `install-local.mjs` deleting the bundle
@@ -2368,7 +2371,12 @@ export class SessionService {
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
     // isolation on, so the re-injection can never disagree with it.
     // Frozen per session (`contextForSession`): a restart gets the bytes the first start did.
-    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    // The stored first prompt before this message: a start after a server restart ranks the indexes
+    // as the first start did, so the frozen bytes come out the same.
+    const first = this.d.events.listOfTypes(id, ["user_message"], { afterSeq: 0, limit: 1 })[0]?.event;
+    const firstPrompt = first?.type === "user_message" ? first.payload.text : sending;
+    const query = indexQuery(firstPrompt, s.title === DEFAULT_TITLE ? null : s.title);
+    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined, query });
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
