@@ -1,10 +1,11 @@
 import { z } from "zod";
 import {
+  AGENT_SIGNINS_CARD, AGENT_SIGNINS_CARD_TITLE, AGENT_SIGNINS_OFF, agentFillNote, sessionEvent,
   BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema, refineKeyAction,
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
   PANE_SHOW_WIRE_NAME, SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin, paneNotOpenError,
-  type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type SiteCredential, type BrowserDescribeResult,
+  type AgentFillKind, type SessionEvent, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type SiteCredential, type BrowserDescribeResult,
   type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserFillCredentialResult,
   type BrowserNavigateResult, type BrowserReadResult, type BrowserScreenshotResult,
   BrowserSnapshotScopeSchema, SNAPSHOT_SCOPE_PROPERTIES, type BrowserSnapshotResult, type BrowserUploadResult, type Browser,
@@ -84,8 +85,10 @@ export type BrowserAgentToolsDeps = {
   browserService: Pick<BrowserService, "open">;
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
-  broker: Pick<BrowserPermissionBroker, "gate">;
+  broker: Pick<BrowserPermissionBroker, "gate" | "invite">;
   rpc: Pick<RpcServer, "broadcast">;
+  /** A line on the calling session's transcript: every agent fill, by site and kind. */
+  transcript?: { note(sessionId: string, ev: SessionEvent): void };
   /**
    * Plan 11 W5: per-session mutation constraints — a delegated browser-agent child's
    * `allowedOrigins`/`maxActs` (see `BrowserAgentService.checkMutation`). Consulted before every
@@ -608,14 +611,15 @@ const HANDLERS: Record<string, Handler> = {
       const title =
         `Create a new saved password for ${origin}${named ? ` — the agent labels it "${named}"` : ""} and fill it into the page on ${hostOf(live?.url)}. `
         + GENERATED_CREDENTIAL_NOTE;
-      // The same always-prompt gate as an enrolled fill, for the same reason: a secret is entering a
-      // page. That the user has never seen this one does not make the card optional — it is the only
-      // place they learn an account is about to exist with a password only Realm will hold.
+      // Carded every time unless the person let agents finish sign-ins: the card is where they learn an
+      // account is about to exist with a password only Realm will hold. With that on, the transcript
+      // line after the fill tells them instead.
+      const finishing = await signinsOn(d, ctx);
       const gate = await d.broker.gate(
         ctx.sessionId, "browser_fill_credential", title,
         // `always: false`: the card offers no "Always allow" for a password that does not exist yet.
         { browserId: row.value.id, ref: args.value.ref, origin, username: generate.username, label: generate.label, generate: true, always: false },
-        "browser_fill_credential", { alwaysPrompt: true },
+        "browser_fill_credential", finishing ? { preapproved: true } : { alwaysPrompt: true },
       );
       if (!gate.allowed) return err(gate.reason);
 
@@ -623,10 +627,11 @@ const HANDLERS: Record<string, Handler> = {
         // The profile of the calling session's space, as the enrolled route sends: the new row joins
         // that profile's sign-ins, and main refuses a pane whose cookie jar is another profile's.
         const result = (await d.bridge.call("fillCredential", {
-          browserId: row.value.id, ref: args.value.ref, origin, generate, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId,
+          browserId: row.value.id, ref: args.value.ref, origin, generate, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId, sessionId: ctx.sessionId,
         })) as BrowserFillCredentialResult;
         // No screenshot on failure here either: the field may hold what was typed into it.
         if (!result.ok) return err(`no password was generated or filled: ${result.error}`);
+        noteFill(d, ctx, "generated", origin);
         return ok(
           `${result.detail}${result.credentialId ? `, as credentialId ${result.credentialId}` : ""}. `
           + "Use that id to fill the same password again — a confirm-password field takes the same call. "
@@ -652,11 +657,14 @@ const HANDLERS: Record<string, Handler> = {
     /* How the card stands, and nothing else gets past it:
        - on a page of the password's own site: the card, which offers "Always allow on this site".
          That answer is kept in main for THIS password on THIS exact origin, and after it the card is
-         skipped there — never the unlock, which main still asks for on every fill;
-       - on any other page: the card on every fill (`alwaysPrompt`);
+         skipped there — never the unlock, which main still asks for on every fill. With "Let agents
+         finish sign-ins" on, no card here at all; the unlock still runs;
+       - on any other page: the card on every fill (`alwaysPrompt`), whatever the person turned on:
+         a password going into another site's page is how a phishing page would get it;
        - `bypassPermissions` skips none of it (`promptUnderBypass`): a secret entering a page is not an
          ordinary action. A read-only mode refuses before any of this. */
     const standing = pageOrigin !== null;
+    const finishing = await signinsOn(d, ctx);
     const allowKey = `browser_fill_credential:${credential.id}@${pageOrigin ?? ""}`;
     const gate = await d.broker.gate(
       ctx.sessionId, standing ? allowKey : "browser_fill_credential", title,
@@ -666,7 +674,7 @@ const HANDLERS: Record<string, Handler> = {
       "browser_fill_credential",
       standing ? {
         promptUnderBypass: true,
-        preapproved: onSite?.agentAllowed === true,
+        preapproved: finishing || onSite?.agentAllowed === true,
         onAlwaysAllow: () => { void d.bridge.call("credentialAllow", { profileId: profileIdOf(d, ctx), credentialId: credential.id, origin: pageOrigin }).catch(() => {}); },
       }
       : { alwaysPrompt: true },
@@ -675,24 +683,23 @@ const HANDLERS: Record<string, Handler> = {
 
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("fillCredential", {
-        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId,
+        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId, sessionId: ctx.sessionId,
         // The page the card named. Main fills only if the live page is exactly this origin.
         ...(pageOrigin ? { pageOrigin } : {}),
       })) as BrowserActResult;
       // No screenshot on failure, unlike `runAct`. A shot taken microseconds after a fill can contain
       // the filled field, and some sites render the value in plain text on the way to masking it.
       if (!result.ok) return err(`the sign-in was not filled: ${result.error}`);
+      noteFill(d, ctx, "password", pageOrigin ?? credential.origin);
       return ok(`${result.detail}. ${CREDENTIAL_2FA_NOTE}`);
     });
   },
 
   /**
-   * The security code a site just sent, typed into its field by Electron main (`fillCode`), after the
-   * user approves this one fill. The same gate as a credential fill on a page that is not its own:
-   * a card every time, which `bypassPermissions` does not skip and "Always allow" does not satisfy,
-   * because what enters the page is read from the person's messages. The code is read only after the
-   * card is answered, and nothing about it — not its value, length or sender — comes back here.
-   * Main waits up to `SECURITY_CODE_WAIT_MS` for a code to arrive.
+   * The security code a site just sent, typed into its field by Electron main (`fillCode`). Only with
+   * "Let agents finish sign-ins" on, and then with no card (Plan and Ask still refuse); off, Realm asks
+   * the person once to turn it on and fills nothing. Nothing about the code — not its value, length or
+   * sender — comes back here. Main waits up to `SECURITY_CODE_WAIT_MS` for a code to arrive.
    */
   browser_fill_code: async (d, ctx, rawArgs) => {
     const args = parseArgs(FillCodeArgs, rawArgs); if ("error" in args) return args.error;
@@ -701,17 +708,17 @@ const HANDLERS: Record<string, Handler> = {
     const live = await describeSafe(d, row.value.id);
     const origin = normalizeOrigin(live?.url ?? "");
     if (!origin) return err("refused: this pane is not on an http(s) page, so there is no site to fill a code into.");
-    // Before the card: a card for a fill the switch would refuse asks the user a question with one answer.
+    if (!(await signinsOn(d, ctx))) return err(AGENT_SIGNINS_OFF);
     const switched = (await d.bridge.call("codesEnabled", {}).catch(() => null)) as { enabled?: boolean } | null;
     if (switched?.enabled !== true) {
-      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Sign-ins ▸ Security codes. Ask them to type the code into the pane, or to turn that on.");
+      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Sign-ins ▸ Security codes. Nothing was filled.");
     }
     const title = `Fill the security code from Messages or Mail into the page on ${hostOf(live?.url)}`;
+    // Preapproved by the switch, and still a gate: Plan and Ask refuse it there.
     const gate = await d.broker.gate(
       ctx.sessionId, "browser_fill_code", title,
-      // `always: false`, as on a credential fill off its own site: no answer on this card outlasts the fill.
       { browserId: row.value.id, ref: args.value.ref, origin, always: false },
-      "browser_fill_code", { alwaysPrompt: true },
+      "browser_fill_code", { preapproved: true },
     );
     if (!gate.allowed) return err(`declined: ${gate.reason}`);
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
@@ -719,10 +726,11 @@ const HANDLERS: Record<string, Handler> = {
       const cancel = () => { void d.bridge.call("fillCodeCancel", { browserId: row.value.id }).catch(() => {}); };
       ctx.signal?.addEventListener("abort", cancel, { once: true });
       ctx.progress?.("waiting for the code to arrive by text or email");
-      const result = (await d.bridge.call("fillCode", { browserId: row.value.id, ref: args.value.ref, origin })
+      const result = (await d.bridge.call("fillCode", { browserId: row.value.id, ref: args.value.ref, origin, sessionId: ctx.sessionId })
         .finally(() => ctx.signal?.removeEventListener("abort", cancel))) as BrowserActResult;
       // No screenshot on failure, as for a credential: the field may hold what was typed.
       if (!result.ok) return err(`not filled: ${result.error}`);
+      noteFill(d, ctx, "code", origin);
       return ok("filled");
     });
   },
@@ -944,6 +952,23 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
  * broadcast comes AFTER settle, whatever the outcome: a throw is reported as `ok: false` and then
  * rethrown for the provider's error path.
  */
+/**
+ * Whether the person let agents finish sign-ins: main's switch, asked on every fill. Off, the person
+ * gets one card per session asking them to turn it on, which the agent cannot answer for them: it
+ * opens Settings, and the switch is main's.
+ */
+async function signinsOn(d: Deps, ctx: ProviderCallContext): Promise<boolean> {
+  const r = (await d.bridge.call("signinsEnabled", {}).catch(() => null)) as { enabled?: boolean } | null;
+  if (r?.enabled === true) return true;
+  d.broker.invite(ctx.sessionId, AGENT_SIGNINS_CARD, AGENT_SIGNINS_CARD_TITLE, { opens: "settings:signins" });
+  return false;
+}
+
+/** The transcript's line for one agent fill: the site and the kind, never the value. */
+function noteFill(d: Deps, ctx: ProviderCallContext, kind: AgentFillKind, site: string): void {
+  d.transcript?.note(ctx.sessionId, sessionEvent("signin_filled", { site, kind, note: agentFillNote(kind, hostOf(site)) }));
+}
+
 async function runTracked(d: Deps, spaceId: string, browserId: string, text: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
   d.rpc.broadcast("browser.driving", { spaceId, browserId, driving: true });
   let ok = false;
