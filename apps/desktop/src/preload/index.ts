@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
 import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
-import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp, GlobalKeysEvent, GlobalKeysState, HoldKey, AssistantPageAction } from "@realm/contracts";
+import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp, GlobalKeysEvent, GlobalKeysState, HoldKey, CommandSide, AssistantPageAction } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { BackdropState } from "../main/backdrop-state";
@@ -164,6 +164,7 @@ contextBridge.exposeInMainWorld("realm", {
   keys: {
     state: (): Promise<GlobalKeysState> => ipcRenderer.invoke("keys:state"),
     setDoubleTap: (on: boolean): Promise<void> => ipcRenderer.invoke("keys:set-double-tap", on),
+    setDoubleTapSide: (side: CommandSide): Promise<void> => ipcRenderer.invoke("keys:set-double-tap-side", side),
     setHold: (key: HoldKey): Promise<void> => ipcRenderer.invoke("keys:set-hold", key),
     setAssistant: (on: boolean): Promise<void> => ipcRenderer.invoke("keys:set-assistant", on),
     /** While a page watches, main says when it sees a double-tap or the held key (`onEvent`). */

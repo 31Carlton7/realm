@@ -265,7 +265,8 @@ describe("migration v56 — compressed event payloads", () => {
       CREATE INDEX session_events_session ON session_events(session_id, seq);
       CREATE TABLE sessions (id TEXT PRIMARY KEY);
       CREATE TABLE team_roles (id TEXT PRIMARY KEY);
-      CREATE TABLE schedules (id TEXT PRIMARY KEY, role_id TEXT);`);
+      CREATE TABLE schedules (id TEXT PRIMARY KEY, role_id TEXT);
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);`);
     for (let v = 1; v <= V56_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     const ins = db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('s', ?, ?, ?)");
     ins.run(1, "status", JSON.stringify({ status: "idle" }));

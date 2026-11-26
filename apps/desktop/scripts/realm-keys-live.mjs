@@ -4,6 +4,7 @@
  *   node apps/desktop/scripts/realm-keys-live.mjs taps       the helper alone, on real event taps
  *   node apps/desktop/scripts/realm-keys-live.mjs app        the built app: a double-tap opens the quick chat panel
  *   node apps/desktop/scripts/realm-keys-live.mjs settings   captures of Settings ▸ Keys ▸ From anywhere
+ *   node apps/desktop/scripts/realm-keys-live.mjs sides      the built app: which Command key opens the quick chat
  *
  * Whether a session tap delivers an event, whether returning nil keeps it from the next tap, and
  * whether main hears the helper are none of them things the suite can see: `realmkeys decide` and
@@ -16,6 +17,8 @@
  * themselves at 18 s and are killed from here at 20. Neither asks for a permission: without
  * Accessibility for whatever started this script, they say so and nothing is posted.
  * `settings` starts no tap at all: the app is given a stand-in helper that only prints.
+ * `sides` starts no tap and posts nothing either: its stand-in runs the helper's own decider
+ * (`realmkeys decide`) on events this script writes, with the config main sent.
  * `app` and `settings` give the app a stand-in calendar helper too, so neither reads a real calendar.
  *
  * REBUILD FIRST for `app` and `settings` (`pnpm build`): they boot apps/desktop/out, not the sources.
@@ -131,7 +134,7 @@ async function tapsRun(title, steps, { swallow = false } = {}) {
         check(`${title}: ${step.as}`, JSON.stringify(installed) === JSON.stringify(step.installed), installed);
         continue;
       }
-      if (step.config) { child.stdin.write(`${JSON.stringify({ doubleTap: true, maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false, ...step.config })}\n`); await sleep(100); continue; }
+      if (step.config) { child.stdin.write(`${JSON.stringify({ doubleTap: true, command: "either", maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false, ...step.config })}\n`); await sleep(100); continue; }
       const from = said.seen.length;
       const { reached, slowestMs } = await proofTool.run(step.scenario);
       const heard = said.seen.slice(from);
@@ -258,7 +261,7 @@ async function shoot(app, file, selector, closest = null) {
     return { clip: { x: Math.round(box.left) - 24, y: Math.round(box.top) - 24, width: Math.round(box.width) + 48, height: Math.round(box.height) + 48 }, page: [...ctx.getImageData(0, 0, 1, 1).data] };
   })()`);
   // No tooltip in the picture: one for whatever holds focus or the pointer lies over the row beside it.
-  await app.page.eval(`document.activeElement?.blur(); true`);
+  await app.page.eval(`document.activeElement?.blur(); window.dispatchEvent(new Event("resize")); true`);
   await app.page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
   await sleep(400);
   await app.page.send("Emulation.setDefaultBackgroundColorOverride", { color: { r, g, b, a: 1 } });
@@ -437,13 +440,201 @@ async function settingsPart() {
   }
 }
 
-const parts = { taps, app: appPart, settings: settingsPart };
+/* ── sides: which Command key opens the quick chat ───────────────────────────────────────── */
+
+/**
+ * The app's helper for `sides`: no tap. Each batch of events this script writes to `say`, ending in a
+ * line "end", goes to a fresh `realmkeys decide` with the last config main sent, and what the
+ * decider says is printed as the helper would print it. Every config main sends is kept in `configs`.
+ */
+const DECIDER = (bin) => `#!/usr/bin/env node
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const configs = path.join(__dirname, "configs");
+const say = path.join(__dirname, "say");
+if (!fs.existsSync(say)) fs.writeFileSync(say, "");
+let config = null;
+let input = "";
+process.stdin.on("data", (d) => {
+  input += d;
+  for (let nl = input.indexOf("\\n"); nl !== -1; nl = input.indexOf("\\n")) {
+    config = input.slice(0, nl);
+    input = input.slice(nl + 1);
+    fs.appendFileSync(configs, config + "\\n");
+  }
+});
+process.stdin.on("end", () => process.exit(0));
+console.log(JSON.stringify({ ready: true, active: false }));
+let said = fs.readFileSync(say, "utf8").length;
+let batch = [];
+setInterval(() => {
+  const all = fs.readFileSync(say, "utf8");
+  const fresh = all.slice(said);
+  said = all.length;
+  for (const line of fresh.split("\\n").filter(Boolean)) {
+    if (line !== "end") { batch.push(line); continue; }
+    const decided = config ? execFileSync(${JSON.stringify(bin)}, ["decide"], { input: [config, ...batch].join("\\n") + "\\n", encoding: "utf8" }) : "";
+    batch = [];
+    for (const d of decided.split("\\n").filter(Boolean)) for (const o of JSON.parse(d).out ?? []) process.stdout.write(JSON.stringify(o) + "\\n");
+  }
+}, 100);
+`;
+
+const NO_FLAGS = 0x100, LEFT_FLAGS = 0x100008, RIGHT_FLAGS = 0x100010;
+const KEYCODE = { left: 55, right: 54 };
+/** Seconds on the decider's clock: each pair starts well clear of the last, so no two pair up. */
+let clock = 0;
+/** Two taps of `first` then `second` (left or right), 120 ms apart, as a keyboard sends them. */
+function pair(first, second = first) {
+  clock += 10;
+  const lines = [];
+  for (const [i, key] of [first, second].entries()) {
+    const t = clock + i * 0.18;
+    lines.push(`flags ${t.toFixed(3)} ${KEYCODE[key]} ${key === "left" ? LEFT_FLAGS : RIGHT_FLAGS}`, `flags ${(t + 0.06).toFixed(3)} ${KEYCODE[key]} ${NO_FLAGS}`);
+  }
+  fs.appendFileSync(path.join(tools, "say"), `${lines.join("\n")}\nend\n`);
+}
+const lastCommand = () => {
+  const file = path.join(tools, "configs");
+  const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
+  return lines.length ? JSON.parse(lines.at(-1)).command ?? null : null;
+};
+
+/** A pair, and whether it opened the panel. One that did is put away again by the same pair. */
+async function opens(app, first, second = first) {
+  pair(first, second);
+  const opened = await until(() => panelVisible(app), 15_000, "the quick chat panel").then(() => true, () => false);
+  if (!opened) return false;
+  pair(first, second);
+  await until(async () => !(await panelVisible(app)), 5000, "the panel to be put away");
+  return true;
+}
+/** A pair that should open nothing: the panel stays shut a second after it. */
+async function staysShut(app, first, second = first) {
+  pair(first, second);
+  await sleep(1000);
+  return !(await panelVisible(app));
+}
+
+const sideRadio = (value) => `document.querySelector('input[name="settings-double-tap-side"][value="${value}"]')`;
+async function chooseSide(app, value) {
+  await app.page.eval(`${sideRadio(value)}.click(); true`);
+  await until(async () => lastCommand() === value, 5000, `main to send ${value}`);
+}
+
+async function sidesPart() {
+  const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), "realm-keys-sides-home-"));
+  const env = {
+    HOME: scratchHome, REALM_LAYA_VENV: path.join(scratchHome, "laya-venv"), REALM_LAYA_HF_HOME: path.join(scratchHome, "laya-hf"),
+    REALM_KEYS_BIN: path.join(tools, "realmkeys-decider.cjs"), REALM_MEETINGWATCH_BIN: calendarStandIn(),
+  };
+  execFileSync("swiftc", ["-O", "-o", helper, path.join(desktopRoot, "native/RealmKeys.swift")], { stdio: "inherit" });
+  fs.writeFileSync(env.REALM_KEYS_BIN, DECIDER(helper), { mode: 0o755 });
+
+  // A fresh home: nothing stored, so the default. Kept for the migration's second launch below.
+  const app = await launchLiveApp({ name: "realm-keys-sides", inspect: true, keep: true, env });
+  const home = app.home;
+  let stopped = false;
+  try {
+    await sidesOnFreshHome(app);
+    await app.stop();
+    stopped = true;
+    await sidesAfterMigration(home, env);
+  } finally {
+    if (!stopped) await app.stop();
+    fs.rmSync(path.dirname(home), { recursive: true, force: true });
+    if (fs.existsSync(env.REALM_LAYA_VENV)) console.log(`Laya had installed into ${env.REALM_LAYA_VENV}`);
+    fs.rmSync(scratchHome, { recursive: true, force: true });
+  }
+}
+
+async function sidesOnFreshHome(app) {
+  await throughOnboarding(app.page);
+  await until(async () => lastCommand() !== null, 10_000, "main to configure the helper");
+  check("fresh home: main asks the helper for Left Command", lastCommand() === "left", { command: lastCommand() });
+  check("fresh home: a double-tap of Left Command opens the quick chat", await opens(app, "left"));
+  check("fresh home: a double-tap of Right Command opens nothing", await staysShut(app, "right"));
+  check("fresh home: Left then Right opens nothing", await staysShut(app, "left", "right"));
+
+  await openKeysSettings(app);
+  check("Settings shows Left Command chosen", await app.page.eval(`${sideRadio("left")}.checked`));
+  const want = { left: { left: true, right: false }, right: { left: false, right: true }, either: { left: true, right: true } };
+  for (const side of ["right", "either", "left"]) {
+    await chooseSide(app, side);
+    for (const key of ["left", "right"]) {
+      const seenBefore = (await tryRow(app.page))[0];
+      const opened = want[side][key] ? await opens(app, key) : !(await staysShut(app, key));
+      await sleep(300);
+      const seenAfter = (await tryRow(app.page))[0];
+      check(`chosen ${side}: a double-tap of ${key === "left" ? "Left" : "Right"} Command ${want[side][key] ? "opens" : "does not open"} the quick chat, and Try it ${want[side][key] ? "shows it" : "shows nothing"}`,
+        opened === want[side][key] && seenAfter === (want[side][key] ? "⌘⌘Seen" : seenBefore), { opened, seenBefore, seenAfter });
+    }
+    if (side === "either") check("chosen either: Left then Right opens the quick chat", await opens(app, "left", "right"));
+    const rows = await app.page.eval(`[...document.querySelectorAll('[data-setting="double-tap-side"], [data-setting="keys-try"]')].map((el) => el.innerText.replace(/\\s+/g, ' ').trim())`);
+    results.push({ name: `rows with ${side} chosen`, ok: true, detail: rows });
+    console.log(`ROWS ${side} ${JSON.stringify(rows)}`);
+  }
+
+  // The switch still turns the double-tap off and on, on the chosen key.
+  await app.page.eval(`document.querySelector('[data-setting="double-tap-command"] input').click(); true`);
+  await until(() => app.page.eval(`!document.querySelector('[data-setting="double-tap-command"] input').checked`), 3000, "the switch to read off");
+  await sleep(300);
+  check("switch off: a double-tap of Left Command opens nothing", await staysShut(app, "left"));
+  await app.page.eval(`document.querySelector('[data-setting="double-tap-command"] input').click(); true`);
+  await sleep(300);
+  check("switch on again: a double-tap of Left Command opens the quick chat", await opens(app, "left"));
+
+  // Captures of the new control: Plain and Glass, dark and light, on Left and on Either.
+  const api = rpc(app.ports.server, await daemonToken(app.home));
+  await api.ready;
+  await app.page.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 820, deviceScaleFactor: 2, mobile: false });
+  for (const look of ["plain", "glass"]) {
+    await api.call("settings.set", { key: "ui.look", value: look });
+    await app.page.send("Page.reload", {});
+    await until(() => app.page.eval(`!!document.querySelector('.composer, input[name="settings-page-tab"]')`), 20_000, "the window after a reload");
+    await app.page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+    await openKeysSettings(app);
+    for (const side of ["left", "either"]) {
+      await chooseSide(app, side);
+      for (const mode of ["dark", "light"]) {
+        await app.page.eval(`document.documentElement.dataset.mode = ${JSON.stringify(mode)}; true`);
+        await sleep(350);
+        console.log(`SHOT ${await shoot(app, path.join(out, `double-tap-side-${side}-${look}-${mode}.png`), '[data-setting="double-tap-side"]', ".field")}`);
+      }
+    }
+  }
+  api.close();
+}
+
+/** The migration on the built app: `home` as a home from before it, with the double-tap saved on. */
+async function sidesAfterMigration(home, env) {
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(path.join(home, "realm.db"));
+  db.exec(`DELETE FROM schema_version WHERE version = (SELECT MAX(version) FROM schema_version);
+    DELETE FROM settings WHERE key = 'keys.doubleTapSide';
+    INSERT INTO settings (key, value_json) VALUES ('keys.doubleTapCommand', 'true') ON CONFLICT(key) DO UPDATE SET value_json = 'true';`);
+  db.close();
+  fs.rmSync(path.join(tools, "configs"), { force: true });
+  const again = await launchLiveApp({ name: "realm-keys-sides-again", inspect: true, env: { ...env, REALM_HOME: home } });
+  try {
+    await until(() => again.page.eval(`!!document.querySelector('.composer, input[name="settings-page-tab"]')`), 20_000, "the window");
+    await until(async () => lastCommand() !== null, 10_000, "main to configure the helper");
+    check("upgraded home that saved the double-tap on: main asks the helper for either key", lastCommand() === "either", { command: lastCommand() });
+    check("upgraded home: a double-tap of Right Command still opens the quick chat", await opens(again, "right"));
+    check("upgraded home: a double-tap of Left Command still opens the quick chat", await opens(again, "left"));
+  } finally {
+    await again.stop();
+  }
+}
+
+const parts = { taps, app: appPart, settings: settingsPart, sides: sidesPart };
 if (!parts[part]) {
-  console.error("usage: node apps/desktop/scripts/realm-keys-live.mjs taps|app|settings");
+  console.error("usage: node apps/desktop/scripts/realm-keys-live.mjs taps|app|settings|sides");
   process.exit(64);
 }
 // Behind the lock screen a posted event reaches no tap, so the proof tool's first answer never comes.
-if (part !== "settings") {
+if (part !== "settings" && part !== "sides") {
   const front = execFileSync("lsappinfo", ["front"], { encoding: "utf8" }).trim();
   if (execFileSync("lsappinfo", ["info", "-only", "bundleid", front], { encoding: "utf8" }).includes("com.apple.loginwindow")) {
     console.error("the screen is locked: unlock the Mac and run this again");

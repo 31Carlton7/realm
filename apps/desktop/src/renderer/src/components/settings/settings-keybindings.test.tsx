@@ -53,7 +53,7 @@ describe("the keybindings panel", () => {
     expect(group.querySelector(":scope > span")).toHaveTextContent("From anywhere");
     expect([...group.querySelectorAll("[data-setting]")].map((r) => r.getAttribute("data-setting")))
       .toEqual([
-        "quick-chat-shortcut", "double-tap-command", "quick-chat-hide",
+        "quick-chat-shortcut", "double-tap-command", "double-tap-side", "quick-chat-hide",
         "assistant-hold-key", "assistant-chords",
         "assistant-chord:R", "assistant-chord:L", "assistant-chord:G", "assistant-chord:T",
         "assistant-chord:J", "assistant-chord:K", "assistant-chord:,", "assistant-chord:.",
