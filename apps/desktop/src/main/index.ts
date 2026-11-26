@@ -80,6 +80,7 @@ import { registerFullScreenQuery, wireFullScreen } from "./full-screen";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
 import { SecurityCodes, SecurityCodesSetting, codeSourcesFor } from "./security-codes";
+import { AgentSignins } from "./agent-signins";
 import { registerPasswordsIpc } from "./passwords-ipc";
 import { readSecretsFile, setAsideSecretsFile, writeSecretsFile } from "./secrets-file";
 import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
@@ -999,6 +1000,10 @@ const agentHost = new BrowserAgentHost({
     waitFor: async (origin, o) => (await codes()?.waitFor(origin, o)) ?? { found: null, cancelled: false, miss: { Messages: "missing", Mail: "missing", Notifications: "missing" } },
   },
   coverShot: coverJpeg,
+  signins: {
+    enabled: () => agentSignins()?.enabled() ?? false,
+    record: (fill) => agentSignins()?.record(fill),
+  },
 });
 
 /** The browser a download came from, in whichever window holds its view. */
@@ -1291,6 +1296,23 @@ function codes(): SecurityCodes | null {
 ipcMain.handle("codes:status", async (e) => (e.senderFrame === e.sender.mainFrame ? (await codes()?.status()) ?? null : null));
 ipcMain.handle("codes:set-enabled", async (e, on: unknown) =>
   (e.senderFrame === e.sender.mainFrame ? (await codes()?.setEnabled(on === true)) ?? null : null));
+
+/**
+ * Let agents finish sign-ins (agent-signins.ts): main's file under the home, so no agent can turn it
+ * on. Null only before realm-server has announced its home, which reads as off.
+ */
+let agentSigninsFile: AgentSignins | null = null;
+function agentSignins(): AgentSignins | null {
+  if (agentSigninsFile) return agentSigninsFile;
+  if (!realmHome) return null;
+  agentSigninsFile = new AgentSignins(join(realmHome, "agent-signins.json"));
+  return agentSigninsFile;
+}
+/** Settings ▸ Sign-ins ▸ Let agents finish sign-ins, from the window's own top frame only: the switch
+ *  and the last agent fills. */
+ipcMain.handle("signins:status", (e) => (e.senderFrame === e.sender.mainFrame ? agentSignins()?.status() ?? null : null));
+ipcMain.handle("signins:set-enabled", (e, on: unknown) =>
+  (e.senderFrame === e.sender.mainFrame ? agentSignins()?.setEnabled(on === true) ?? null : null));
 
 /**
  * The secret store, built on first use. Null only before realm-server has announced its home.

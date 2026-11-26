@@ -858,6 +858,10 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "context_reset": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
               <span>{b.note}</span>
             </div>;
+            // Not a seam: one line saying Realm filled a sign-in, drawn in the same quiet style.
+            case "signin_filled": return <div key={key} className="msg-handoff" data-signin-filled role="note" data-enter={enter || undefined}>
+              <span>{b.note}</span>
+            </div>;
             // A move is a seam too: the paths above it are under the old checkout's root. It wraps
             // rather than cut, because the end that gets cut is where the session went.
             case "moved": return <div key={key} className="msg-handoff" data-move role="note" data-enter={enter || undefined}>
