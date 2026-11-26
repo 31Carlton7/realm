@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ASSISTANT_CHORDS, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, MEETING_CONSENT_KEY, type GlobalKeysEvent, type GlobalKeysState } from "@realm/contracts";
+import { ASSISTANT_CHORDS, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, MEETING_CONSENT_KEY, type GlobalKeysEvent, type GlobalKeysState } from "@realm/contracts";
 
-/** The section reads and writes its three settings, reads the assistant's consent, over the socket and holds no store state for them. */
+/** The section reads and writes its four settings, reads the assistant's consent, over the socket and holds no store state for them. */
 const stored: Record<string, unknown> = {};
 const calls: { method: string; params: any }[] = [];
 vi.mock("../../rpc/client", () => ({
@@ -29,6 +29,7 @@ function bridge(state: GlobalKeysState) {
   const keys = {
     state: async () => state,
     setDoubleTap: async (on: boolean) => { asked.push(`doubleTap:${on}`); },
+    setDoubleTapSide: async (side: string) => { asked.push(`side:${side}`); },
     setHold: async (key: string) => { asked.push(`hold:${key}`); },
     setAssistant: async (on: boolean) => { asked.push(`assistant:${on}`); },
     watch: (on: boolean) => { asked.push(`watch:${on}`); },
@@ -44,11 +45,13 @@ async function mount(api = fakeApi()) {
   const store = createAppStore(api);
   await store.getState().boot();
   const view = render(<StoreContext.Provider value={store}><ul><GlobalKeysRows /></ul></StoreContext.Provider>);
-  await waitFor(() => expect(calls.filter((c) => c.method === "settings.get")).toHaveLength(4));
+  await waitFor(() => expect(calls.filter((c) => c.method === "settings.get")).toHaveLength(5));
   return view;
 }
 
 const row = (id: string) => document.querySelector(`[data-setting="${id}"]`) as HTMLElement;
+const sideRadio = (name: string) => within(row("double-tap-side")).getByRole("radio", { name });
+const holdRadio = (name: string) => within(row("assistant-hold-key")).getByRole("radio", { name });
 const tryKey = (key: string) => within(row("keys-try")).getByText(key).closest(".keys-try-key") as HTMLElement;
 
 afterEach(() => {
@@ -61,7 +64,7 @@ describe("Settings ▸ Keys ▸ From anywhere", () => {
     bridge("active");
     await mount();
     expect(screen.getByRole("switch", { name: "Double-tap Command opens the quick chat" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "Fn" })).toBeChecked();
+    expect(holdRadio("Fn")).toBeChecked();
   });
 
   it("shows what was stored", async () => {
@@ -70,7 +73,7 @@ describe("Settings ▸ Keys ▸ From anywhere", () => {
     bridge("active");
     await mount();
     await waitFor(() => expect(screen.getByRole("switch", { name: "Double-tap Command opens the quick chat" })).not.toBeChecked());
-    expect(screen.getByRole("radio", { name: "Right Option" })).toBeChecked();
+    expect(holdRadio("Right Option")).toBeChecked();
   });
 
   it("stores the switch and tells main, so the helper follows without a relaunch", async () => {
@@ -84,7 +87,7 @@ describe("Settings ▸ Keys ▸ From anywhere", () => {
   it("stores the held key and tells main", async () => {
     const { asked } = bridge("active");
     await mount();
-    fireEvent.click(screen.getByRole("radio", { name: "Right Command" }));
+    fireEvent.click(holdRadio("Right Command"));
     await waitFor(() => expect(stored[KEYS_HOLD_KEY]).toBe("rightCommand"));
     expect(asked).toContain("hold:rightCommand");
     expect(within(row("keys-try")).getByText("Right Command")).toBeInTheDocument();
@@ -128,7 +131,7 @@ describe("Settings ▸ Keys ▸ From anywhere", () => {
     const { says } = bridge("active");
     await mount();
     says({ t: "hold", down: true });
-    fireEvent.click(screen.getByRole("radio", { name: "Right Option" }));
+    fireEvent.click(holdRadio("Right Option"));
     await waitFor(() => expect(tryKey("Right Option")).toHaveTextContent("Not seen yet"));
   });
 
@@ -152,10 +155,74 @@ describe("Settings ▸ Keys ▸ From anywhere", () => {
     await waitFor(() => expect(openTccPane).toHaveBeenCalledWith("accessibility"));
   });
 
-  it("says on the double-tap's row that macOS uses the same keys for Siri", async () => {
-    bridge("active");
-    await mount();
-    expect(row("double-tap-command")).toHaveTextContent("macOS uses the same keys for Siri when Siri is on. One of the two can be changed.");
+  describe("the Command key to double-tap", () => {
+    const siri = "Siri can be set to a double-tap of Right Command too. If both answer it, pick Left Command.";
+
+    it("is Left Command until somebody chooses otherwise, with no word of Siri and Try it naming it", async () => {
+      bridge("active");
+      await mount();
+      expect(sideRadio("Left Command")).toBeChecked();
+      expect(sideRadio("Right Command")).not.toBeChecked();
+      expect(sideRadio("Either")).not.toBeChecked();
+      expect(row("double-tap-side")).not.toHaveTextContent("Siri");
+      expect(row("double-tap-command")).toHaveAttribute("title", expect.stringContaining("Tap Left Command twice"));
+      expect(row("keys-try")).toHaveTextContent("Double-tap Left Command, or hold Fn, and it shows here.");
+    });
+
+    it("shows what was stored, and the Siri line with it", async () => {
+      stored[KEYS_DOUBLE_TAP_SIDE_KEY] = "either";
+      bridge("active");
+      await mount();
+      await waitFor(() => expect(sideRadio("Either")).toBeChecked());
+      expect(row("double-tap-side")).toHaveTextContent(siri);
+      expect(row("keys-try")).toHaveTextContent("Double-tap either Command key, or hold Fn");
+    });
+
+    it("reads a value it does not know as Left", async () => {
+      stored[KEYS_DOUBLE_TAP_SIDE_KEY] = "both";
+      bridge("active");
+      await mount();
+      expect(sideRadio("Left Command")).toBeChecked();
+    });
+
+    it("stores each choice and tells main, and says Siri only off Left", async () => {
+      const { asked } = bridge("active");
+      await mount();
+      fireEvent.click(sideRadio("Right Command"));
+      await waitFor(() => expect(stored[KEYS_DOUBLE_TAP_SIDE_KEY]).toBe("right"));
+      expect(asked).toContain("side:right");
+      expect(row("double-tap-side")).toHaveTextContent(siri);
+      expect(row("double-tap-command")).toHaveAttribute("title", expect.stringContaining("Tap Right Command twice"));
+      expect(row("keys-try")).toHaveTextContent("Double-tap Right Command, or hold Fn");
+
+      fireEvent.click(sideRadio("Either"));
+      await waitFor(() => expect(stored[KEYS_DOUBLE_TAP_SIDE_KEY]).toBe("either"));
+      expect(asked).toContain("side:either");
+      expect(row("double-tap-side")).toHaveTextContent(siri);
+
+      fireEvent.click(sideRadio("Left Command"));
+      await waitFor(() => expect(stored[KEYS_DOUBLE_TAP_SIDE_KEY]).toBe("left"));
+      expect(asked.at(-1)).toBe("side:left");
+      expect(row("double-tap-side")).not.toHaveTextContent("Siri");
+    });
+
+    it("forgets the double-tap Try it saw when another key is chosen", async () => {
+      const { says } = bridge("active");
+      await mount();
+      says({ t: "doubleTap" });
+      expect(tryKey("⌘⌘")).toHaveTextContent("Seen");
+      fireEvent.click(sideRadio("Either"));
+      await waitFor(() => expect(tryKey("⌘⌘")).toHaveTextContent("Not seen yet"));
+    });
+
+    it("leaves the switch as it was: the side and the switch are two settings", async () => {
+      bridge("active");
+      await mount();
+      fireEvent.click(sideRadio("Right Command"));
+      await waitFor(() => expect(stored[KEYS_DOUBLE_TAP_SIDE_KEY]).toBe("right"));
+      expect(stored[KEYS_DOUBLE_TAP_KEY]).toBeUndefined();
+      expect(screen.getByRole("switch", { name: "Double-tap Command opens the quick chat" })).toBeChecked();
+    });
   });
 
   it("with Accessibility and no Input Monitoring, names Input Monitoring, opens its pane and offers nothing to try", async () => {
@@ -208,7 +275,7 @@ describe("Settings ▸ Keys ▸ the assistant's shortcuts", () => {
     bridge("active");
     await mount();
     await waitFor(() => expect(row("assistant-chord:R").textContent).toBe("Show or hide the assistantRight Command R"));
-    fireEvent.click(screen.getByRole("radio", { name: "Right Option" }));
+    fireEvent.click(holdRadio("Right Option"));
     expect(row("assistant-chord:G").textContent).toBe("Answer what was just askedRight Option G");
   });
 

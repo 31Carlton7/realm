@@ -1854,6 +1854,8 @@ describe("migration v47 — team handoffs and mentions", () => {
  * was only made, and one whose log holds nothing but Realm's own lines.
  */
 const V45_SESSIONS_SCHEMA = `
+-- Every home has it (v1); the double-tap side migration at the end of the chain reads it.
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, project_id TEXT,
   agent_kind TEXT NOT NULL, model TEXT, effort TEXT, permission_mode TEXT NOT NULL DEFAULT 'default',
   status TEXT NOT NULL, provider_session_id TEXT, title TEXT NOT NULL, last_event_seq INTEGER NOT NULL DEFAULT 0,
@@ -2377,6 +2379,8 @@ describe("the space_team_access migration — one Team access mode per space", (
 
 /** The schedules table as it shipped before the schedule-mode migration, written out by hand. */
 const BEFORE_SCHEDULE_MODE = `
+-- Every home has it (v1); the double-tap side migration at the end of the chain reads it.
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE spaces (id TEXT PRIMARY KEY);
 CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
   title TEXT NOT NULL, goal TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, constraints_json TEXT,
@@ -2433,6 +2437,8 @@ describe("the schedule-mode migration — what an existing scheduled task runs i
 
 /** The schedules table as it shipped before the schedule-zone migration, written out by hand. */
 const BEFORE_SCHEDULE_ZONE = `
+-- Every home has it (v1); the double-tap side migration at the end of the chain reads it.
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE spaces (id TEXT PRIMARY KEY);
 CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
   title TEXT NOT NULL, goal TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, constraints_json TEXT,
@@ -2462,8 +2468,8 @@ describe("the schedule-zone migration — the zone a schedule is computed in, an
   };
   const zones = (db: DatabaseSync) => db.prepare("SELECT id, next_run_at, time_zone, last_slot FROM schedules ORDER BY id").all();
 
-  it("is followed only by the compact-window migration, and a home one short of it reaches the end", () => {
-    expect(SCHEDULE_ZONE_AT).toBe(migrations.length - 2);
+  it("is followed only by the compact-window and double-tap side migrations, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_ZONE_AT).toBe(migrations.length - 3);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     db.close();
@@ -2494,6 +2500,8 @@ describe("the schedule-zone migration — the zone a schedule is computed in, an
 
 /** team_roles as it shipped before the compaction window, written out by hand, with the columns read here. */
 const BEFORE_COMPACT_WINDOW = `
+-- Every home has it (v1); the double-tap side migration at the end of the chain reads it.
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE spaces (id TEXT PRIMARY KEY);
 CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
   title TEXT NOT NULL, goal TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, constraints_json TEXT,
@@ -2522,8 +2530,8 @@ describe("the compact-window migration — the window a teammate's chat is compa
     return { p, db: openDatabase(p) };
   };
 
-  it("is appended at the end of the chain, after the schedule zone, and a home one short of it reaches the end", () => {
-    expect(COMPACT_WINDOW_AT).toBe(migrations.length - 1);
+  it("comes after the schedule zone, followed only by the double-tap side, and a home one short of it reaches the end", () => {
+    expect(COMPACT_WINDOW_AT).toBe(migrations.length - 2);
     expect(COMPACT_WINDOW_AT).toBe(SCHEDULE_ZONE_AT + 1);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
@@ -2545,6 +2553,67 @@ describe("the compact-window migration — the window a teammate's chat is compa
     const again = openDatabase(p);
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     expect(again.prepare("SELECT compact_window FROM team_roles").get()).toEqual({ compact_window: 400000 });
+    again.close();
+  });
+});
+
+/** The compact-window fixture above with its column added: what a home holds just before the
+ *  double-tap side migration, settings table included. */
+const BEFORE_DOUBLE_TAP_SIDE = `
+${BEFORE_COMPACT_WINDOW}
+ALTER TABLE team_roles ADD COLUMN compact_window INTEGER;
+`;
+const DOUBLE_TAP_SIDE_AT = migrations.findIndex((m) => m.includes("'keys.doubleTapSide'"));
+
+describe("the double-tap side migration: Left for a home that never chose, Either for one that saved the double-tap on", () => {
+  const migrated = (settings: Record<string, string>) => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_DOUBLE_TAP_SIDE);
+    for (let v = 1; v <= DOUBLE_TAP_SIDE_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    for (const [key, json] of Object.entries(settings)) db.prepare("INSERT INTO settings (key, value_json) VALUES (?, ?)").run(key, json);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  const side = (db: DatabaseSync) => (db.prepare("SELECT value_json FROM settings WHERE key = 'keys.doubleTapSide'").get() as { value_json: string } | undefined)?.value_json;
+
+  it("is appended at the end of the chain, after the compact window, and a home one short of it reaches the end", () => {
+    expect(DOUBLE_TAP_SIDE_AT).toBe(migrations.length - 1);
+    expect(DOUBLE_TAP_SIDE_AT).toBe(COMPACT_WINDOW_AT + 1);
+    const { db } = migrated({});
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("writes nothing for a home that never touched the switch, so it reads the default, Left", () => {
+    const { db } = migrated({ "ui.theme": '"dark"' });
+    expect(side(db)).toBeUndefined();
+    db.close();
+  });
+
+  it("gives Either, what it had, to a home that saved the double-tap on", () => {
+    const { db } = migrated({ "keys.doubleTapCommand": "true" });
+    expect(side(db)).toBe('"either"');
+    expect(db.prepare("SELECT value_json FROM settings WHERE key = 'keys.doubleTapCommand'").get()).toEqual({ value_json: "true" });
+    db.close();
+  });
+
+  it("writes nothing for a home that saved it off", () => {
+    const { db } = migrated({ "keys.doubleTapCommand": "false" });
+    expect(side(db)).toBeUndefined();
+    db.close();
+  });
+
+  it("keeps a side already chosen, and is idempotent: reopening re-runs nothing", () => {
+    const { p, db } = migrated({ "keys.doubleTapCommand": "true", "keys.doubleTapSide": '"right"' });
+    expect(side(db)).toBe('"right"');
+    db.prepare("UPDATE settings SET value_json = '\"left\"' WHERE key = 'keys.doubleTapSide'").run();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(side(again)).toBe('"left"');
     again.close();
   });
 });

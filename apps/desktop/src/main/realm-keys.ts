@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { HOLD_KEY_DEFAULT, type GlobalKeysEvent, type GlobalKeysState, type HoldKey } from "@realm/contracts";
+import { COMMAND_SIDE_DEFAULT, HOLD_KEY_DEFAULT, type CommandSide, type GlobalKeysEvent, type GlobalKeysState, type HoldKey } from "@realm/contracts";
 
 /**
  * The keys a chord may name, as the key codes macOS gives their places on the keyboard. The helper is
@@ -73,6 +73,7 @@ export class RealmKeys {
   private childSwallows = false;
   private current: GlobalKeysState = "off";
   private doubleTap = false;
+  private side: CommandSide = COMMAND_SIDE_DEFAULT;
   private hold: HoldKey = HOLD_KEY_DEFAULT;
   private watchers = 0;
   /** When a helper was last started because the one before it stopped unasked. */
@@ -86,6 +87,8 @@ export class RealmKeys {
   get doubleTapOn(): boolean { return this.doubleTap; }
 
   setDoubleTap(on: boolean): void { this.doubleTap = on; this.sync(); }
+  /** The Command key the double-tap is read on, for the setting and for a watching page alike. */
+  setCommandSide(side: CommandSide): void { this.side = side; this.sync(); }
   setHoldKey(key: HoldKey): void { this.hold = key; this.sync(); }
   /** A Settings page started or stopped showing what the keyboard sends. */
   setWatchers(count: number): void { this.watchers = count; this.sync(); }
@@ -121,6 +124,7 @@ export class RealmKeys {
     this.child?.stdin.write(`${JSON.stringify({
       // A watching page is shown a double-tap whether or not the setting acts on it.
       doubleTap: this.doubleTap || this.watchers > 0,
+      command: this.side,
       maxHold: DOUBLE_TAP_MAX_HOLD_SECONDS,
       maxGap: DOUBLE_TAP_MAX_GAP_SECONDS,
       hold: this.hold,

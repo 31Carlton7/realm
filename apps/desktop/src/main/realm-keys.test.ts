@@ -113,7 +113,7 @@ describe("RealmKeys", () => {
   it("sends the timings, the held key and only the chords somebody registered", () => {
     const { keys, lastConfig } = setup();
     keys.setDoubleTap(true);
-    expect(lastConfig()).toEqual({ doubleTap: true, maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false });
+    expect(lastConfig()).toEqual({ doubleTap: true, command: "left", maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false });
 
     keys.setHoldKey("rightCommand");
     const giveBack = keys.registerChord("L", () => {});
@@ -122,6 +122,17 @@ describe("RealmKeys", () => {
 
     giveBack();
     expect(lastConfig().chords).toEqual([CHORD_KEY_CODES.Space]);
+  });
+
+  it("sends the Command key the double-tap is read on, Left until it is changed", () => {
+    const { keys, helpers, lastConfig } = setup();
+    keys.setDoubleTap(true);
+    expect(lastConfig().command).toBe("left");
+    keys.setCommandSide("right");
+    expect(lastConfig().command).toBe("right");
+    keys.setCommandSide("either");
+    expect(lastConfig().command).toBe("either");
+    expect(helpers).toHaveLength(1);
   });
 
   it("says which tap the helper got", () => {
@@ -353,7 +364,7 @@ describe.runIf(swiftc)("what the helper decides", () => {
   }, 120_000);
 
   type Decision = { swallow: boolean; out: { t: string; code?: number; down?: boolean }[] };
-  const config = (over: object = {}) => JSON.stringify({ doubleTap: true, maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false, ...over });
+  const config = (over: object = {}) => JSON.stringify({ doubleTap: true, command: "either", maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false, ...over });
   /** Every event's decision, in order. Config lines print nothing. */
   const decide = (lines: string[]): Decision[] =>
     execFileSync(bin, ["decide"], { input: `${lines.join("\n")}\n`, encoding: "utf8" }).trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
@@ -372,11 +383,50 @@ describe.runIf(swiftc)("what the helper decides", () => {
   ];
 
   describe("a double-tap of Command", () => {
-    it("fires on the second release, for either key", () => {
+    it("fires on the second release, for either key while Either is chosen", () => {
       const twice = decide([config(), ...tap(0), ...tap(0.18)]);
       expect(twice.map((d) => d.out.length)).toEqual([0, 0, 0, 1]);
       expect(twice[3]).toEqual({ swallow: false, out: [{ t: "doubleTap" }] });
+      expect(doubleTaps([...tap(0, KEY.rightCommand), ...tap(0.18, KEY.rightCommand)])).toBe(1);
       expect(doubleTaps([...tap(0), ...tap(0.18, KEY.rightCommand)])).toBe(1);
+    });
+
+    describe("on the Command key main chose", () => {
+      const left = [...tap(0), ...tap(0.18)];
+      const right = [...tap(0, KEY.rightCommand), ...tap(0.18, KEY.rightCommand)];
+      const mixed = [...tap(0), ...tap(0.18, KEY.rightCommand)];
+
+      it("reads Left Command alone when main names no key", () => {
+        const unnamed = (events: string[]) =>
+          decide([JSON.stringify({ doubleTap: true, maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false }), ...events])
+            .filter((d) => d.out.some((o) => o.t === "doubleTap")).length;
+        expect(unnamed(left)).toBe(1);
+        expect(unnamed(right)).toBe(0);
+      });
+
+      it("Left: two taps of Left Command fire, and Right Command opens nothing", () => {
+        expect(doubleTaps(left, { command: "left" })).toBe(1);
+        expect(doubleTaps(right, { command: "left" })).toBe(0);
+        expect(doubleTaps(mixed, { command: "left" })).toBe(0);
+      });
+
+      it("Right: two taps of Right Command fire, and Left Command opens nothing", () => {
+        expect(doubleTaps(right, { command: "right" })).toBe(1);
+        expect(doubleTaps(left, { command: "right" })).toBe(0);
+        expect(doubleTaps(mixed, { command: "right" })).toBe(0);
+      });
+
+      it("a tap of the other key between two of the chosen one ends the pair", () => {
+        const between = [...tap(0), ...tap(0.12, KEY.rightCommand), ...tap(0.24)];
+        expect(doubleTaps(between, { command: "left" })).toBe(0);
+        expect(doubleTaps([...between, ...tap(0.36)], { command: "left" })).toBe(1);
+      });
+
+      it("follows a new choice from main at once", () => {
+        const again = [...tap(1, KEY.rightCommand), ...tap(1.18, KEY.rightCommand)];
+        const fired = decide([config({ command: "left" }), ...right, config({ command: "right" }), ...again]).map((d) => d.out.length);
+        expect(fired).toEqual([0, 0, 0, 0, 0, 0, 0, 1]);
+      });
     });
 
     it("fires once for three taps", () => {

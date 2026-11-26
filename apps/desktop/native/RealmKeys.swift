@@ -34,7 +34,8 @@
 // under a lock and appends to a buffer; a writer thread prints.
 //
 // From main on stdin, one JSON object per line, each replacing the last:
-//   {"doubleTap":true,"maxHold":0.25,"maxGap":0.3,"hold":"fn","chords":[49,37],"reportHold":false}
+//   {"doubleTap":true,"command":"left","maxHold":0.25,"maxGap":0.3,"hold":"fn","chords":[49,37],"reportHold":false}
+// `command` is left, right or either: the Command key the double-tap is read on, left when absent.
 // `hold` is fn, rightOption or rightCommand. Until the first line arrives nothing is reported.
 //
 //   realmkeys            the tap. Exits when stdin closes (parent gone).
@@ -67,12 +68,22 @@ let rightCommandBit: UInt64 = 0x10
 let leftOptionBit: UInt64 = 0x20
 let rightOptionBit: UInt64 = 0x40
 
+enum CommandSide: String {
+  case left, right, either
+
+  func matches(_ keycode: Int64) -> Bool {
+    switch self { case .left: return keycode == 55; case .right: return keycode == 54; case .either: return keycode == 55 || keycode == 54 }
+  }
+}
+
 /// Two taps of Command with nothing between.
-/// A tap is: Command (either key) goes down with no other modifier held, and comes up within `maxHold`
-/// with no key, no click, no scroll, no other modifier and no second Command in between. Two taps
-/// whose gap (first release to second press) is within `maxGap` fire, on the second RELEASE, so a
-/// second press that turns into Command-C never fires.
+/// A tap is: the chosen Command key goes down with no other modifier held, and comes up within
+/// `maxHold` with no key, no click, no scroll, no other modifier and no second Command in between.
+/// Two taps whose gap (first release to second press) is within `maxGap` fire, on the second
+/// RELEASE, so a second press that turns into Command-C never fires. The other Command key, while
+/// only one is chosen, is another modifier: a tap of it between two taps of the chosen one ends the pair.
 struct DoubleTap {
+  var side = CommandSide.left
   var maxHold = 0.25
   var maxGap = 0.30
   private var downAt: Double?
@@ -83,7 +94,7 @@ struct DoubleTap {
   /// A flagsChanged event. `flags` is what is held after it. Returns true when the double-tap fires.
   mutating func flags(_ flags: CGEventFlags, keycode: Int64, at t: Double) -> Bool {
     let held = flags.intersection(modifierBits)
-    let isCommandKey = keycode == 55 || keycode == 54
+    let isCommandKey = side.matches(keycode)
     if held.isEmpty {
       defer { downAt = nil; poisoned = false }
       guard let d = downAt, !poisoned, isCommandKey, t - d <= maxHold else { lastTapUp = nil; return false }
@@ -214,6 +225,7 @@ struct Decider {
     reportHold = config["reportHold"] as? Bool ?? false
     if let maxHold = config["maxHold"] as? Double { rule.maxHold = maxHold }
     if let maxGap = config["maxGap"] as? Double { rule.maxGap = maxGap }
+    rule.side = CommandSide(rawValue: config["command"] as? String ?? "") ?? .left
     chords.hold = hold
     chords.registered = Set(codes.map(Int64.init))
     return true

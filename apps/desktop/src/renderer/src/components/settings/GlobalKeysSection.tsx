@@ -1,7 +1,7 @@
 import {
-  ASSISTANT_CHORDS, HOLD_KEYS, HOLD_KEY_DEFAULT, HOLD_KEY_LABEL, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT,
-  KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, MEETING_CONSENT_KEY, isHoldKey, meetingConsentAccepted,
-  type GlobalKeysState, type HoldKey,
+  ASSISTANT_CHORDS, COMMAND_SIDES, COMMAND_SIDE_DEFAULT, COMMAND_SIDE_LABEL, HOLD_KEYS, HOLD_KEY_DEFAULT, HOLD_KEY_LABEL, KEYS_ASSISTANT_DEFAULT,
+  KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, MEETING_CONSENT_KEY, isCommandSide,
+  isHoldKey, meetingConsentAccepted, type CommandSide, type GlobalKeysState, type HoldKey,
 } from "@realm/contracts";
 import { useEffect, useState, type ReactNode } from "react";
 import { rpc } from "../../rpc/client";
@@ -9,6 +9,9 @@ import { useApp } from "../../state/store";
 
 /** How long a key chip stays lit after a double-tap is seen. A double-tap has no "held" to show. */
 const DOUBLE_TAP_LIT_MS = 1200;
+
+/** The key the double-tap is read on, as the row's tooltip and Try it name it. */
+const SIDE_WORDS: Record<CommandSide, string> = { left: "Left Command", right: "Right Command", either: "either Command key" };
 
 /**
  * Settings ▸ Keys ▸ From anywhere: the keys Realm answers while another app is in front.
@@ -27,6 +30,7 @@ export function GlobalKeysRows({ afterDoubleTap }: { afterDoubleTap?: ReactNode 
   const run = useApp((s) => s.run);
   const openTccPane = useApp((s) => s.openTccPane);
   const [doubleTap, setDoubleTap] = useState(KEYS_DOUBLE_TAP_DEFAULT);
+  const [side, setSide] = useState<CommandSide>(COMMAND_SIDE_DEFAULT);
   const [hold, setHold] = useState<HoldKey>(HOLD_KEY_DEFAULT);
   const [chords, setChords] = useState(KEYS_ASSISTANT_DEFAULT);
   /** Null until read. Main registers the chords only once the assistant's first-run sheet was accepted. */
@@ -42,6 +46,7 @@ export function GlobalKeysRows({ afterDoubleTap }: { afterDoubleTap?: ReactNode 
     try {
       const client = rpc();
       void client.call("settings.get", { key: KEYS_DOUBLE_TAP_KEY }).then((s) => { if (alive && typeof s.value === "boolean") setDoubleTap(s.value); }).catch(() => {});
+      void client.call("settings.get", { key: KEYS_DOUBLE_TAP_SIDE_KEY }).then((s) => { if (alive && isCommandSide(s.value)) setSide(s.value); }).catch(() => {});
       void client.call("settings.get", { key: KEYS_HOLD_KEY }).then((s) => { if (alive && isHoldKey(s.value)) setHold(s.value); }).catch(() => {});
       void client.call("settings.get", { key: KEYS_ASSISTANT_KEY }).then((s) => { if (alive && typeof s.value === "boolean") setChords(s.value); }).catch(() => {});
       void client.call("settings.get", { key: MEETING_CONSENT_KEY }).then((s) => { if (alive) setConsented(meetingConsentAccepted(s.value)); }).catch(() => {});
@@ -83,6 +88,11 @@ export function GlobalKeysRows({ afterDoubleTap }: { afterDoubleTap?: ReactNode 
     setDoubleTap(on);
     await Promise.all([rpc().call("settings.set", { key: KEYS_DOUBLE_TAP_KEY, value: on }), window.realm?.keys?.setDoubleTap(on)]);
   });
+  const changeSide = (next: CommandSide) => run(async () => {
+    setSide(next);
+    setDoubleTapSeen(false);
+    await Promise.all([rpc().call("settings.set", { key: KEYS_DOUBLE_TAP_SIDE_KEY, value: next }), window.realm?.keys?.setDoubleTapSide(next)]);
+  });
   const changeHold = (key: HoldKey) => run(async () => {
     setHold(key);
     setHoldSeen(false);
@@ -100,13 +110,26 @@ export function GlobalKeysRows({ afterDoubleTap }: { afterDoubleTap?: ReactNode 
   return (
     <>
       <li className="settings-row" data-setting="double-tap-command"
-        title="Tap either Command key twice, quickly, in any app. A tap that turns into a shortcut, a click or a scroll does not count.">
-        <div className="settings-row-main">
-          <span className="settings-row-name">Double-tap Command opens the quick chat</span>
-          <span className="settings-row-desc">macOS uses the same keys for Siri when Siri is on. One of the two can be changed.</span>
-        </div>
+        title={`Tap ${SIDE_WORDS[side]} twice, quickly, in any app. A tap that turns into a shortcut, a click or a scroll does not count.`}>
+        <div className="settings-row-main"><span className="settings-row-name">Double-tap Command opens the quick chat</span></div>
         <input type="checkbox" role="switch" className="switch" aria-label="Double-tap Command opens the quick chat"
           checked={doubleTap} onChange={(e) => changeDoubleTap(e.target.checked)} />
+      </li>
+      <li className="settings-row" data-setting="double-tap-side">
+        <div className="settings-row-main">
+          <span className="settings-row-name">Command key to double-tap</span>
+          {side !== "left" && (
+            <span className="settings-row-desc">Siri can be set to a double-tap of Right Command too. If both answer it, pick Left Command.</span>
+          )}
+        </div>
+        <fieldset className="settings-tabs" aria-label="Command key to double-tap">
+          {COMMAND_SIDES.map((key) => (
+            <label key={key} className="settings-tab" data-selected={side === key || undefined}>
+              <input type="radio" name="settings-double-tap-side" value={key} checked={side === key} onChange={() => changeSide(key)} />
+              {COMMAND_SIDE_LABEL[key]}
+            </label>
+          ))}
+        </fieldset>
       </li>
       {afterDoubleTap}
       <li className="settings-row" data-setting="assistant-hold-key"
@@ -166,7 +189,7 @@ export function GlobalKeysRows({ afterDoubleTap }: { afterDoubleTap?: ReactNode 
         <div className="settings-row-main">
           <span className="settings-row-name">Try it</span>
           <span className="settings-row-desc">
-            {blind ? "Realm is not seeing keys right now." : `Double-tap Command, or hold ${holdName}, and it shows here.`}
+            {blind ? "Realm is not seeing keys right now." : `Double-tap ${SIDE_WORDS[side]}, or hold ${holdName}, and it shows here.`}
           </span>
         </div>
         {!blind && (
