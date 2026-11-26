@@ -24,7 +24,7 @@ import type { ProcRow } from "../resources/machine";
 const slug = (name: string): string =>
   name.normalize("NFKD").replace(/[^\w]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "simulator";
 import { simctl, type Simctl } from "./simctl";
-import { serveSim, type ServeSim, type ServeSimStream } from "./serve-sim";
+import { AX_READ_TIMEOUT_MS, AxReadTimedOut, serveSim, type ServeSim, type ServeSimStream } from "./serve-sim";
 
 /**
  * Owns a simulator's pair — DB row + sidebar item — and the live state of its stream.
@@ -132,6 +132,12 @@ const SCREEN_TIMEOUT_MS = 20_000;
 const SCREEN_POLL_MS = 400;
 /** A cold AVD is slow — MEASURED at over a minute to `sys.boot_completed` on an M4. */
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
+
+/** A tree read that waited the whole timeout for the daemon. A step does not ask again, as it does
+ *  for a 503: another read would wait as long, for the same answer. */
+export class TreeReadTimedOut extends RpcError {
+  constructor() { super("UNAVAILABLE", `the device's accessibility tree did not arrive within ${AX_READ_TIMEOUT_MS / 1000} s, so Realm stopped waiting for it. Try again in a moment.`); }
+}
 
 const OFF = (simulatorId: string, udid: string | null, physical = false): SimulatorState =>
   ({ simulatorId, status: "off", udid, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical });
@@ -532,7 +538,14 @@ export class SimulatorService {
       if (status === "booting" || status === "serving") throw new RpcError("UNAVAILABLE", "the simulator's stream is still starting");
       throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
     }
-    const tree = await this.stream.ax(stream, row.udid);
+    let tree: SimulatorAxTree | null = null;
+    let timedOut = false;
+    try {
+      tree = await this.stream.ax(stream, row.udid);
+    } catch (e) {
+      if (!(e instanceof AxReadTimedOut)) throw e;
+      timedOut = true;
+    }
     if (tree) return tree;
     const fit = await this.streamFit(row.udid, stream);
     if (fit === "down") {
@@ -546,6 +559,7 @@ export class SimulatorService {
       this.start(simulatorId);
       throw new RpcError("UNAVAILABLE", "the pane's stream was from before the device last booted, so Realm is starting a fresh one. Try again in a few seconds.");
     }
+    if (timedOut) throw new TreeReadTimedOut();
     // A 503 from the daemon means the device's AX framework is still warming up after a boot, which
     // is a "not yet" rather than a "cannot" — the pane says so and offers to look again.
     throw new RpcError("UNAVAILABLE", "the device has not published its accessibility tree yet");
