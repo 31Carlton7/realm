@@ -102,6 +102,7 @@ import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
+import { agentShellEnv, installAgentShims } from "./sessions/agent-shell";
 import { QuickChatEngines } from "./sessions/quick-chat";
 import { LiveAnswers } from "./meetings/live-answers";
 import { TabContextReader } from "./sessions/tab-context";
@@ -1449,7 +1450,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     items, browsers: browsersStore, bridge: browserBridge, terminals, simulators, home: opts.home,
     documents: { get: (id) => documents.get(id), rootOfWorkspace: (id) => documents.rootOfWorkspace(id), read: async (id, path) => (await documents.read(id, path)).text },
   });
-  const sessions = new SessionService({ db, rpc, tabs: tabContext, machineName: () => machineNameRead, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
+  const sessions = new SessionService({ db, rpc, agentShellEnv: agentShellEnv(installAgentShims(opts.home), process.env.PATH), tabs: tabContext, machineName: () => machineNameRead, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
     accounts: {
       envFor: (kind, accountId) => accounts.envFor(kind, accountId),
       accountFor: (kind, accountId) => accounts.accountFor(kind, accountId),

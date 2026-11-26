@@ -59,7 +59,7 @@ const registered: string[] = [];
 const globalShortcut = { register: (accelerator: string, _press?: () => void) => { registered.push(accelerator); return true; } };
 
 vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents, globalShortcut }));
-const { installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
+const { agentUserData, installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
 
 describe("quietWindowsOn", () => {
   it("is on only for an unpackaged app asked for it", () => {
@@ -67,6 +67,34 @@ describe("quietWindowsOn", () => {
     expect(quietWindowsOn({ packaged: true, env: { REALM_QUIET_WINDOWS: "1" } })).toBe(false);
     expect(quietWindowsOn({ packaged: false, env: {} })).toBe(false);
     expect(quietWindowsOn({ packaged: false, env: { REALM_QUIET_WINDOWS: "true" } })).toBe(false);
+  });
+
+  it("is on for an unpackaged app an agent started, and never for a packaged one", () => {
+    expect(quietWindowsOn({ packaged: false, env: { REALM_AGENT_SHELL: "1" } })).toBe(true);
+    expect(quietWindowsOn({ packaged: true, env: { REALM_AGENT_SHELL: "1" } })).toBe(false);
+    expect(quietWindowsOn({ packaged: true, env: { REALM_AGENT_SHELL: "1", REALM_QUIET_WINDOWS: "1" } })).toBe(false);
+    expect(quietWindowsOn({ packaged: false, env: { REALM_AGENT_SHELL: "0" } })).toBe(false);
+  });
+});
+
+describe("agentUserData", () => {
+  const unpackaged = {
+    packaged: false, env: { REALM_AGENT_SHELL: "1" }, appPath: "/src/realm-a/apps/desktop",
+    userData: "/Library/Application Support/Realm", defaultUserData: "/Library/Application Support/Realm", tmpDir: "/tmp",
+  };
+
+  it("gives an unpackaged app an agent started a folder of its own under the temp folder, one per checkout", () => {
+    const a = agentUserData(unpackaged)!;
+    expect(a.startsWith("/tmp/realm-agent-shell/")).toBe(true);
+    expect(agentUserData(unpackaged)).toBe(a);
+    expect(agentUserData({ ...unpackaged, appPath: "/src/realm-b/apps/desktop" })).not.toBe(a);
+  });
+
+  it("leaves the folder alone for a packaged app, one no agent started, and one whose folder was already chosen", () => {
+    expect(agentUserData({ ...unpackaged, packaged: true })).toBeNull();
+    expect(agentUserData({ ...unpackaged, env: {} })).toBeNull();
+    expect(agentUserData({ ...unpackaged, env: { REALM_QUIET_WINDOWS: "1" } })).toBeNull();
+    expect(agentUserData({ ...unpackaged, userData: "/tmp/live-check/userData" })).toBeNull();
   });
 });
 
