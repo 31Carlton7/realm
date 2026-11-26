@@ -118,4 +118,5 @@ try {
   const ours = front.pids.filter((p) => p === app.electron.pid).length;
   check("Realm's Electron was never the front app", ours === 0, { samples: front.pids.length, realmInFront: ours, frontPids: [...new Set(front.pids)] });
   await app.stop();
+  fs.rmSync(path.dirname(scriptFile), { recursive: true, force: true });
 }
