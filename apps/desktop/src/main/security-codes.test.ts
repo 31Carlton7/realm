@@ -2,11 +2,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
-import { SECURITY_CODE_WINDOW_MS } from "@realm/contracts";
+import { SECURITY_CODE_WAIT_MS, SECURITY_CODE_WINDOW_MS } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
 import {
   SecurityCodes, SecurityCodesSetting, codeSourcesFor, extractCode, fakeCodeSource, mailSource, messagesSource,
-  notificationsSource, parseMailList, pickLatestCode, textOfAttributedBody, type CodeMessage, type CodeSource,
+  missedCodeError, notificationsSource, parseMailList, pickLatestCode, textOfAttributedBody, type CodeMessage, type CodeSource,
 } from "./security-codes";
 import { bplist } from "./plist.test-fakes";
 
@@ -123,6 +123,84 @@ describe("SecurityCodes and its switch", () => {
     expect((await codes.latest("https://example.com"))?.code).toBe("987654");
     await codes.status();
     for (const spy of spies) { expect(spy).not.toHaveBeenCalled(); spy.mockRestore(); }
+  });
+});
+
+describe("SecurityCodes.waitFor", () => {
+  /** A clock that only moves when the wait sleeps, and an inbox the test fills at a moment of its choosing. */
+  function rig(o: { on?: boolean; arrive?: { at: number; message: CodeMessage }; mail?: CodeMessage[]; mailState?: "ok" | "no_access" } = {}) {
+    let now = 1_000_000;
+    const woke: string[] = [];
+    const setting = { enabled: () => o.on ?? true, setEnabled: () => {} };
+    const messages: CodeSource = {
+      name: "Messages", state: async () => "ok",
+      recent: async (since) => (o.arrive && now >= o.arrive.at ? [o.arrive.message] : []).filter((m) => m.at >= since),
+    };
+    const mail: CodeSource = { name: "Mail", state: async () => o.mailState ?? "ok", recent: async () => o.mail ?? [], wake: () => woke.push("Mail") };
+    const sleeps: number[] = [];
+    const codes = new SecurityCodes({
+      setting, sources: [messages, mail], now: () => now,
+      sleep: async (ms, signal) => { if (signal?.aborted) return; sleeps.push(ms); now += ms; },
+    });
+    return { codes, woke, sleeps };
+  }
+
+  it("waits for a code that arrives after the call, and wakes Mail first", async () => {
+    const r = rig({ arrive: { at: 1_000_000 + 20_000, message: { source: "Messages", at: 1_000_000 + 20_000, text: "Your code is 482913" } } });
+    expect(await r.codes.waitFor("https://example.com")).toEqual({ found: { code: "482913", source: "Messages" } });
+    expect(r.woke).toEqual(["Mail"]);
+    expect(r.sleeps.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(20_000);
+    expect(r.sleeps.reduce((a, b) => a + b, 0)).toBeLessThan(SECURITY_CODE_WAIT_MS);
+  });
+
+  it("gives up after the wait, saying which source was empty and why", async () => {
+    const r = rig({ mail: [{ source: "Mail", at: 1_000_000 - 1_000, text: "Your receipt from Example" }] });
+    const wait = await r.codes.waitFor("https://example.com");
+    expect(wait).toEqual({ found: null, cancelled: false, miss: { Messages: "quiet", Mail: "no_code", Notifications: "missing" } });
+    expect(r.sleeps.reduce((a, b) => a + b, 0)).toBe(SECURITY_CODE_WAIT_MS);
+    const said = missedCodeError((wait as { miss: Parameters<typeof missedCodeError>[0] }).miss, SECURITY_CODE_WAIT_MS);
+    expect(said).toMatch(/^no security code arrived in 90 s/);
+    expect(said).toContain("Text Message Forwarding");
+    expect(said).toContain("emails arrived in Mail, but none held a code");
+    expect(said).not.toContain("receipt");
+  });
+
+  it("names a source Realm cannot read, and Mail not fetching", async () => {
+    const r = rig({ mailState: "no_access" });
+    const wait = await r.codes.waitFor("https://example.com", { timeoutMs: 5_000 });
+    expect(wait).toMatchObject({ miss: { Messages: "quiet", Mail: "no_access" } });
+    expect(missedCodeError({ Messages: "no_access", Mail: "quiet", Notifications: "ok" }, 90_000)).toMatch(/cannot read Messages \(Full Disk Access.*Mail may not be fetching/);
+  });
+
+  it("keeps the 5-minute window while it waits", async () => {
+    const old = { source: "Messages" as const, at: 1_000_000 - SECURITY_CODE_WINDOW_MS - 1, text: "Your code is 111111" };
+    const r = rig({ arrive: { at: 0, message: old } });
+    expect(await r.codes.waitFor("https://example.com", { timeoutMs: 10_000 })).toMatchObject({ found: null });
+  });
+
+  it("stops at once when cancelled", async () => {
+    const r = rig();
+    const abort = new AbortController();
+    abort.abort();
+    expect(await r.codes.waitFor("https://example.com", { signal: abort.signal })).toEqual({ found: null, cancelled: true });
+    expect(r.sleeps).toEqual([]);
+  });
+
+  it("off, wakes nothing and reads nothing", async () => {
+    const r = rig({ on: false });
+    expect(await r.codes.waitFor("https://example.com")).toMatchObject({ found: null });
+    expect(r.woke).toEqual([]);
+    expect(r.sleeps).toEqual([]);
+  });
+
+  it("stops a real sleep when cancelled mid-wait", async () => {
+    const codes = new SecurityCodes({ setting: { enabled: () => true, setEnabled: () => {} }, sources: [], now: () => Date.now() });
+    const abort = new AbortController();
+    const t0 = Date.now();
+    const wait = codes.waitFor("https://example.com", { signal: abort.signal });
+    setTimeout(() => abort.abort(), 50);
+    expect(await wait).toEqual({ found: null, cancelled: true });
+    expect(Date.now() - t0).toBeLessThan(1_000);
   });
 });
 

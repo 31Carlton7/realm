@@ -29,7 +29,7 @@ import { accessSync, constants, existsSync, readFileSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import {
-  SECURITY_CODE_WINDOW_MS,
+  SECURITY_CODE_WAIT_MS, SECURITY_CODE_WINDOW_MS,
   type SecurityCodeSourceName, type SecurityCodeSourceState, type SecurityCodesStatus,
 } from "@realm/contracts";
 import { parsePlist, type PlistValue } from "./installed-apps";
@@ -44,6 +44,8 @@ export type CodeSource = {
   /** Messages that arrived at or after `since` (ms since the epoch), newest first. */
   recent(since: number): Promise<CodeMessage[]>;
   state(): Promise<SecurityCodeSourceState>;
+  /** Get the source fetching, for a fill that is about to wait on it. */
+  wake?(): void;
 };
 
 /* ─────────────────────────────── finding the code ─────────────────────────────── */
@@ -147,11 +149,59 @@ export class SecurityCodesSetting {
 
 /* ─────────────────────────────── the reader ─────────────────────────────── */
 
+/** How a source stood when a wait ran out: it could not be read, nothing new arrived in it, or what
+ *  arrived held no code. */
+export type CodeMiss = Record<SecurityCodeSourceName, SecurityCodeSourceState | "quiet" | "no_code">;
+
+export type CodeWait = { found: LatestCode } | { found: null; cancelled: true } | { found: null; cancelled: false; miss: CodeMiss };
+
+/** How often a waiting fill reads its sources again. */
+const WAIT_POLL_MS = 2_500;
+
+const MISS_WORDS: Record<SecurityCodeSourceName, Record<CodeMiss[SecurityCodeSourceName], string | null>> = {
+  Messages: {
+    ok: null,
+    quiet: "no text arrived in Messages (if the site texted the code, Text Message Forwarding may be off on the iPhone for this Mac)",
+    no_code: "texts arrived in Messages, but none held a code",
+    no_access: "Realm cannot read Messages (Full Disk Access is off for Realm)",
+    missing: "this Mac has no Messages history to read",
+  },
+  Mail: {
+    ok: null,
+    quiet: "no email arrived in Mail (Mail may not be fetching the account the code went to)",
+    no_code: "emails arrived in Mail, but none held a code",
+    no_access: "Realm cannot read Mail (Full Disk Access is off for Realm)",
+    missing: "Realm cannot read Mail on this Mac (the mac command is not installed)",
+  },
+  Notifications: {
+    ok: null,
+    quiet: "no notification arrived on this Mac",
+    no_code: "notifications arrived on this Mac, but none held a code",
+    no_access: "Realm cannot read this Mac's notifications (Full Disk Access is off for Realm)",
+    missing: "this Mac has no notification history to read",
+  },
+};
+
+/** Why a wait found nothing, source by source, in words an agent can act on. Never a message's text. */
+export function missedCodeError(miss: CodeMiss, waitedMs: number): string {
+  const why = (Object.keys(miss) as SecurityCodeSourceName[]).map((name) => MISS_WORDS[name][miss[name]]).filter(Boolean);
+  return `no security code arrived in ${Math.round(waitedMs / 1000)} s, so nothing was filled: ${why.join("; ")}`;
+}
+
+function sleepFor(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", done); resolve(); };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
 export class SecurityCodes {
   constructor(private readonly d: {
     setting: { enabled(): boolean; setEnabled(on: boolean): void };
     sources: readonly CodeSource[];
     now(): number;
+    sleep?(ms: number, signal?: AbortSignal): Promise<void>;
   }) {}
 
   enabled(): boolean { return this.d.setting.enabled(); }
@@ -171,10 +221,44 @@ export class SecurityCodes {
   /** The code to offer on a page at `origin`, or null. Off, no source is touched. */
   async latest(origin: string): Promise<LatestCode | null> {
     if (!this.d.setting.enabled()) return null;
+    return (await this.read(origin)).found;
+  }
+
+  /**
+   * The code for `origin`, waiting up to `timeoutMs` for one to arrive. Mail is started in the
+   * background first, so an emailed code is fetched while this waits. Off, no source is touched;
+   * an abort ends the wait at once.
+   */
+  async waitFor(origin: string, o: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<CodeWait> {
+    const timeoutMs = o.timeoutMs ?? SECURITY_CODE_WAIT_MS;
+    const sleep = this.d.sleep ?? sleepFor;
+    const started = this.d.now();
+    const heard = new Set<SecurityCodeSourceName>();
+    if (this.d.setting.enabled()) for (const s of this.d.sources) s.wake?.();
+    while (!o.signal?.aborted && this.d.setting.enabled()) {
+      const read = await this.read(origin);
+      if (read.found) return { found: read.found };
+      for (const name of read.heard) heard.add(name);
+      const left = started + timeoutMs - this.d.now();
+      if (left <= 0) break;
+      await sleep(Math.min(WAIT_POLL_MS, left), o.signal);
+    }
+    if (o.signal?.aborted) return { found: null, cancelled: true };
+    const miss: CodeMiss = { Messages: "missing", Mail: "missing", Notifications: "missing" };
+    for (const s of this.d.sources) {
+      const state = await s.state().catch(() => "no_access" as const);
+      miss[s.name] = state !== "ok" ? state : heard.has(s.name) ? "no_code" : "quiet";
+    }
+    return { found: null, cancelled: false, miss };
+  }
+
+  /** One read of every source: the code for `origin`, and which sources had anything in the window. */
+  private async read(origin: string): Promise<{ found: LatestCode | null; heard: SecurityCodeSourceName[] }> {
     const now = this.d.now();
     const since = now - SECURITY_CODE_WINDOW_MS;
     const batches = await Promise.all(this.d.sources.map((s) => s.recent(since).catch(() => [] as CodeMessage[])));
-    return pickLatestCode(batches.flat(), now, origin);
+    const messages = batches.flat();
+    return { found: pickLatestCode(messages, now, origin), heard: [...new Set(messages.map((m) => m.source))] };
   }
 }
 
@@ -302,14 +386,21 @@ function runMacCommand(bin: string): RunMac {
   });
 }
 
+/** Mail launched hidden and left behind the front app (`-g -j`), so it fetches. `open` needs no
+ *  grant, and a Mail already running is left as it is. */
+function openMailInBackground(): void {
+  execFile("open", ["-g", "-j", "-a", "Mail"], { timeout: 5_000 }, () => {});
+}
+
 /** `mac`'s exit code for a permission macOS refused. */
 const MAC_DENIED = 2;
 /** At most this many recent emails are opened for `extract` per read. */
 const MAIL_EXTRACTS = 3;
 
-export function mailSource(run: RunMac | null): CodeSource {
+export function mailSource(run: RunMac | null, wake?: () => void): CodeSource {
   return {
     name: "Mail",
+    ...(wake ? { wake } : {}),
     async state() {
       if (!run) return "missing";
       const r = await run(["mail", "list", "newer:1d", "--limit", "1", "--json", "--quiet"]);
@@ -390,7 +481,7 @@ export function fakeCodeSource(name: SecurityCodeSourceName, file: string): Code
 export function codeSourcesFor(d: { packaged: boolean; env: Record<string, string | undefined> }): CodeSource[] {
   if (d.packaged || d.env.REALM_ENABLE_FAKE_AGENT !== "1") {
     const mac = findMacCommand(d.env);
-    return [messagesSource(), mailSource(mac ? runMacCommand(mac) : null), notificationsSource()];
+    return [messagesSource(), mailSource(mac ? runMacCommand(mac) : null, openMailInBackground), notificationsSource()];
   }
   const file = d.env.REALM_LIVE_CODES;
   return file ? [fakeCodeSource("Messages", file), fakeCodeSource("Mail", file), fakeCodeSource("Notifications", file)] : [];

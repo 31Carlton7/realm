@@ -1913,6 +1913,19 @@ describe("browser_fill_code", () => {
     expect(r.content.some((c) => c.type === "image")).toBe(false);
   });
 
+  it("stops main's wait for the code when the call is cancelled", async () => {
+    // THE MUTANT: an interrupted turn leaves main polling Messages and Mail for the rest of the wait.
+    let answer: (v: unknown) => void = () => {};
+    const { provider, ctx, calls } = setup({ bridgeResults: { fillCode: () => new Promise((resolve) => { answer = resolve; }), fillCodeCancel: { cancelled: true } } });
+    const abort = new AbortController();
+    const pending = provider.call({ ...ctx, signal: abort.signal }, "browser_fill_code", { browserId: "b1", ref: 4 });
+    await vi.waitFor(() => expect(calls.bridge.map((b) => b.op)).toContain("fillCode"));
+    abort.abort();
+    expect(calls.bridge.at(-1)).toEqual({ op: "fillCodeCancel", params: { browserId: "b1" } });
+    answer({ ok: false, error: "the wait for a code was cancelled, so nothing was filled" });
+    expect(text(await pending)).toContain("cancelled");
+  });
+
   it("cannot run inside browser_batch", async () => {
     const { call, calls } = setup();
     const r = await call("browser_batch", { actions: [{ tool: "browser_fill_code", arguments: { browserId: "b1", ref: 4 } }] });
