@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { classifyPressure, classifyPsi, parseBundleId, parseFootprint, parseFrontAsn, parseMeminfo, parsePs, parseSysctl, parseTop, parseVmStat, realMachineProbe, run, SWAP_OUT_WARN_BYTES_PER_SECOND } from "./machine";
 
+const GB = 1024 ** 3;
+
 /* Every fixture below is what the real command printed on this Mac (2026-10-28), trimmed. */
 
 describe("reading the process table", () => {
@@ -119,6 +121,34 @@ describe("pressure", () => {
     expect(classifyPressure({ level: 2, swapOutPerSecond: 80 * 1024 ** 2 }).pressure).toBe("critical");
   });
 
+  it("lifts a green level by how full swap is, and how little disk is left for it to grow into", () => {
+    // The 21:15 reading on 2026-11-25: macOS green, swap 6.4 of 8.0 GB, nothing swapping out that
+    // minute. THE MUTANT: reading the swap-out rate alone, which calls that Mac relaxed.
+    const reading = (usedGb: number, totalGb: number, diskFreeGb: number | null = 100) =>
+      classifyPressure({ level: 1, swapOutPerSecond: 0, swap: { usedBytes: usedGb * GB, totalBytes: totalGb * GB }, diskFreeBytes: diskFreeGb === null ? null : diskFreeGb * GB });
+    expect(reading(6.4, 8)).toEqual({ pressure: "warn", why: "Swap is 80% full: 6.4 of 8.0 GB in use" });
+    const table: [string, ReturnType<typeof reading>["pressure"], ReturnType<typeof reading>][] = [
+      ["just under 60% swap", "normal", reading(2.99, 5)],
+      ["60% swap", "warn", reading(3, 5)],
+      ["just under 4 GB of swap, mostly empty", "normal", reading(3.99, 16)],
+      ["4 GB of swap, mostly empty", "warn", reading(4, 16)],
+      ["just under 85% swap", "warn", reading(16.99, 20)],
+      ["85% swap", "critical", reading(17, 20)],
+      ["no swap yet", "normal", reading(0, 0)],
+      ["10 GB free on disk", "normal", reading(0, 0, 10)],
+      ["just under 10 GB free on disk", "warn", reading(0, 0, 9.99)],
+      ["4 GB free on disk", "warn", reading(0, 0, 4)],
+      ["just under 4 GB free on disk", "critical", reading(0, 0, 3.99)],
+      ["no reading of the disk", "normal", reading(0, 0, null)],
+    ];
+    for (const [name, pressure, r] of table) expect(r.pressure, name).toBe(pressure);
+    expect(reading(0, 0, 3.5).why).toBe("Only 3.5 GB free on disk, which swap grows into");
+    // macOS's own level and a flood of swap-outs still say so first.
+    expect(classifyPressure({ level: 4, swapOutPerSecond: 0, swap: { usedBytes: 6.4 * GB, totalBytes: 8 * GB } }).why).toBe("macOS reports critical memory pressure");
+    // A level that could not be read is still a Mac with full swap.
+    expect(classifyPressure({ level: null, swapOutPerSecond: null, swap: { usedBytes: 6.4 * GB, totalBytes: 8 * GB } }).pressure).toBe("warn");
+  });
+
   it("reads Linux's pressure stall information", () => {
     expect(classifyPsi("some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0").pressure).toBe("normal");
     expect(classifyPsi("some avg10=22.50 avg60=3.00 avg300=1.00 total=9\nfull avg10=1.00 avg60=0 avg300=0 total=1").pressure).toBe("warn");
@@ -132,7 +162,7 @@ describe("the real probe", () => {
     let swapouts = 1000;
     let at = 0;
     const probe = realMachineProbe({
-      platform: "darwin", now: () => at,
+      platform: "darwin", now: () => at, diskFree: async () => null,
       run: async (file) => file.endsWith("sysctl")
         ? "hw.memsize: 100\nkern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 60\nvm.swapusage: total = 2048.00M  used = 1024.00M  free = 1024.00M"
         : `Mach Virtual Memory Statistics: (page size of 1024 bytes)\nPages occupied by compressor: 2.\nSwapouts: ${swapouts}.\n`,
@@ -145,6 +175,16 @@ describe("the real probe", () => {
     expect(second.memory.swapOutPerSecond).toBe(2 * 1024 * 1024);
     expect(second.memory.pressure).toBe("warn");
     expect(second.memory.swap).toEqual({ usedBytes: 1024 ** 3, totalBytes: 2 * 1024 ** 3 });
+  });
+
+  it("reads full swap and a full disk as pressure", async () => {
+    const probe = realMachineProbe({
+      platform: "darwin", diskFree: async () => 3 * GB,
+      run: async (file) => file.endsWith("sysctl")
+        ? "hw.memsize: 100\nkern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 60\nvm.swapusage: total = 8192.00M  used = 6553.60M  free = 1638.40M"
+        : "Mach Virtual Memory Statistics: (page size of 1024 bytes)\nSwapouts: 0.\n",
+    });
+    expect((await probe.memory(null)).memory).toMatchObject({ pressure: "critical", pressureWhy: "Only 3.0 GB free on disk, which swap grows into" });
   });
 
   it("leaves its own readings out of the table", async () => {
