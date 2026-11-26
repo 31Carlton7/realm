@@ -8,6 +8,10 @@ description: Use whenever driving web pages with Realm's realm-browser tools (br
 The tools drive a real browser pane the user can watch. Work so that the trace makes sense to a
 human following along, and so that every action is verifiable.
 
+A dev server you start (Vite, Next, a site) is checked here too: `browser_open
+http://localhost:<port>`. Never `open <url>` from the shell — that hands the page to the user's own
+browser and brings it to the front of what they are doing.
+
 ## The loop: snapshot → act → verify
 
 1. **Snapshot first, always.** `browser_snapshot` is the primary way to read a page for acting on
