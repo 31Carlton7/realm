@@ -32,7 +32,7 @@ exec electron-vite "$@"
 export function installAgentShims(home: string): string {
   const dir = join(home, "agent-shell", "bin");
   mkdirSync(dir, { recursive: true });
-  for (const [name, script] of [["electron", ELECTRON_SHIM], ["electron-vite", ELECTRON_VITE_SHIM]]) {
+  for (const [name, script] of [["electron", ELECTRON_SHIM], ["electron-vite", ELECTRON_VITE_SHIM]] as const) {
     writeFileSync(join(dir, name), script);
     chmodSync(join(dir, name), 0o755);
   }
