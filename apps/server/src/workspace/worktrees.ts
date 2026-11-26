@@ -3,6 +3,9 @@ import { dirname, join, resolve, sep } from "node:path";
 import { BRANCH_PREFIX, slugifyBranch } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { gitCapture, gitReason, type GitRun } from "./git-exec";
+import { seedNodeModules } from "./node-modules-seed";
+
+type SeedWorktree = (source: string, worktree: string) => Promise<unknown>;
 
 /** Worktrees live under `<realmHome>/worktrees/<spaceId>/<name>` (WORKTREES_DIRNAME).
  *
@@ -51,8 +54,10 @@ export type WorktreeAck = { dirtyFiles: number; unpushedCommits: number };
  */
 export class WorktreeService {
   private git: GitRun;
-  constructor(private home: string, opts: { git?: GitRun } = {}) {
+  private seed: SeedWorktree;
+  constructor(private home: string, opts: { git?: GitRun; seed?: SeedWorktree } = {}) {
     this.git = opts.git ?? gitCapture;
+    this.seed = opts.seed ?? seedNodeModules;
   }
 
   /** Root of every worktree this space owns. Absolute, and the only place `create` will write. */
@@ -100,6 +105,10 @@ export class WorktreeService {
     // the worktree's branch would go to main.
     const added = await this.git(src, ["worktree", "add", "--no-track", "-b", branch, path, base]);
     if (added.code !== 0) throw new RpcError("WORKTREE_ADD_FAILED", gitReason(added));
+    // Awaited rather than left running: an agent started here would otherwise run its own
+    // `pnpm install` into a half-cloned node_modules. A seed that throws still leaves a usable
+    // worktree, and failing here would strand it without an environment row.
+    await this.seed(src, path).catch((e: Error) => console.warn(`[worktrees] seeding ${path} failed:`, e.message));
     return { path, branch };
   }
 

@@ -146,6 +146,22 @@ describe("WorktreeService.create", () => {
     expect(existsSync(second.path)).toBe(true);
     expect(git(repo, "worktree", "list")).toContain(second.path);
   });
+
+  it("seeds node_modules from the source into the checked-out worktree", async () => {
+    const repo = makeRepo();
+    const seeded: string[][] = [];
+    const wt = await new WorktreeService(home, {
+      seed: async (source, worktree) => { seeded.push([source, worktree, String(existsSync(join(worktree, "a.txt")))]); },
+    }).create({ spaceId: SPACE, sourcePath: repo, title: "seeded" });
+    expect(seeded).toEqual([[repo, wt.path, "true"]]);
+  });
+
+  it("still returns the worktree when seeding throws", async () => {
+    const repo = makeRepo();
+    const wt = await new WorktreeService(home, { seed: async () => { throw new Error("disk full"); } })
+      .create({ spaceId: SPACE, sourcePath: repo, title: "unseeded" });
+    expect(git(repo, "worktree", "list")).toContain(wt.path);
+  });
 });
 
 describe("WorktreeService.hazard", () => {
