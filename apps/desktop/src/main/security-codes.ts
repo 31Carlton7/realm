@@ -7,13 +7,14 @@
  * Every source is a `CodeSource`, asked for the messages that arrived since a moment, and only ever
  * asked by `SecurityCodes.latest` — which asks nothing while the switch is off. Main reads them
  * itself, so the grants are Realm's own: Messages' database and Mail's Envelope Index both sit behind
- * Full Disk Access. The live sources are:
+ * Full Disk Access, as does Notification Center's. The live sources are:
  *
  *   - Messages: `~/Library/Messages/chat.db`, opened read-only, incoming rows only. A row's words are
  *     in `text`, or since macOS 13 often only in `attributedBody`, a typedstream (`textOfAttributedBody`).
  *   - Mail: the `mac` command (`mac mail list`, then `mac mail extract --codes` for a message whose
  *     subject and preview carry no code). The list is asked with an operator so it never falls back
  *     to scripting Mail.app, which is what would put an Automation prompt in front of the person.
+ *   - Notifications: Notification Center's database, opened read-only (`notificationsSource`).
  *
  * Tests and live checks use `fakeCodeSource`, which reads a JSON file and nothing else. The harness
  * build never constructs a live source (`codeSourcesFor`).
@@ -31,6 +32,7 @@ import {
   SECURITY_CODE_WINDOW_MS,
   type SecurityCodeSourceName, type SecurityCodeSourceState, type SecurityCodesStatus,
 } from "@realm/contracts";
+import { parsePlist, type PlistValue } from "./installed-apps";
 import { fallbackExtraDirs } from "./login-shell-path";
 
 /** One message, as a source hands it over. `code` is set when the source already found one (Mail's
@@ -156,7 +158,7 @@ export class SecurityCodes {
 
   async status(): Promise<SecurityCodesStatus> {
     if (!this.d.setting.enabled()) return { enabled: false, sources: null };
-    const sources: Record<SecurityCodeSourceName, SecurityCodeSourceState> = { Messages: "missing", Mail: "missing" };
+    const sources: Record<SecurityCodeSourceName, SecurityCodeSourceState> = { Messages: "missing", Mail: "missing", Notifications: "missing" };
     for (const s of this.d.sources) sources[s.name] = await s.state().catch(() => "no_access" as const);
     return { enabled: true, sources };
   }
@@ -201,18 +203,9 @@ export function textOfAttributedBody(blob: Uint8Array): string | null {
 }
 
 export function messagesSource(dbPath = join(homedir(), "Library/Messages/chat.db")): CodeSource {
-  const state = async (): Promise<SecurityCodeSourceState> => {
-    try {
-      const { DatabaseSync } = await import("node:sqlite");
-      new DatabaseSync(dbPath, { readOnly: true }).close();
-      return "ok";
-    } catch {
-      return deniedOrMissing(dbPath);
-    }
-  };
   return {
     name: "Messages",
-    state,
+    state: () => databaseState(dbPath),
     async recent(since) {
       const { DatabaseSync } = await import("node:sqlite");
       const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -232,11 +225,58 @@ export function messagesSource(dbPath = join(homedir(), "Library/Messages/chat.d
   };
 }
 
+async function databaseState(path: string): Promise<SecurityCodeSourceState> {
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    new DatabaseSync(path, { readOnly: true }).close();
+    return "ok";
+  } catch {
+    return deniedOrMissing(path);
+  }
+}
+
 /** A path macOS hides behind Full Disk Access cannot even be stat'ed, so "missing" is believed only
  *  where the folder holding it can be read. */
 function deniedOrMissing(path: string): SecurityCodeSourceState {
   try { accessSync(dirname(path), constants.R_OK); } catch { return "no_access"; }
   return existsSync(path) ? "no_access" : "missing";
+}
+
+/* ─────────────────────────────── Notifications ─────────────────────────────── */
+
+/**
+ * Notification Center's database, where macOS 15 and later keep it (`usernoted` before 15 kept it
+ * under the per-user temp folder, which nothing here reads). `record` holds one row per notification:
+ * `delivered_date` in seconds since 2001, and `data`, a binary plist whose `req` dictionary carries
+ * the words shown — `titl`, `subt`, `body`. A text relayed from the iPhone, or an app's own push,
+ * lands here even when it never reaches Messages or Mail.
+ */
+export function notificationsSource(dbPath = join(homedir(), "Library/Group Containers/group.com.apple.usernoted/db2/db")): CodeSource {
+  return {
+    name: "Notifications",
+    state: () => databaseState(dbPath),
+    async recent(since) {
+      const { DatabaseSync } = await import("node:sqlite");
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      try {
+        const rows = db.prepare("SELECT data, delivered_date FROM record WHERE delivered_date >= ? ORDER BY delivered_date DESC LIMIT 20")
+          .all((since - APPLE_EPOCH_MS) / 1000) as { data: Uint8Array | null; delivered_date: number }[];
+        return rows.map((r) => ({
+          source: "Notifications" as const,
+          at: APPLE_EPOCH_MS + Math.round(r.delivered_date * 1000),
+          text: r.data ? textOfNotification(parsePlist(r.data)) : "",
+        }));
+      } finally {
+        db.close();
+      }
+    },
+  };
+}
+
+function textOfNotification(plist: PlistValue): string {
+  const req = typeof plist === "object" && plist !== null && !Array.isArray(plist) ? plist.req : null;
+  if (typeof req !== "object" || req === null || Array.isArray(req)) return "";
+  return [req.titl, req.subt, req.body].filter((v): v is string => typeof v === "string").join("\n");
 }
 
 /* ─────────────────────────────── Mail ─────────────────────────────── */
@@ -350,8 +390,8 @@ export function fakeCodeSource(name: SecurityCodeSourceName, file: string): Code
 export function codeSourcesFor(d: { packaged: boolean; env: Record<string, string | undefined> }): CodeSource[] {
   if (d.packaged || d.env.REALM_ENABLE_FAKE_AGENT !== "1") {
     const mac = findMacCommand(d.env);
-    return [messagesSource(), mailSource(mac ? runMacCommand(mac) : null)];
+    return [messagesSource(), mailSource(mac ? runMacCommand(mac) : null), notificationsSource()];
   }
   const file = d.env.REALM_LIVE_CODES;
-  return file ? [fakeCodeSource("Messages", file), fakeCodeSource("Mail", file)] : [];
+  return file ? [fakeCodeSource("Messages", file), fakeCodeSource("Mail", file), fakeCodeSource("Notifications", file)] : [];
 }

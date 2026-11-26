@@ -13,12 +13,12 @@
 export const SECURITY_CODE_WINDOW_MS = 5 * 60_000;
 
 /** Where a code came from, as the menu row and the card name it. */
-export type SecurityCodeSourceName = "Messages" | "Mail";
+export type SecurityCodeSourceName = "Messages" | "Mail" | "Notifications";
 
 /**
  * Whether Realm can read a source right now: `ok`; `no_access` when macOS refused the read (Full
  * Disk Access is off for Realm); `missing` when there is nothing on this Mac to read (no Messages
- * database, or no `mac` command for Mail).
+ * database, or no `mac` command for Mail, or no Notification Center database).
  */
 export type SecurityCodeSourceState = "ok" | "no_access" | "missing";
 
