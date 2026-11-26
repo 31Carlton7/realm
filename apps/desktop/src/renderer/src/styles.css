@@ -2630,8 +2630,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 :root[data-surface="quick-chat"] .quick-chat:not([data-grown]) .quick-chat-card { display: none; }
 :root[data-surface="quick-chat"] .quick-chat-empty { display: none; }
 :root[data-surface="quick-chat"] .quick-chat-body,
-:root[data-surface="quick-chat"] .quick-chat .transcript-wrap,
-:root[data-surface="quick-chat"] .quick-chat .transcript { flex: 0 1 auto; }
+:root[data-surface="quick-chat"] .quick-chat .transcript-wrap { flex: 0 1 auto; }
 :root[data-surface="quick-chat"] .quick-chat .transcript { padding: 12px 14px 16px; }
 :root[data-surface="quick-chat"] .quick-chat .transcript-wrap { --fade-top-h: 12px; --fade-h: 16px; }
 /* The meeting assistant has its own column, sized to the panel's ceiling rather than to its words. */
@@ -2648,7 +2647,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    and so is its edge; it has no seam to the card because there is a gap between them. */
 :root[data-surface="quick-chat"] .quick-chat .composer {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end;
-  min-height: 40px; padding: 0 6px; border-radius: 20px;
+  min-height: 40px; padding: 0 6px; border-radius: var(--r-pill);
   background: var(--panel-ground);
   -webkit-app-region: drag;
 }
@@ -2669,9 +2668,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 :root[data-surface="quick-chat"] .quick-chat .composer-attach { border-radius: 50%; background: var(--rl-hover); }
 :root[data-surface="quick-chat"] .quick-chat .composer-send { width: 28px; height: 28px; }
 :root[data-surface="quick-chat"] .quick-chat .composer-send:disabled { background: var(--rl-accent-fill); color: var(--rl-accent-contrast); opacity: 0.45; }
-/* The painted curve, on the card and the capsule, the capsule's radius being half its height. The
-   shadow is drawn by the capsule's own lift layer, a box rounded to half the curve's radius, which
-   the curve holds (the prompter's rule further down). */
+/* The painted curve is the card's. The capsule has no corner for the painter to shape: its ends are
+   half circles, as ChatGPT's are, and painted at radius 20 on a 40px box they read as a rounded
+   rectangle beside the reference. So it keeps `border-radius` and gives up the prompter's painted
+   face and lift layers. The card's shadow is a box rounded to half its curve's radius, which the
+   curve holds (the prompter's rule further down). */
 :root[data-surface="quick-chat"][data-squircle] .quick-chat-card {
   border-radius: 0; background: paint(rl-squircle); box-shadow: none;
   --sq-fill: var(--panel-ground); --sq-ring: var(--panel-rim); --sq-ring-w: var(--panel-rim-w);
@@ -2681,14 +2682,13 @@ button.panel-title:hover { background: var(--rl-hover); }
   pointer-events: none; border-radius: calc(var(--r-squircle-card) / 2); box-shadow: var(--prompter-lift); }
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer,
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer:focus-within {
-  border-radius: 0; background: none; box-shadow: none;
-  --sq-fill: var(--panel-ground); --sq-ring: var(--panel-rim); --sq-ring-w: var(--panel-rim-w);
-  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card);
+  border-radius: var(--r-pill); background: var(--panel-ground);
+  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift);
 }
-:root[data-surface="quick-chat"][data-squircle] .quick-chat .composer::before {
-  border-radius: calc(var(--r-squircle-card) / 2); box-shadow: var(--prompter-lift); opacity: 1; }
+:root[data-surface="quick-chat"][data-squircle] .quick-chat .composer::before,
+:root[data-surface="quick-chat"][data-squircle] .quick-chat .composer::after { display: none; }
 /* The round button beside the capsule: the meeting assistant. */
-.quick-chat-side { position: relative; flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+.quick-chat-side { position: relative; flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-pill);
   background: var(--panel-ground); color: var(--rl-text-dim);
   box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--prompter-lift); }
 .quick-chat-side:hover { color: var(--rl-text-bright); }
@@ -2700,7 +2700,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    out of the bar. */
 :root[data-surface="quick-chat"][data-panel-in] .quick-chat-foot { animation: rl-quick-chat-bar-in var(--dur-base) var(--spring-smooth); }
 :root[data-surface="quick-chat"][data-panel-out] .quick-chat > * { animation: rl-quick-chat-out var(--dur-base) var(--ease-out-strong) forwards; }
-@keyframes rl-quick-chat-bar-in { from { clip-path: inset(0 0 0 calc(100% - 120px) round 20px); opacity: 0.4; } to { clip-path: inset(-24px round 20px); opacity: 1; } }
+@keyframes rl-quick-chat-bar-in { from { clip-path: inset(0 0 0 calc(100% - 120px) round 20px); opacity: 0.4; } to { clip-path: inset(-16px round 20px); opacity: 1; } }
 @keyframes rl-quick-chat-out { to { clip-path: inset(0 0 0 calc(100% - 120px) round 20px); opacity: 0; } }
 @keyframes rl-quick-chat-grow { from { translate: 0 8px; scale: 0.98; opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
@@ -2714,7 +2714,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 :root[data-surface="quick-chat"] .sheet-backdrop { z-index: 80; }
 .quick-chat-panel-note { position: fixed; inset: var(--panel-inset, 0); display: grid; place-items: center; margin: 0; padding: 0 16px;
   text-align: center; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); background: var(--panel-ground, var(--surface));
-  border-radius: 20px; -webkit-app-region: drag; }
+  border-radius: var(--r-pill); -webkit-app-region: drag; }
 /* The bar IS the handle, so it takes the grab cursor and gives up text selection — a drag across a
    title that highlighted the title behind the moving window would look like a broken drag. */
 .quick-chat-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 4px 0 12px;

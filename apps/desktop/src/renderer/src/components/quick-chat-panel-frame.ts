@@ -7,21 +7,21 @@ import { useLayoutEffect, type RefObject } from "react";
  */
 
 /** The gap between the conversation card and the bar, as in ChatGPT's companion. */
-export const PANEL_GAP = 8;
+const PANEL_GAP = 8;
 /** The most the shapes grow to (main's QUICK_CHAT_PANEL_MAX_HEIGHT). */
-export const PANEL_MAX_HEIGHT = 520;
+const PANEL_MAX_HEIGHT = 520;
 /** What needs the whole height while it is open: a menu, the model list, a toast or a sheet opens
  *  above the bar and would be cut off by a window the bar's height. */
 export const PANEL_ROOMY = ".menu, .model-picker, .mention-picker, .toast, .sheet-backdrop";
 
 const OUT_MS = 200;
 
-function isPanel(): boolean {
+export function isPanel(): boolean {
   return document.documentElement.dataset.surface === "quick-chat" && !!window.realm?.quickChatPanel;
 }
 
 /** The height the panel's shapes want: the bar, and the card above it at its content's height. */
-export function panelShapesHeight(root: HTMLElement): number {
+function panelShapesHeight(root: HTMLElement): number {
   if (root.dataset.roomy !== undefined || document.querySelector(PANEL_ROOMY)) return PANEL_MAX_HEIGHT;
   const foot = root.querySelector<HTMLElement>(".quick-chat-foot");
   let height = foot?.offsetHeight ?? 0;

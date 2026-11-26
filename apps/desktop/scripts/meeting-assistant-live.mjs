@@ -42,7 +42,8 @@
  *             rows in dark and light, Plain and Glass, before and after; after, the whole From anywhere
  *             group in each look too
  *   order     the From anywhere rows in the order settings-keybindings.test.tsx pins
- *   bar       the bar's title, mark, Auto-answer switch and mic button side by side at 380 pt, in
+ *   bar       the card's title, mark and Auto-answer switch side by side, and the mic button beside the
+ *             capsule, at the panel's 362 pt, in
  *             dark and light, Plain and Glass
  *   keys      each chord does what it names: R shows the assistant and puts it away, G answers, T
  *             types, J and K scroll, , and . move the panel, L starts and stops; R, L and G leave the
@@ -264,7 +265,7 @@ const closePanel = async (app, page) => {
 const onAssistant = (page) => page.eval(`!!document.querySelector(".meeting-strip")`);
 /** The quick chat keys open on the chat; the mic button turns it back to the assistant. */
 const showAssistant = async (page) => {
-  if (!(await onAssistant(page))) await page.eval(`document.querySelector('.quick-chat-bar button[aria-label="Meeting assistant"]').click(); true`);
+  if (!(await onAssistant(page))) await page.eval(`document.querySelector('.quick-chat-side').click(); true`);
   await until(() => onAssistant(page), 10_000, "the assistant view");
 };
 /** Counts main's calls that give the panel the keyboard, on the panel's own window and page. */
@@ -377,21 +378,23 @@ async function barLooks({ app, api }, page) {
     await sleep(400);
     const fit = await page.eval(`(() => {
       const bar = document.querySelector(".quick-chat-bar"), b = bar.getBoundingClientRect();
-      const parts = { title: ".quick-chat-title", mark: ".meeting-mark", auto: ".meeting-auto", mic: 'button[aria-label="Meeting assistant"]' };
+      const parts = { title: ".quick-chat-title", mark: ".meeting-mark", auto: ".meeting-auto" };
       // An icon button's scroll box takes in its ::after hit area (styles.css), so it is measured by its icon.
       const clipped = (el, r) => { const icon = el.matches(".icon-btn") ? el.querySelector("svg")?.getBoundingClientRect() : null;
         return icon ? icon.left < r.left || icon.right > r.right || icon.top < r.top || icon.bottom > r.bottom : el.scrollWidth > el.clientWidth; };
       const rects = Object.fromEntries(Object.entries(parts).map(([k, sel]) => { const el = bar.querySelector(sel); const r = el?.getBoundingClientRect();
         return [k, r ? { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), clipped: clipped(el, r) } : null]; }));
-      const order = ["title", "mark", "auto", "mic"].map((k) => rects[k]);
+      const mic = document.querySelector(".quick-chat-side"), m = mic?.getBoundingClientRect();
+      rects.mic = m ? { left: Math.round(m.left), right: Math.round(m.right), top: Math.round(m.top), bottom: Math.round(m.bottom), clipped: m.right > window.innerWidth } : null;
+      const order = ["title", "mark", "auto"].map((k) => rects[k]);
       const inside = order.every((r) => r && r.left >= b.left && r.right <= b.right && r.top >= b.top && r.bottom <= b.bottom);
       const apart = order.every((r, i) => i === 0 || (r && order[i - 1] && order[i - 1].right <= r.left));
       return { width: Math.round(window.innerWidth), bar: { x: b.left, y: b.top, width: b.width, height: b.height }, rects, inside, apart };
     })()`);
     const file = `m3b-bar-${mode}-${look}.png`;
     const flat = await shot(page, path.join(OUT_DIR, file), { clip: { ...fit.bar, scale: 2 } });
-    row("bar", `title, mark, Auto-answer and mic at ${fit.width} pt, ${mode} ${look}`, { ...fit, file },
-      flat && fit.width === 380 && fit.inside && fit.apart && Object.values(fit.rects).every((r) => r && !r.clipped));
+    row("bar", `title, mark, Auto-answer and the mic beside the capsule at ${fit.width} pt, ${mode} ${look}`, { ...fit, file },
+      flat && fit.width === 362 && fit.inside && fit.apart && Object.values(fit.rects).every((r) => r && !r.clipped));
   }
 }
 
@@ -584,7 +587,7 @@ try {
   await openPanel(app);
 
   /* ── sheet ─────────────────────────────────────────────────────────────────────────────────── */
-  await click(page, '.quick-chat-bar button[aria-label="Meeting assistant"]');
+  await click(page, '.quick-chat-side');
   await until(() => page.eval(`!!document.querySelector(".meeting-strip")`), 10_000, "the assistant view");
   const consentBefore = (await api.call("settings.get", { key: CONSENT_KEY })).value ?? null;
   await standInStill(page, "microphone");
@@ -780,7 +783,7 @@ try {
   chord(".");
   const afterDot = await until(async () => { const x = await panelX(app); return x !== afterComma ? { x } : null; }, 5000, ". to move the panel").then((v) => v.x, () => afterComma);
   row("keys", ", moves the panel left and . moves it right, along its display", { area, x0, afterComma, afterDot },
-    afterComma < x0 && afterComma >= area.x && afterDot > afterComma && afterDot + 380 <= area.x + area.width);
+    afterComma < x0 && afterComma >= area.x && afterDot > afterComma && afterDot + 362 <= area.x + area.width);
 
   /* ── reload ────────────────────────────────────────────────────────────────────────────────── */
   fs.rmSync(helperPidFile, { force: true });

@@ -372,11 +372,16 @@ Rules:
 - The quick chat panel is the one window of Realm's that opens over another app, so it behaves as a
   guest there. It takes the keyboard without becoming the front app and gives it back when it goes,
   it comes with no Realm window behind it, and Escape puts it away and deletes nothing: a key
-  pressed to get out of the way never costs a conversation. It is the quick chat's card with the
-  window as its edge, so in Plain it is the card's surface, and in Glass its ground thins over the
-  window's own material, which is macOS's and not a fill of ours. It thins only to the panes'
-  reading point, because the app behind it is a desktop nobody chose, and a white one took the
-  dark face's hints to nothing at the thinner ground it first had. Until it is saved its bar says
+  pressed to get out of the way never costs a conversation. It is laid out after ChatGPT's companion
+  bar (the owner, 11-25: "mimic it as much as possible"): it opens as one capsule 40 pt tall in the
+  display's bottom-right corner, and a card grows up out of it once there is a conversation or the
+  assistant to show, as tall as what it holds, with the bar's bottom edge held still. The empty bar
+  goes when the keyboard leaves it; one holding anything does not. It narrows into its right end on
+  the way out, as it widened out of it on the way in. The window is transparent around the shapes,
+  because macOS's material is a rectangle and cannot take a capsule's shape, so the ground is ours:
+  the card's surface in Plain, and in Glass that surface thinned with a rim of light. It thins only
+  to the panes' reading point, because the app behind it is a desktop nobody chose, and a white one
+  took the dark face's hints to nothing at the thinner ground it first had. Until it is saved its card says
   Quick chat, never a session's placeholder; saved, it says the name it has in that space. What
   Settings says about hiding it from screen sharing is what was measured and no more: left out of
   screenshots and screen recordings on this Mac, still listed without a name, and a call seen from

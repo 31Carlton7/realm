@@ -16,7 +16,7 @@ import type { MeetingAssistant } from "../meeting/assistant";
 import {
   ASSISTANT_PLACEHOLDER, AssistantBody, AssistantStrip, AutoAnswersSwitch, ListeningMark, isListening, useAssistantState, type AssistantTarget,
 } from "../meeting/MeetingAssistantView";
-import { PANEL_ROOMY, putPanelAway, usePanelFit } from "./quick-chat-panel-frame";
+import { PANEL_ROOMY, isPanel, putPanelAway, usePanelFit } from "./quick-chat-panel-frame";
 
 /** The window's size. Fixed rather than resizable: it is a corner of the screen you ask something
  *  in, and a chat you want to size is a chat that wanted a pane. */
@@ -177,7 +177,7 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
   const empty = !grown && draft.trim() === "" && attachments.length === 0;
   useEffect(() => {
     const panel = window.realm?.quickChatPanel;
-    if (!panel || !empty || document.documentElement.dataset.surface !== "quick-chat") return;
+    if (!panel || !empty || !isPanel()) return;
     const onBlur = () => {
       if (picking.current || document.querySelector(PANEL_ROOMY)) return;
       putPanelAway(() => panel.hide());

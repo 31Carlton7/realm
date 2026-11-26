@@ -69,7 +69,7 @@ describe("the quick chat panel's Glass ground", () => {
     expect(rule(':root[data-surface="quick-chat"] .quick-chat .composer')).toContain("background: var(--panel-ground);");
     expect(rule(':root[data-surface="quick-chat"] .quick-chat-card')).toContain("background: var(--panel-ground);");
     expect(rule(':root[data-surface="quick-chat"][data-squircle] .quick-chat-card')).toContain("--sq-fill: var(--panel-ground);");
-    expect(styles).toMatch(/:root\[data-surface="quick-chat"\]\[data-squircle\] \.quick-chat \.composer:focus-within \{[^}]*--sq-fill: var\(--panel-ground\);/);
+    expect(styles).toMatch(/:root\[data-surface="quick-chat"\]\[data-squircle\] \.quick-chat \.composer:focus-within \{[^}]*background: var\(--panel-ground\);/);
   });
 
   it("shows the light face's window less than the dark one's, as the panes do", () => {
@@ -83,10 +83,12 @@ describe("the quick chat panel's frame", () => {
     expect(rule(':root[data-surface="quick-chat"]')).toContain(`--panel-inset: ${QUICK_CHAT_PANEL_INSET}px;`);
   });
 
-  it("draws the bar as a capsule of main's bar height: its radius is half of it, painted and not", () => {
+  it("draws the bar as a capsule of main's bar height, painted path and plain", () => {
     const composer = rule(':root[data-surface="quick-chat"] .quick-chat .composer');
     expect(composer).toContain(`min-height: ${QUICK_CHAT_BAR.height}px;`);
-    expect(composer).toContain(`border-radius: ${QUICK_CHAT_BAR.height / 2}px;`);
+    expect(composer).toContain("border-radius: var(--r-pill);");
+    expect(styles).toMatch(/:root\[data-surface="quick-chat"\]\[data-squircle\] \.quick-chat \.composer:focus-within \{[^}]*border-radius: var\(--r-pill\);/);
+    // The card's painted corner is the capsule's end: half the bar's height.
     expect(/--r-squircle-card: (\d+)px;/.exec(styles)?.[1]).toBe(String(QUICK_CHAT_BAR.height / 2));
     expect(rule(".quick-chat-side")).toContain(`height: ${QUICK_CHAT_BAR.height}px;`);
   });
