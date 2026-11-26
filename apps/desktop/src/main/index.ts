@@ -22,7 +22,7 @@ import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
-import { BROWSER_KEEP_HIDDEN_DEFAULT, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, COMMAND_SIDE_DEFAULT, isCommandSide, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
@@ -1004,7 +1004,7 @@ const agentHost = new BrowserAgentHost({
   readFile: async (path) => new Uint8Array(await readFile(path)),
   codes: {
     enabled: () => codes()?.enabled() ?? false,
-    latest: async (origin) => (await codes()?.latest(origin)) ?? null,
+    waitFor: async (origin, o) => (await codes()?.waitFor(origin, o)) ?? { found: null, cancelled: false, miss: { Messages: "missing", Mail: "missing", Notifications: "missing" } },
   },
   coverShot: coverJpeg,
 });
@@ -2242,8 +2242,9 @@ ipcMain.on("meeting-assistant:shown", (e, on: unknown) => {
  *  launch with no window still answers a double-tap. */
 async function readKeysPreferences() {
   try {
-    const [doubleTap, hold, chords, consent] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_HOLD_KEY, KEYS_ASSISTANT_KEY, MEETING_CONSENT_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
+    const [doubleTap, side, hold, chords, consent] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, KEYS_ASSISTANT_KEY, MEETING_CONSENT_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
     if (isHoldKey(hold?.value)) realmKeys.setHoldKey(hold.value);
+    realmKeys.setCommandSide(isCommandSide(side?.value) ? side.value : COMMAND_SIDE_DEFAULT);
     assistantKeys.setConsented(meetingConsentAccepted(consent?.value));
     assistantKeys.set(typeof chords?.value === "boolean" ? chords.value : KEYS_ASSISTANT_DEFAULT);
     realmKeys.setDoubleTap(typeof doubleTap?.value === "boolean" ? doubleTap.value : KEYS_DOUBLE_TAP_DEFAULT);
@@ -2260,6 +2261,7 @@ async function readAssistantConsent(): Promise<void> {
 }
 ipcMain.handle("keys:state", () => realmKeys.state);
 ipcMain.handle("keys:set-double-tap", (_e, on: unknown) => { realmKeys.setDoubleTap(on === true); preparePanel(); });
+ipcMain.handle("keys:set-double-tap-side", (_e, side: unknown) => { if (isCommandSide(side)) realmKeys.setCommandSide(side); });
 ipcMain.handle("keys:set-hold", (_e, key: unknown) => { if (isHoldKey(key)) realmKeys.setHoldKey(key); });
 ipcMain.handle("keys:set-assistant", (_e, on: unknown) => { assistantKeys.set(on === true); preparePanel(); });
 ipcMain.on("keys:watch", (e, on: unknown) => {

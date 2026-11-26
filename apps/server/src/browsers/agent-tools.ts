@@ -692,6 +692,7 @@ const HANDLERS: Record<string, Handler> = {
    * a card every time, which `bypassPermissions` does not skip and "Always allow" does not satisfy,
    * because what enters the page is read from the person's messages. The code is read only after the
    * card is answered, and nothing about it — not its value, length or sender — comes back here.
+   * Main waits up to `SECURITY_CODE_WAIT_MS` for a code to arrive.
    */
   browser_fill_code: async (d, ctx, rawArgs) => {
     const args = parseArgs(FillCodeArgs, rawArgs); if ("error" in args) return args.error;
@@ -714,7 +715,12 @@ const HANDLERS: Record<string, Handler> = {
     );
     if (!gate.allowed) return err(`declined: ${gate.reason}`);
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
-      const result = (await d.bridge.call("fillCode", { browserId: row.value.id, ref: args.value.ref, origin })) as BrowserActResult;
+      // Main waits for the code to arrive; a cancelled call (the turn was interrupted) stops that wait.
+      const cancel = () => { void d.bridge.call("fillCodeCancel", { browserId: row.value.id }).catch(() => {}); };
+      ctx.signal?.addEventListener("abort", cancel, { once: true });
+      ctx.progress?.("waiting for the code to arrive by text or email");
+      const result = (await d.bridge.call("fillCode", { browserId: row.value.id, ref: args.value.ref, origin })
+        .finally(() => ctx.signal?.removeEventListener("abort", cancel))) as BrowserActResult;
       // No screenshot on failure, as for a credential: the field may hold what was typed.
       if (!result.ok) return err(`not filled: ${result.error}`);
       return ok("filled");

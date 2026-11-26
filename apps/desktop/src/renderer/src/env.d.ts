@@ -136,6 +136,7 @@ interface Window {
     keys?: {
       state(): Promise<import("@realm/contracts").GlobalKeysState>;
       setDoubleTap(on: boolean): Promise<void>;
+      setDoubleTapSide(side: import("@realm/contracts").CommandSide): Promise<void>;
       setHold(key: import("@realm/contracts").HoldKey): Promise<void>;
       setAssistant(on: boolean): Promise<void>;
       watch(on: boolean): void;

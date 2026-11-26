@@ -30,6 +30,35 @@ export const SPACE_FOLDER_INDEX_CAP = 20_000;
 export const TEAM_INDEX_CAP = 8_000;
 export const PROFILE_INDEX_CAP = 8_000;
 
+/**
+ * What a save may add to an index, and when it says the index is getting long. These are checked
+ * where entries are written; the caps above only cut what a session is handed.
+ *
+ * - **One index line, 200.** A save whose line would run longer writes a hook this long at most to
+ *   MEMORY.md and the whole entry to a fact file it links (`MemoryRepoService.edit`). Root entries had
+ *   reached a median of 357 characters and a longest of 735, so the profile root fit 21 of its 53.
+ * - **A warning at 180 lines or 18,000 characters.** Claude's own auto-memory loads the first 200
+ *   lines of an index, and `SPACE_FOLDER_INDEX_CAP` cuts at 20,000 characters: the warning comes a
+ *   tenth before either, while there is still room to tidy. It never refuses the save.
+ */
+export const INDEX_LINE_MAX = 200;
+export const INDEX_WARN_LINES = 180;
+export const INDEX_WARN_CHARS = 18_000;
+/** The lines of an index Claude's auto-memory loads; the rest it drops. */
+const CLAUDE_INDEX_LINES = 200;
+
+/** What a save tells the agent once `index` (an index's whole text, as the save left it) is at
+ *  `INDEX_WARN_LINES` or `INDEX_WARN_CHARS`, or null while it is under both. */
+export function indexWarning(file: string, index: string): string | null {
+  const lines = index === "" ? 0 : index.replace(/\n$/, "").split("\n").length;
+  const over = [
+    lines >= INDEX_WARN_LINES ? `${lines} lines (the warning is at ${INDEX_WARN_LINES}; Claude loads the first ${CLAUDE_INDEX_LINES})` : null,
+    index.length >= INDEX_WARN_CHARS ? `${index.length.toLocaleString("en-US")} characters (the warning is at ${INDEX_WARN_CHARS.toLocaleString("en-US")})` : null,
+  ].filter((x) => x !== null);
+  if (over.length === 0) return null;
+  return `${file} is now ${over.join(" and ")}. Entries past the cut are not loaded into new sessions: merge entries that say the same thing, memory_remove ones that are no longer true, or move detail into topic files.`;
+}
+
 /** One block competing for the budget. `priority` is lower for the more specific block, which gives
  *  way last. `pointer` is the line that says where the rest is, shown when the block is cut. `cut`
  *  says the text is already short of the whole (a read cap upstream), so it needs its pointer even if
