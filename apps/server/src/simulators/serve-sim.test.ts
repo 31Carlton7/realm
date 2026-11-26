@@ -80,7 +80,7 @@ describe("how the CLI is run", () => {
 
 describe("the serve-sim binary npx has cached", () => {
   const UDID = "75D1511C-5E00-41A6-9CA2-1650DEAAF571";
-  const CACHED = "/Users/someone/.npm/_npx/0123456789abcdef/node_modules/.bin/serve-sim";
+  const CACHED = "/home/dev/.npm/_npx/0123456789abcdef/node_modules/.bin/serve-sim";
   /** A fake npx and serve-sim: npx names the cached binary, the binary answers each command, and
    *  every run is written down. `cost` is how long each one takes, in ms. */
   const fakeExec = (o: { resolved?: string | null; cost?: { npx: number; bin: number }; missing?: () => boolean } = {}) => {
