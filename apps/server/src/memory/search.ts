@@ -194,6 +194,13 @@ export class MemorySearch {
     return this.rank(files.flatMap((f) => this.docsOfFile(f.root, f.abs) ?? []), query, limit);
   }
 
+  /** The list items of one index's text, best first for `query`, as 0-based line numbers; the ones
+   *  the query does not match are left out. Over the text as given, so nothing is cached. */
+  rankIndexLines(index: string, query: string): number[] {
+    const entries = parseFile("", MEMORY_REPO_INDEX_FILE, index).filter((d) => d.kind === "entry");
+    return this.rank(entries, query, entries.length).map((h) => h.line - 1);
+  }
+
   private rank(docs: Doc[], query: string, limit: number, prefer?: string): SearchHit[] {
     const q = parseQuery(query);
     if (q.terms.length === 0) return [];
