@@ -503,7 +503,7 @@ export function isOpaqueColor(cssColor: string): boolean {
 
 function formatLine(c: Candidate, isNew: boolean): string {
   const flags = [
-    c.password ? "password field — typing is blocked, hand this to the user" : null,
+    c.password ? "password field — typing is blocked, use browser_fill_credential" : null,
     // Named explicitly because the AX tree reports a file input as a plain `button`, so nothing else
     // on the line says what it takes. The agent needs to see that `browser_upload` is the tool here:
     // clicking it opens a picker, and typing a path into it does nothing at all.

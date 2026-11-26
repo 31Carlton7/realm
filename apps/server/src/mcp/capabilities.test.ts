@@ -80,13 +80,24 @@ describe("capabilitiesContext", () => {
     expect(text).toContain("before you say it cannot");
     expect(text).toContain("work that belongs to later is `schedule_create`");
     // …and the true human-only steps, so "finish it yourself" never reads as "type the password".
-    expect(text).toContain("typing a password or a one-time code, approving a payment or purchase");
+    expect(text).toContain("Stop only for what is the user's alone: approving a payment or purchase");
     expect(text).toContain("anything outward and irreversible");
+    // THE MUTANT: the old stop list back. An agent reads "a one-time code" as the user's and stops at
+    // the code screen instead of calling browser_fill_code.
+    const stopList = text.slice(text.indexOf("Stop only for"));
+    expect(stopList).not.toContain("one-time code");
+    expect(stopList).not.toContain("typing a password");
+    expect(text).toContain("Sign-ins are yours: fill passwords with `browser_fill_credential`, codes with `browser_fill_code`");
+    expect(text).toContain("you never ask the user to paste one into chat");
+    expect(text).toContain("never read one yourself with `mac messages`, `mac mail` or a screenshot");
     // A session without the browser is not pointed at one to sign in with.
     const docsOnly = capabilitiesContext([DOCS_PROVIDER_NAME]);
     expect(docsOnly).toContain("## Finishing without the user");
     expect(docsOnly).not.toContain("browser pane");
     expect(docsOnly).not.toContain("check whether a tool here takes it");
+    // Nor told to fill sign-ins with tools it does not have.
+    expect(docsOnly).toContain("Stop only for what is the user's alone");
+    expect(docsOnly).not.toContain("Sign-ins are yours");
     expect(capabilitiesContext([])).not.toContain("## Finishing without the user");
   });
 
