@@ -6,8 +6,8 @@ import { memoryLearningKey } from "@realm/contracts";
 import type { MemoryTidyInput } from "@realm/adapters";
 import type { MemorySink } from "./sink";
 import {
-  MemoryTidier, TIDY_BACKOFF_MS, TIDY_EVERY_MS, TIDY_INDEX_MAX, TIDY_SOONEST_MS, TidyDraft, factFields, parseTidyPlan, readSnapshot,
-  type TidyOp,
+  MemoryTidier, TIDY_BACKOFF_MS, TIDY_EVERY_MS, TIDY_INDEX_MAX, TIDY_PAGE_MAX, TIDY_SOONEST_MS, TidyDraft, factFields, parseTidyPlan,
+  readSnapshot, shownFiles, type TidyOp,
 } from "./tidy";
 
 const MIN = 60_000;
@@ -240,6 +240,32 @@ describe("the model's plan, applied to the draft", () => {
   });
 });
 
+describe("the deterministic step — index lines ARCHIVE.md already links", () => {
+  const archive = "# Archived index\n\n- [Deploy day](deploy-day.md) — ships on Thursdays\n- [Gone](gone.md) — not in the index\n";
+
+  it("drops an index line whose every link the archive holds, and keeps the file and the line linking the archive", () => {
+    const index = `${store()["spaces/work/MEMORY.md"].trimEnd()}\n- [[deploy-day]] and [Billing owner](billing-owner.md)\n- [Archive](ARCHIVE.md) — shipped\n`;
+    const d = draftOf(repo(store({ "spaces/work/MEMORY.md": index, "spaces/work/ARCHIVE.md": archive })));
+    expect(d.unindexArchived()).toBe(1);
+    expect(d.changes().get("spaces/work/MEMORY.md")!.split("\n")).toEqual([
+      "- [Billing owner](billing-owner.md) — Dana owns billing",
+      "- [Who runs billing](billing-lead.md) — Dana runs billing",
+      "- [[deploy-day]] and [Billing owner](billing-owner.md)",
+      "- [Archive](ARCHIVE.md) — shipped",
+      "",
+    ]);
+    expect(d.changes().has("spaces/work/deploy-day.md")).toBe(false);
+  });
+
+  it("leaves an index, or an archive, changed in the last hour alone", () => {
+    for (const recent of ["spaces/work/MEMORY.md", "spaces/work/ARCHIVE.md"]) {
+      const d = draftOf(repo(store({ "spaces/work/ARCHIVE.md": archive }), [recent]));
+      expect(d.unindexArchived()).toBe(0);
+      expect(d.changes().size).toBe(0);
+    }
+  });
+});
+
 describe("TidyDraft.drifted — what was written under the pass while it planned", () => {
   /** The files as the store holds them now: the snapshot's, with `now` laid over it. */
   const reader = (dir: string, now: Record<string, string | null> = {}) => (path: string): string | null => {
@@ -307,8 +333,8 @@ type Busy = {
   file?: string;
 };
 
-function tidier(dir: string, o: { plan?: unknown; reply?: string; inactive?: string[]; recorded?: string[]; settings?: Record<string, unknown>; fail?: boolean; busy?: Busy; systemClock?: boolean } = {}) {
-  const folders: Record<string, string> = { s1: "work", s2: "home" };
+function tidier(dir: string, o: { plan?: unknown; reply?: string; inactive?: string[]; recorded?: string[]; settings?: Record<string, unknown>; fail?: boolean; busy?: Busy; systemClock?: boolean; folders?: Record<string, string> } = {}) {
+  const folders: Record<string, string> = o.folders ?? { s1: "work", s2: "home" };
   const settings = new Map<string, unknown>(Object.entries(o.settings ?? {}));
   const batches: { writes: Map<string, string | null>; message: string; author?: string }[] = [];
   let writesAsked = 0;
@@ -339,8 +365,8 @@ function tidier(dir: string, o: { plan?: unknown; reply?: string; inactive?: str
   let now = NOW;
   const onTidied = vi.fn();
   const t = new MemoryTidier({
-    profileIds: () => ["p1"], spaceIdsOf: () => ["s1", "s2"],
-    folderRecorded: (spaceId) => (o.recorded ?? ["s1", "s2"]).includes(spaceId),
+    profileIds: () => ["p1"], spaceIdsOf: () => Object.keys(folders),
+    folderRecorded: (spaceId) => (o.recorded ?? Object.keys(folders)).includes(spaceId),
     sink, settings: { get: (k) => settings.get(k) ?? null, set: (k, v) => { settings.set(k, v); } },
     generate, today: () => "2026-10-28", onTidied,
     // `systemClock`: the tidier reads Date.now, which fake timers move along with its hourly tick.
@@ -593,5 +619,117 @@ describe("MemoryTidier — backing off while memory keeps moving", () => {
     await hours(1);
     expect(x.generate).toHaveBeenCalledTimes(3);
     x.t.close();
+  });
+});
+
+describe("MemoryTidier — a store at the shape it reached (Nov 2026)", () => {
+  // Measured on the owner's store: about 88K of indexes, the root at 15.9K and the largest folder's at
+  // 19.6K; that folder holds 228 facts at about 1.3K each, and its ARCHIVE.md links 24 of the lines its
+  // index still carries. Before, the indexes alone overran the 60K shown to the model, so no fact file
+  // was ever shown, and the trigger called the model every day for a pass that could shrink nothing.
+  const pad = (line: string, to: number) => line + "x".repeat(Math.max(0, to - line.length));
+  const lines = (n: number, to: number, f: (i: number) => string) => Array.from({ length: n }, (_, i) => pad(f(i), to)).join("\n");
+  const id = (i: number) => String(i).padStart(3, "0");
+  const SPACES: Record<string, string> = { s1: "realm", s2: "persona", s3: "versed", s4: "home", s5: "school", s6: "music" };
+  const FACTS: Record<string, number> = { realm: 228, persona: 179, versed: 110, home: 20, school: 20, music: 20 };
+  const INDEX_LINES: Record<string, number> = { realm: 212, persona: 180, versed: 150, home: 80, school: 80, music: 80 };
+
+  function audited(): string {
+    const files: Record<string, string> = {
+      "MEMORY.md": `# Memory\n\n${lines(53, 300, (i) => `- Fact ${i} about the person [source: realm:session/s${i}; added: 2026-11-0${i % 9 + 1}]`)}\n\n## Index\n${Object.values(SPACES).map((f) => `- [[spaces/${f}/MEMORY]]`).join("\n")}\n`,
+    };
+    for (const folder of Object.values(SPACES)) {
+      for (let i = 0; i < FACTS[folder]!; i++) files[`spaces/${folder}/${folder}-${id(i)}.md`] = fact(`${folder}-${id(i)}`, "project", `${folder} fact ${i}`, `Fact ${i}. ${"y".repeat(1_150)}`);
+      const indexed = lines(INDEX_LINES[folder]! - 1, 92, (i) => `- [${folder} fact ${i}](${folder}-${id(i % FACTS[folder]!)}.md) — `);
+      files[`spaces/${folder}/MEMORY.md`] = `${indexed}\n- [Archive](ARCHIVE.md) — shipped, superseded, rare\n`;
+    }
+    files["spaces/realm/ARCHIVE.md"] = `# Archived index\n\n${lines(24, 92, (i) => `- [realm fact ${i}](realm-${id(i)}.md) — `)}\n`;
+    return repo(files);
+  }
+
+  /** A sink that writes what it is handed to the repo, an hour and more old by the file's clock. */
+  function writing(x: ReturnType<typeof tidier>, dir: string, clock: () => number) {
+    (x.sink.writeBatch as ReturnType<typeof vi.fn>).mockImplementation(async (_o, writes, message, author) => {
+      const w: Map<string, string | null> = typeof writes === "function" ? writes(dir) : writes;
+      for (const [path, text] of w) {
+        if (text === null) continue;
+        writeFileSync(join(dir, path), text);
+        const t = (clock() - 3 * HOUR) / 1000;
+        utimesSync(join(dir, path), t, t);
+      }
+      x.batches.push({ writes: w, message, author });
+      return { changed: true, file: "", line: null, sha: `sha${x.batches.length}`, diff: "" };
+    });
+  }
+
+  it("is the shape measured: 88K of indexes, a 228-fact folder, 24 lines its archive already links", () => {
+    const dir = audited();
+    const snap = readSnapshot(dir, Object.values(SPACES));
+    const indexes = snap.root.text.length + snap.folders.reduce((n, f) => n + f.index.text.length, 0);
+    expect(indexes).toBeGreaterThan(85_000);
+    expect(indexes).toBeLessThan(92_000);
+    expect(snap.folders.find((f) => f.folder === "realm")!.facts.filter((x) => x.name !== "ARCHIVE")).toHaveLength(228);
+    expect(tidier(dir, { folders: SPACES }).t.indexChars("p1")).toBeGreaterThan(TIDY_INDEX_MAX);
+  });
+
+  it("shows the model facts from the largest folders a page at a time, the next page each pass, and drops the 24 duplicates", async () => {
+    const dir = audited();
+    const x = tidier(dir, { folders: SPACES, settings: { "memory.tidiedAt:p1": NOW - TIDY_EVERY_MS } });
+    const r = await x.t.tidy("p1");
+    const first = x.generate.mock.calls[0]![0];
+    const realm = (input: MemoryTidyInput) => input.files.map((f) => f.path).filter((p) => p.startsWith("spaces/realm/"));
+    expect(first.indexes).toHaveLength(7);
+    expect(realm(first).length).toBeGreaterThan(10);
+    expect(realm(first)[0]).toBe("spaces/realm/ARCHIVE.md");
+    expect(first.files.some((f) => f.path.startsWith("spaces/persona/"))).toBe(true);
+    expect(first.files.some((f) => f.path.startsWith("spaces/versed/"))).toBe(true);
+    const shown = (path: string) => first.files.filter((f) => f.path.startsWith(path)).reduce((n, f) => n + f.path.length + f.text.length, 0);
+    expect(shown("spaces/realm/")).toBeLessThanOrEqual(TIDY_PAGE_MAX);
+
+    expect(r).toMatchObject({ ran: true, unindexed: 24 });
+    const index = x.batches[0]!.writes.get("spaces/realm/MEMORY.md")!;
+    expect(index.split("\n").filter(Boolean)).toHaveLength(212 - 24);
+    expect(index).not.toContain("(realm-023.md)");
+    expect(index).toContain("(realm-024.md)");
+    expect(index).toContain("(ARCHIVE.md)");
+
+    // The next pass shows the page after: none of the first page's facts, starting where it stopped.
+    const pages = x.settings.get("memory.tidyPages:p1") as Record<string, string>;
+    await x.t.tidy("p1");
+    const second = realm(x.generate.mock.calls[1]![0]);
+    expect(second[0]).toBe(`spaces/realm/${pages.realm}.md`);
+    expect(second.filter((p) => realm(first).includes(p))).toEqual([]);
+  });
+
+  it("stops coming early once a pass shrinks the indexes by less than 2% — until they grow again", async () => {
+    const dir = audited();
+    let now = NOW;
+    const x = tidier(dir, { folders: SPACES, settings: { "memory.tidiedAt:p1": NOW - TIDY_EVERY_MS } });
+    writing(x, dir, () => now);
+    const day = () => { now += TIDY_SOONEST_MS; x.advance(TIDY_SOONEST_MS); };
+    const calls = async (n: number) => { await vi.waitFor(() => expect(x.settings.get("memory.tidyShrink:p1")).toBeTruthy()); expect(x.generate).toHaveBeenCalledTimes(n); };
+
+    // The weekly pass drops the 24 duplicates: about 6% off the indexes a session is handed.
+    x.t.check("p1");
+    await vi.waitFor(() => expect(x.batches).toHaveLength(1));
+    await calls(1);
+    const { before, after } = x.settings.get("memory.tidyShrink:p1") as { before: number; after: number };
+    expect((before - after) / before).toBeGreaterThan(0.02);
+    expect(after).toBeGreaterThan(TIDY_INDEX_MAX);
+
+    // So the next day still comes early; that pass shrinks nothing.
+    day();
+    x.t.check("p1");
+    await vi.waitFor(() => expect(x.generate).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect((x.settings.get("memory.tidyShrink:p1") as { before: number }).before).toBe(after));
+
+    // From then on the indexes are still too long, but the day no longer buys a call…
+    for (let i = 0; i < 5; i++) { day(); x.t.check("p1"); }
+    expect(x.generate).toHaveBeenCalledTimes(2);
+
+    // …until they grow by more than 2% since, or the week comes round.
+    appendFileSync(join(dir, "MEMORY.md"), `${"- one more fact about the person, saved since\n".repeat(25)}`);
+    x.t.check("p1");
+    await vi.waitFor(() => expect(x.generate).toHaveBeenCalledTimes(3));
   });
 });
