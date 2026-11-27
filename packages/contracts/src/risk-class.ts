@@ -73,7 +73,9 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *   - `schedule_list` — the space's schedules and its teammates' clocks;
  *   - `docs_search`, `docs_read` — the text of files in the space's folder;
  *   - `docs_state` — which files the space's Documents panes have open;
- *   - `team_list` — the space's teammates, what each does and what it is working on;
+ *   - `team_list`, `teammate_get` — the space's teammates, what each does, what it is working on and
+ *     how it is set up, as its page shows it;
+ *   - `teammate_sessions` — a teammate's task sessions by title and state, and the PR or release each made;
  *   - `memory_index`, `memory_read`, `memory_search` — the memory repo, which refuses a secret's shape
  *     on every write;
  *   - `goal_status` — the session's goal, turns and budget.
@@ -101,6 +103,8 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-docs__docs_read": read,
   "realm-docs__docs_state": read,
   "realm-team__team_list": read,
+  "realm-team__teammate_get": read,
+  "realm-team__teammate_sessions": read,
   "realm-memory__memory_index": read,
   "realm-memory__memory_read": read,
   "realm-memory__memory_search": read,

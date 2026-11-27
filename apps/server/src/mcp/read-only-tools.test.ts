@@ -71,6 +71,8 @@ describe("Realm's read-only tools, through the real gateway", () => {
       "realm-docs__docs_read": { path: "notes.md" },
       "realm-workspace__session_read": { sessionId },
       "realm-memory__memory_read": { path: "MEMORY" },
+      "realm-team__teammate_get": { to: "writer" },
+      "realm-team__teammate_sessions": { to: "writer" },
       "realm-memory__memory_search": { query: "memory" },
       "realm-browser__browser_snapshot": { browserId: "b_none" },
       "realm-browser__browser_read": { browserId: "b_none" },
