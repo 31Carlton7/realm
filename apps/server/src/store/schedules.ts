@@ -8,7 +8,7 @@ type Row = {
   last_run_id: string | null; last_skipped_at: number | null;
   new_session_per_run: number; archive_succeeded: number; created_at: number; updated_at: number;
   role_id: string | null; permission_mode: string | null;
-  time_zone: string | null; last_slot: string | null;
+  time_zone: string | null; last_slot: string | null; created_by_session: string | null;
 };
 
 /** A constraints blob that does not parse reads as "no constraints" rather than throwing — the same
@@ -27,7 +27,7 @@ const toSchedule = (r: Row): Schedule => ({
   constraints: parseConstraints(r.constraints_json),
   nextRunAt: r.next_run_at, lastRunAt: r.last_run_at, lastRunId: r.last_run_id, lastSkippedAt: r.last_skipped_at,
   newSessionPerRun: r.new_session_per_run === 1, archiveSucceeded: r.archive_succeeded === 1,
-  roleId: r.role_id ?? null, permissionMode: r.permission_mode ?? null,
+  roleId: r.role_id ?? null, permissionMode: r.permission_mode ?? null, createdBySession: r.created_by_session ?? null,
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
@@ -38,6 +38,8 @@ export type ScheduleInsert = {
   roleId?: string | null;
   /** What its runs start in (`Schedule.permissionMode`); a teammate's clock has none. */
   permissionMode?: string | null;
+  /** The session whose agent made it (`Schedule.createdBySession`); the person's own make none. */
+  createdBySession?: string | null;
 };
 
 export type ScheduleUpdate = {
@@ -72,6 +74,12 @@ export class SchedulesStore {
     return (this.db.prepare("SELECT * FROM schedules WHERE space_id = ? AND role_id IS NULL ORDER BY created_at DESC, id DESC").all(spaceId) as Row[]).map(toSchedule);
   }
 
+  /** The clocks of a space's teammates still in its Team list, oldest first. */
+  clocks(spaceId: string): Schedule[] {
+    return (this.db.prepare(`SELECT * FROM schedules WHERE space_id = ? AND role_id IN (SELECT id FROM team_roles WHERE archived = 0)
+      ORDER BY created_at, id`).all(spaceId) as Row[]).map(toSchedule);
+  }
+
   /** A teammate's clock. The first Teams kept one per role; should there be more, the oldest is it. */
   forRole(roleId: string): Schedule | null {
     const r = this.db.prepare("SELECT * FROM schedules WHERE role_id = ? ORDER BY created_at, id LIMIT 1").get(roleId) as Row | undefined;
@@ -92,11 +100,12 @@ export class SchedulesStore {
     const next = input.enabled ? nextFireOf(input.cron, ts, zone) : null;
     this.db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json,
         next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, role_id, permission_mode,
-        time_zone, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`)
+        time_zone, created_by_session, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.title, input.goal, input.cron, input.enabled ? 1 : 0,
         input.constraints ? JSON.stringify(input.constraints) : null, next,
-        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, input.roleId ?? null, input.permissionMode ?? null, zone, ts, ts);
+        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, input.roleId ?? null, input.permissionMode ?? null, zone,
+        input.createdBySession ?? null, ts, ts);
     return this.get(id)!;
   }
 
