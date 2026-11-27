@@ -17,7 +17,8 @@ import { DAEMON_LOCK_FILE, DAEMON_STATE_FILE, DaemonStateSchema, type DaemonStat
  * two cannot drift: main passes this value to every server it spawns as REALM_HOME, so the server
  * agrees by construction rather than by coincidence.
  */
-export const realmHomePath = (): string => process.env.REALM_HOME ?? join(homedir(), "Realm");
+export const defaultRealmHome = (): string => join(homedir(), "Realm");
+export const realmHomePath = (): string => process.env.REALM_HOME ?? defaultRealmHome();
 
 export const daemonStatePath = (home: string): string => join(home, DAEMON_STATE_FILE);
 
