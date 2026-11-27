@@ -66,7 +66,7 @@ const registered: string[] = [];
 const globalShortcut = { register: (accelerator: string, _press?: () => void) => { registered.push(accelerator); return true; } };
 
 vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents, globalShortcut }));
-const { agentHome, agentUserData, installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
+const { agentHome, agentShellOnOwnersHome, agentUserData, installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
 
 describe("quietWindowsOn", () => {
   it("is on only for an unpackaged app asked for it", () => {
@@ -102,6 +102,28 @@ describe("agentUserData", () => {
     expect(agentUserData({ ...unpackaged, env: {} })).toBeNull();
     expect(agentUserData({ ...unpackaged, env: { REALM_QUIET_WINDOWS: "1" } })).toBeNull();
     expect(agentUserData({ ...unpackaged, userData: "/tmp/live-check/userData" })).toBeNull();
+  });
+});
+
+describe("agentShellOnOwnersHome", () => {
+  const DEFAULT_HOME = "/home/someone/Realm";
+  const unpackaged = { packaged: false, env: { REALM_AGENT_SHELL: "1" } as Record<string, string | undefined>, home: DEFAULT_HOME, defaultHome: DEFAULT_HOME };
+
+  it("is true for an unpackaged app an agent started that is about to run on the default home", () => {
+    expect(agentShellOnOwnersHome(unpackaged)).toBe(true);
+    expect(agentShellOnOwnersHome({ ...unpackaged, home: `${DEFAULT_HOME}/` })).toBe(true);
+  });
+
+  it("is false for a packaged app, one no agent started, and one on a home of its own", () => {
+    expect(agentShellOnOwnersHome({ ...unpackaged, packaged: true })).toBe(false);
+    expect(agentShellOnOwnersHome({ ...unpackaged, env: {} })).toBe(false);
+    expect(agentShellOnOwnersHome({ ...unpackaged, env: { REALM_AGENT_SHELL: "0" } })).toBe(false);
+    expect(agentShellOnOwnersHome({ ...unpackaged, home: "/tmp/realm-agent-shell/abc/home" })).toBe(false);
+  });
+
+  it("is false for the home agentHome gives the same app", () => {
+    const home = agentHome({ ...unpackaged, appPath: "/src/realm-a/apps/desktop", tmpDir: "/tmp" })!;
+    expect(agentShellOnOwnersHome({ ...unpackaged, home })).toBe(false);
   });
 });
 

@@ -79,6 +79,17 @@ export function agentHome(d: {
   return join(agentShellDir(d.tmpDir, d.appPath), "home");
 }
 
+/**
+ * Whether an unpackaged Realm an agent started is about to run on the default home, which is the
+ * owner's. `agentHome` moves it off; this is what main checks after, so that a change there fails at
+ * launch rather than stopping or adopting the owner's server.
+ */
+export function agentShellOnOwnersHome(d: {
+  packaged: boolean; env: Record<string, string | undefined>; home: string; defaultHome: string;
+}): boolean {
+  return !d.packaged && d.env[AGENT_SHELL_ENV] === "1" && resolve(d.home) === resolve(d.defaultHome);
+}
+
 const agentShellDir = (tmpDir: string, appPath: string): string =>
   join(tmpDir, "realm-agent-shell", createHash("sha256").update(appPath).digest("hex").slice(0, 12));
 
