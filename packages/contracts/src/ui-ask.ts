@@ -212,7 +212,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
 
 /** An absolute path with no `..` segment: what the folder panel hands back. */
-export function isAbsolutePath(p: string): boolean {
+function isAbsolutePath(p: string): boolean {
   return p.startsWith("/") && !p.split("/").some((seg) => seg === "..");
 }
 
