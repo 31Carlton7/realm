@@ -85,6 +85,9 @@ type Rgb = [number, number, number];
 const RED: Rgb = [220, 30, 30], BLUE: Rgb = [30, 60, 220], GREEN: Rgb = [30, 200, 60];
 const solid = (width: number, height: number, [r, g, b]: Rgb) =>
   sharp({ create: { width, height, channels: 3, background: { r, g, b } } }).jpeg({ quality: 95 }).toBuffer();
+/** Left half one colour, right half another: a frame cropped to its rect instead of scaled shows one half. */
+const halves = async (width: number, height: number, left: Rgb, right: Rgb) =>
+  sharp(await solid(width, height, right)).composite([{ input: await sharp(await solid(width / 2, height, left)).toBuffer(), left: 0, top: 0 }]).jpeg({ quality: 95 }).toBuffer();
 
 /** The colour at each point of a JPEG, as the nearest of the test colours. */
 async function colours(jpeg: Buffer, points: [number, number][]): Promise<string[]> {
@@ -166,17 +169,18 @@ describe("ViewerService compositing child views", () => {
     const { app, client } = await setup([PANE, { targetId: "C2", x: 500, y: 400, width: 100, height: 100 }]);
     await until(() => app.on("C2", "Page.startScreencast").length > 0, "the second child's screencast");
     app.frame("W", await solid(400, 300, RED), 800, 600);
-    app.frame("C1", await solid(400, 200, BLUE), 200, 100);
+    app.frame("C1", await halves(400, 200, BLUE, GREEN), 200, 100);
     app.frame("C2", await solid(200, 200, GREEN), 100, 100);
-    // C1 lands on (50,25)-(150,75), C2 on (250,200)-(300,250).
-    await frameWith(client, [[55, 30], [144, 69], [44, 50], [156, 50], [100, 81], [255, 205], [294, 244], [244, 225], [306, 225]],
-      ["blue", "blue", "red", "red", "red", "green", "green", "red", "red"]);
+    // C1 lands on (50,25)-(150,75), blue then green; C2 on (250,200)-(300,250).
+    await frameWith(client, [[55, 30], [94, 69], [106, 30], [144, 69], [44, 50], [156, 50], [100, 81], [255, 205], [294, 244], [244, 225], [306, 225]],
+      ["blue", "blue", "green", "green", "red", "red", "red", "green", "green", "red", "red"]);
     const last = client.parts.at(-1)!;
     expect(await sharp(last).metadata()).toMatchObject({ width: 400, height: 300 });
   });
 
   it("sends a point inside a child's rect to the child, in the child's own coordinates", async () => {
-    const { app, viewer } = await setup([PANE]);
+    // C2 overlaps C1's right edge, above it.
+    const { app, viewer } = await setup([PANE, { targetId: "C2", x: 250, y: 50, width: 100, height: 100 }]);
     await until(() => app.on("C1", "Page.startScreencast").length > 0, "the child's screencast");
     app.frame("W", await solid(800, 600, RED), 800, 600);
     // The child's page is 400x200 CSS px in a 200x100 rect: zoomed out, or a device preset.
@@ -188,10 +192,12 @@ describe("ViewerService compositing child views", () => {
     // An 800x600 viewer box: viewer coordinates are window CSS px.
     const at = (action: string, x: number, y: number) => ws.send(JSON.stringify({ type: "pointer", action, x, y, width: 800, height: 600 }));
     at("down", 150, 75); at("up", 150, 75);
+    at("move", 275, 60);
     ws.send(JSON.stringify({ type: "key", action: "down", key: "a", code: "KeyA", keyCode: 65, text: "a" }));
     at("down", 50, 40); at("up", 50, 40);
     ws.send(JSON.stringify({ type: "text", text: "b" }));
     await until(() => app.on("W", "Input.dispatchMouseEvent").length >= 2 && app.on("W", "Input.insertText").length > 0, "the window's click and text");
+    expect(app.on("C2", "Input.dispatchMouseEvent").map((c) => c.params)).toEqual([expect.objectContaining({ type: "mouseMoved", x: 25, y: 10 })]);
     expect(app.on("C1", "Input.dispatchMouseEvent").map((c) => c.params)).toEqual([
       expect.objectContaining({ type: "mousePressed", x: 100, y: 50 }),
       expect.objectContaining({ type: "mouseReleased", x: 100, y: 50 }),
@@ -229,10 +235,11 @@ describe("ViewerService compositing child views", () => {
     await until(() => client.parts.some((p) => p.equals(raw)), "the frame, untouched");
   });
 
-  it("closes each child's socket when the viewer closes", async () => {
+  it("stops each child's screencast and closes its socket when the viewer closes", async () => {
     const { app, viewers, viewer } = await setup([PANE]);
     await until(() => app.on("C1", "Page.startScreencast").length > 0, "the child's screencast");
     await viewers.close(viewer.id);
+    expect(app.on("C1", "Page.stopScreencast")).toHaveLength(1);
     await until(() => app.live("C1").length === 0 && app.live("W").length === 0, "every socket to close");
   });
 });

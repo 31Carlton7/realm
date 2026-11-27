@@ -91,7 +91,6 @@ describe("publishChildViews", () => {
     await settle();
     expect(win.scripts.length).toBe(count);
     pane.setBounds({ x: 40, y: 20, width: 300, height: 200 });
-    pane.setVisible(true);
     await settle();
     expect(win.scripts.length).toBe(count + 1);
     expect(told(win)).toEqual([{ targetId: "T1", x: 40, y: 20, width: 300, height: 200 }]);
