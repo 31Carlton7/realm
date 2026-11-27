@@ -24,8 +24,8 @@ export type RepoOwner = { scope: MemoryRepoScope; id: string };
 /** A repo one space's sessions use, and whose it is. */
 export type ActiveRepo = { scope: MemoryRepoScope; ownerId: string; path: string };
 /** One `MEMORY.md` a session in a space reads: a repo's root index, or — `spaceFolder` — the index of
- *  the space's own folder in the profile's repo, in Claude's auto-memory format. */
-/** One `MEMORY.md` as a session receives it. `claudeTail`: only the lines past what Claude's auto-memory loads of it. */
+ *  the space's own folder in the profile's repo, in Claude's auto-memory format. `claudeTail`: only its
+ *  lines past what Claude's auto-memory loads. */
 export type RepoIndex = { scope: MemoryRepoScope; kind: "root" | "spaceFolder"; path: string; index: string; truncated: boolean; claudeTail?: true };
 /** Where one space's Claude-format memory lives in its profile's repo. */
 export type SpaceFolder = { owner: RepoOwner; repoPath: string; folder: string; dir: string };
