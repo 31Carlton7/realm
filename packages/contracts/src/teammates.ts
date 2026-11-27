@@ -23,6 +23,10 @@ export const TEAMMATE_GET_TOOL = "teammate_get";
 export const TEAMMATE_SESSIONS_TOOL = "teammate_sessions";
 export const TEAMMATE_CREATE_TOOL = "teammate_create";
 export const TEAMMATE_UPDATE_TOOL = "teammate_update";
+export const TEAMMATE_ARCHIVE_TOOL = "teammate_archive";
+export const TEAMMATE_SET_LEAD_TOOL = "teammate_set_lead";
+export const TEAMMATE_REORDER_TOOL = "teammate_reorder";
+export const TEAMMATE_RUN_CLOCK_TOOL = "teammate_run_clock";
 export const SPACE_TEAMS_TOOL = "space_teams";
 
 /** The eight shapes and twelve colours an icon is made of: one flat shape, two eye strokes. */
@@ -269,6 +273,20 @@ export const SpaceTeamsArgsSchema = z.object({});
 
 /** `teammate_get`'s arguments. `to` is a handle, `@handle`, or `lead`; an archived teammate is found too. */
 export const TeammateGetArgsSchema = z.object({ to: z.string().trim().min(1).max(60) });
+
+/** `teammate_archive`'s arguments: `archived: false` brings an archived teammate back. */
+export const TeammateArchiveArgsSchema = z.object({
+  to: z.string().trim().min(1).max(60),
+  archived: z.boolean().optional(),
+});
+
+/** `teammate_set_lead`'s arguments: `to` null leaves the space with no Lead. */
+export const TeammateSetLeadArgsSchema = z.object({ to: z.string().trim().min(1).max(60).nullable() });
+
+/** `teammate_reorder`'s arguments: every teammate on the Team list by handle, top to bottom, with its section. */
+export const TeammateReorderArgsSchema = z.object({
+  order: z.array(z.object({ handle: z.string().trim().min(1).max(60), group: z.string().trim().min(1).max(60).nullable().optional() })),
+});
 
 /** `teammate_sessions`'s arguments: newest first, `limit` of them. */
 export const TeammateSessionsArgsSchema = z.object({
