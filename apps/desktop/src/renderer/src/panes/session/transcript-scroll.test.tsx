@@ -21,16 +21,20 @@ function stageTranscript({ height, view, clamp = false }: { height: number; view
    *  is ABOUT the clamp — a restore into a column whose media has not landed yet. */
   clamp?: boolean }) {
   let top = height;
+  /** Every write of the scroller's offset: in a real browser each one is a forced layout, which is
+   *  what a hidden pane must not pay for. */
+  let writes = 0;
   const mine = (el: unknown) => el instanceof HTMLElement && el.classList.contains("transcript");
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get() { return mine(this) ? height : 0; } });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get() { return mine(this) ? view : 0; } });
   Object.defineProperty(HTMLElement.prototype, "scrollTop", {
     configurable: true,
     get() { return mine(this) ? top : 0; },
-    set(v: number) { if (mine(this)) top = clamp ? Math.max(0, Math.min(v, height - view)) : v; },
+    set(v: number) { if (!mine(this)) return; writes++; top = clamp ? Math.max(0, Math.min(v, height - view)) : v; },
   });
   return {
     get top() { return top; },
+    get writes() { return writes; },
     /** The reader dragging the bar, thumb and all: move it, then tell the component. */
     readerScrollsTo(v: number) { top = v; fireEvent.scroll(document.querySelector(".transcript")!); },
     /** A scroller that has just been built, parked wherever the caller says — the staged geometry
@@ -69,9 +73,9 @@ const seeded = () => reduceAll([
   sessionEvent("assistant_text", { messageId: "m1", text: "a long answer" }),
 ]);
 
-const pane = (store: ReturnType<typeof createAppStore>) => (
+const pane = (store: ReturnType<typeof createAppStore>, visible = true) => (
   <StoreContext.Provider value={store}>
-    <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Session" })} visible />
+    <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Session" })} visible={visible} />
   </StoreContext.Provider>
 );
 
@@ -237,5 +241,61 @@ describe("coming back after a space switch", () => {
     render(pane(store));
 
     await waitFor(() => expect(scroller.top).toBe(4000));
+  });
+});
+
+/**
+ * A warm pane behind the one on screen is mounted in a `display: none` slot (warm-panes.ts), and its
+ * session can still be streaming. Following the content down there is a forced layout per delta for a
+ * scroller nobody can see, so it waits for the pane to be shown and catches up once then.
+ */
+describe("a hidden warm pane", () => {
+  it("does not touch its scroller while hidden, and lands at the bottom when shown", async () => {
+    const ro = stageObserver();
+    const scroller = stageTranscript({ height: 4000, view: 600 });
+    const { store, rerender } = await mountPane();
+    rerender(pane(store, false));
+    const before = scroller.writes;
+
+    scroller.contentGrowsTo(5000);
+    arrives(store, "streamed while nobody was looking");
+    ro.contentGrew();
+    await waitFor(() => expect(screen.getByText("streamed while nobody was looking")).toBeInTheDocument());
+    expect(scroller.writes).toBe(before);
+    expect(scroller.top).toBe(4000);
+
+    rerender(pane(store, true));
+    await waitFor(() => expect(scroller.top).toBe(5000));
+    expect(screen.queryByRole("button", { name: /New messages/ })).toBeNull();
+  });
+
+  it("a reader who had scrolled up is put back at their place when it is shown, not followed down", async () => {
+    stageObserver();
+    const scroller = stageTranscript({ height: 4000, view: 600 });
+    const { store, rerender } = await mountPane();
+    scroller.readerScrollsTo(1200);
+    rerender(pane(store, false));
+    arrives(store, "and here is more of it");
+    rerender(pane(store, true));
+    await waitFor(() => expect(screen.getByRole("button", { name: /New messages/ })).toBeInTheDocument());
+    expect(scroller.top).toBe(1200);
+  });
+
+  it("a pane rebuilt hidden keeps its restore owed until it is shown, past the deadline", async () => {
+    stageObserver();
+    const scroller = stageTranscript({ height: 4000, view: 600, clamp: true });
+    const { store, unmount } = await mountPane();
+    scroller.readerScrollsTo(1200);
+
+    unmount();
+    // A `display: none` box has no height, so nothing written to it can land.
+    scroller.reborn(0);
+    scroller.contentGrowsTo(0);
+    const { rerender } = render(pane(store, false));
+    await new Promise((r) => setTimeout(r, SETTLE_MS + 50));
+
+    scroller.contentGrowsTo(4000);
+    rerender(pane(store, true));
+    await waitFor(() => expect(scroller.top).toBe(1200));
   });
 });
