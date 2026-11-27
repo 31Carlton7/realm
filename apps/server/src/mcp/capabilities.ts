@@ -101,7 +101,9 @@ const BLOCKS: Record<string, string> = {
 
   "realm-team":
     "- **This space's teammates.** `team_list` says who is here — each teammate's handle, what it does, whether it " +
-    "is the Lead, and what it is working on. `team_message` puts a message in a teammate's own chat (`to`: its handle, " +
+    "is the Lead, and what it is working on, and under each its id, model, effort, access, folder, group and clock. " +
+    "`teammate_get` reads one in full (its whole brief and what its clock says), and `teammate_sessions` lists the " +
+    "task sessions it started and what came of each, a PR, a release or a failure. `team_message` puts a message in a teammate's own chat (`to`: its handle, " +
     "or `lead`): to ask it something, or to hand it work that is its to do. Add `wait: true` only when you cannot go on " +
     "without its answer; otherwise carry on, and it answers in its own chat. `team_set_access` sets a teammate's access " +
     "when the person asks: only the Lead, in its own chat, in a turn the person started (never one a teammate's message, " +

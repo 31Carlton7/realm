@@ -1,9 +1,9 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import {
-  TEAMMATE_CLOCK_TURN_MS, TEAMMATE_HOME_COMPACT_WINDOW, TEAMMATE_PERMISSION_MODES, TEAM_ACCESS_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, TeamSetAccessArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
+  TEAMMATE_CLOCK_TURN_MS, TEAMMATE_HOME_COMPACT_WINDOW, TEAMMATE_PERMISSION_MODES, TEAM_ACCESS_MODES, TEAM_MESSAGE_WAIT_MS, TeamListArgsSchema, TeamMessageArgsSchema, TeamSetAccessArgsSchema, TeammateGetArgsSchema, TeammateSessionsArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
   sessionEvent, type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type TeamAccess, type TeamAccessMode, type Teammate,
-  type TeammatePermissionMode, type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
+  type TeammatePermissionMode, type TeammateSchedule, type SessionOutcome, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
 } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { leadsWithAgentsAtWork } from "@realm/view";
@@ -49,6 +49,30 @@ function teamAtWork(sessions: readonly TeammateSessionRow[]): Set<string> {
 }
 
 const firstLine = (s: string): string => s.trim().split("\n").find((l) => l.trim())?.trim() ?? "";
+
+const when = (ms: number): string => new Date(ms).toISOString();
+
+/** How a teammate is set up, on one line: what `team_list` adds under each teammate and `teammate_get` opens with. */
+function setupOf(t: Teammate): string {
+  const clock = t.schedule
+    ? `clock "${t.schedule.cron}" (schedule ${t.schedule.id}), ${!t.schedule.enabled ? "paused" : t.schedule.nextRunAt ? `next ${when(t.schedule.nextRunAt)}` : "not due"}`
+    : "no clock";
+  return [
+    `id ${t.id}`, `${t.agentKind}${t.model ? ` ${t.model}` : ""}`, `effort ${t.effort ?? "default"}`, `access ${modeLabel(t.permissionMode)} (${t.permissionMode})`,
+    `folder ${t.folder}`, t.group ? `group "${t.group}"` : "no group", clock, `chat ${t.homeSessionId ?? "none yet"}`, ...(t.archived ? ["archived"] : []),
+  ].join(" · ");
+}
+
+/** What came of a task session, in words. */
+function outcomeWords(o: SessionOutcome | null, state: TeammateState): string {
+  if (state !== "idle") return "still going";
+  if (!o) return "no PR or release";
+  switch (o.kind) {
+    case "pr": return `PR #${o.number}${o.merged ? " merged" : ""}${o.url ? ` ${o.url}` : ""}`;
+    case "release": return `released ${o.tag}`;
+    case "failed": return `failed: ${clip(o.reason, 200)}`;
+  }
+}
 
 /** What Realm adds under a clock's prompt for the agent. The transcript keeps it out of the bubble. */
 const CLOCK_NOTE = "[Realm] Your schedule sent this, not the person, and nobody is watching: they will read this chat later. Do real work in a task session as you always do, and end with a short report of what you did, linking the sessions that did it. If you need the person, say so plainly at the end.";
@@ -717,19 +741,61 @@ export class TeammatesService {
 
   /* ──────────────────────────────── the tools ──────────────────────────────── */
 
-  /** `team_list`: every teammate here, one line each. */
-  teamList(ctx: ProviderCallContext): CallToolResult {
+  /** `team_list`: every teammate here (or every archived one), a line of who it is and a line of how it is set up. */
+  teamList(ctx: ProviderCallContext, raw: unknown = {}): CallToolResult {
+    const a = parseArgs(TeamListArgsSchema, raw); if ("error" in a) return a.error;
+    const archived = a.value.archived === true;
     const me = this.sessionTeammate(ctx.sessionId);
-    const rows = this.list(ctx.spaceId);
-    if (rows.length === 0) return ok("This space has no teammates.");
+    const rows = this.list(ctx.spaceId, archived);
+    if (rows.length === 0) return ok(archived ? "This space has no archived teammates." : "This space has no teammates.");
     const probes = this.d.sessions.probeCached()?.rows ?? [];
     return ok(rows.map((t) => {
       const what = firstLine(t.brief) || t.name;
       const state = t.state === "needs-you" ? "needs the person" : t.state;
       const task = t.liveTask ? ` on "${t.liveTask}"` : "";
       const model = modelNameOf(t.agentKind, t.model, probes);
-      return `- @${t.handle}${t.lead ? " (Lead)" : ""}${t.id === me?.id ? " (you)" : ""} — ${t.name}: ${clip(what, 160)} · ${state}${task} · ${model}`;
+      return `- @${t.handle}${t.lead ? " (Lead)" : ""}${t.id === me?.id ? " (you)" : ""} — ${t.name}: ${clip(what, 160)} · ${state}${task} · ${model}\n  ${setupOf(t)}`;
     }).join("\n"));
+  }
+
+  /** `teammate_get`: one teammate in full — its whole brief, its clock's prompt, its newest task sessions. */
+  teammateGet(ctx: ProviderCallContext, raw: unknown): CallToolResult {
+    const a = parseArgs(TeammateGetArgsSchema, raw); if ("error" in a) return a.error;
+    const row = this.resolveAny(ctx.spaceId, a.value.to);
+    if ("error" in row) return err(row.error);
+    const t = this.get(row.id);
+    const me = this.sessionTeammate(ctx.sessionId);
+    const model = modelNameOf(t.agentKind, t.model, this.d.sessions.probeCached()?.rows ?? []);
+    const state = t.state === "needs-you" ? "needs the person" : t.state;
+    const lines = [
+      `@${t.handle}${t.lead ? " (Lead)" : ""}${t.id === me?.id ? " (you)" : ""}${t.archived ? " (archived)" : ""} — ${t.name}`,
+      setupOf(t),
+      `Model: ${model}${t.model ? ` (${t.model})` : " (the CLI's default)"}. Now: ${state}${t.liveTask ? ` on "${t.liveTask}"` : ""}.`,
+      ...(t.schedule ? [`Its clock says: ${clip(t.schedule.prompt, 2_000)}${t.schedule.lastRunAt ? ` Last ran ${when(t.schedule.lastRunAt)}.` : ""}${t.schedule.lastSkippedAt ? ` Last skipped ${when(t.schedule.lastSkippedAt)}.` : ""}`] : []),
+      "Brief:",
+      t.brief.trim() || "(none)",
+    ];
+    const tasks = t.taskSessions.slice(0, 5);
+    if (tasks.length > 0) lines.push(`Newest task sessions (teammate_sessions lists them all, with what came of each):`, ...tasks.map((s) => `- "${s.title}" (${s.id}) · ${s.state}`));
+    return ok(lines.join("\n"));
+  }
+
+  /** `teammate_sessions`: the task sessions a teammate started, newest first, and what came of each one that stopped. */
+  teammateSessions(ctx: ProviderCallContext, raw: unknown): CallToolResult {
+    const a = parseArgs(TeammateSessionsArgsSchema, raw); if ("error" in a) return a.error;
+    const row = this.resolveAny(ctx.spaceId, a.value.to);
+    if ("error" in row) return err(row.error);
+    const all = this.sessions(row.id);
+    if (all.length === 0) return ok(`@${row.handle} has started no task sessions.`);
+    const limit = a.value.limit ?? 20;
+    const shown = all.slice(0, limit);
+    const lines = shown.map((s) => {
+      const by = s.teammateId === row.id ? "" : ` · handed to @${this.d.store.get(s.teammateId)?.handle ?? "another teammate"}`;
+      const under = s.parentId ? ` · under ${s.parentId}` : "";
+      return `- "${s.title}" (${s.id}) · ${s.state} · last active ${when(s.updatedAt)}${by}${under} · ${outcomeWords(s.outcome ?? null, s.state)}`;
+    });
+    const more = all.length > shown.length ? `\n${all.length - shown.length} older not shown; raise limit to see them.` : "";
+    return ok(`@${row.handle}'s task sessions (${all.length}), newest first. session_read reads one.\n${lines.join("\n")}${more}`);
   }
 
   /**
@@ -885,6 +951,14 @@ export class TeammatesService {
 
   private statusOf(sessionId: string): SessionStatus {
     try { return this.d.sessions.get(sessionId).status; } catch { return "ended"; }
+  }
+
+  /** As `resolve`, and an archived teammate under its handle too: for the reads, which look at both. */
+  private resolveAny(spaceId: string, to: string): TeammateRow | { error: string } {
+    const found = this.resolve(spaceId, to);
+    if (!("error" in found)) return found;
+    const handle = normalizeHandle(to);
+    return this.d.store.list(spaceId, true).find((r) => r.handle === handle) ?? found;
   }
 
   /** `to` as a teammate here: a handle, `@handle`, or `lead`. */
