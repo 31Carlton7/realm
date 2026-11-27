@@ -2040,6 +2040,11 @@ export type AppState = TeammatesSlice & {
    *  take whatever was deleted off the screen. */
   refreshItems(spaceId?: string | null): Promise<void>;
   refreshAllItems(): Promise<void>;
+  /** Put one space's list into `allItems` in place of the rows it had there, as `items.listAll` would
+   *  give them: archived rows left out, newest-updated first. */
+  putSpaceItems(spaceId: string, list: Item[]): void;
+  /** Re-read one space's rows into `allItems` (`items.list`), rather than every space's. */
+  refreshSpaceItems(spaceId: string): Promise<void>;
   /** Deep search scoped to the ACTIVE profile (Plan 16 W2). Returns results for the palette to append
    *  below its instant rows — deliberately not stored in state: the palette owns the debounce and the
    *  stale-response guard, and nothing else reads these. Null with no profile (an unscoped search
@@ -5258,6 +5263,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshAllItems() {
         set({ allItems: await api.listAllItems() });
+      },
+      putSpaceItems(spaceId, list) {
+        const next = [...get().allItems.filter((i) => i.spaceId !== spaceId), ...list.filter((i) => !i.archived)];
+        set({ allItems: next.sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt) });
+      },
+      async refreshSpaceItems(spaceId) {
+        get().putSpaceItems(spaceId, await api.listItems(spaceId));
       },
       /* No store slice: the Library page owns its own page list, because it is paged, filtered and
          open in at most one pane. A store slice would have to hold a cursor, a filter and a query

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chordsForCommand, displayKeyChord, type Item } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
-import { useApp, useProfileSpaces, type SpacePageTab } from "../../state/store";
+import { useApp, useAppStore, useProfileSpaces, type SpacePageTab } from "../../state/store";
 import { useResolvedMode } from "../../theme/useTheme";
 import { listedSessions, orderSpaces, type SessionRow, type SidebarState } from "./model";
 
@@ -44,34 +44,75 @@ export function useProfileRows(state: SidebarState): SessionRow[] {
   }, [state, spaces]);
 }
 
-/** A quiet beat before re-reading every space's items, so a burst of changes is one read. */
+/** A quiet beat before re-reading a space's items, so a burst of changes is one read. */
 export const ALL_ITEMS_SETTLE_MS = 250;
 
 /**
  * Keep `allItems` current while the sidebar is on screen.
  *
  * The window hears `items.changed` for the space it is in and nothing else, so another space's rows
- * would otherwise be as old as the last time the palette opened. Read once on mount, and again — a
- * beat after it settles — whenever something says a row may have changed: this space's list, the
- * set of sessions the window knows about (a session made anywhere arrives in `sessionSpace`), or a
- * status (a turn ending is when a session in another space gets its title). Returns the read itself
- * for the sidebar's own writes to another space's rows.
+ * would otherwise be as old as the last time the palette opened. Read once on mount. After that the
+ * room on screen is put in from its own list, which the window already holds; another space is read
+ * alone (`items.list`), a beat after it settles, when one of its sessions is new to the window (a
+ * session made anywhere arrives in `sessionSpace`) or changes status (a turn ending is when it gets
+ * its title); and every space is read again when the spaces themselves change. Returns the read of
+ * every space, for the sidebar's own writes to another space's rows.
  */
 export function useAllItemsFresh(): () => void {
+  const store = useAppStore();
   const refreshAllItems = useApp((s) => s.refreshAllItems);
   const run = useApp((s) => s.run);
   const items = useApp((s) => s.items);
   const spaces = useApp((s) => s.spaces);
-  const known = useApp((s) => Object.keys(s.sessionSpace).length);
+  const sessionSpace = useApp((s) => s.sessionSpace);
   const status = useApp((s) => s.sessionStatus);
   const refresh = useCallback(() => run(() => refreshAllItems()), [run, refreshAllItems]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** What the next beat reads: every space, or these. */
+  const owed = useRef<{ all: boolean; spaces: Set<string> }>({ all: false, spaces: new Set() });
+  const flush = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      const { all, spaces: ids } = owed.current;
+      owed.current = { all: false, spaces: new Set() };
+      if (all) { refresh(); return; }
+      for (const id of ids) run(() => store.getState().refreshSpaceItems(id));
+    }, ALL_ITEMS_SETTLE_MS);
+  }, [refresh, run, store]);
+  const owe = useCallback((spaceId: string | null | undefined) => {
+    if (!spaceId) return;
+    owed.current.spaces.add(spaceId);
+    flush();
+  }, [flush]);
+
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; refresh(); return; }
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => { timer.current = null; refresh(); }, ALL_ITEMS_SETTLE_MS);
-  }, [items, spaces, known, status, refresh]);
+    owed.current.all = true;
+    flush();
+  }, [spaces, refresh, flush]);
+  // The room on screen, from the list the window holds (which carries a few rows of other spaces too,
+  // and only the room's own are its whole list). An empty one cannot be told from a list not read yet
+  // (a space switch clears it first), so that one is read.
+  useEffect(() => {
+    const { activeSpaceId } = store.getState();
+    if (!activeSpaceId) return;
+    const own = items.filter((i) => i.spaceId === activeSpaceId);
+    if (own.length > 0) store.getState().putSpaceItems(activeSpaceId, own);
+    else owe(activeSpaceId);
+  }, [items, store, owe]);
+  const seen = useRef({ status, sessionSpace });
+  useEffect(() => {
+    const was = seen.current;
+    seen.current = { status, sessionSpace };
+    if (was.status === status && was.sessionSpace === sessionSpace) return;
+    const active = store.getState().activeSpaceId;
+    for (const id of Object.keys(sessionSpace)) {
+      if (was.status[id] === status[id] && id in was.sessionSpace) continue;
+      if (sessionSpace[id] !== active) owe(sessionSpace[id]);
+    }
+  }, [status, sessionSpace, store, owe]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   return refresh;
 }
