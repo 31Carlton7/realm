@@ -205,6 +205,14 @@ describe("a browser card beside its tool's name", () => {
     }
   });
 
+  it("names the site once, in the title, when the title already says it", () => {
+    const { root } = card({
+      toolName: "browser_fill_credential", input: cards[4]![1],
+      title: "Fill the saved sign-in for https://accounts.example.com (alex@example.com) into the page on accounts.example.com",
+    });
+    expect(root.querySelector(".permission-tool")!.textContent).toBe("browser_fill_credential");
+  });
+
   it("keeps the pane's id out of an upload's drawn card too", () => {
     const { root } = card({ toolName: "browser_upload", title: "Upload", input: { browserId: PANE, ref: 11, origin: "accounts.example.com", element: "Avatar", files: [{ name: "me.png", size: "1 KB" }] } });
     const shown = root.cloneNode(true) as HTMLElement;

@@ -91,7 +91,10 @@ export function PermissionCard({ permission, asker, onDecide, autoFocus = false,
    *  instead: the card then neither answers on Escape nor offers it as a key. */
   ownsEscape?: boolean;
 }) {
-  const summary = clip(toolSummary(permission.toolName, permission.input), 200);
+  const line = clip(toolSummary(permission.toolName, permission.input), 200);
+  /* A summary the title already says is the thing asked about said twice: a password fill's title
+     names its site, and the site again beside the tool's name is a third reading of it. */
+  const summary = line && !permission.title.includes(line) ? line : "";
   /* Plan 24 W1: the thing being approved, drawn. An Edit's diff, the command about to run, the host
      about to be fetched — shown OPEN, because "Allow" on a change nobody has seen is not consent.
      The raw payload stays under the details below it: the drawing is what the reader decides on,
