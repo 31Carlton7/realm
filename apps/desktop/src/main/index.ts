@@ -43,7 +43,7 @@ import { refuseCapture } from "./capture-guard";
 import { TranscriptHelper, VoiceHelper, voiceHelperPath } from "./voice-helper";
 import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
-import { nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
+import { HiddenViews, nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
 import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { AppDriveHost } from "./app-drive";
@@ -432,31 +432,31 @@ function holderOf(browserId: string, sender?: WebContents): { win: BrowserWindow
 const paneFor = (browserId: string, sender?: WebContents): BrowserPane | null => holderOf(browserId, sender)?.pane ?? null;
 
 /**
- * Discard the browser views hidden longer than `hiddenMs` in every window, keeping each window's
- * `keepHidden` most recently hidden (`BrowserPaneHost.sweep`). realm-server's clock asks for this, with
- * the window its setting and the Mac's memory pressure decide; the Memory page's button asks with 0, 0.
- */
-/**
  * Settings ▸ RAM's browser policy as the server's clock last sent it (`policy: true`): how many hidden
  * panes stay loaded, and whether a hidden pane is ever discarded. The off-screen budget for unmounted
  * panes follows it. Until the first tick, the defaults.
  */
 let browserPolicy = { keepHidden: BROWSER_KEEP_HIDDEN_DEFAULT, never: false };
-const retainedLimit = (): number | null => retainedBudget(browserPolicy);
+const liveHiddenKeepMs = liveScratch({ packaged: app.isPackaged, env: process.env })?.hiddenKeepMs ?? null;
+/** Every window's hidden browser panes, ranked and budgeted as one. */
+const hiddenViews = new HiddenViews({
+  limit: () => retainedBudget(browserPolicy),
+  ...(liveHiddenKeepMs !== null ? { maxAgeMs: liveHiddenKeepMs } : {}),
+});
 
+/**
+ * Discard the browser views hidden longer than `hiddenMs` across every window, keeping the
+ * `keepHidden` most recently hidden of them all while under the age limit (`HiddenViews.sweep`).
+ * realm-server's clock asks for this, with the window its setting and the Mac's memory pressure
+ * decide; the Memory page's button asks with 0, 0.
+ */
 async function sweepBrowsers(params: unknown): Promise<{ discarded: string[]; kept: { id: string; reason: string }[] }> {
   const p = (params ?? {}) as { hiddenMs?: unknown; keepHidden?: unknown; policy?: unknown };
   const hiddenMs = typeof p.hiddenMs === "number" && p.hiddenMs >= 0 ? p.hiddenMs : Number.POSITIVE_INFINITY;
   const keepHidden = typeof p.keepHidden === "number" && p.keepHidden >= 0 ? Math.floor(p.keepHidden) : Number.POSITIVE_INFINITY;
   // The clock's own sweep carries the policy; the Memory page's button (everything, now) does not.
   if (p.policy === true) browserPolicy = { keepHidden: Number.isFinite(keepHidden) ? keepHidden : BROWSER_KEEP_HIDDEN_DEFAULT, never: p.hiddenMs === null };
-  const out: { discarded: string[]; kept: { id: string; reason: string }[] } = { discarded: [], kept: [] };
-  for (const { pane } of windowPanes.values()) {
-    const r = await pane.host.sweep({ hiddenMs, keepHidden });
-    out.discarded.push(...r.discarded);
-    out.kept.push(...r.kept);
-  }
-  return out;
+  return hiddenViews.sweep({ hiddenMs, keepHidden });
 }
 
 /** Every Electron process, named (app-metrics.ts): realm-server's resource report sizes them itself. */
@@ -677,7 +677,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   const pane = createBrowserPane(win, async (paneId, cdp) => {
     await passkeys.install(paneId, cdp).catch(() => {});
     await autofill.install(paneId, cdp).catch(() => {});
-  }, { retainedLimit }); // destroys its views on win "closed" itself
+  }, { pool: hiddenViews }); // destroys its views on win "closed" itself
   windowPanes.set(win.id, { win, pane });
   pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); autofill.release(id); });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);

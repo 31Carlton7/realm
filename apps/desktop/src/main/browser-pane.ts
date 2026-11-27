@@ -2,7 +2,7 @@ import { WebContentsView, app, nativeImage, screen, session, type BrowserWindow,
 import { FAVICON_MAX_BYTES, type BrowserLoadError, type PaneHealth } from "@realm/contracts";
 import {
   BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, UserActivation, browserUserAgent, createFaviconResolver, hostedTab, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
-  sendAsAgent, shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type PageProcess, type ViewFactory,
+  sendAsAgent, shownPage, windowOpenAction, type FaviconFetch, type HiddenViews, type KeepReason, type PageProcess, type ViewFactory,
 } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
 import { PAGE_BUSY, TypedSince } from "./page-busy";
@@ -452,7 +452,7 @@ export type BrowserPane = {
   markTyped(id: string): void;
 };
 
-export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller, o: { retainedLimit?: () => number | null } = {}): BrowserPane {
+export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller, o: { pool?: HiddenViews } = {}): BrowserPane {
   const views = new Map<string, WebContents>();
   const typedSince = new TypedSince<WebContents>();
   const viewBoxes = new Map<string, WebContentsView>();
@@ -479,7 +479,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
   };
   const host = new BrowserPaneHost({
     guard,
-    ...(o.retainedLimit ? { retainedLimit: o.retainedLimit } : {}),
+    ...(o.pool ? { pool: o.pool } : {}),
     // A browser's page can change under it (`adoptInPlace`): what was bound to the last one — the
     // agent's CDP, passkeys, autofill — is let go, and a page that goes from behind the one in front
     // takes nothing with it.

@@ -746,6 +746,101 @@ export function retainedBudget(policy: { keepHidden: number; never: boolean }): 
 export const AGENT_GRACE_MS = 5 * 60_000;
 
 /**
+ * How long a hidden page stays loaded only for being one of the most recently hidden, or because its
+ * guard said "loading" — which a frame too slow to answer also says. Past it, the page is discarded
+ * like any other and reloads when shown. Media, input, DevTools and an agent's work still spare it.
+ */
+export const HIDDEN_KEEP_MAX_MS = 2 * 60 * 60_000;
+
+type HiddenView = { id: string; hiddenSince: number; agentAt: number };
+
+/**
+ * The hidden browser views of every window, counted as one: Realm opens a window per space, and a
+ * count per window let eleven windows keep thirty-three unthrottled renderers. Each window's
+ * `BrowserPaneHost` joins the pool; the idle sweep and the off-screen budget both rank across it.
+ */
+export class HiddenViews {
+  private hosts = new Set<BrowserPaneHost>();
+  private stamp = 0;
+  private budget: Promise<void> = Promise.resolve();
+
+  constructor(private o: {
+    /** How many unmounted views stay loaded, or null for no limit. Absent, `RETAINED_VIEW_LIMIT`. */
+    limit?: () => number | null;
+    maxAgeMs?: number;
+    now?: () => number;
+  } = {}) {}
+
+  private now(): number { return this.o.now?.() ?? Date.now(); }
+  private get maxAgeMs(): number { return this.o.maxAgeMs ?? HIDDEN_KEEP_MAX_MS; }
+
+  join(host: BrowserPaneHost): void { this.hosts.add(host); }
+  leave(host: BrowserPaneHost): void { this.hosts.delete(host); }
+
+  /** The order views are retained in, across every window: higher is more recent. */
+  nextStamp(): number { return ++this.stamp; }
+
+  /** A guard's reason still holds: "loading" only until the age limit, anything else always. */
+  private spares(reason: KeepReason | null, hiddenFor: number): boolean {
+    return reason !== null && !(reason === "loading" && hiddenFor >= this.maxAgeMs);
+  }
+
+  /**
+   * Discard every view that has been hidden for `hiddenMs`, except the `keepHidden` most recently
+   * hidden across `hosts` while they are under the age limit, and any its guard or an agent spares.
+   * `hiddenMs: 0, keepHidden: 0` is the Memory page's button: everything hidden that may go, now.
+   * Answers what went and what stayed, and why.
+   */
+  async sweep(o: { hiddenMs: number; keepHidden: number }, hosts: Iterable<BrowserPaneHost> = this.hosts): Promise<{ discarded: string[]; kept: { id: string; reason: KeepReason }[] }> {
+    const now = this.now();
+    const hidden = [...hosts].flatMap((host) => host.hiddenViews().map((v) => ({ host, ...v })))
+      .sort((a, b) => b.hiddenSince - a.hiddenSince);
+    const out: { discarded: string[]; kept: { id: string; reason: KeepReason }[] } = { discarded: [], kept: [] };
+    for (const [i, { host, id, hiddenSince, agentAt }] of hidden.entries()) {
+      const hiddenFor = now - hiddenSince;
+      if (i < o.keepHidden && hiddenFor < this.maxAgeMs) { out.kept.push({ id, reason: "recent" }); continue; }
+      if (hiddenFor < o.hiddenMs) continue;
+      // An agent that drove it within the window may come back for it mid-task.
+      if (now - agentAt < Math.max(o.hiddenMs, AGENT_GRACE_MS)) { out.kept.push({ id, reason: "agent" }); continue; }
+      const reason = await host.keepReason(id);
+      if (this.spares(reason, hiddenFor)) { out.kept.push({ id, reason: reason! }); continue; }
+      if (await host.discard(id)) out.discarded.push(id);
+    }
+    return out;
+  }
+
+  /** Hold the off-screen budget, once every enforcement asked for before this one has run. */
+  enforce(): Promise<void> {
+    // Never a rejected chain: one guard that failed must not stop every budget after it.
+    this.budget = this.budget.then(() => this.enforceNow()).catch(() => {});
+    return this.budget;
+  }
+
+  settled(): Promise<void> { return this.budget; }
+
+  /**
+   * Past the off-screen budget, the least recently retained views of every window are DISCARDED —
+   * their page and scroll kept, to come back when their pane does — oldest first, sparing any its
+   * guard or an agent spares. So a page with media or input the budget would have taken keeps the
+   * budget over by one instead.
+   */
+  private async enforceNow(): Promise<void> {
+    const limit = this.o.limit ? this.o.limit() : RETAINED_VIEW_LIMIT;
+    if (limit === null) return;
+    const count = () => [...this.hosts].reduce((n, host) => n + host.retainedViews().length, 0);
+    const oldestFirst = [...this.hosts].flatMap((host) => host.retainedViews().map((v) => ({ host, ...v })))
+      .sort((a, b) => a.retainedAt - b.retainedAt);
+    const now = this.now();
+    for (const { host, id, hiddenSince, agentAt } of oldestFirst) {
+      if (count() <= limit) return;
+      if (now - agentAt < AGENT_GRACE_MS) continue;
+      if (this.spares(await host.keepReason(id), now - hiddenSince)) continue;
+      if (host.retainedViews().some((v) => v.id === id)) await host.discard(id);
+    }
+  }
+}
+
+/**
  * A view given up to free its memory, and everything needed to bring it back: its page and where it was
  * scrolled to, its jar, its fence, its device preset, its place. Its renderer process is gone.
  *
@@ -808,9 +903,9 @@ export class BrowserPaneHost {
     /** The addresses of openers closed to keep `behind` within `PARKED_OPENERS`, oldest first. */
     closedBehind: string[];
   }>();
-  /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
-   *  delete moves an id to the back. Views with a mounted pane are absent, never evictable. */
-  private retained = new Set<string>();
+  /** Retained ids, each with when it was last retained or touched (`HiddenViews.nextStamp`). Views
+   *  with a mounted pane are absent, never evictable. */
+  private retained = new Map<string, number>();
   /** Views given up for memory (`discard`), by browser id, until a pane, an op or an agent wants them. */
   private discarded = new Map<string, Discarded>();
   /** Pages made for new tabs, by the name `openTab` gave them, until a browser claims one. */
@@ -822,8 +917,7 @@ export class BrowserPaneHost {
   /** Who is waiting on a claim (`takeOpenedTabs`). */
   private claimWaiters = new Set<() => void>();
   private openedCount = 0;
-  /** The off-screen budget being enforced, while a guard's answers are awaited. */
-  private budget: Promise<void> = Promise.resolve();
+  private pool: HiddenViews;
 
   constructor(private opts: {
     createView: ViewFactory;
@@ -851,8 +945,37 @@ export class BrowserPaneHost {
     /** How many unmounted views stay loaded (Settings ▸ RAM's "kept loaded"), or null for no limit (its
      *  window set to Never). Absent, `RETAINED_VIEW_LIMIT`. */
     retainedLimit?: () => number | null;
+    /** The hidden views of every window, this one's among them. Absent, a pool of this window alone. */
+    pool?: HiddenViews;
     now?: () => number;
-  }) {}
+  }) {
+    this.pool = opts.pool ?? new HiddenViews({
+      ...(opts.retainedLimit ? { limit: opts.retainedLimit } : {}), ...(opts.now ? { now: opts.now } : {}),
+    });
+    this.pool.join(this);
+  }
+
+  /** Views off screen with their idle clock running, for the sweep. */
+  hiddenViews(): HiddenView[] {
+    const out: HiddenView[] = [];
+    for (const [id, v] of this.views) if (!v.shown && !v.visible && v.hiddenSince !== null) out.push({ id, hiddenSince: v.hiddenSince, agentAt: v.agentAt });
+    return out;
+  }
+
+  /** Views with no mounted pane, for the off-screen budget. */
+  retainedViews(): (HiddenView & { retainedAt: number })[] {
+    const out: (HiddenView & { retainedAt: number })[] = [];
+    for (const [id, retainedAt] of this.retained) {
+      const v = this.views.get(id);
+      if (v) out.push({ id, hiddenSince: v.hiddenSince ?? this.now(), agentAt: v.agentAt, retainedAt });
+    }
+    return out;
+  }
+
+  /** Why this view's page must not be discarded right now, or null when it may be. */
+  async keepReason(id: string): Promise<KeepReason | null> {
+    return await this.opts.guard?.(id) ?? null;
+  }
 
   private now(): number { return this.opts.now?.() ?? Date.now(); }
 
@@ -1123,26 +1246,9 @@ export class BrowserPaneHost {
     return true;
   }
 
-  /**
-   * Discard every view that has been hidden for `hiddenMs`, except the `keepHidden` most recently
-   * hidden and any its guard or an agent spares. `hiddenMs: 0, keepHidden: 0` is the Memory page's
-   * button: everything hidden that may go, now. Answers what went and what stayed, and why.
-   */
-  async sweep(o: { hiddenMs: number; keepHidden: number }): Promise<{ discarded: string[]; kept: { id: string; reason: KeepReason }[] }> {
-    const now = this.now();
-    const hidden = [...this.views].filter(([, v]) => !v.shown && !v.visible && v.hiddenSince !== null)
-      .sort((a, b) => b[1].hiddenSince! - a[1].hiddenSince!);
-    const out: { discarded: string[]; kept: { id: string; reason: KeepReason }[] } = { discarded: [], kept: [] };
-    for (const [i, [id, v]] of hidden.entries()) {
-      if (i < o.keepHidden) { out.kept.push({ id, reason: "recent" }); continue; }
-      if (now - v.hiddenSince! < o.hiddenMs) continue;
-      // An agent that drove it within the window may come back for it mid-task.
-      if (now - v.agentAt < Math.max(o.hiddenMs, AGENT_GRACE_MS)) { out.kept.push({ id, reason: "agent" }); continue; }
-      const reason = await this.opts.guard?.(id) ?? null;
-      if (reason) { out.kept.push({ id, reason }); continue; }
-      if (await this.discard(id)) out.discarded.push(id);
-    }
-    return out;
+  /** The idle sweep over this window's views alone (`HiddenViews.sweep`). */
+  sweep(o: { hiddenMs: number; keepHidden: number }): Promise<{ discarded: string[]; kept: { id: string; reason: KeepReason }[] }> {
+    return this.pool.sweep(o, [this]);
   }
 
   /** Every host-initiated navigation (address bar, window.open funnel) passes the same allowlist the
@@ -1301,37 +1407,19 @@ export class BrowserPaneHost {
     v.handle.setVisible(false);
     v.visible = false;
     if (v.shown || v.hiddenSince === null) { v.shown = false; v.hiddenSince = this.now(); }
-    this.retained.delete(id);
-    this.retained.add(id); // to the back: most recently retained
-    // Never a rejected chain: one guard that failed must not stop every budget after it.
-    this.budget = this.budget.then(() => this.enforceBudget()).catch(() => {});
+    this.retained.set(id, this.pool.nextStamp());
+    void this.pool.enforce();
   }
 
   /** Every off-screen budget enforcement asked for so far, settled. */
-  settled(): Promise<void> { return this.budget; }
-
-  /**
-   * Past the off-screen budget, the least recently retained views are DISCARDED — their page and
-   * scroll kept, to come back when their pane does — oldest first, sparing any its guard spares. So a
-   * page with media or input the budget would have taken keeps the budget over by one instead.
-   */
-  private async enforceBudget(): Promise<void> {
-    const limit = this.opts.retainedLimit ? this.opts.retainedLimit() : RETAINED_VIEW_LIMIT;
-    if (limit === null) return;
-    for (const id of [...this.retained]) {
-      if (this.retained.size <= limit) return;
-      if (await this.opts.guard?.(id)) continue;
-      if (this.retained.has(id)) await this.discard(id);
-    }
-  }
+  settled(): Promise<void> { return this.pool.settled(); }
 
   /** An agent's op reached this view: recently used, so eviction does not take one an agent is driving
    *  in the background out from under it, and the idle sweep spares it. */
   touch(id: string): void {
     const v = this.views.get(id);
     if (v) v.agentAt = this.now();
-    if (!this.retained.delete(id)) return;
-    this.retained.add(id);
+    if (this.retained.has(id)) this.retained.set(id, this.pool.nextStamp());
   }
 
   /** Final: the user closed the pane or deleted the item. Only these destroy a view — a pane merely
@@ -1354,6 +1442,7 @@ export class BrowserPaneHost {
 
   /** Window teardown: the views must never outlive the window they composite into. */
   destroyAll(): void {
+    this.pool.leave(this);
     this.discarded.clear();
     for (const { page, expires } of this.opened.values()) { clearTimeout(expires); closePage(page); }
     this.opened.clear();
