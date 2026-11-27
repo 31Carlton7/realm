@@ -48,6 +48,12 @@ export class WindowIdle<W extends IdleWindow> {
     if (!win.isDestroyed()) this.d.load(win);
   }
 
+  /** The window lost the keyboard: it was in use until now, and its clock starts here. */
+  blurred(win: W): void {
+    const entry = this.windows.get(win.id);
+    if (entry) entry.focusedAt = this.d.now();
+  }
+
   closed(win: W): void {
     this.windows.delete(win.id);
     this.unloaded.delete(win.id);
@@ -64,7 +70,12 @@ export class WindowIdle<W extends IdleWindow> {
     for (const { win, focusedAt } of this.windows.values()) {
       if (win.isDestroyed() || this.unloaded.has(win.id) || now - focusedAt < idleMs) continue;
       const reason = this.d.keep(win);
-      if (reason) { out.kept.push({ id: win.id, reason }); continue; }
+      if (reason) {
+        // Still in use: its clock starts again from now, so leaving it later is when it starts to idle.
+        if (reason === "focused" || reason === "front") this.windows.get(win.id)!.focusedAt = now;
+        out.kept.push({ id: win.id, reason });
+        continue;
+      }
       const unload = this.d.unload(win).catch(() => {});
       this.unloaded.set(win.id, unload);
       unloads.push(unload);

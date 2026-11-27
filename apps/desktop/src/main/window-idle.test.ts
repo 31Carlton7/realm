@@ -53,6 +53,28 @@ describe("a window nobody has focused for hours", () => {
     expect(unloaded).toEqual([1]);
   });
 
+  it("counts from when it was last in front or had the keyboard, not from when it was focused", async () => {
+    let reason: IdleKeep | null = "front";
+    const { idle, win, unloaded, at } = setup({ keep: () => reason });
+    const a = win(1);
+    idle.opened(a);
+    // In front for five hours, then another window comes forward.
+    at(5 * HOUR);
+    await idle.sweep(4 * HOUR);
+    reason = null;
+    at(5 * HOUR + 60_000);
+    await idle.sweep(4 * HOUR);
+    expect(unloaded).toEqual([]);
+    // Left by a blur rather than seen in front by a sweep: the same.
+    const b = win(2);
+    idle.opened(b);
+    at(8 * HOUR);
+    idle.blurred(b);
+    at(9 * HOUR + 60_000);
+    await idle.sweep(4 * HOUR);
+    expect(unloaded).toEqual([1]);
+  });
+
   it("comes back on focus, once, and counts afresh from there", async () => {
     const { idle, win, unloaded, loaded, at } = setup();
     const a = win(1);

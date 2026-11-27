@@ -483,7 +483,6 @@ function agentDriving(win: BrowserWindow): boolean {
 const audible = (win: BrowserWindow): boolean => win.webContents.isCurrentlyAudible() || (windowPanes.get(win.id)?.pane.audible() ?? false);
 const listening = (win: BrowserWindow): boolean => voice.holds(win.webContents) || transcript.holds(win.webContents);
 
-/** Why a window past its idle window must stay loaded, or null when it may unload. */
 function idleKeep(win: BrowserWindow): IdleKeep | null {
   if (win.isFocused()) return "focused";
   if (win === windows.primary() && win.isVisible() && !win.isMinimized()) return "front";
@@ -514,7 +513,6 @@ async function unloadWindow(win: BrowserWindow): Promise<void> {
   await endRenderer(wc);
 }
 
-/** Realm windows nobody has focused in hours (window-idle.ts). */
 const windowIdle = new WindowIdle<BrowserWindow>({
   now: () => Date.now(),
   keep: idleKeep,
@@ -528,8 +526,7 @@ const windowIdle = new WindowIdle<BrowserWindow>({
 
 /** Each window's background throttling as last set, so a sweep that changes nothing sets nothing. */
 const throttledNow = new Map<number, boolean>();
-/** Throttle a window in the background, or not, as `backgroundThrottled` says. A live check's quiet
- *  window keeps the unthrottled renderer it was built with. */
+/** A live check's quiet window keeps the unthrottled renderer it was built with. */
 function throttleWindow(win: BrowserWindow): void {
   if (quiet || win.isDestroyed()) return;
   const throttled = backgroundThrottled({ unloadIdle: windowPolicy.unloadIdle, agent: agentDriving(win), audio: audible(win), listening: listening(win) });
@@ -732,6 +729,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   windowIdle.opened(win);
   presence.check();
   win.on("focus", () => { windows.focused(win); void windowIdle.focused(win); saveWindows(); });
+  win.on("blur", () => windowIdle.blurred(win));
   win.webContents.on("audio-state-changed", () => throttleWindow(win));
   // Shown now, as a window constructed visible would be — only never in front, and all but transparent.
   if (quiet) win.show();
@@ -1876,7 +1874,6 @@ ipcMain.on("transcript:command", (e, command: unknown) => transcript.command(e.s
 ipcMain.on("transcript:audio", (e, source: unknown, pcm: unknown) => { if (pcm instanceof Uint8Array) transcript.sourceAudio(e.sender, source, pcm); });
 ipcMain.on("transcript:system-audio", (e) => void transcript.systemAudio(e.sender));
 ipcMain.on("transcript:stop", (e) => { transcript.stop(e.sender); throttleSender(e.sender); });
-/** Dictation or a transcript started or stopped in this page: its window's throttling follows. */
 function throttleSender(sender: WebContents): void {
   const win = BrowserWindow.fromWebContents(sender);
   if (win && windows.all().includes(win)) throttleWindow(win);
@@ -3139,7 +3136,6 @@ async function restoreWindows(info: { port: number; home: string; token: string 
   for (const w of open) await createWindow(info, w.profileId, w.spaceId, w.land);
 }
 
-/** Settings ▸ RAM's Unload idle windows, asked of the server; the default when it cannot say. */
 async function readUnloadIdle(): Promise<boolean> {
   try {
     const stored = ((await askServer("settings.get", { key: WINDOW_UNLOAD_IDLE_KEY })) as { value?: unknown } | null)?.value;
