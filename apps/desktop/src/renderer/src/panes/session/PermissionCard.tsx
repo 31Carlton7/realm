@@ -2,6 +2,7 @@ import { AGENT_SIGNINS_CARD, AGENT_SIGNINS_OFFER, type Asker } from "@realm/cont
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useAppStoreMaybe, type PermissionDecision } from "../../state/store";
+import { turnOnSignins } from "../../state/turn-on-signins";
 import type { PendingPermission } from "./transcript-model";
 import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
 import { ToolInputBody } from "./rich/ToolViews";
@@ -107,8 +108,8 @@ export function PermissionCard({ permission, asker, onDecide, autoFocus = false,
       if (turning) return;
       setTurning(true);
       setTurnOnFailed(false);
-      void Promise.resolve(window.realm?.credentials?.setSignins?.(true)).then(
-        (status) => { if (status?.enabled === true) onDecide(o.decision); else setTurnOnFailed(true); },
+      void turnOnSignins().then(
+        ({ signins }) => { if (signins?.enabled === true) onDecide(o.decision); else setTurnOnFailed(true); },
         () => setTurnOnFailed(true),
       ).finally(() => setTurning(false));
       return;

@@ -12,9 +12,11 @@
  *
  *   card   with sign-ins off, a fill of the password on its own site raises one card: Allow once,
  *          Turn on sign-ins, Deny. Turn on sign-ins is pressed with the mouse; main's switch comes
- *          on, the field is filled, the transcript says so, and no second card comes.
- *   rows   the group's rows, not granted and granted, and the notifications row with Full Disk
- *          Access on but the notifications database unreadable.
+ *          on, Security codes come on with it, the field is filled, the transcript says so, and no
+ *          second card comes.
+ *   rows   the group's rows, not granted and granted, the notifications row with Full Disk Access
+ *          on but the notifications database unreadable, and the rows on a Mac with no Messages or
+ *          notification history to read, which no grant would change.
  *
  * Every capture is taken dark and light, Plain; the group's switch row also in Glass, whose knob is
  * glass. PNGs go to LIVE_OUT_DIR.
@@ -87,7 +89,7 @@ const STUBS = `(() => {
   const { ipcMain } = require("electron");
   const row = (id, label, state) => ({ id, label, state, detail: "", canPrompt: state !== "granted", needsSettings: state !== "granted",
     askExplanation: state === "granted" ? null : "macOS opens System Settings.", stale: false, canRepair: false, repairExplanation: null, settingsPlace: "Privacy & Security ▸ Accessibility" });
-  globalThis.__stub = { codes: { enabled: true, sources: { Messages: "no_access", Mail: "ok", Notifications: "no_access" } }, accessibility: "denied", unlock: { kind: "touch-id" }, opened: [] };
+  globalThis.__stub = { codes: { enabled: false, sources: null }, codesSets: [], accessibility: "denied", unlock: { kind: "touch-id" }, opened: [] };
   const computer = () => ({ hostName: "Realm", packaged: true, signed: true, helperAvailable: true,
     rows: [row("accessibility", "Accessibility", globalThis.__stub.accessibility), row("screenRecording", "Screen Recording", "granted")] });
   for (const ch of ["codes:status", "codes:set-enabled", "computer:status", "computer:request", "computer:repair", "mac:status", "mac:grant", "mac:open-settings", "mac:reveal-app",
@@ -96,7 +98,7 @@ const STUBS = `(() => {
   ipcMain.handle("credentials:unlock-policy", () => ({ policy: globalThis.__stub.unlock, sessionUntil: null }));
   ipcMain.handle("credentials:set-unlock-policy", (_e, _profileId, policy) => { globalThis.__stub.unlock = policy; return { ok: true, status: { policy, sessionUntil: null } }; });
   ipcMain.handle("codes:status", () => globalThis.__stub.codes);
-  ipcMain.handle("codes:set-enabled", (_e, on) => { globalThis.__stub.codes = on === true ? { ...globalThis.__stub.codes, enabled: true } : { enabled: false, sources: null }; return globalThis.__stub.codes; });
+  ipcMain.handle("codes:set-enabled", (_e, on) => { globalThis.__stub.codesSets.push(on); globalThis.__stub.codes = on === true ? { ...globalThis.__stub.codes, enabled: true } : { enabled: false, sources: null }; return globalThis.__stub.codes; });
   ipcMain.handle("computer:status", computer);
   ipcMain.handle("computer:request", (_e, id) => { globalThis.__stub.opened.push("computer:" + id); return computer(); });
   ipcMain.handle("computer:repair", computer);
@@ -261,6 +263,7 @@ async function main() {
   await settled(seen);
   check("Turn on sign-ins fills, with no second card", !filled.isError && cards.length === 1, { text: filled.content, cards: cards.length });
   check("main's switch is on", (await ipc(`return (await v.signinsStatus()).enabled;`)) === true);
+  check("Turn on sign-ins turned Security codes on too", js(await app.main.eval(`globalThis.__stub.codesSets`)) === js([true]), await app.main.eval(`globalThis.__stub.codesSets`));
   const note = (await events()).slice(seen).find((e) => e.event.type === "signin_filled")?.event.payload.note;
   check("the transcript says what was filled, and where", note === `Realm filled a saved password on 127.0.0.1:${sitePort}`, note);
   check("the unlock still ran (the Touch ID stand-in was asked)", fs.existsSync(presenceLog) && fs.readFileSync(presenceLog, "utf8").trim().length > 0);
@@ -281,6 +284,7 @@ async function main() {
     for (const [key, name] of Object.entries(ROWS)) await shots(`row-${key}-${state}`, rowSel(name), { pad: 8, after: () => reopenSignins(`!!document.querySelector(${js(rowSel(name))})`) });
   };
 
+  await app.main.eval(`globalThis.__stub.codes = { enabled: true, sources: { Messages: "no_access", Mail: "ok", Notifications: "no_access" } }, true`);
   await reopenSignins(`!!document.querySelector(${js(G)})`);
   const notGranted = Object.fromEntries(await Promise.all(Object.values(ROWS).map(async (n) => [n, await labelOf(n)])));
   check("not granted: each row says what is missing", notGranted[ROWS.codes].endsWith("Needs Full Disk Access") && notGranted[ROWS.notifications].endsWith("Needs Full Disk Access")
@@ -295,6 +299,22 @@ async function main() {
   const locked = await evalIn(`document.querySelector(${js(rowSel(ROWS.notifications))}).textContent`);
   check("Full Disk Access on, notifications unreadable: says Realm can't read them", locked.includes("Realm can't read notifications on this Mac.") && !locked.includes("Full Disk Access"), locked);
   await shots("row-notifications-locked", rowSel(ROWS.notifications), { pad: 8, after: () => reopenSignins(`!!document.querySelector(${js(rowSel(ROWS.notifications))})`) });
+
+  // No Messages history and no notification history: nothing a grant would change, so no row sends
+  // the person to Full Disk Access.
+  const textOf = (name) => evalIn(`document.querySelector(${js(rowSel(name))}).textContent`);
+  await app.main.eval(`globalThis.__stub.codes = { enabled: true, sources: { Messages: "missing", Mail: "ok", Notifications: "missing" } }, true`);
+  await reopenSignins(`!!document.querySelector(${js(G)})`);
+  const mailOnly = await textOf(ROWS.codes), noNotes = await textOf(ROWS.notifications);
+  check("no Messages history, Mail readable: codes Granted, Mail only, no Full Disk Access", mailOnly.includes("Granted") && mailOnly.includes("Only Mail can be read here.") && !mailOnly.includes("Full Disk Access"), mailOnly);
+  check("no notification history: says so, no Full Disk Access", noNotes.includes("Nothing to read") && noNotes.includes("This Mac has no notification history to read.") && !noNotes.includes("Full Disk Access"), noNotes);
+  await shots("row-codes-mail-only", rowSel(ROWS.codes), { pad: 8, after: () => reopenSignins(`!!document.querySelector(${js(rowSel(ROWS.codes))})`) });
+  await shots("row-notifications-missing", rowSel(ROWS.notifications), { pad: 8, after: () => reopenSignins(`!!document.querySelector(${js(rowSel(ROWS.notifications))})`) });
+  await app.main.eval(`globalThis.__stub.codes = { enabled: true, sources: { Messages: "missing", Mail: "missing", Notifications: "missing" } }, true`);
+  await reopenSignins(`!!document.querySelector(${js(G)})`);
+  const nothing = await textOf(ROWS.codes);
+  check("no Messages history and no mail: Nothing to read, no Full Disk Access", nothing.includes("Nothing to read") && !nothing.includes("Full Disk Access"), nothing);
+  await shots("row-codes-nothing", rowSel(ROWS.codes), { pad: 8, after: () => reopenSignins(`!!document.querySelector(${js(rowSel(ROWS.codes))})`) });
 
   await app.main.eval(`globalThis.__stub.codes = { enabled: true, sources: { Messages: "ok", Mail: "ok", Notifications: "ok" } }, globalThis.__stub.accessibility = "granted", true`);
   await reopenSignins(`!!document.querySelector(${js(G)})`);

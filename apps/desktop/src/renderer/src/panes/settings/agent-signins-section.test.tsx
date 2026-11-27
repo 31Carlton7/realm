@@ -8,14 +8,15 @@ import { fakeApi, item } from "../../state/store.test-fakes";
 const pageItem = item("set-s1", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] });
 
 /** Main's switches, stood in: agent sign-ins and Security codes, each answering what it was set to. */
-function bridge(signins: AgentSigninsStatus, codes: SecurityCodesStatus, codesOn: SecurityCodesStatus = codes) {
+function bridge(signins: AgentSigninsStatus, codes: SecurityCodesStatus | "pending", codesOn: SecurityCodesStatus = codes === "pending" ? { enabled: true, sources: null } : codes) {
   const sets: string[] = [];
   (window as unknown as { realm: unknown }).realm = {
     ...saved,
     credentials: {
       signinsStatus: async () => signins,
       setSignins: async (on: boolean) => { sets.push(`signins:${on}`); return { ...signins, enabled: on }; },
-      codesStatus: async () => codes,
+      // "pending": main has not answered yet when the switch is pressed.
+      codesStatus: () => (codes === "pending" ? new Promise<SecurityCodesStatus>(() => {}) : Promise.resolve(codes)),
       setCodes: async (on: boolean) => { sets.push(`codes:${on}`); return on ? codesOn : { enabled: false, sources: null }; },
     },
   };
@@ -47,6 +48,48 @@ describe("Settings ▸ Sign-ins ▸ Let agents finish sign-ins", () => {
     await waitFor(() => expect(toggle).toBeChecked());
     expect(sets).toEqual(["signins:true", "codes:true"]);
     expect(await screen.findByLabelText("Read sign-in codes from Messages and Mail: Granted")).toBeInTheDocument();
+  });
+
+  it("turns Security codes on with the switch even before their status has loaded", async () => {
+    // THE MUTANT: skipping setCodes while codesStatus is still on its way.
+    const sets = bridge({ enabled: false, fills: [] }, "pending");
+    await mount();
+    const toggle = await screen.findByRole("switch", { name: "Let agents finish sign-ins" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(sets).toEqual(["signins:true", "codes:true"]));
+  });
+
+  it("does not send a Mac with no Messages history to Full Disk Access", async () => {
+    bridge({ enabled: true, fills: [] }, { enabled: true, sources: { Messages: "missing", Mail: "ok", Notifications: "ok" } });
+    await mount();
+    await screen.findByRole("switch", { name: "Let agents finish sign-ins" });
+    expect(row("Read sign-in codes from Messages and Mail")).toHaveTextContent("Granted");
+    expect(row("Read sign-in codes from Messages and Mail")).toHaveTextContent("Only Mail can be read here.");
+    expect(row("Read sign-in codes from Messages and Mail")).not.toHaveTextContent("Full Disk Access");
+  });
+
+  it("says there is nothing to read when this Mac has neither Messages history nor mail", async () => {
+    bridge({ enabled: true, fills: [] }, { enabled: true, sources: { Messages: "missing", Mail: "missing", Notifications: "missing" } });
+    await mount();
+    await screen.findByRole("switch", { name: "Let agents finish sign-ins" });
+    expect(row("Read sign-in codes from Messages and Mail")).toHaveTextContent("Nothing to read");
+    expect(row("Read sign-in codes from Messages and Mail")).not.toHaveTextContent("Full Disk Access");
+  });
+
+  it("still sends Messages that macOS refuses to Full Disk Access when Mail can't be read either", async () => {
+    bridge({ enabled: true, fills: [] }, { enabled: true, sources: { Messages: "missing", Mail: "no_access", Notifications: "missing" } });
+    await mount();
+    await screen.findByRole("switch", { name: "Let agents finish sign-ins" });
+    expect(row("Read sign-in codes from Messages and Mail")).toHaveTextContent("Needs Full Disk Access");
+  });
+
+  it("says a Mac with no notification history has none to read, not that it needs Full Disk Access", async () => {
+    bridge({ enabled: true, fills: [] }, { enabled: true, sources: { Messages: "ok", Mail: "ok", Notifications: "missing" } });
+    await mount();
+    await screen.findByRole("switch", { name: "Let agents finish sign-ins" });
+    expect(row("Codes from notifications on this Mac")).toHaveTextContent("Nothing to read");
+    expect(row("Codes from notifications on this Mac")).toHaveTextContent("This Mac has no notification history to read.");
+    expect(row("Codes from notifications on this Mac")).not.toHaveTextContent("Full Disk Access");
   });
 
   it("walks the grants not yet in place, each with the step that puts it there", async () => {

@@ -79,8 +79,12 @@ describe("a password fill while agent sign-ins are off", () => {
   /** Settings' own IPC to main's switch, stood in. */
   function bridge(answer: () => Promise<unknown>) {
     const sets: boolean[] = [];
-    (window as unknown as { realm: unknown }).realm = { ...saved, credentials: { setSignins: async (on: boolean) => { sets.push(on); return answer(); } } };
-    return sets;
+    const codes: boolean[] = [];
+    (window as unknown as { realm: unknown }).realm = { ...saved, credentials: {
+      setSignins: async (on: boolean) => { sets.push(on); return answer(); },
+      setCodes: async (on: boolean) => { codes.push(on); return { enabled: on, sources: null }; },
+    } };
+    return { sets, codes };
   }
 
   it("offers Allow once, Turn on sign-ins and Deny", () => {
@@ -89,12 +93,21 @@ describe("a password fill while agent sign-ins are off", () => {
 
   it("turns sign-ins on in main first, then answers Allow once, so the fill needs no second card", async () => {
     // THE MUTANT: answering before main's switch is on, or never answering after it.
-    const sets = bridge(async () => ({ enabled: true, fills: [] }));
+    const { sets } = bridge(async () => ({ enabled: true, fills: [] }));
     const { options, decided } = card(offer);
     fireEvent.click(options[1]!);
     expect(decided).toEqual([]);
     await waitFor(() => expect(decided).toEqual(["allow"]));
     expect(sets).toEqual([true]);
+  });
+
+  it("turns Security codes on too, as the Settings switch does", async () => {
+    // THE MUTANT: the card turning on sign-ins alone, leaving the codes a sign-in's second step needs off.
+    const { codes } = bridge(async () => ({ enabled: true, fills: [] }));
+    const { options, decided } = card(offer);
+    fireEvent.click(options[1]!);
+    await waitFor(() => expect(decided).toEqual(["allow"]));
+    expect(codes).toEqual([true]);
   });
 
   it("answers nothing when main did not turn sign-ins on, and says so", async () => {
