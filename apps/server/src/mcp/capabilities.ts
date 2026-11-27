@@ -113,7 +113,10 @@ const BLOCKS: Record<string, string> = {
     "a schedule or another session started), never above the Lead's own mode, and with a line in both chats the person can Undo. " +
     "`teammate_create` adds a teammate and `teammate_update` changes one (brief, model, effort, access, folder, group, Lead, clock) " +
     "when the person asks: the Lead in its own chat or one of the person's sessions, in a turn the person started, never above your " +
-    "own access, on a card unless you are on Full access; lowering a model or effort always asks.",
+    "own access, on a card unless you are on Full access; lowering a model or effort always asks. " +
+    "A Lead, in its own chat, reaches the other spaces of its profile: `space_teams` lists every space and who is on its team, " +
+    "`team_list` with `space` reads one space's team in full, and `team_message` with `space` messages one of its teammates, " +
+    "only in a turn the person started and on a card unless you are on Full access.",
 
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane, `terminal_write` types into it, " +

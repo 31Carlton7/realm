@@ -69,6 +69,7 @@ const ELSEWHERE = [
   "Settings ▸ Notifications, Usage, Permissions, Computer use, Lab, Keys: the user's. `settings_get` lists the few settings you may change.",
   "A space's Team access: one permission mode for every teammate in the space, set on its Team page. It is the user's alone; no tool reads or sets it.",
   "Schedules page: every schedule in the space, with its history. The `schedule_*` tools change one only in a turn the user started, and ask them first before touching one this session did not make. A teammate's clock is changed on the teammate's page.",
+  "Other spaces: a Lead sees every team in its profile and can message a teammate there (`space_teams`, and `team_list` or `team_message` with `space`). That space's sessions and schedules, and changing its teammates, are done from inside it; another profile is out of reach.",
   "Memory page: the space's and profile's memory documents, which reach you as instructions, and the memory repo.",
   "Code Review, Library, search, checkpoints and history: the user's pages. Your own git and shell tools reach the same repository.",
   "Files: `browser_download` saves into downloads/ of the space's project (or its folder); anything you write into the space folder opens in the Documents pane.",
