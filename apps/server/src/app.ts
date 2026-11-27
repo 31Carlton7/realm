@@ -1750,7 +1750,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      rather than only from the Schedules page. Registered HERE and not up with the other providers
      because it wraps the service declared on the line above; the gateway's per-space enablement is
      what decides whether a session actually sees the tools. */
-  mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
+  mcpGateway.registerProvider(createScheduleAgentProvider({
+    schedules, mcp, sessions, broker: browserBroker,
+    turnOrigin: (id) => team?.turnOrigin(id) ?? "something other than the person",
+  }));
   /* Teammates (teammates/service.ts): permanent agents in a space, each with its own chat, kept in the
      table the first Teams' roles were. `realm-team` is listed in every session of a space that has one. */
   const teammatesStore = new TeammatesStore(db);

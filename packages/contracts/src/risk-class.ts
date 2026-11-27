@@ -69,7 +69,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *     apps by name and size, as Settings ▸ RAM shows them; no process's arguments or environment;
  *   - `agent_peers` — the other sessions in this space and whether each can be asked;
  *   - `agent_status` — this session's own delegated runs, without collecting them;
- *   - `schedule_list` — the space's schedules;
+ *   - `schedule_list` — the space's schedules and its teammates' clocks;
  *   - `docs_search`, `docs_read` — the text of files in the space's folder;
  *   - `docs_state` — which files the space's Documents panes have open;
  *   - `team_list`, `teammate_get` — the space's teammates, what each does, what it is working on and
@@ -186,6 +186,11 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__theme_import": internal,
 
   "realm-schedule__schedule_create": internal,
+  "realm-schedule__schedule_update": internal,
+  "realm-schedule__schedule_pause": internal,
+  "realm-schedule__schedule_resume": internal,
+  "realm-schedule__schedule_run_now": internal,
+  "realm-schedule__schedule_delete": internal,
 
   "realm-team__team_message": internal,
   "realm-team__team_set_access": internal,

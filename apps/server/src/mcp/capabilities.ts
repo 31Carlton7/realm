@@ -99,7 +99,10 @@ const BLOCKS: Record<string, string> = {
     "or on a cron — and `schedule_list` says what this space already has waiting; check it first. What fires is a " +
     "fresh session with none of this conversation, so write its goal as complete standing instructions. Use it " +
     "only when the ask is about later — work you can finish in this turn is finished in this turn — and say back " +
-    "the moment you set. It runs in this session's permission mode as it is when you schedule it, never higher.",
+    "the moment you set. It runs in this session's permission mode as it is when you schedule it, never higher. " +
+    "`schedule_update`, `schedule_pause`, `schedule_resume`, `schedule_run_now` and `schedule_delete` change one by " +
+    "the id `schedule_list` shows, in a turn the user started: one this session made is its own, anyone else's " +
+    "asks the user first.",
 
   "realm-team":
     "- **This space's teammates.** `team_list` says who is here — each teammate's handle, what it does, whether it " +
