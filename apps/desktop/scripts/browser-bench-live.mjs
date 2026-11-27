@@ -236,16 +236,17 @@ const TASKS = [
       const after = await t.snapshot({ diff: true });
       t.state.after = after;
       const save = lineFor(after, "Save changes", "button");
+      // A diff lists only what changed; a full snapshot marks it [new].
+      const diffed = /\(changes since your previous snapshot/.test(after);
       return {
         linesBefore: linesOf(before).length,
         linesAfter: linesOf(after).length,
-        // Without diff, what changed ends with [new]; with it, what changed is all that is listed.
-        markedNew: /\(changes since your previous snapshot/.test(after) ? linesOf(after).length : after.split("\n").filter((l) => l.endsWith(" [new]")).length,
+        markedNew: diffed ? linesOf(stillListed(after)).length : after.split("\n").filter((l) => l.endsWith(" [new]")).length,
         // Whether the second snapshot says what went away, or leaves the agent to spot the missing line.
         removalNamed: /INV-1007/.test(after),
         saveEnabledShown: !!save && !/disabled/.test(save.rest),
         // The one line whose state changed, against the lines that only moved up a row.
-        saveMarkedNew: !!save && (save.rest.endsWith(" [new]") || /^changed:$/m.test(after)),
+        saveMarkedNew: !!save && (diffed || save.rest.endsWith(" [new]")),
       };
     },
     check: async ({ state, pane }) => !lineFor(stillListed(state.after ?? ""), "Remove INV-1007") && (await pane(`!document.getElementById("save").disabled && document.querySelectorAll("#rows tr").length === 11`)),
