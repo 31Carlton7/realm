@@ -112,7 +112,15 @@ const BLOCKS: Record<string, string> = {
     "or `lead`): to ask it something, or to hand it work that is its to do. Add `wait: true` only when you cannot go on " +
     "without its answer; otherwise carry on, and it answers in its own chat. `team_set_access` sets a teammate's access " +
     "when the person asks: only the Lead, in its own chat, in a turn the person started (never one a teammate's message, " +
-    "a schedule or another session started), never above the Lead's own mode, and with a line in both chats the person can Undo.",
+    "a schedule or another session started), never above the Lead's own mode, and with a line in both chats the person can Undo. " +
+    "`teammate_create` adds a teammate and `teammate_update` changes one (brief, model, effort, access, folder, group, Lead, clock) " +
+    "when the person asks: the Lead in its own chat or one of the person's sessions, in a turn the person started, never above your " +
+    "own access, on a card unless you are on Full access; lowering a model or effort always asks. Under the same rules " +
+    "`teammate_archive` takes a teammate off the Team list (or brings it back), `teammate_run_clock` fires its clock now, " +
+    "`teammate_set_lead` hands over the Lead, and `teammate_reorder` sets the Team list's order and sections (no card). " +
+    "A Lead, in its own chat, reaches the other spaces of its profile: `space_teams` lists every space and who is on its team, " +
+    "`team_list` with `space` reads one space's team in full, and `team_message` with `space` messages one of its teammates, " +
+    "only in a turn the person started and on a card unless you are on Full access.",
 
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane, `terminal_write` types into it, " +

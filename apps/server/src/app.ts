@@ -186,6 +186,8 @@ import { userFirstName } from "./user-name";
 import { TeammatesService } from "./teammates/service";
 import { TeammatesStore } from "./teammates/store";
 import { createTeammatesProvider } from "./teammates/agent-tools";
+import { TeamManageTools } from "./teammates/manage";
+import { CrossSpaceTeamTools } from "./teammates/cross-space";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
@@ -1765,7 +1767,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     toolsChanged: () => mcpGateway.notifyToolsChanged(),
     requestedMode: (id) => agentRuns?.record(id)?.mode?.requested,
   });
-  mcpGateway.registerProvider(createTeammatesProvider({ store: teammatesStore, teammates: team, mcp }));
+  mcpGateway.registerProvider(createTeammatesProvider({
+    store: teammatesStore, teammates: team, mcp,
+    manage: new TeamManageTools({
+      team, schedules, sessions, broker: browserBroker, userHome, realmHome: opts.home,
+      defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
+    }),
+    across: new CrossSpaceTeamTools({ team, spaces, sessions, broker: browserBroker }),
+  }));
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — which every profile has unless its repo was detached. Every engine saves and searches
      through them; the index itself travels in each session's context. A save repaints every open memory
