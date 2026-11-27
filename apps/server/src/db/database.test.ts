@@ -2732,7 +2732,7 @@ describe("the event-retention migration: a cursor per session for event retentio
     const { p, db } = migrated();
     db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('old', 1, 'tool_result', ?)")
       .run(JSON.stringify({ toolUseId: "t", content: "x".repeat(10_000), isError: false }));
-    const r = new EventRetention({ db, dbPath: p, settings: { get: () => null }, busy: () => false, freeDiskBytes: () => 0, now: () => 100 * 86_400_000 });
+    const r = new EventRetention({ db, dbPath: p, settings: { get: () => 30 }, busy: () => false, freeDiskBytes: () => 0, now: () => 100 * 86_400_000 });
     expect(r.step()).toMatchObject({ trimmed: 1 });
     expect(db.prepare("SELECT session_id, through_seq FROM event_retention").all()).toEqual([{ session_id: "old", through_seq: 2 }]);
     db.close();

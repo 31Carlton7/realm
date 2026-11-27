@@ -19,7 +19,9 @@ const DAY = 86_400_000;
 const NOW = 400 * DAY;
 const long = (n: number, word = "line") => Array.from({ length: n }, (_, i) => `${word} ${i} of a long tool output`).join("\n");
 
-function home() {
+/** A home whose retention window is `days`, or unset when `days` is null. Retention ships off, so the
+ *  rule's own tests turn it on at 30 days. */
+function home({ days = 30 }: { days?: number | null } = {}) {
   const dir = tempDir("realm-retention-");
   const path = join(dir, "realm.db");
   const db = openDatabase(path);
@@ -29,6 +31,7 @@ function home() {
   const sessions = new SessionsStore(db);
   const events = new SessionEventsStore(db);
   const settings = new SettingsStore(db);
+  if (days !== null) settings.set(EVENT_RETENTION_DAYS_KEY, days);
   /** A session last active `daysAgo` days before NOW, with a long tool call, its long result and a long message. */
   const session = (title: string, daysAgo: number, o: { status?: string; pinned?: boolean; teammateHome?: boolean } = {}) => {
     const s = sessions.create({ spaceId: space.id, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: env.id, title });
@@ -135,20 +138,31 @@ describe("the retention rule", () => {
       .toBe((h.db.prepare("SELECT MAX(seq) AS m FROM session_events").get() as { m: number }).m);
   });
 
-  it("takes its window from the setting, and 0 keeps every payload whole and never vacuums, as before retention", async () => {
-    expect(retentionDays(null)).toBe(30);
-    expect(retentionDays("7")).toBe(30);
+  it("is off unless the owner turns it on: an unset or unreadable setting is 0, and nothing is trimmed", async () => {
+    expect(retentionDays(null)).toBe(0);
+    expect(retentionDays(undefined)).toBe(0);
+    expect(retentionDays("7")).toBe(0);
     expect(retentionDays(90)).toBe(90);
-    const h = home();
+    const h = home({ days: null });
+    expect(h.settings.has(EVENT_RETENTION_DAYS_KEY)).toBe(false);
+    const r = retention(h, { now: () => NOW + 1000 * DAY });
+    expect(r.days()).toBe(0);
+    const old = h.session("old", 90);
+    expect(r.step()).toMatchObject({ trimmed: 0, finished: true });
+    await r.run();
+    expect(isTrimmed(h.db, old)).toBe(false);
+  });
+
+  it("takes its window from the setting, and 0 keeps every payload whole, as before retention", async () => {
+    const h = home({ days: 90 });
     const sixty = h.session("sixty", 60);
-    h.settings.set(EVENT_RETENTION_DAYS_KEY, 90);
     await retention(h).run();
     expect(isTrimmed(h.db, sixty)).toBe(false);
     h.settings.set(EVENT_RETENTION_DAYS_KEY, 0);
-    let asked = 0;
-    await retention(h, { now: () => NOW + 1000 * DAY, freeDiskBytes: () => { asked++; return 1e12; } }).run();
+    const off = retention(h, { now: () => NOW + 1000 * DAY });
+    expect(await off.prune()).toMatchObject({ trimmed: 0, finished: true });
+    await off.run();
     expect(isTrimmed(h.db, sixty)).toBe(false);
-    expect(asked).toBe(0);
   });
 
   it("waits while an agent is working", async () => {
@@ -196,8 +210,8 @@ describe("reclaiming free pages", () => {
   });
 
   /** A database with `mb` MB of free pages: rows written, then deleted. */
-  function withFreePages(mb: number) {
-    const h = home();
+  function withFreePages(mb: number, days: number | null = 30) {
+    const h = home({ days });
     const id = h.session("bulk", 1);
     const put = h.db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, 0, 'status', ?)");
     for (let i = 0; i < mb * 16; i++) put.run(id, `${i}`.padEnd(64 * 1024, "x"));
@@ -232,6 +246,26 @@ describe("reclaiming free pages", () => {
     expect(pruned.bytesBefore - pruned.bytesAfter).toBeGreaterThan(1);
     expect(retention(h, { reclaimMinBytes: min }).reclaim()).toMatchObject({ ran: false, reason: expect.stringContaining("to reclaim") });
     expect(r.reclaim()).toMatchObject({ ran: true });
+  });
+
+  it("still vacuums with retention off, once free pages alone reach the threshold, and trims nothing", async () => {
+    const h = withFreePages(4, 0);
+    const old = h.session("old", 90);
+    const before = size(h.path);
+    const logged: string[] = [];
+    await retention(h, { reclaimMinBytes: 1024 * 1024, now: () => NOW + 1000 * DAY, log: (l) => logged.push(l) }).run();
+    expect(size(h.path)).toBeLessThan(before - 3e6);
+    expect(logged.at(-1)).toMatch(/^\[db\] vacuum: /);
+    expect(isTrimmed(h.db, old)).toBe(false);
+  });
+
+  it("with retention off, leaves the file alone below the threshold, on a tight disk, and while an agent is working", async () => {
+    const h = withFreePages(4, 0);
+    const before = size(h.path);
+    await retention(h, { reclaimMinBytes: 64 * 1024 * 1024 }).run();
+    await retention(h, { reclaimMinBytes: 1024 * 1024, freeDiskBytes: () => before }).run();
+    await retention(h, { reclaimMinBytes: 1024 * 1024, busy: () => true }).run();
+    expect(size(h.path)).toBe(before);
   });
 
   it("leaves the file alone when the disk cannot hold a second copy, and when an agent is working", () => {

@@ -4,9 +4,9 @@ import type { Db } from "../db/database";
 import { decodePayload, encodePayload } from "./event-payload";
 
 /** Days a session can go untouched before its tool payloads are cut to a head and a tail. 0 keeps
- *  every payload whole and never vacuums: how Realm behaved before retention. */
+ *  every payload whole, and is the default: a cut can't be undone, so the owner turns it on. */
 export const EVENT_RETENTION_DAYS_KEY = "storage.eventRetentionDays";
-const DEFAULT_RETENTION_DAYS = 30;
+const DEFAULT_RETENTION_DAYS = 0;
 
 /** A string longer than `TRIM_OVER` characters keeps its first `TRIM_HEAD` and last `TRIM_TAIL`.
  *  What is kept, plus the note, stays above `COMPRESS_MIN_BYTES`, so a trimmed payload is still a
@@ -112,8 +112,11 @@ type Deps = {
  * CLI resumes from its own transcript, and a handover reads only the messages. Each session keeps a
  * cursor (`event_retention`), so an event is looked at once.
  *
+ * Retention is off (0 days) until the owner sets a window, since a cut can't be undone.
+ *
  * The space cut stays inside realm.db until a VACUUM. One runs only when enough has been freed, no
  * agent is working, and the disk has room for the second copy a VACUUM writes; never during boot.
+ * It runs whether retention is on or off: with it off, only free pages count toward the threshold.
  */
 export class EventRetention {
   private stopped = false;
@@ -132,6 +135,7 @@ export class EventRetention {
   /** One batch of one cold session. Synchronous: the caller decides when the event loop can spare it. */
   step(cutoff = this.cutoff()): RetentionStep {
     const out: RetentionStep = { trimmed: 0, bytesBefore: 0, bytesAfter: 0, finished: true };
+    if (this.days() === 0) return out;
     const next = coldSessions(this.d.db, cutoff)[0];
     if (!next) return out;
     out.finished = false;
@@ -214,11 +218,11 @@ export class EventRetention {
     return { ran: true, before, after, ms };
   }
 
-  /** Prune, then reclaim. Does nothing while retention is off. A call during a run waits for it. */
+  /** Prune, then reclaim. With retention off nothing is trimmed, but free pages are still vacuumed
+   *  away once they alone reach the threshold. A call during a run waits for it. */
   run(): Promise<void> {
     this.running ??= (async () => {
-      if (this.days() === 0) return;
-      await this.prune();
+      if (this.days() !== 0) await this.prune();
       if (!this.stopped) this.reclaim();
     })()
       .catch((e) => { this.log(`[events] retention paused: ${e instanceof Error ? e.message : String(e)}`); })

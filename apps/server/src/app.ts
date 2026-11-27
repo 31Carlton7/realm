@@ -1997,9 +1997,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // resumable, and standing aside while an agent works (`PayloadCompactor` states the design).
   const payloadCompactor = new PayloadCompactor({ db, busy: () => sessions.statusCounts().working > 0 });
   void payloadCompactor.run();
-  // Sessions idle past the retention window have their long tool payloads cut, and the file is shrunk
-  // when that frees enough (`EventRetention` states the rule). Never during boot: first after ten
-  // minutes, then every six hours.
+  // When the owner sets a retention window, sessions idle past it have their long tool payloads cut.
+  // Either way the file is shrunk when enough is free (`EventRetention` states the rule). Never during
+  // boot: first after ten minutes, then every six hours.
   const eventRetention = new EventRetention({
     db, dbPath: dbPath(opts.home), settings,
     busy: () => sessions.statusCounts().working > 0,
