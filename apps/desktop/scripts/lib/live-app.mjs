@@ -308,14 +308,15 @@ export async function cdp(wsUrl) {
  *
  * `env` is added to the app's environment (the fake agent is on unless `fakeAgent: false`);
  * `inspect` also attaches to main's inspector, where `main.eval` has `require`; `rendererUrl` serves
- * the renderer from a URL (for the paint worklet, which file:// refuses). Its page target is found by
+ * the renderer from a URL (for the paint worklet, which file:// refuses); `serverPort` and `cdpPort`
+ * pin the ports instead of taking free ones. Its page target is found by
  * whichever of file:// or that URL it loaded.
  */
-export async function launchLiveApp({ name = "app", env = {}, args = [], inspect = false, rendererUrl = null, fakeAgent = true, keep = false, timeoutMs = 30_000 } = {}) {
+export async function launchLiveApp({ name = "app", env = {}, args = [], inspect = false, rendererUrl = null, fakeAgent = true, keep = false, timeoutMs = 30_000, serverPort = null, cdpPort = null } = {}) {
   for (const f of [mainEntry, serverEntry]) if (!fs.existsSync(f)) throw new Error(`${f} is missing — run \`pnpm build\` first (a live check runs the BUILT app)`);
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), `realm-${name}-live-`));
   const home = path.join(scratch, "home");
-  const ports = { server: await freePort(), cdp: await freePort(), inspect: inspect ? await freePort() : null };
+  const ports = { server: serverPort ?? await freePort(), cdp: cdpPort ?? await freePort(), inspect: inspect ? await freePort() : null };
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, [
     'import { app } from "electron";',
