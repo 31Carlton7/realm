@@ -110,11 +110,11 @@ describe("resources.snapshot through the app", () => {
     c.close();
   });
 
-  it("gives engines ten idle minutes when swap is 6.4 of 8 GB full and macOS still says green", async () => {
+  it("gives engines ten idle minutes when swap is 6.4 of 8 GB full, 10% of memory is available and macOS still says green", async () => {
     const mac = realMachineProbe({
       platform: "darwin", diskFree: async () => 100 * 1024 * MB,
       run: async (file) => file.endsWith("sysctl")
-        ? "hw.memsize: 25769803776\nkern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 40\nvm.swapusage: total = 8192.00M  used = 6553.60M  free = 1638.40M"
+        ? "hw.memsize: 25769803776\nkern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 10\nvm.swapusage: total = 8192.00M  used = 6553.60M  free = 1638.40M"
         : "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nSwapouts: 0.\n",
     });
     app = await createApp({ home: tempDir("realm-res-"), port: 0, resources: { probe: { ...quietMachineProbe(), memory: mac.memory } } });

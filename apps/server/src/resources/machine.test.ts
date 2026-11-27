@@ -121,32 +121,38 @@ describe("pressure", () => {
     expect(classifyPressure({ level: 2, swapOutPerSecond: 80 * 1024 ** 2 }).pressure).toBe("critical");
   });
 
-  it("lifts a green level by how full swap is, and how little disk is left for it to grow into", () => {
-    // The 21:15 reading on 2026-11-25: macOS green, swap 6.4 of 8.0 GB, nothing swapping out that
-    // minute. THE MUTANT: reading the swap-out rate alone, which calls that Mac relaxed.
-    const reading = (usedGb: number, totalGb: number, diskFreeGb: number | null = 100) =>
-      classifyPressure({ level: 1, swapOutPerSecond: 0, swap: { usedBytes: usedGb * GB, totalBytes: totalGb * GB }, diskFreeBytes: diskFreeGb === null ? null : diskFreeGb * GB });
-    expect(reading(6.4, 8)).toEqual({ pressure: "warn", why: "Swap is 80% full: 6.4 of 8.0 GB in use" });
+  it("lifts a green level by swap that is full while memory is short, and by how little disk is left for swap", () => {
+    // The 21:15 reading on 2026-11-25 with memory short: macOS green, swap 6.4 of 8.0 GB, nothing
+    // swapping out that minute. THE MUTANT: reading the swap-out rate alone, which calls that Mac relaxed.
+    const reading = (usedGb: number, totalGb: number, availablePercent: number | null, diskFreeGb: number | null = 100) =>
+      classifyPressure({ level: 1, swapOutPerSecond: 0, availablePercent, swap: { usedBytes: usedGb * GB, totalBytes: totalGb * GB }, diskFreeBytes: diskFreeGb === null ? null : diskFreeGb * GB });
+    expect(reading(6.4, 8, 10)).toEqual({ pressure: "warn", why: "Swap is 80% full and only 10% of memory is available: 6.4 of 8.0 GB of swap in use" });
+    // Full swap on a Mac with memory to spare is old pages parked on disk, not pressure.
+    expect(reading(7.5, 9, 55)).toEqual({ pressure: "normal", why: null });
     const table: [string, ReturnType<typeof reading>["pressure"], ReturnType<typeof reading>][] = [
-      ["just under 60% swap", "normal", reading(2.99, 5)],
-      ["60% swap", "warn", reading(3, 5)],
-      ["just under 4 GB of swap, mostly empty", "normal", reading(3.99, 16)],
-      ["4 GB of swap, mostly empty", "warn", reading(4, 16)],
-      ["just under 85% swap", "warn", reading(16.99, 20)],
-      ["85% swap", "critical", reading(17, 20)],
-      ["no swap yet", "normal", reading(0, 0)],
-      ["10 GB free on disk", "normal", reading(0, 0, 10)],
-      ["just under 10 GB free on disk", "warn", reading(0, 0, 9.99)],
-      ["4 GB free on disk", "warn", reading(0, 0, 4)],
-      ["just under 4 GB free on disk", "critical", reading(0, 0, 3.99)],
-      ["no reading of the disk", "normal", reading(0, 0, null)],
+      ["95% swap, 55% available", "normal", reading(19, 20, 55)],
+      ["95% swap, availability unread", "normal", reading(19, 20, null)],
+      ["60% swap, 14% available", "warn", reading(3, 5, 14)],
+      ["60% swap, 15% available", "normal", reading(3, 5, 15)],
+      ["just under 60% swap, 14% available", "normal", reading(2.99, 5, 14)],
+      ["4 GB of swap, mostly empty, 5% available", "normal", reading(4, 16, 5)],
+      ["85% swap, 7% available", "critical", reading(17, 20, 7)],
+      ["85% swap, 8% available", "warn", reading(17, 20, 8)],
+      ["just under 85% swap, 7% available", "warn", reading(16.99, 20, 7)],
+      ["no swap yet, 5% available", "normal", reading(0, 0, 5)],
+      ["10 GB free on disk", "normal", reading(0, 0, 50, 10)],
+      ["just under 10 GB free on disk", "warn", reading(0, 0, 50, 9.99)],
+      ["4 GB free on disk", "warn", reading(0, 0, 50, 4)],
+      ["just under 4 GB free on disk", "critical", reading(0, 0, 50, 3.99)],
+      ["no reading of the disk", "normal", reading(0, 0, 50, null)],
     ];
     for (const [name, pressure, r] of table) expect(r.pressure, name).toBe(pressure);
-    expect(reading(0, 0, 3.5).why).toBe("Only 3.5 GB free on disk, which swap grows into");
+    expect(reading(17, 20, 7).why).toBe("Swap is 85% full and only 7% of memory is available: 17.0 of 20.0 GB of swap in use");
+    expect(reading(0, 0, 50, 3.5).why).toBe("Only 3.5 GB free on disk, which swap grows into");
     // macOS's own level and a flood of swap-outs still say so first.
-    expect(classifyPressure({ level: 4, swapOutPerSecond: 0, swap: { usedBytes: 6.4 * GB, totalBytes: 8 * GB } }).why).toBe("macOS reports critical memory pressure");
-    // A level that could not be read is still a Mac with full swap.
-    expect(classifyPressure({ level: null, swapOutPerSecond: null, swap: { usedBytes: 6.4 * GB, totalBytes: 8 * GB } }).pressure).toBe("warn");
+    expect(classifyPressure({ level: 4, swapOutPerSecond: 0, availablePercent: 5, swap: { usedBytes: 6.4 * GB, totalBytes: 8 * GB } }).why).toBe("macOS reports critical memory pressure");
+    // A level that could not be read is still a Mac with full swap and short memory.
+    expect(classifyPressure({ level: null, swapOutPerSecond: null, availablePercent: 10, swap: { usedBytes: 6.4 * GB, totalBytes: 8 * GB } }).pressure).toBe("warn");
   });
 
   it("reads Linux's pressure stall information", () => {
@@ -175,6 +181,17 @@ describe("the real probe", () => {
     expect(second.memory.swapOutPerSecond).toBe(2 * 1024 * 1024);
     expect(second.memory.pressure).toBe("warn");
     expect(second.memory.swap).toEqual({ usedBytes: 1024 ** 3, totalBytes: 2 * 1024 ** 3 });
+  });
+
+  it("weighs full swap against the memory macOS says is available", async () => {
+    const mac = (available: number) => realMachineProbe({
+      platform: "darwin", diskFree: async () => 100 * GB,
+      run: async (file) => file.endsWith("sysctl")
+        ? `hw.memsize: 100\nkern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: ${available}\nvm.swapusage: total = 9216.00M  used = 7680.00M  free = 1536.00M`
+        : "Mach Virtual Memory Statistics: (page size of 1024 bytes)\nSwapouts: 0.\n",
+    });
+    expect((await mac(55).memory(null)).memory).toMatchObject({ pressure: "normal", pressureWhy: null });
+    expect((await mac(10).memory(null)).memory).toMatchObject({ pressure: "warn", pressureWhy: "Swap is 83% full and only 10% of memory is available: 7.5 of 9.0 GB of swap in use" });
   });
 
   it("reads full swap and a full disk as pressure", async () => {

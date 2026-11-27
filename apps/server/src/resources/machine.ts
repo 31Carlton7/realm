@@ -20,7 +20,8 @@ import type { MachineMemory, MemoryPressure } from "@realm/contracts";
  * Pressure is macOS's own level (`kern.memorystatus_vm_pressure_level`), lifted to `warn` when the Mac
  * is swapping out between two readings: macOS stayed green on this Mac with 19 of 20 GB of swap in use
  * and load averages in the hundreds, which is not a Mac with memory to spare. Swap that is already
- * full lifts it too, rate or no rate, and so does a disk too full for swap to grow into.
+ * full lifts it too, rate or no rate, but only while little memory is available: full swap beside
+ * free RAM is old pages parked on disk. A disk too full for swap to grow into lifts it on its own.
  */
 
 /** One row of the process table. */
@@ -114,33 +115,37 @@ export function parseVmStat(stdout: string): { compressedBytes: number | null; s
 export const SWAP_OUT_WARN_BYTES_PER_SECOND = 1024 ** 2;
 export const SWAP_OUT_CRITICAL_BYTES_PER_SECOND = 50 * 1024 ** 2;
 
-/** Swap this full is a Mac already paging, whether or not it paged out this minute: 6.4 of 8 GB read
- *  "normal" on 2026-11-25 while every idle window kept its full length. */
+/** Swap this full with this little memory available (`kern.memorystatus_level`) is a Mac already paging:
+ *  6.4 of 8 GB read "normal" on 2026-11-25 while every idle window kept its full length. 7.5 of 9 GB
+ *  with 55% available is not. */
 export const SWAP_FULL_WARN_SHARE = 0.6;
+export const AVAILABLE_WARN_PERCENT = 15;
 export const SWAP_FULL_CRITICAL_SHARE = 0.85;
-export const SWAP_USED_WARN_BYTES = 4 * 1024 ** 3;
+export const AVAILABLE_CRITICAL_PERCENT = 8;
 /** Swap files come off the same disk: past these, the next one may have nowhere to go. */
 export const DISK_FREE_WARN_BYTES = 10 * 1024 ** 3;
 export const DISK_FREE_CRITICAL_BYTES = 4 * 1024 ** 3;
 
 const gb = (bytes: number): string => (bytes / 1024 ** 3).toFixed(1);
 
-/** macOS's level (1 normal, 2 warn, 4 critical), lifted by swapping out, by how full swap is and by
- *  how little disk is free, as one level and its reason. */
-export function classifyPressure(o: { level: number | null; swapOutPerSecond: number | null; swap?: { usedBytes: number; totalBytes: number } | null; diskFreeBytes?: number | null }): { pressure: MemoryPressure; why: string | null } {
+/** macOS's level (1 normal, 2 warn, 4 critical), lifted by swapping out, by full swap while memory is
+ *  short and by how little disk is free, as one level and its reason. */
+export function classifyPressure(o: { level: number | null; swapOutPerSecond: number | null; availablePercent?: number | null; swap?: { usedBytes: number; totalBytes: number } | null; diskFreeBytes?: number | null }): { pressure: MemoryPressure; why: string | null } {
   const rate = o.swapOutPerSecond ?? 0;
   const paging = `Swapping out ${Math.max(1, Math.round(rate / 1024 ** 2))} MB a second`;
   const swapShare = o.swap && o.swap.totalBytes > 0 ? o.swap.usedBytes / o.swap.totalBytes : 0;
-  const swapFull = o.swap ? `Swap is ${Math.round(swapShare * 100)}% full: ${gb(o.swap.usedBytes)} of ${gb(o.swap.totalBytes)} GB in use` : null;
+  // Unread availability is not short memory: swap alone never lifts the level.
+  const available = o.availablePercent ?? 100;
+  const swapFull = o.swap ? `Swap is ${Math.round(swapShare * 100)}% full and only ${available}% of memory is available: ${gb(o.swap.usedBytes)} of ${gb(o.swap.totalBytes)} GB of swap in use` : null;
   const disk = o.diskFreeBytes ?? Infinity;
   const diskFull = o.diskFreeBytes != null ? `Only ${gb(o.diskFreeBytes)} GB free on disk, which swap grows into` : null;
   if (o.level === 4) return { pressure: "critical", why: "macOS reports critical memory pressure" };
   if (rate >= SWAP_OUT_CRITICAL_BYTES_PER_SECOND) return { pressure: "critical", why: paging };
-  if (swapShare >= SWAP_FULL_CRITICAL_SHARE) return { pressure: "critical", why: swapFull };
+  if (swapShare >= SWAP_FULL_CRITICAL_SHARE && available < AVAILABLE_CRITICAL_PERCENT) return { pressure: "critical", why: swapFull };
   if (disk < DISK_FREE_CRITICAL_BYTES) return { pressure: "critical", why: diskFull };
   if (o.level === 2) return { pressure: "warn", why: "macOS reports memory pressure" };
   if (rate >= SWAP_OUT_WARN_BYTES_PER_SECOND) return { pressure: "warn", why: paging };
-  if (swapShare >= SWAP_FULL_WARN_SHARE || (o.swap?.usedBytes ?? 0) >= SWAP_USED_WARN_BYTES) return { pressure: "warn", why: swapFull };
+  if (swapShare >= SWAP_FULL_WARN_SHARE && available < AVAILABLE_WARN_PERCENT) return { pressure: "warn", why: swapFull };
   if (disk < DISK_FREE_WARN_BYTES) return { pressure: "warn", why: diskFull };
   if (o.level === 1) return { pressure: "normal", why: null };
   return { pressure: "unknown", why: null };
@@ -273,7 +278,7 @@ export function realMachineProbe(o: { platform?: string; run?: Run; readText?: (
         const s = parseSysctl(sys), v = parseVmStat(vm);
         const rate = previous?.swapouts != null && v.swapouts !== null && at > previous.at
           ? Math.max(0, (v.swapouts - previous.swapouts) / ((at - previous.at) / 1000)) : null;
-        const { pressure, why } = classifyPressure({ level: s.level, swapOutPerSecond: rate, swap: s.swap, diskFreeBytes });
+        const { pressure, why } = classifyPressure({ level: s.level, swapOutPerSecond: rate, availablePercent: s.availablePercent, swap: s.swap, diskFreeBytes });
         return {
           memory: { ...base(), totalBytes: s.totalBytes ?? totalmem(), availablePercent: s.availablePercent, pressure, pressureWhy: why, swap: s.swap, compressedBytes: v.compressedBytes, swapOutPerSecond: rate },
           counters: { at, swapouts: v.swapouts },
