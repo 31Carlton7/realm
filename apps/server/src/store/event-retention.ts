@@ -1,12 +1,10 @@
 import { statSync } from "node:fs";
-import type { SessionEvent } from "@realm/contracts";
+import { EVENT_RETENTION_DAYS_DEFAULT, EVENT_RETENTION_DAYS_KEY, type SessionEvent } from "@realm/contracts";
 import type { Db } from "../db/database";
 import { decodePayload, encodePayload } from "./event-payload";
 
-/** Days a session can go untouched before its tool payloads are cut to a head and a tail. 0 keeps
- *  every payload whole, and is the default: a cut can't be undone, so the owner turns it on. */
-export const EVENT_RETENTION_DAYS_KEY = "storage.eventRetentionDays";
-const DEFAULT_RETENTION_DAYS = 0;
+export { EVENT_RETENTION_DAYS_KEY };
+const DEFAULT_RETENTION_DAYS = EVENT_RETENTION_DAYS_DEFAULT;
 
 /** A string longer than `TRIM_OVER` characters keeps its first `TRIM_HEAD` and last `TRIM_TAIL`.
  *  What is kept, plus the note, stays above `COMPRESS_MIN_BYTES`, so a trimmed payload is still a

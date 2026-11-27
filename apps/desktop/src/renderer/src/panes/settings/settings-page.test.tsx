@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, CARET_COPY, CARET_KEY, CARET_SHAPES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SESSION_DONE_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS, GENERATED_CREDENTIAL_NOTE, type BrowserCredential } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, CARET_COPY, CARET_KEY, CARET_SHAPES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, EVENT_RETENTION_COPY, EVENT_RETENTION_DAYS_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SESSION_DONE_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS, GENERATED_CREDENTIAL_NOTE, type BrowserCredential } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, macRow, notification, profile, space, type FakeData } from "../../state/store.test-fakes";
@@ -1588,6 +1588,32 @@ describe("Permissions tab — Apps on this Mac (the grantable half)", () => {
     const field = document.querySelector(".mac-access-field")!;
     await waitFor(() => expect(field.textContent).toContain("/opt/homebrew/bin"));
     expect(screen.queryByRole("button", { name: /Ask for all/ })).toBeNull();
+  });
+});
+
+describe("trimming old tool output", () => {
+  it("is off until it is asked for, says what it cuts, and writes the window picked", async () => {
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    const group = screen.getByRole("group", { name: EVENT_RETENTION_COPY.label });
+    // MUTANT: default it to 30 days, and Realm cuts output nobody agreed to lose.
+    expect(within(group).getByRole("radio", { name: "Off" })).toBeChecked();
+    expect(screen.getByText(EVENT_RETENTION_COPY.detail)).toBeInTheDocument();
+
+    fireEvent.click(within(group).getByRole("radio", { name: "30 days" }));
+    await waitFor(() => expect(store.getState().eventRetentionDays).toBe(30));
+    expect(api.calls).toContain(`setSetting:${EVENT_RETENTION_DAYS_KEY}=30`);
+    expect(within(group).getByRole("radio", { name: "30 days" })).toBeChecked();
+    fireEvent.click(within(group).getByRole("radio", { name: "Off" }));
+    await waitFor(() => expect(api.calls).toContain(`setSetting:${EVENT_RETENTION_DAYS_KEY}=0`));
+  });
+
+  it("shows the window already stored", async () => {
+    await mount({ settings: { [EVENT_RETENTION_DAYS_KEY]: 90 } });
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    const group = screen.getByRole("group", { name: EVENT_RETENTION_COPY.label });
+    expect(within(group).getByRole("radio", { name: "90 days" })).toBeChecked();
+    expect(within(group).getByRole("radio", { name: "Off" })).not.toBeChecked();
   });
 });
 
