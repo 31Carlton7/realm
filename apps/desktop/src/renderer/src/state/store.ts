@@ -201,8 +201,9 @@ export type Api = TeammatesApi & {
   /** Open a space in a window of its own, or bring forward the window already showing it. */
   openSpaceWindow(spaceId: string): Promise<void>;
   /** Whether ANOTHER window shows this space — which, if so, main has just brought forward, and
-   *  handed `sessionId` to open there. */
-  focusSpaceWindow(spaceId: string, sessionId?: string): Promise<boolean>;
+   *  handed `sessionId` to open there. Asked `by` an agent, main never takes the person away from
+   *  the app they are in to do it. */
+  focusSpaceWindow(spaceId: string, sessionId?: string, by?: "agent"): Promise<boolean>;
   /** A window on the next space no window shows. False when every space is open. */
   newWindow(): Promise<boolean>;
   /** Global list across all profiles, in user sort order. */
@@ -1919,9 +1920,10 @@ export type AppState = TeammatesSlice & {
    * place. Nothing unloads and nothing slides — every space of the profile is already loaded. A space
    * with no session shows its Overview, which says how to start one. A space in another profile
    * switches the window to that profile first. A space open in ANOTHER window brings that window
-   * forward instead, and this one stays as it is: a space is open in at most one window.
+   * forward instead, and this one stays as it is: a space is open in at most one window. `by` says
+   * an agent asked, and then that window comes forward only inside Realm.
    */
-  selectSpace(id: string): Promise<void>;
+  selectSpace(id: string, by?: "agent"): Promise<void>;
   /** Switch the window to another profile: its spaces load, and its own view comes back. The one
    *  switch left, and a rare, deliberate one. A no-op for the profile already showing. */
   selectProfile(profileId: string): Promise<void>;
@@ -5070,10 +5072,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
         void get().refreshCliStatus().catch(() => {});
       },
-      selectSpace(id) { return holdTrail(async () => {
+      selectSpace(id, by) { return holdTrail(async () => {
         const space = get().spaces.find((s) => s.id === id);
         if (!space) return;
-        if (id !== get().activeSpaceId && await api.focusSpaceWindow(id)) return;
+        if (id !== get().activeSpaceId && await api.focusSpaceWindow(id, undefined, by)) return;
         if (space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
         if (get().activeProfileId !== space.profileId) return;
         // Remembered first: with nothing focused, this is the space a new session goes to.
@@ -8262,7 +8264,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // window has read the list again.
         if (!mine()) await get().refreshSpaces();
         if (!mine()) return;
-        if (!firstSession) { await get().selectSpace(spaceId); return; }
+        if (!firstSession) { await get().selectSpace(spaceId, "agent"); return; }
         // A space an agent just made, the person asked to be taken to: the session the sheet would open.
         if (firstSession.projectId) await get().refreshProjects(spaceId);
         await openFirstSession(spaceId, firstSession.projectId, instantPick());

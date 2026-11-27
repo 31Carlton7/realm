@@ -1575,6 +1575,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     documents: { rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } } },
     // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
     profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
+    transcript: { note: (sessionId, ev) => sessionService?.publishServerEvent(sessionId, ev) },
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is never a valid asker, and a target only for the session that started it once its run is

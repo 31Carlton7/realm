@@ -8,7 +8,8 @@ import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, 
  * screen and everything still renders:
  *
  *   - no Dock icon, and the app is never activated: it runs as an accessory app, `app.focus` and
- *     `win.focus` do nothing to AppKit, and every window is non-focusable and ignores the mouse;
+ *     `win.focus` do nothing to AppKit (an `app.focus` is written in `quietWindowsLog`), and every
+ *     window is non-focusable and ignores the mouse;
  *   - every window is shown inactive at the lowest alpha there is (`QUIET_ALPHA`) with no shadow. It
  *     keeps its real place and size: macOS will not let a titled window leave the screens anyway
  *     (measured: a frame set 4000px past the last display came back with 40px on it), and a check of
@@ -114,7 +115,7 @@ export function installQuietWindows(): void {
     app.dock.downloadFinished = () => {};
     void app.whenReady().then(() => app.setActivationPolicy("accessory"));
   }
-  app.focus = () => {};
+  app.focus = (options?: { steal: boolean }) => note("app focus", options);
   app.showAboutPanel = () => note("about panel");
 
   /* ── Windows ─────────────────────────────────────────────────────────────────────────────── */

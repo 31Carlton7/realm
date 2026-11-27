@@ -573,3 +573,42 @@ describe("the cards Full access does not skip", () => {
     expect((await gate).allowed).toBe(false);
   });
 });
+
+/**
+ * `invite`: a card nothing waits on — "Let agents finish sign-ins? Opens Settings". Its mutants: a card
+ * per call instead of one per session, a session left waiting on a card no tool is waiting for, and an
+ * answer that marks an idle session running.
+ */
+describe("BrowserPermissionBroker.invite", () => {
+  it("raises its card once per session, and never sets the session waiting", () => {
+    const { broker, events } = setup();
+    expect(broker.invite("s1", "agent_signins", "Let agents finish sign-ins? Opens Settings")).toBe(true);
+    expect(broker.invite("s1", "agent_signins", "Let agents finish sign-ins? Opens Settings")).toBe(false);
+    expect(broker.invite("s2", "agent_signins", "Let agents finish sign-ins? Opens Settings")).toBe(true);
+    expect(events.map((e) => [e.sessionId, e.ev.type])).toEqual([["s1", "permission_request"], ["s2", "permission_request"]]);
+  });
+
+  it("is taken down by an answer, and the answer says nothing about the session's status", () => {
+    const { broker, events } = setup();
+    broker.invite("s1", "agent_signins", "Let agents finish sign-ins? Opens Settings");
+    broker.resolve(requestIdOf(events), "allow", undefined, "s1");
+    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "permission_response"]);
+  });
+
+  it("does not hold a session waiting after a real card beside it is answered", async () => {
+    const { broker, events } = setup();
+    broker.invite("s1", "agent_signins", "Let agents finish sign-ins? Opens Settings");
+    const gated = broker.gate("s1", "browser_act", "Click X", {});
+    const gateRequest = events.filter((e) => e.ev.type === "permission_request").at(-1)!.ev as Extract<SessionEvent, { type: "permission_request" }>;
+    broker.resolve(gateRequest.payload.requestId, "allow");
+    expect(await gated).toEqual({ allowed: true });
+    expect(events.at(-1)!.ev).toMatchObject({ type: "status", payload: { status: "running" } });
+  });
+
+  it("asks again in a session that ended and came back", () => {
+    const { broker } = setup();
+    broker.invite("s1", "agent_signins", "t");
+    broker.release("s1");
+    expect(broker.invite("s1", "agent_signins", "t")).toBe(true);
+  });
+});
