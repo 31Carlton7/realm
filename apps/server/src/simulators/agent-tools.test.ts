@@ -1005,14 +1005,19 @@ describe("the screen size a point is measured against (#645)", () => {
     expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
   });
 
-  it("is read again after an app is launched", async () => {
+  it("is read again after an app is launched, a URL opened or Home pressed", async () => {
     const dev = turning();
     const simulatorId = await dev.running();
     await primed(dev, simulatorId);
-    await dev.call("simulator_launch", { simulatorId, bundleId: "com.acme.app" });
-    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
-    // THE MUTANT: a launch that keeps the size. A landscape app opened on a turned device has another.
-    expect(dev.treeReads()).toBe(2);
+    const steps: [string, Record<string, unknown>][] = [
+      ["simulator_launch", { bundleId: "com.acme.app" }], ["simulator_open_url", { url: "https://example.com" }], ["simulator_press", { intent: "go home", key: "home" }],
+    ];
+    for (const [i, [tool, args]] of steps.entries()) {
+      expect((await dev.call(tool, { simulatorId, ...args })).isError, tool).toBe(false);
+      await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+      // THE MUTANT: a switch of app that keeps the size. A landscape app on a turned device has another.
+      expect(dev.treeReads(), tool).toBe(2 + i);
+    }
   });
 
   it("a point step that reads no tree tells the observer no elements, and its after is the next fresh read", async () => {
