@@ -1116,8 +1116,6 @@ export class SessionService {
     this.d.failover?.cancel(id);
     await this.live.get(id)?.handle.interrupt();
   }
-  /** `by`: a person on Realm's window or their phone, or Realm's own code in process, which may not
-   *  answer Allow on a card kept for a person (`GateOptions.personOnly`). */
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers, by: Answerer = "process"): void {
     this.get(id);
     // A masked answer is remembered BEFORE it goes anywhere, so the first event to quote it back — the

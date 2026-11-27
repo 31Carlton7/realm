@@ -259,7 +259,7 @@ export function SecurityCodesSwitch() {
             checked={status.enabled} disabled={busy} onChange={() => { void toggle(); }} />
         </div>
       </div>
-      <p className="settings-hint">Realm reads nothing while this is off, keeps nothing it reads, and sends no code anywhere. An agent fills a code only after you approve that fill, and is never told it.</p>
+      <p className="settings-hint">Realm reads nothing while this is off, keeps nothing it reads, and sends no code anywhere. An agent fills one only while Let agents finish sign-ins is on, and is never told it.</p>
     </>
   );
 }

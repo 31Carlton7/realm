@@ -658,7 +658,8 @@ const HANDLERS: Record<string, Handler> = {
        - on a page of the password's own site: the card, which offers "Always allow on this site".
          That answer is kept in main for THIS password on THIS exact origin, and after it the card is
          skipped there — never the unlock, which main still asks for on every fill. With "Let agents
-         finish sign-ins" on, no card here at all; the unlock still runs;
+         finish sign-ins" on, no card here at all; the unlock still runs. Off, the card offers to turn
+         it on in place of "Always allow", and only a person may answer it (`personOnly`);
        - on any other page: the card on every fill (`alwaysPrompt`), whatever the person turned on:
          a password going into another site's page is how a phishing page would get it;
        - `bypassPermissions` skips none of it (`promptUnderBypass`): a secret entering a page is not an
@@ -677,8 +678,6 @@ const HANDLERS: Record<string, Handler> = {
       "browser_fill_credential",
       standing ? {
         promptUnderBypass: true,
-        // Its Allow fills a password, and its Turn on sign-ins is pressed in Settings' own IPC first:
-        // both are the person's, never an answer sent from in process.
         personOnly: offersSignins,
         preapproved: finishing || onSite?.agentAllowed === true,
         onAlwaysAllow: () => { void d.bridge.call("credentialAllow", { profileId: profileIdOf(d, ctx), credentialId: credential.id, origin: pageOrigin }).catch(() => {}); },
