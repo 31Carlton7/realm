@@ -28,7 +28,7 @@ import type { TeammatesService } from "./service";
  * - no teammate is put on more access than the caller has (`rank`, as `team_set_access`);
  * - a folder is taken the way `space_create` takes one (`pickFolder`);
  * - a card, unless the caller is on Full access; and a card that shows even on Full access when the
- *   change lowers a teammate's model or effort, saying from what to what, or hands over the Lead.
+ *   change lowers a teammate's model or effort, saying from what to what.
  *   Reordering the Team list is cosmetic and asks no card.
  */
 export type TeamManageDeps = {
@@ -131,7 +131,7 @@ export class TeamManageTools {
       : `@${now.handle} is back on the Team list${now.handle !== target.handle ? ` (as @${now.handle}: @${target.handle} was taken while it was away)` : ""}.`);
   }
 
-  /** `teammate_set_lead`: make a teammate the space's Lead, or leave the space with none. Always on a card. */
+  /** `teammate_set_lead`: make a teammate the space's Lead, or leave the space with none. */
   async setLead(ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
     const a = parseArgs(TeammateSetLeadArgsSchema, raw); if ("error" in a) return a.error;
     const nothing = "Nothing changed.";
@@ -145,7 +145,7 @@ export class TeamManageTools {
     const title = target
       ? `Make @${target.handle} (${target.name}) the Lead${current ? `, in place of @${current.handle}` : ""}`
       : `Leave the space with no Lead (@${current!.handle} stops being the Lead)`;
-    const denied = await askCard(this.d.broker, ctx.sessionId, { toolKey: "teammate_set_lead", title, input: { to: target?.handle ?? null }, always: true });
+    const denied = await askCard(this.d.broker, ctx.sessionId, { toolKey: "teammate_set_lead", title, input: { to: target?.handle ?? null } });
     if (denied) return denied;
     this.d.team.setLead(spaceId, target?.id ?? null);
     return ok(target ? `@${target.handle} is the Lead now${current ? `; @${current.handle} is not` : ""}.` : `The space has no Lead now; @${current!.handle} is not.`);

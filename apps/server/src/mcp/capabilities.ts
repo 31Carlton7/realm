@@ -115,7 +115,7 @@ const BLOCKS: Record<string, string> = {
     "when the person asks: the Lead in its own chat or one of the person's sessions, in a turn the person started, never above your " +
     "own access, on a card unless you are on Full access; lowering a model or effort always asks. Under the same rules " +
     "`teammate_archive` takes a teammate off the Team list (or brings it back), `teammate_run_clock` fires its clock now, " +
-    "`teammate_set_lead` hands over the Lead (always on a card), and `teammate_reorder` sets the Team list's order and sections (no card).",
+    "`teammate_set_lead` hands over the Lead, and `teammate_reorder` sets the Team list's order and sections (no card).",
 
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane, `terminal_write` types into it, " +

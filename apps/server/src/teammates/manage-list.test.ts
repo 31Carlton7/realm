@@ -10,8 +10,8 @@ import { waitFor } from "../test-utils";
 /**
  * `teammate_archive`, `teammate_set_lead`, `teammate_reorder` and `teammate_run_clock` over the real
  * app with the scripted agent. Each runs only for the Lead or the person's own session, in a turn the
- * person started. Archive and run_clock ask on a card unless the caller is on Full access, set_lead
- * always does, and reorder never does.
+ * person started. Archive, set_lead and run_clock ask on a card unless the caller is on Full access, and
+ * reorder never does.
  */
 
 let app: App;
@@ -109,8 +109,17 @@ describe("teammate_archive", () => {
 });
 
 describe("teammate_set_lead", () => {
-  it("hands the Lead over on a card, even on Full access", async () => {
+  it("hands the Lead over on Full access with no card", async () => {
     const { spaceId, captain } = await boot();
+    await say(captain, "teammate_set_lead", { to: "ops" });
+    expect((await answered(captain.homeSessionId!)).content).toBe("@ops is the Lead now; @captain is not.");
+    expect(leadOf(spaceId)).toBe("ops");
+    expect(cards(captain.homeSessionId!)).toEqual([]);
+  });
+
+  it("asks on a card off Full access", async () => {
+    const { spaceId, captain } = await boot();
+    await app.team.setPermissionMode(captain.id, "acceptEdits");
     await say(captain, "teammate_set_lead", { to: "ops" });
     const card = await answerCard(captain.homeSessionId!, "allow");
     expect(card.title).toBe("Make @ops (Ops) the Lead, in place of @captain");
@@ -120,6 +129,7 @@ describe("teammate_set_lead", () => {
 
   it("changes nothing when the card is denied", async () => {
     const { spaceId, captain } = await boot();
+    await app.team.setPermissionMode(captain.id, "acceptEdits");
     await say(captain, "teammate_set_lead", { to: null });
     const card = await answerCard(captain.homeSessionId!, "deny");
     expect(card.title).toBe("Leave the space with no Lead (@captain stops being the Lead)");

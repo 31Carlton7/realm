@@ -111,7 +111,7 @@ const TOOLS: Tool[] = [
     name: TEAMMATE_SET_LEAD_TOOL,
     description: [
       "Make a teammate the space's Lead when the person asks, or leave the space with none (`to: null`).",
-      "Only the Lead in its own chat or one of the person's sessions, in a turn the person started: a teammate cannot make itself the Lead. The person always approves it on a card, even on Full access.",
+      "Only the Lead in its own chat or one of the person's sessions, in a turn the person started: a teammate cannot make itself the Lead. On a card unless you are on Full access.",
     ].join(" "),
     inputSchema: {
       type: "object",
