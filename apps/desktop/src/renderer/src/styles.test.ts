@@ -246,6 +246,32 @@ describe("§6 motion ladder", () => {
 
 describe("§6 motion table", () => {
 
+  /* A session's picture is its pane's ground, and it lives in the pane's slot. An entrance from
+     opacity 0 on the slot, the pane or the picture shows the bare window for the first frames of a
+     switch: the dark frame a cold switch had before the picture faded back in. THE mutant is the
+     slot's rl-settle matching a session's slot again. */
+  it("a session switched to is drawn on its ground from its first frame", () => {
+    const fromClear = new Set([...css.matchAll(/@keyframes\s+([\w-]+)\s*\{\s*(?:from|0%)\s*\{([^}]*)\}/g)]
+      .filter((m) => /opacity:\s*0(?![.\d])/.test(m[2]!)).map((m) => m[1]!));
+    const entrances = RULES.filter((r) => [...r.body.matchAll(/animation:\s*([\w-]+)/g)].some((m) => fromClear.has(m[1]!)));
+    const slot = (inner: string) => {
+      const host = document.createElement("div");
+      host.innerHTML = `<div class="panel"><div class="panel-body"><div class="pane-slot">${inner}</div></div></div>`;
+      return host;
+    };
+    const matches = (el: Element, s: string) => { try { return el.matches(s); } catch { return false; } };
+    const fades = (el: Element) => entrances.flatMap(partsOf).filter((s) => matches(el, s));
+    // Taken back by a later rule on the same selector with more appended, which always outranks it.
+    const takenBack = (el: Element, s: string) => RULES.slice(RULES.findIndex((r) => partsOf(r).includes(s)))
+      .some((r) => /animation:\s*none/.test(r.body) && partsOf(r).some((o) => o.startsWith(s) && o !== s && matches(el, o)));
+    const session = slot(`<div class="session-pane"><canvas class="hero-backdrop" data-phase="chat"></canvas></div>`);
+    for (const el of [session.querySelector(".pane-slot")!, session.querySelector(".session-pane")!, session.querySelector(".hero-backdrop")!]) {
+      expect(fades(el).filter((s) => !takenBack(el, s)), el.className).toEqual([]);
+    }
+    // Every other kind keeps its entrance, so a selector the matcher cannot read is not a pass.
+    expect(fades(slot(`<div class="terminal-pane"></div>`).querySelector(".pane-slot")!)).not.toEqual([]);
+  });
+
   /* A menu is NSMenu: there at once, gone on a short fade. THE mutants are an entrance creeping back
      onto `.menu` (a click waiting on a picture of the answer) and the exit growing travel again. */
   it("menus open instantly and leave on a fade with no travel, on the press rung", () => {
