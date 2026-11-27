@@ -1,6 +1,6 @@
-import { mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
 import { LAYA_AUTO_INSTALL_MIN_FREE } from "../laya/service";
 import { RISE_LOG_BYTES, SAMPLES_KEPT, SAMPLE_EVERY_MS, SNAPSHOT_EVERY_MS, SNAPSHOT_RSS_BYTES, ServerMemory, growth, type MemorySample } from "./server-memory";
@@ -121,7 +121,7 @@ describe("the heap snapshot", () => {
   afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); });
 
   it("is written once rss passes SNAPSHOT_RSS_BYTES, at most once a day, keeping only the newest", () => {
-    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    dir = tempDir("realm-heap-");
     const r = rig({ snapshotDir: dir });
     r.tick(SNAPSHOT_RSS_BYTES - MB);
     expect(r.written).toEqual([]);
@@ -136,7 +136,7 @@ describe("the heap snapshot", () => {
   });
 
   it("counts a snapshot a previous run left today, so a restart does not take another", () => {
-    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    dir = tempDir("realm-heap-");
     const r = rig({ snapshotDir: dir });
     const old = join(dir, "server-earlier.heapsnapshot");
     writeFileSync(old, "{}");
@@ -153,14 +153,14 @@ describe("the heap snapshot", () => {
   });
 
   it("says how big the snapshot is and how long writing it blocked, by the injected clock", () => {
-    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    dir = tempDir("realm-heap-");
     const r = rig({ snapshotDir: dir, writeMs: 1_850 });
     r.tick(2 * GB);
     expect(r.lines.at(-1)).toBe(`[server-memory] heap snapshot written to ${r.written[0]} (3 MB) in 1850 ms`);
   });
 
   it("waits while a session has a turn running, and says so once", () => {
-    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    dir = tempDir("realm-heap-");
     const r = rig({ snapshotDir: dir });
     r.setBusy(true);
     for (let i = 0; i < 4; i++) r.tick(2 * GB);
@@ -170,7 +170,7 @@ describe("the heap snapshot", () => {
   });
 
   it(`waits while the disk has under ${LAYA_AUTO_INSTALL_MIN_FREE / GB} GB free, and says so once`, () => {
-    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    dir = tempDir("realm-heap-");
     const r = rig({ snapshotDir: dir });
     r.setFree(4.2 * GB);
     r.tick(2 * GB);
@@ -184,7 +184,7 @@ describe("the heap snapshot", () => {
   });
 
   it("takes the snapshot at the first idle sample after a busy one, without spending the day's allowance on the wait", () => {
-    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    dir = tempDir("realm-heap-");
     const r = rig({ snapshotDir: dir });
     r.setBusy(true);
     r.tick(2 * GB);
@@ -197,7 +197,7 @@ describe("the heap snapshot", () => {
   });
 
   it("says it is waiting again after rss falls below the line and crosses it once more", () => {
-    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    dir = tempDir("realm-heap-");
     const r = rig({ snapshotDir: dir });
     r.setBusy(true);
     r.tick(2 * GB);
