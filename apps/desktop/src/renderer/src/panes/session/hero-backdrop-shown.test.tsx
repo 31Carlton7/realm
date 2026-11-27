@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { BACKGROUND_SETTING } from "@realm/contracts";
 import { SessionBackdrop } from "./HeroBackdrop";
+import { SessionPane } from "./SessionPane";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi } from "../../state/store.test-fakes";
+import { fakeApi, item, session } from "../../state/store.test-fakes";
 
 /* A renderer per WebGL context: what each one drew, and whether it was let go. */
 type Fake = { canvas: HTMLCanvasElement; draws: number; destroyed: boolean };
@@ -102,6 +103,19 @@ describe("a backdrop in a pane kept hidden", () => {
     await act(async () => {});
     runFrames(5);
     expect(shaders).toHaveLength(0);
+  });
+
+  it("is hidden with the session pane it sits in", async () => {
+    const store = createAppStore(fakeApi({ sessions: [session("se1", "s1", { status: "idle" })], settings: { [BACKGROUND_SETTING]: "haze" } }));
+    await store.getState().boot();
+    const pane = (visible: boolean) => <StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible={visible} /></StoreContext.Provider>;
+    const r = render(pane(false));
+    await act(async () => {});
+    runFrames(3);
+    expect(shaders).toHaveLength(0);
+    r.rerender(pane(true));
+    await act(async () => {});
+    expect(shaders).toHaveLength(1);
   });
 
   it("lets a loop's context go while hidden and builds it again on show", async () => {
