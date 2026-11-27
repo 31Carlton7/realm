@@ -1103,8 +1103,9 @@ describe("session.subagents", () => {
     // Started and not yet on its first turn: its run is in flight.
     child("starting", { startedAt: 600 }),
   ];
+  const asked: unknown[] = [];
   const rpc = fakeRpc({ sessions: [session("lead", "s1")], items: [item("lead", "s1", "Lead"), item("finished", "s1", "Write the migration")] }, {
-    "delegation.children": ((p: { sessionId: string }) => ({ children: p.sessionId === "lead" ? children : [], dismissed: [] })) as never,
+    "delegation.children": ((p: { sessionId: string }) => { asked.push(p); return { children: p.sessionId === "lead" ? children : [], dismissed: [] }; }) as never,
     "delegation.running": (() => ({ running: [{ sessionId: "starting", startedAt: 600, detached: true, owned: true }, { sessionId: "working", startedAt: 500, detached: true, owned: true }] })) as never,
   });
 
@@ -1122,6 +1123,12 @@ describe("session.subagents", () => {
     // Each is its own session's row, by the name its sidebar row has.
     expect(subagents.find((s) => s.session.id === "finished")).toMatchObject({ goal: "Do finished", report: "Done it.", session: { title: "Write the migration", status: "idle" } });
     expect(subagents.find((s) => s.session.id === "asking")?.session.status).toBe("waiting");
+  });
+
+  it("asks for every one, not the newest page: the phone lists them all and has no cursor", async () => {
+    asked.length = 0;
+    await attempt(api(), rpc, "session.subagents", { id: "lead" });
+    expect(asked).toEqual([{ sessionId: "lead", limit: null }]);
   });
 
   it("refuses a session the Mac does not have", async () => {

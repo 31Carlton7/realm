@@ -1,4 +1,4 @@
-import type { DelegatedChild, DispatchKind, Session, SessionEvent } from "@realm/contracts";
+import { CHILDREN_PAGE, type ChildrenCursor, type DelegatedChild, type DispatchKind, type Session, type SessionEvent } from "@realm/contracts";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
 import { NotFoundError } from "../store/rows";
@@ -28,49 +28,52 @@ const REPORT_MAX = 2000;
  */
 export class DelegatedChildren {
   constructor(private readonly d: {
-    sessions: Pick<SessionsStore, "get" | "listDispatchedBy">;
-    events: Pick<SessionEventsStore, "lastOfType" | "lastOfTypes">;
+    sessions: Pick<SessionsStore, "get" | "dispatchedPage">;
+    events: Pick<SessionEventsStore, "lastReportAndActivity">;
     items: Pick<ItemsStore, "findTab" | "create">;
     rpc: Pick<RpcServer, "broadcast">;
-    agentRuns: { record(sessionId: string): AgentChildRecord | null; working(sessionId: string): number | null };
-    browserAgents: { goalOf(sessionId: string): string | null };
+    agentRuns: { records(sessionIds: readonly string[]): Map<string, AgentChildRecord>; working(record: AgentChildRecord, sessionId: string): number | null };
+    browserAgents: { goalsOf(sessionIds: readonly string[]): Map<string, string> };
   }) {}
 
-  /** Every sub-agent `parentId` started, oldest first — the order the lead started them in, which is
-   *  also the order a person reading the lead's transcript met them. */
-  list(parentId: string): DelegatedChild[] {
-    return this.childrenOf(parentId).map((s) => {
-      const child = this.describe(s);
-      // A sub-agent can no longer start its own, but one from before that rule may have: its children
-      // are listed under it, one level, which is as deep as delegation ever went.
-      const nested = this.childrenOf(s.id).map((g) => this.describe(g));
-      return nested.length > 0 ? { ...child, children: nested } : child;
-    });
-  }
-
-  private childrenOf(parentId: string): Session[] {
-    return this.d.sessions.listDispatchedBy(parentId).filter((s) => s.dispatchedBy && CHILD_ORIGINS.has(s.dispatchedBy.kind));
-  }
-
-  private describe(session: Session): DelegatedChild {
-    const record = this.d.agentRuns.record(session.id);
-    const live = this.d.agentRuns.working(session.id);
+  /** A page of the sub-agents `parentId` started, newest first: `limit` of them (CHILDREN_PAGE when
+   *  absent, every one for `null`) started before `before`. A fixed handful of reads whatever the
+   *  page holds: the sessions, then their transcripts' newest lines, then their records. */
+  list(parentId: string, page: { limit?: number | null; before?: ChildrenCursor } = {}): { children: DelegatedChild[]; nextBefore: ChildrenCursor | null } {
+    const { children, nested, nextBefore } = this.d.sessions.dispatchedPage(parentId, [...CHILD_ORIGINS], { limit: page.limit === undefined ? CHILDREN_PAGE : page.limit, before: page.before });
+    // A sub-agent can no longer start its own, but one from before that rule may have: its children
+    // are listed under it, one level, which is as deep as delegation ever went.
+    const ids = children.flatMap((s) => [s.id, ...(nested.get(s.id) ?? []).map((g) => g.id)]);
+    const lines = this.d.events.lastReportAndActivity(ids, ACTIVITY);
+    const records = this.d.agentRuns.records(ids);
+    const goals = this.d.browserAgents.goalsOf(ids.filter((id) => !records.has(id)));
     const now = Date.now();
-    const working = live !== null ? { ms: live, at: now } : record?.workedMs !== undefined ? { ms: record.workedMs, at: now } : null;
-    const report = this.d.events.lastOfType(session.id, "assistant_text");
-    const text = report?.type === "assistant_text" ? report.payload.text : null;
+    const describe = (session: Session): DelegatedChild => {
+      const record = records.get(session.id) ?? null;
+      const live = record ? this.d.agentRuns.working(record, session.id) : null;
+      const working = live !== null ? { ms: live, at: now } : record?.workedMs !== undefined ? { ms: record.workedMs, at: now } : null;
+      const { report, activity } = lines.get(session.id)!;
+      const text = report?.type === "assistant_text" ? report.payload.text : null;
+      return {
+        session,
+        goal: record?.goal ?? goals.get(session.id) ?? null,
+        // A record from before runs were timed starts where the session did, a moment earlier.
+        startedAt: record?.startedAt ?? session.createdAt,
+        settledAt: record?.settledAt ?? null,
+        outcome: record?.outcome ?? null,
+        report: text === null ? null : text.length > REPORT_MAX ? `${text.slice(0, REPORT_MAX - 1).trimEnd()}…` : text,
+        activity,
+        budgetMs: record?.budgetMs ?? null,
+        working,
+        ...(record?.stopNote ? { note: record.stopNote } : {}),
+      };
+    };
     return {
-      session,
-      goal: record?.goal ?? this.d.browserAgents.goalOf(session.id),
-      // A record from before runs were timed starts where the session did, a moment earlier.
-      startedAt: record?.startedAt ?? session.createdAt,
-      settledAt: record?.settledAt ?? null,
-      outcome: record?.outcome ?? null,
-      report: text === null ? null : text.length > REPORT_MAX ? `${text.slice(0, REPORT_MAX - 1).trimEnd()}…` : text,
-      activity: this.d.events.lastOfTypes(session.id, ACTIVITY),
-      budgetMs: record?.budgetMs ?? null,
-      working,
-      ...(record?.stopNote ? { note: record.stopNote } : {}),
+      children: children.map((s) => {
+        const kids = nested.get(s.id) ?? [];
+        return kids.length > 0 ? { ...describe(s), children: kids.map(describe) } : describe(s);
+      }),
+      nextBefore,
     };
   }
 
