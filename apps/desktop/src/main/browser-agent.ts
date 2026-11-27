@@ -20,8 +20,9 @@ export type CdpSend = (method: string, params?: Record<string, unknown>) => Prom
 
 /* ------------------------------------ snapshot ------------------------------------ */
 
-/** Per-element fingerprints from the previous snapshot, kept per browser by the host. The `*[new]`
- *  diff marks an element whose ref was absent last time OR whose identity/geometry changed. */
+/** Each element's line from the previous snapshot, by ref, kept per browser by the host. `[new]` and
+ *  `diff` compare against it: an element is new when its ref was absent or its line reads differently.
+ *  Where it sits is not part of the line, so an element that only moved is not new. */
 export type SnapshotIndex = Map<number, string>;
 
 /** How many elements one snapshot lists — beyond this a page is better served by a narrower read
@@ -109,7 +110,10 @@ type SnapshotDoc = {
 };
 type CaptureSnapshot = { documents: SnapshotDoc[]; strings: string[] };
 type AxNode = { backendDOMNodeId?: number; ignored?: boolean; role?: { value?: unknown }; name?: { value?: unknown }; value?: { value?: unknown }; properties?: { name: string; value?: { value?: unknown } }[] };
-type LayoutMetrics = { cssVisualViewport?: { clientWidth?: number; clientHeight?: number; pageLeft?: number; pageTop?: number } };
+type LayoutMetrics = {
+  cssVisualViewport?: { clientWidth?: number; clientHeight?: number; pageLeft?: number; pageTop?: number };
+  visualViewport?: { clientWidth?: number };
+};
 
 const s = (strings: string[], i: number | undefined): string => (i !== undefined && i >= 0 && i < strings.length ? strings[i]! : "");
 const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
@@ -152,13 +156,19 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
     w: metrics.cssVisualViewport?.clientWidth ?? 100000,
     h: metrics.cssVisualViewport?.clientHeight ?? 100000,
   };
+  // The snapshot's bounds and scroll offsets are in device pixels (CSS pixels × the display's scale ×
+  // page zoom); the viewport above, and every rect this returns, are CSS pixels. The ratio is
+  // `visualViewport` (device pixels) over `cssVisualViewport`, which is `devicePixelRatio`.
+  const deviceWidth = metrics.visualViewport?.clientWidth;
+  const cssWidth = metrics.cssVisualViewport?.clientWidth;
+  const scale = deviceWidth && cssWidth ? deviceWidth / cssWidth : 1;
 
   const all: Candidate[] = [];
   const landmarks: Landmark[] = [];
   const layoutByDoc: LayoutInfo[] = [];
   const contextByDoc: ((nodeIndex: number) => string)[] = [];
   for (const [docIndex, doc] of (snap.documents ?? []).entries()) {
-    const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport, filled, codes);
+    const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport, scale, filled, codes);
     all.push(...collected.candidates);
     landmarks.push(...collected.landmarks);
     layoutByDoc.push(collected.layoutInfo);
@@ -209,25 +219,51 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   // way a textbox's `value=` answers "did the typing land".
   await fillFileInputValues(send, listed.filter(isFileInput).slice(0, FILE_INPUT_READ_MAX));
 
-  // A narrowed snapshot sees part of the page, so it adds to the fingerprints rather than replacing
-  // them — otherwise the next full snapshot would mark everything it left out as [new].
-  const narrowed = offset > 0 || scope.query !== undefined || scope.within !== undefined;
-  const index: SnapshotIndex = narrowed ? new Map(previous ?? []) : new Map();
-  const lines: string[] = [];
+  // A fingerprint leaves out what only says where an element is (the box, `{offscreen}`, `in:`), so a
+  // row that moved up is not new. The index keeps every element still on the page, listed or not —
+  // a narrowed or cut-off snapshot saw only part of it, and one under an overlay is not removed. A
+  // page none of whose refs survive is a new document, and nothing on it is "new" to mark.
+  const present = new Set(interactive.map((c) => c.backendNodeId));
+  const prior = previous && [...previous.keys()].some((ref) => present.has(ref)) ? previous : null;
+  const index: SnapshotIndex = new Map([...(prior ?? [])].filter(([ref]) => present.has(ref)));
+  const diff = scope.diff === true && prior !== null;
+  const rows: Row[] = [];
+  const added: Row[] = [];
+  const changed: Row[] = [];
   const elements: BrowserSnapshotElement[] = [];
   const sameAs = new Map<string, number>();
   for (const c of listed) sameAs.set(lineKey(c), (sameAs.get(lineKey(c)) ?? 0) + 1);
   for (const c of listed) {
-    const fingerprint = `${c.role}|${c.name}|${c.value ?? ""}|${Math.round(c.rect.x / 8)},${Math.round(c.rect.y / 8)}`;
+    const fingerprint = formatLine({ ...c, offscreen: false }, { isNew: false, context: "", geometry: false });
     index.set(c.backendNodeId, fingerprint);
-    const isNew = previous !== null && previous.get(c.backendNodeId) !== fingerprint;
+    const before = prior?.get(c.backendNodeId);
+    const isNew = prior !== null && before !== fingerprint;
     const ambiguous = sameAs.get(lineKey(c))! > 1 || !c.name && !c.icon && !c.img;
     const context = ambiguous ? contextByDoc[c.docIndex]!(c.nodeIndex) : "";
-    lines.push(formatLine(c, { isNew, context, geometry: scope.detail === "geometry" }));
+    const how = { isNew: isNew && !diff, context, geometry: scope.detail === "geometry" };
+    const row = { line: formatLine(c, how), inRun: c.offscreen ? formatLine({ ...c, offscreen: false }, how) : null };
+    rows.push(row);
+    if (isNew) (before === undefined ? added : changed).push(row);
     elements.push({
       ref: c.backendNodeId, role: c.role, name: c.name, value: c.value, rect: { ...c.rect },
       checked: c.checked, disabled: c.disabled, password: c.password, focused: c.focused, offscreen: c.offscreen,
     });
+  }
+  let lines: string[];
+  if (diff) {
+    const removed = [...prior].filter(([ref]) => !present.has(ref)).map(([, line]) => line);
+    const unchanged = rows.length - added.length - changed.length;
+    lines = added.length + changed.length + removed.length === 0
+      ? [`(nothing changed since your previous snapshot of this page: its ${unchanged} element(s) read as they did then)`]
+      : [
+        `(changes since your previous snapshot of this page: ${added.length} added, ${changed.length} changed, ${removed.length} removed; ${unchanged} unchanged, not repeated)`,
+        ...(added.length ? ["added:", ...collapseOffscreen(added)] : []),
+        ...(changed.length ? ["changed:", ...collapseOffscreen(changed)] : []),
+        ...(removed.length ? ["removed:", ...removed] : []),
+      ];
+  } else {
+    lines = collapseOffscreen(rows);
+    if (scope.diff === true) lines.unshift("(no earlier snapshot of this page to compare with, so this is the whole list)");
   }
   const notes = budgetNotes({ scope, withinFound, ranked, listed: listed.length, ancestry, landmarks });
   if (coveredCount > 0) notes.push(`(${coveredCount} interactive element(s) hidden behind overlays — not actionable, not listed)`);
@@ -246,6 +282,21 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
 }
 
 const nodeKey = (docIndex: number, nodeIndex: number): string => `${docIndex}:${nodeIndex}`;
+
+/** A listed element's line, and for an offscreen one the same line without the flag. */
+type Row = { line: string; inRun: string | null };
+
+/** Consecutive offscreen rows share one line, flagged once: `{offscreen} [ref=1] … · [ref=2] …`. */
+function collapseOffscreen(rows: Row[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < rows.length;) {
+    let j = i + 1;
+    if (rows[i]!.inRun !== null) while (j < rows.length && rows[j]!.inRun !== null) j++;
+    out.push(j - i > 1 ? `{offscreen} ${rows.slice(i, j).map((r) => r.inRun).join(" · ")}` : rows[i]!.line);
+    i = j;
+  }
+  return out;
+}
 
 /** What a line says about its control, before any `in:` — two controls with the same key read alike. */
 const lineKey = (c: Candidate): string => `${c.role}|${c.name}|${c.icon}|${c.img}`;
@@ -362,7 +413,7 @@ async function fillFileInputValues(send: CdpSend, candidates: Candidate[]): Prom
  *  for the ancestor exemption, and the two styles that decide whether a box actually hides things. */
 type LayoutInfo = { rects: Rect[]; paint: number[]; nodeIndexes: number[]; parentIndex: number[]; nodeType: number[]; backendIds: number[]; bg: string[]; boxOpacity: string[] };
 
-function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }, filled: ReadonlySet<number>, codes: ReadonlySet<number>) {
+function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }, scale: number, filled: ReadonlySet<number>, codes: ReadonlySet<number>) {
   const nodes = doc.nodes;
   const layout = doc.layout;
   const nodeType = nodes.nodeType ?? [];
@@ -375,8 +426,12 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
   const inputValues = new Map<number, string>();
   nodes.inputValue?.index.forEach((ni, k) => inputValues.set(ni, s(strings, nodes.inputValue!.value[k])));
   const checkedSet = new Set(nodes.inputChecked?.index ?? []);
-  const scrollX = doc.scrollOffsetX ?? 0;
-  const scrollY = doc.scrollOffsetY ?? 0;
+  const scrollX = (doc.scrollOffsetX ?? 0) / scale;
+  const scrollY = (doc.scrollOffsetY ?? 0) / scale;
+  const rects: Rect[] = layout.nodeIndex.map((_, li) => {
+    const [x = 0, y = 0, w = 0, h = 0] = layout.bounds[li] ?? [];
+    return { x: x / scale, y: y / scale, w: w / scale, h: h / scale };
+  });
 
   // Children lists for the text-content name fallback.
   const children = new Map<number, number[]>();
@@ -455,8 +510,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
   const landmarks: Landmark[] = [];
   layout.nodeIndex.forEach((ni, li) => {
     if (nodeType[ni] !== 1) return; // elements only
-    const bounds = layout.bounds[li] ?? [0, 0, 0, 0];
-    const rect: Rect = { x: bounds[0]!, y: bounds[1]!, w: bounds[2]!, h: bounds[3]! };
+    const rect = rects[li]!;
     if (rect.w <= 0 || rect.h <= 0) return;
     const styles: Record<string, string> = {};
     SNAPSHOT_STYLES.forEach((styleName, k) => { styles[styleName] = s(strings, layout.styles?.[li]?.[k]); });
@@ -521,7 +575,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
   const bgIdx = SNAPSHOT_STYLES.indexOf("background-color");
   const opIdx = SNAPSHOT_STYLES.indexOf("opacity");
   const layoutInfo: LayoutInfo = {
-    rects: layout.nodeIndex.map((_, li) => ({ x: layout.bounds[li]?.[0] ?? 0, y: layout.bounds[li]?.[1] ?? 0, w: layout.bounds[li]?.[2] ?? 0, h: layout.bounds[li]?.[3] ?? 0 })),
+    rects,
     paint: layout.nodeIndex.map((_, li) => layout.paintOrders?.[li] ?? 0),
     nodeIndexes: [...layout.nodeIndex],
     parentIndex: [...parentIndex],
@@ -2428,6 +2482,85 @@ export async function describePick(send: CdpSend, backendNodeId: number): Promis
     name: clip(identity.name, PICK_NAME_MAX),
     ...detail,
   };
+}
+
+/* ------------------------- refs drawn into an agent's screenshot ------------------------- */
+
+/** The mark value of the numbered boxes `browser_screenshot { annotate }` draws for one capture. */
+export const MARK_REFS = "refs";
+export const REMOVE_REF_BOXES_JS = removeJs(MARK_REFS);
+
+/** One numbered box: where the element with `ref` is now, in the viewport's CSS pixels. */
+export type RefBox = { n: number; ref: number; role: string; name: string; left: number; top: number; width: number; height: number };
+
+/**
+ * The boxes for a snapshot's listed elements that are on screen, numbered from 1 in list order. Each
+ * is placed by `DOM.getContentQuads` at this moment, as the act ring is, and never by the snapshot's
+ * own rect or `offscreen` flag, so a box lands where the element is when the picture is taken. An
+ * element with no quads, or none inside the viewport, gets no box and no number.
+ */
+export async function refBoxes(send: CdpSend, elements: readonly BrowserSnapshotElement[], viewport: { width: number; height: number }): Promise<RefBox[]> {
+  const quads = await Promise.all(elements.map((e) =>
+    (send("DOM.getContentQuads", { backendNodeId: e.ref }) as Promise<{ quads?: number[][] }>).then((r) => r.quads?.[0] ?? null, () => null)));
+  const boxes: RefBox[] = [];
+  elements.forEach((e, i) => {
+    const quad = quads[i];
+    if (!quad || quad.length < 8) return;
+    const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+    const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+    const left = Math.min(...xs), top = Math.min(...ys);
+    const width = Math.max(...xs) - left, height = Math.max(...ys) - top;
+    if (!Number.isFinite(left + top + width + height) || width <= 0 || height <= 0) return;
+    if (left + width <= 0 || top + height <= 0 || left >= viewport.width || top >= viewport.height) return;
+    boxes.push({ n: boxes.length + 1, ref: e.ref, role: e.role, name: e.name, left, top, width, height });
+  });
+  return boxes;
+}
+
+/** The legend that goes beside an annotated picture: one `[N] ref=… role "name"` line a box. */
+export function refLegend(boxes: readonly RefBox[]): string {
+  return boxes.map((b) => `[${b.n}] ref=${b.ref} ${b.role}${b.name ? ` "${b.name}"` : ""}`).join("\n");
+}
+
+/**
+ * The page-side script that draws `boxes`, and resolves once the page has painted them. One host
+ * element carries the mark attribute (so a snapshot never lists it, and `REMOVE_REF_BOXES_JS` takes it
+ * away); the boxes are inside a closed shadow root, so the page's own scripts cannot read them. A
+ * box's number sits above it, or left of it when it is at the top of the viewport, so it does not hide
+ * the element's own text; only a box in the top-left corner has its number inside. The host is
+ * shown as a manual popover, which puts it in the top layer above a modal dialog — a fixed element
+ * with the highest z-index still paints under one.
+ */
+export function refBoxesScript(boxes: readonly RefBox[], accent: string): string {
+  const j = JSON.stringify;
+  const hostCss = "position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0;"
+    + "background:transparent;overflow:visible;pointer-events:none;z-index:2147483647;";
+  const boxCss = `position:absolute;box-sizing:border-box;border:2px solid ${accent};border-radius:4px;`;
+  const badgeCss = "position:absolute;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;"
+    + `background:${accent};color:#fff;font:600 11px/16px -apple-system,system-ui,sans-serif;text-align:center;white-space:nowrap;`
+    + "box-shadow:0 1px 2px rgba(0,0,0,0.4);";
+  return `(() => { try {
+    ${REMOVE_REF_BOXES_JS};
+    var D = document, host = D.createElement("div");
+    host.setAttribute(${j(HIGHLIGHT_ATTR)}, ${j(MARK_REFS)});
+    host.style.cssText = ${j(hostCss)};
+    var root = host.attachShadow({ mode: "closed" });
+    for (var b of ${j(boxes.map(({ n, left, top, width, height }) => ({ n, left, top, width, height })))}) {
+      var box = D.createElement("div");
+      box.style.cssText = ${j(boxCss)} + "left:" + b.left + "px;top:" + b.top + "px;width:" + b.width + "px;height:" + b.height + "px";
+      var badge = D.createElement("div");
+      badge.textContent = String(b.n);
+      badge.style.cssText = ${j(badgeCss)} + (b.top >= 16 ? "left:-2px;top:-16px" : b.left >= 20 ? "right:100%;top:-2px;margin-right:2px" : "left:-2px;top:-2px");
+      box.appendChild(badge);
+      root.appendChild(box);
+    }
+    D.documentElement.appendChild(host);
+    try { host.setAttribute("popover", "manual"); host.showPopover(); } catch (e) {}
+    return new Promise(function (done) {
+      setTimeout(done, 200);
+      requestAnimationFrame(function () { requestAnimationFrame(done); });
+    }).then(function () { return true; });
+  } catch (e) { return false; } })()`;
 }
 
 /* ---------------------------------- annotate (Plan 26 W7d) ---------------------------------- */

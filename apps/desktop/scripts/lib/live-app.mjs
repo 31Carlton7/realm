@@ -108,11 +108,49 @@ export function quietEnv(env = process.env) {
   };
 }
 
-/** What `spawnLiveElectron` starts the app with: `quietEnv`, less quiet mode for a check that is seen. */
+/** What `spawnLiveElectron` starts the app with: `quietEnv`, less quiet mode for a check that is seen.
+ *  An agent's shell would force quiet mode too (`REALM_AGENT_SHELL`), so a seen check drops that as well. */
 export function liveEnv(env, seen) {
   const out = { ...quietEnv(env), REALM_QUIET_MAIN: quietMain };
-  if (seen) delete out.REALM_QUIET_WINDOWS;
+  if (seen) {
+    delete out.REALM_QUIET_WINDOWS;
+    delete out.REALM_AGENT_SHELL;
+  }
   return out;
+}
+
+/* ── The away gate ────────────────────────────────────────────────────────────────────────── */
+
+export const AWAY_SECONDS = 300;
+
+/** Seconds since the last keyboard, mouse or trackpad input (HIDIdleTime, in ns), or null when it
+ *  cannot be read. */
+export function hidIdleSeconds(ioreg = () => execFileSync("ioreg", ["-c", "IOHIDSystem", "-d", "4"], { encoding: "utf8" })) {
+  try {
+    const m = /"HIDIdleTime" = (\d+)/.exec(ioreg());
+    return m ? Number(m[1]) / 1e9 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Throws (code `LIVE_NOT_AWAY`) unless a check that is seen on screen may run now: the Mac has been
+ *  idle for `AWAY_SECONDS`, or `REALM_LIVE_SEEN_OK` says why it may run anyway. */
+export function awayGate(why, { env = process.env, idleSeconds = hidIdleSeconds } = {}) {
+  const ok = env.REALM_LIVE_SEEN_OK?.trim();
+  if (ok && !/^(1|true|yes)$/i.test(ok)) {
+    process.stderr.write(`[live-app] seen while the Mac may be in use: ${ok}\n`);
+    return;
+  }
+  const idle = idleSeconds();
+  if (idle !== null && idle >= AWAY_SECONDS) return;
+  const last = idle === null ? "it cannot tell when the Mac was last used" : `the Mac was last used ${Math.floor(idle)} s ago`;
+  const error = new Error(
+    `this check is seen on screen (${why}), and ${last}. It runs once nobody has touched the Mac for ` +
+    `${AWAY_SECONDS / 60} min, or now with REALM_LIVE_SEEN_OK="<why it may>".`,
+  );
+  error.code = "LIVE_NOT_AWAY";
+  throw error;
 }
 
 /* ── Teardown ─────────────────────────────────────────────────────────────────────────────── */
@@ -185,11 +223,15 @@ function hookExit() {
  * a Dock app, but without quiet mode's patches, which keep an app from ever being in front: the
  * script hushes its own window and hands the front back. The reason is printed.
  *
+ * Either one throws instead of starting while someone is using the Mac (`awayGate`); `idleSeconds`
+ * stands in for the Mac's idle time.
+ *
  * Quiet mode is preloaded (`-r`), ahead of the script's own wrapper: a wrapper that stands in for
  * the hand on a menu or a dialog patches Electron before it imports Realm's main, and main installing
  * quiet mode after that would put the quiet stubs back over the wrapper's.
  */
-export function spawnLiveElectron(args, { visible, frontApp, ...options } = {}) {
+export function spawnLiveElectron(args, { visible, frontApp, idleSeconds, ...options } = {}) {
+  if (visible || frontApp) awayGate(visible || frontApp, { env: options.env ?? process.env, idleSeconds });
   if (visible) process.stderr.write(`[live-app] this check is seen on screen: ${visible}\n`);
   if (frontApp) process.stderr.write(`[live-app] this check is the front app for a moment: ${frontApp}\n`);
   const env = liveEnv(options.env ?? process.env, Boolean(visible || frontApp));

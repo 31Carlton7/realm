@@ -51,6 +51,7 @@ async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehea
   let late: SimulatorService | null = null;
   const simctl = {
     devices: async () => [SIM], boot: async (udid: string) => { log.push(`boot:${udid}`); return { ok: true, detail: "" }; },
+    springBoardStarted: async () => true,
     apps: async () => [{ bundleId: "com.apple.Preferences", name: "Settings" }],
     launch: async (udid: string, id: string, fresh?: boolean) => { log.push(`simctl-launch:${id}${fresh ? ":fresh" : ""}`); return { ok: true, detail: "" }; },
   } as unknown as Simctl;

@@ -169,7 +169,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "browser_snapshot",
-    description: "The primary way to read a page for acting on it: a fused DOM+accessibility snapshot of the visible, interactive elements — each line is one element with a stable [ref=N] to use with browser_act. A control with no name says what it shows instead: icon:<name> or img:<name>, and in:\"…\" quotes the row or card it sits in when two lines would otherwise read the same. Elements changed since your previous snapshot are marked [new]. A long page lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them. Read-only.",
+    description: "The primary way to read a page for acting on it: a fused DOM+accessibility snapshot of the visible, interactive elements — each line is one element with a stable [ref=N] to use with browser_act. A control with no name says what it shows instead: icon:<name> or img:<name>, and in:\"…\" quotes the row or card it sits in when two lines would otherwise read the same. Elements changed since your previous snapshot are marked [new], and diff: true lists only those, plus what went away. A run of offscreen elements shares one line, flagged {offscreen} once and separated by \" · \". A long page lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them. Read-only.",
     inputSchema: { type: "object", properties: { browserId: { type: "string" }, ...SNAPSHOT_SCOPE_PROPERTIES }, required: ["browserId"], additionalProperties: false },
   },
   {
@@ -180,7 +180,7 @@ const TOOLS: Tool[] = [
   {
     name: "browser_screenshot",
     description: "Screenshot the pane's current viewport. Prefer browser_snapshot for acting; use this to check visual state. Password, card and security-code fields, and any field Realm filled a password or code into, are painted over in grey. A screenshot is also attached automatically to any failed browser_act. Read-only.",
-    inputSchema: { type: "object", properties: { browserId: { type: "string" } }, required: ["browserId"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { browserId: { type: "string" }, annotate: { type: "boolean", description: 'number a box over each on-screen element browser_snapshot lists, with a legend "[N] ref=… role \\"name\\"" — for icon-only buttons, canvas and layout' } }, required: ["browserId"], additionalProperties: false },
   },
   {
     name: "browser_act",
@@ -355,6 +355,7 @@ const OpenArgs = z.object({ url: z.string().min(1) });
 const NavigateArgs = z.object({ browserId: z.string().min(1), url: z.string().min(1) });
 const BrowserIdArgs = z.object({ browserId: z.string().min(1) });
 const SnapshotArgs = BrowserIdArgs.merge(BrowserSnapshotScopeSchema);
+const ScreenshotArgs = BrowserIdArgs.extend({ annotate: z.boolean().optional() });
 const ReadArgs = z.object({ browserId: z.string().min(1), kind: BrowserReadKindSchema.default("text"), offset: z.number().int().min(1).default(1) });
 /** `intent` is optional, as it is on `computer_act`: required, every call from an agent that has not
  *  learned the field would become a refusal — a change to the act path for a feature that promises
@@ -470,7 +471,7 @@ const HANDLERS: Record<string, Handler> = {
     // What the agent is shown is what its next act chooses from, and the page its last act left.
     if (d.observe) d.reads.remember(ctx.sessionId, row.value.id, (snap.elements ?? []).map((e) => observedOf(walkElementOf(e))));
     if (snap.loadError) return ok(loadErrorReport(snap.loadError, snap.page?.loading === true));
-    const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; changed-since-last-snapshot lines end with [new].`;
+    const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; ${scope.diff ? "only what changed since your last snapshot is listed" : "changed-since-last-snapshot lines end with [new]"}.`;
     return ok(`${head}\n${fenceUntrusted(`title: ${snap.title}\n${snap.text}`)}`);
   },
 
@@ -489,12 +490,16 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_screenshot: async (d, ctx, rawArgs) => {
-    const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(ScreenshotArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
-    const shot = (await d.bridge.call("screenshot", { browserId: row.value.id })) as BrowserScreenshotResult;
+    const shot = (await d.bridge.call("screenshot", { browserId: row.value.id, annotate: args.value.annotate === true })) as BrowserScreenshotResult;
     const image = { type: "image" as const, data: shot.data, mimeType: shot.mimeType };
     // The picture is of the empty document a failed load leaves, so the words go first.
     if (shot.loadError) return { content: [{ type: "text", text: loadErrorReport(shot.loadError, false) }, image], isError: false };
+    if (shot.legend !== undefined) {
+      const legend = shot.legend ? fenceUntrusted(shot.legend) : "(no listed element is on screen, so nothing is numbered)";
+      return { content: [{ type: "text", text: `Numbered boxes in the picture, by ref:\n${legend}` }, image], isError: false };
+    }
     return { content: [image], isError: false };
   },
 

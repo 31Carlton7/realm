@@ -172,6 +172,7 @@ export const BrowserSnapshotScopeSchema = z.object({
   query: z.string().trim().min(1).max(200).optional(),
   within: z.number().int().positive().optional(),
   detail: z.enum(["geometry"]).optional(),
+  diff: z.boolean().optional(),
 });
 export type BrowserSnapshotScope = z.infer<typeof BrowserSnapshotScopeSchema>;
 
@@ -181,6 +182,7 @@ export const SNAPSHOT_SCOPE_PROPERTIES = {
   query: { type: "string", description: "list only elements whose role, name or value contains every one of these words (case-insensitive), e.g. \"save\" or \"email address\"" },
   within: { type: "number", description: "list only elements inside the element with this ref — a region ref from the snapshot's note, or any ref" },
   detail: { type: "string", enum: ["geometry"], description: "\"geometry\" adds each element's box, (x,y width×height) in CSS pixels of the page — only for when where things sit matters; acting by ref never needs it" },
+  diff: { type: "boolean", description: "true lists only what changed since your previous snapshot of this page, as added, changed and removed lines — the cheap way to check what an act did" },
 } as const;
 
 export type BrowserSnapshotResult = {
@@ -233,8 +235,9 @@ export type BrowserPageActivity = { loading: boolean; requests: number; quietMs:
 export type BrowserReadResult = { text: string; loadError?: BrowserLoadError | null;
   /** The page's filled-in fields, secret ones hidden — only when the read asked for them (`fields`). */
   fields?: PageField[] };
-/** `loadError`: the capture is of the empty document Chromium commits for a failed load. */
-export type BrowserScreenshotResult = { data: string; mimeType: string; loadError?: BrowserLoadError | null };
+/** `loadError`: the capture is of the empty document Chromium commits for a failed load. `legend`:
+ *  only on an annotated capture — a `[N] ref=… role "name"` line for each numbered box drawn in it. */
+export type BrowserScreenshotResult = { data: string; mimeType: string; legend?: string; loadError?: BrowserLoadError | null };
 export type BrowserNavigateResult = { url: string | null };
 
 /**

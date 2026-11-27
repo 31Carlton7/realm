@@ -110,7 +110,7 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 export type SimulatorAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   simulators: Pick<SimulatorService,
-    "devices" | "list" | "stateOf" | "staleStream" | "create" | "start" | "ax" | "apps" | "app" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
+    "devices" | "list" | "stateOf" | "staleStream" | "create" | "start" | "ax" | "screenSize" | "apps" | "app" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
   items: Pick<ItemsStore, "findByRefId">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
@@ -1174,6 +1174,10 @@ async function livePoint(c: Call, row: Simulator, p: { x: number; y: number }): 
  * points, and only a tree states it — the stream reports pixels. On Android it is the size the
  * device reported when it came up: pixels are what `adb shell input` takes anyway, and a tree dump
  * there costs seconds for nothing.
+ *
+ * An iOS simulator's size is kept from its last tree (`SimulatorService.screenSize`), so a step
+ * that finds it there reads nothing and hands the observer no elements: the list the agent read
+ * earlier may be a screen ago.
  */
 async function screenOf(c: Call, row: Simulator): Promise<{ size: { width: number; height: number }; elements: readonly SimulatorAxElement[]; app: string | undefined } | { error: CallToolResult }> {
   if (row.platform === "android") {
@@ -1181,6 +1185,8 @@ async function screenOf(c: Call, row: Simulator): Promise<{ size: { width: numbe
     if (!size) return { error: err(`${clip(row.name, 60)} has not reported its screen size yet, so nothing was sent. Try again in a few seconds.`) };
     return { size, elements: lastRead(c, row), app: lastApp(c, row) };
   }
+  const kept = row.physical ? null : await c.d.simulators.screenSize(row.id);
+  if (kept) return { size: kept, elements: [], app: lastApp(c, row) };
   const tree = await liveTree(c, row);
   const elements = tree.elements.slice(0, ELEMENTS_MAX);
   c.reads.settle(c.ctx.sessionId, row.id, elements);

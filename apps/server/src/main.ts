@@ -13,7 +13,7 @@ import { toolchainAvailable } from "./simulators/service";
 import { PhysicalDevices } from "./simulators/physical";
 import { phoneVideo } from "./simulators/phone-video";
 import { simctl } from "./simulators/simctl";
-import { realLayaRuntime } from "./laya/runtime";
+import { layaAutoInstallOn, realLayaRuntime } from "./laya/runtime";
 import { realMachineProbe } from "./resources/machine";
 import { APP_TOKEN_STDIN_ENV, DAEMON_PROTOCOL } from "@realm/contracts";
 import { relayBase } from "@realm/remote";
@@ -123,10 +123,9 @@ try {
     codeReview: { gh: process.env.REALM_GH_BIN || "gh" },
     // Laya's local runtime. Only here: every other `createApp` is a test or a script and gets none, so
     // nothing but this process ever looks for a Python or starts one. Laya is on by default and
-    // installs itself once there is a moment for it — but not in a harness: a live check boots this
-    // entry with the fake agent, and must never download two gigabytes into its scratch home.
+    // installs itself once there is a moment for it, where `layaAutoInstallOn` allows.
     laya: realLayaRuntime({ home }),
-    layaAutoInstall: process.env.REALM_ENABLE_FAKE_AGENT !== "1",
+    layaAutoInstall: layaAutoInstallOn(process.env),
     // The resource report reads this machine — `ps`, `footprint`, `sysctl` — only here, for the probe's
     // reason: every other `createApp` is a test or a script, and must not measure the Mac it runs on.
     resources: { probe: realMachineProbe() },

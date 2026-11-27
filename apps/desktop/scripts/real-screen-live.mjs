@@ -29,7 +29,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
-import { electronBinary, noCalendarHelper, quietEnv } from "./lib/live-app.mjs";
+import { awayGate, electronBinary, noCalendarHelper, quietEnv } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9377), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8944);
@@ -224,6 +224,7 @@ async function openSettingsApp(c) {
 }
 
 async function main() {
+  if (FRONT) awayGate("LIVE_FRONT=1 captures native material, menus, Quick Look and Share with screencapture");
   fs.rmSync(shots, { recursive: true, force: true });
   fs.mkdirSync(shots, { recursive: true });
   for (const p of [CDP_PORT, SERVER_PORT, CMD_PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);

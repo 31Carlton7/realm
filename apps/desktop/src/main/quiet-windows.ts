@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
 import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, systemPreferences, webContents, type WebContents } from "electron";
 
 /**
@@ -32,14 +34,53 @@ import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, 
  *     browser: each is recorded in `quietWindowsLog` instead, where a check can read it over
  *     `--inspect`.
  *
- * Honoured ONLY by an unpackaged app (`REALM_QUIET_WINDOWS=1`). A packaged Realm ignores it whatever
- * its environment says, and drops it from the environment its server inherits.
+ * Honoured ONLY by an unpackaged app (`REALM_QUIET_WINDOWS=1`, or started from an agent's shell,
+ * `REALM_AGENT_SHELL=1`). A packaged Realm ignores both whatever its environment says, and drops
+ * `REALM_QUIET_WINDOWS` from the environment its server inherits.
  */
 export const QUIET_WINDOWS_ENV = "REALM_QUIET_WINDOWS";
+/** Set in every agent's environment by realm-server (apps/server/src/sessions/service.ts). */
+export const AGENT_SHELL_ENV = "REALM_AGENT_SHELL";
 
 export function quietWindowsOn(d: { packaged: boolean; env: Record<string, string | undefined> }): boolean {
-  return !d.packaged && d.env[QUIET_WINDOWS_ENV] === "1";
+  return !d.packaged && (d.env[QUIET_WINDOWS_ENV] === "1" || d.env[AGENT_SHELL_ENV] === "1");
 }
+
+/**
+ * The user-data folder for an unpackaged Realm an agent started: one per checkout, under the temp
+ * folder. On the default folder it would share the single-instance lock with the owner's own dev
+ * Realm, and either quit at once or raise that Realm's window through `second-instance`.
+ *
+ * Null for a packaged app, for one no agent started, and for one whose folder was already chosen
+ * (`--user-data-dir`, or a live check's wrapper).
+ */
+export function agentUserData(d: {
+  packaged: boolean; env: Record<string, string | undefined>; appPath: string; userData: string; defaultUserData: string; tmpDir: string;
+}): string | null {
+  if (d.packaged || d.env[AGENT_SHELL_ENV] !== "1" || d.userData !== d.defaultUserData) return null;
+  return agentShellDir(d.tmpDir, d.appPath);
+}
+
+/**
+ * The Realm home for an unpackaged Realm an agent started: `home` in its own folder under the temp
+ * folder. An agent's shell inherits REALM_HOME from the server that started it, which is the owner's
+ * home, and a Realm there finds the owner's server in its `daemon.json`, built from other code, and
+ * hands it off: stops it unasked when it is idle, adopts it when it is not.
+ *
+ * Null for a packaged app, for one no agent started, and for one given a home other than the default
+ * (a live check's scratch home).
+ */
+export function agentHome(d: {
+  packaged: boolean; env: Record<string, string | undefined>; appPath: string; tmpDir: string; defaultHome: string;
+}): string | null {
+  if (d.packaged || d.env[AGENT_SHELL_ENV] !== "1") return null;
+  const home = d.env.REALM_HOME;
+  if (home && resolve(home) !== resolve(d.defaultHome)) return null;
+  return join(agentShellDir(d.tmpDir, d.appPath), "home");
+}
+
+const agentShellDir = (tmpDir: string, appPath: string): string =>
+  join(tmpDir, "realm-agent-shell", createHash("sha256").update(appPath).digest("hex").slice(0, 12));
 
 /** What quiet mode stopped from reaching the person, oldest first. */
 export const quietWindowsLog: { what: string; detail?: unknown }[] = [];

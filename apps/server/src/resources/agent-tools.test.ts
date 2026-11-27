@@ -88,11 +88,13 @@ describe("its advice", () => {
     expect(advice({ machine: machine(), heavy: [], report: report() })[0]).toBe("Memory is fine. Builds and test runs are OK; 7 test workers is plenty on 14 cores.");
   });
 
-  it("says nothing about workers it cannot judge, and nothing of swap that has room", () => {
+  it("says nothing about workers it cannot judge, and nothing of full swap while memory has room", () => {
     const a = advice({ machine: machine({ pressure: "unknown" }), heavy: [], report: report({ parts: [] }) });
     expect(a.some((l) => /workers|Memory is/.test(l))).toBe(false);
     expect(a.some((l) => /Swap is/.test(l))).toBe(false);
-    expect(advice({ machine: machine({ swap: { usedBytes: 19 * GB, totalBytes: 20 * GB } }), heavy: [], report: report() }).some((l) => l.startsWith("Swap is 95% full"))).toBe(true);
+    const fullSwap = (availablePercent: number) => advice({ machine: machine({ availablePercent, swap: { usedBytes: 19 * GB, totalBytes: 20 * GB } }), heavy: [], report: report() });
+    expect(fullSwap(45).some((l) => /Swap is/.test(l))).toBe(false);
+    expect(fullSwap(10).some((l) => l.startsWith("Swap is 95% full and only 10% of memory is available"))).toBe(true);
   });
 
   it("counts a full suite or build already running, whoever started it, and nothing else", () => {

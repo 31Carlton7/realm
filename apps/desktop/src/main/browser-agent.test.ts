@@ -43,8 +43,8 @@ function makeSnapshotDoc() {
     layout.paintOrders.push(opts.paint ?? layout.nodeIndex.length);
     layout.styles.push(SNAPSHOT_STYLES.map((name) => intern(opts.styles?.[name] ?? "")));
   };
-  const payload = (url = "https://example.com/") => ({
-    documents: [{ documentURL: intern(url), title: intern("Example"), scrollOffsetX: 0, scrollOffsetY: 0, nodes, layout }],
+  const payload = (url = "https://example.com/", scroll = { x: 0, y: 0 }) => ({
+    documents: [{ documentURL: intern(url), title: intern("Example"), scrollOffsetX: scroll.x, scrollOffsetY: scroll.y, nodes, layout }],
     strings,
   });
   return { addNode, addLayout, payload, intern };
@@ -54,6 +54,8 @@ type AxEntry = { backendDOMNodeId: number; role?: string; name?: string; value?:
 
 function fakeSend(opts: {
   snapshot?: unknown;
+  /** What `Page.getLayoutMetrics` reports; a 1000×800 CSS viewport by default. */
+  metrics?: unknown;
   ax?: AxEntry[];
   listeners?: Record<number, string[]>;
   quads?: Record<number, number[][] | "throw">;
@@ -86,7 +88,7 @@ function fakeSend(opts: {
       case "DOMSnapshot.captureSnapshot": return opts.snapshot ?? { documents: [], strings: [] };
       case "Accessibility.getFullAXTree":
         return { nodes: (opts.ax ?? []).map((a) => ({ backendDOMNodeId: a.backendDOMNodeId, role: { value: a.role }, name: { value: a.name }, value: a.value !== undefined ? { value: a.value } : undefined, properties: [...(a.protected ? [{ name: "protected", value: { value: true } }] : []), ...(a.focused ? [{ name: "focused", value: { value: true } }] : [])] })) };
-      case "Page.getLayoutMetrics": return { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 } };
+      case "Page.getLayoutMetrics": return opts.metrics ?? { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 } };
       case "DOM.getDocument": {
         const inFrame = opts.frame?.nodes ?? [];
         const top = [7, 8, 9].filter((n) => !inFrame.includes(n)).map((backendNodeId) => ({ backendNodeId }));
@@ -210,6 +212,58 @@ describe("buildSnapshot", () => {
     ]);
     expect(JSON.stringify(snap.elements)).not.toContain("hunter2");
     expect(snap.viewport).toEqual({ width: 1000, height: 800 });
+  });
+
+  describe("on a display with more than one device pixel to a CSS pixel", () => {
+    /** Buttons at `cssTops` in a 1000×800 CSS viewport scrolled down `cssScroll`, reported the way
+     *  CDP reports them at `scale`: the snapshot's bounds and scroll offset in device pixels, the
+     *  layout metrics' `cssVisualViewport` in CSS pixels and `visualViewport` in device pixels. */
+    function page(scale: number, cssTops: number[], cssScroll = 0) {
+      const doc = makeSnapshotDoc();
+      const ax: AxEntry[] = [];
+      cssTops.forEach((top, i) => {
+        doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 10 + i }), [100 * scale, top * scale, 100 * scale, 30 * scale]);
+        ax.push({ backendDOMNodeId: 10 + i, role: "button", name: `At ${top}` });
+      });
+      const metrics = { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 }, visualViewport: { clientWidth: 1000 * scale, clientHeight: 800 * scale } };
+      return fakeSend({ snapshot: doc.payload("https://example.com/", { x: 0, y: cssScroll * scale }), ax, metrics }).send;
+    }
+
+    it("keeps an element in the lower half of the viewport on screen at 2×, and its rect in CSS pixels", async () => {
+      const snap = await buildSnapshot(page(2, [100, 600, 1200]), null);
+      expect(snap.elements?.map((e) => [e.name, e.offscreen])).toEqual([["At 100", false], ["At 600", false], ["At 1200", true]]);
+      expect(snap.elements?.[1]?.rect).toEqual({ x: 100, y: 600, w: 100, h: 30 });
+      expect(snap.viewport).toEqual({ width: 1000, height: 800 });
+    });
+
+    it("reads the same page the same way at 1×", async () => {
+      const snap = await buildSnapshot(page(1, [100, 600, 1200]), null);
+      expect(snap.elements?.map((e) => [e.name, e.offscreen])).toEqual([["At 100", false], ["At 600", false], ["At 1200", true]]);
+      expect(snap.elements?.[1]?.rect).toEqual({ x: 100, y: 600, w: 100, h: 30 });
+    });
+
+    it("measures the scroll offset in CSS pixels too", async () => {
+      // Scrolled 500: 500–1300 is on screen.
+      const snap = await buildSnapshot(page(2, [100, 900, 1350], 500), null);
+      expect(snap.elements?.map((e) => [e.name, e.offscreen])).toEqual([["At 100", true], ["At 900", false], ["At 1350", true]]);
+    });
+
+    it("does not list what a modal covers in the lower half at 2×", async () => {
+      const doc = makeSnapshotDoc();
+      const under = doc.addNode({ tag: "BUTTON", backendId: 10 });
+      doc.addLayout(under, [200, 1200, 200, 60], { paint: 1 });
+      const scrim = doc.addNode({ tag: "DIV", backendId: 20 });
+      doc.addLayout(scrim, [0, 0, 2000, 1600], { paint: 2, styles: { "background-color": "rgb(0, 0, 0)" } });
+      const ok = doc.addNode({ tag: "BUTTON", backendId: 30, parent: scrim });
+      doc.addLayout(ok, [900, 1300, 200, 60], { paint: 3 });
+      const metrics = { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 }, visualViewport: { clientWidth: 2000, clientHeight: 1600 } };
+      const { send } = fakeSend({ snapshot: doc.payload(), metrics, ax: [
+        { backendDOMNodeId: 10, role: "button", name: "Under the modal" },
+        { backendDOMNodeId: 30, role: "button", name: "OK" },
+      ] });
+      const snap = await buildSnapshot(send, null);
+      expect(snap.elements?.map((e) => [e.name, e.offscreen])).toEqual([["OK", false]]);
+    });
   });
 
   it("renders a file input's ATTACHED FILE NAMES the way a textbox renders its value (Plan 26)", async () => {
@@ -366,6 +420,99 @@ describe("buildSnapshot", () => {
     const lines = second.text.split("\n");
     expect(lines.find((l) => l.includes("ref=1"))).not.toContain("[new]");
     expect(lines.find((l) => l.includes("ref=2"))).toContain("[new]");
+  });
+
+  /** A table of rows, each a Remove button, plus a Save button below it. `drop` leaves rows out, which
+   *  moves every row after them up; `saveDisabled` is Save's state. */
+  function invoiceTable(o: { drop?: number[]; saveDisabled?: boolean; rows?: number; offscreenFrom?: number }) {
+    const doc = makeSnapshotDoc();
+    const ax: AxEntry[] = [];
+    let y = 0;
+    for (let i = 0; i < (o.rows ?? 5); i++) {
+      if (o.drop?.includes(i)) continue;
+      doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 10 + i }), [0, i >= (o.offscreenFrom ?? Infinity) ? 5000 + y : y, 100, 30]);
+      ax.push({ backendDOMNodeId: 10 + i, role: "button", name: `Remove INV-${i}` });
+      y += 40;
+    }
+    doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 99, attrs: o.saveDisabled ? { disabled: "" } : {} }), [0, y, 100, 30]);
+    ax.push({ backendDOMNodeId: 99, role: "button", name: "Save changes" });
+    return fakeSend({ snapshot: doc.payload(), ax }).send;
+  }
+
+  it("does not mark a row [new] because the row above it went and it moved up", async () => {
+    const first = await buildSnapshot(invoiceTable({ saveDisabled: true }), null);
+    const second = await buildSnapshot(invoiceTable({ drop: [1], saveDisabled: true }), first.index);
+    expect(second.text).not.toContain("[new]");
+    const third = await buildSnapshot(invoiceTable({ drop: [1], saveDisabled: false }), second.index);
+    expect(third.text.split("\n").filter((l) => l.endsWith("[new]"))).toEqual(['[ref=99] button "Save changes" [new]']);
+  });
+
+  it("diff lists only what was added, changed or removed since the previous snapshot", async () => {
+    const first = await buildSnapshot(invoiceTable({ rows: 4, saveDisabled: true }), null);
+    const doc = makeSnapshotDoc();
+    const ax: AxEntry[] = [];
+    for (const [i, y] of [[0, 0], [2, 40], [3, 80]] as const) {
+      doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 10 + i }), [0, y, 100, 30]);
+      ax.push({ backendDOMNodeId: 10 + i, role: "button", name: `Remove INV-${i}` });
+    }
+    doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 99 }), [0, 120, 100, 30]);
+    doc.addLayout(doc.addNode({ tag: "A", attrs: { href: "/undo" }, backendId: 77 }), [0, 160, 100, 30]);
+    ax.push({ backendDOMNodeId: 99, role: "button", name: "Save changes" }, { backendDOMNodeId: 77, role: "link", name: "Undo" });
+    const diff = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, first.index, { diff: true });
+    expect(diff.text).toBe([
+      "(changes since your previous snapshot of this page: 1 added, 1 changed, 1 removed; 3 unchanged, not repeated)",
+      "added:", '[ref=77] link "Undo"',
+      "changed:", '[ref=99] button "Save changes"',
+      "removed:", '[ref=11] button "Remove INV-1"',
+    ].join("\n"));
+    // The data still holds the whole page, and the next diff starts from this one.
+    expect(diff.elements).toHaveLength(5);
+    const again = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, diff.index, { diff: true });
+    expect(again.text).toBe("(nothing changed since your previous snapshot of this page: its 5 element(s) read as they did then)");
+  });
+
+  it("diff with nothing to compare with lists the whole page, and a new document marks nothing [new]", async () => {
+    const alone = await buildSnapshot(invoiceTable({ rows: 2 }), null, { diff: true });
+    expect(alone.text.split("\n")[0]).toBe("(no earlier snapshot of this page to compare with, so this is the whole list)");
+    expect(alone.text).toContain('[ref=10] button "Remove INV-0"');
+    // After a navigation no ref survives: every line would be "added" and every old one "removed".
+    const doc = makeSnapshotDoc();
+    doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 500 }), [0, 0, 100, 30]);
+    const next = fakeSend({ snapshot: doc.payload(), ax: [{ backendDOMNodeId: 500, role: "button", name: "Continue" }] }).send;
+    expect((await buildSnapshot(next, alone.index)).text).toBe('[ref=500] button "Continue"');
+    expect((await buildSnapshot(next, alone.index, { diff: true })).text).toContain("so this is the whole list");
+  });
+
+  it("diff does not call an element removed while an overlay covers it", async () => {
+    const page = (modal: boolean) => {
+      const doc = makeSnapshotDoc();
+      doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 42 }), [10, 10, 100, 30], { paint: 1 });
+      const ax: AxEntry[] = [{ backendDOMNodeId: 42, role: "button", name: "Behind the modal" }];
+      if (modal) {
+        doc.addLayout(doc.addNode({ tag: "DIV", backendId: 99 }), [0, 0, 1000, 800], { paint: 50, styles: { "background-color": "rgba(0, 0, 0, 0.8)" } });
+        doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 43 }), [400, 300, 100, 30], { paint: 60 });
+        ax.push({ backendDOMNodeId: 43, role: "button", name: "Close" });
+      }
+      return fakeSend({ snapshot: doc.payload(), ax }).send;
+    };
+    const first = await buildSnapshot(page(false), null);
+    const covered = await buildSnapshot(page(true), first.index, { diff: true });
+    expect(covered.text).toContain('added:\n[ref=43] button "Close"');
+    expect(covered.text).not.toContain("removed:");
+    const closed = await buildSnapshot(page(false), covered.index, { diff: true });
+    expect(closed.text).toContain('removed:\n[ref=43] button "Close"');
+    expect(closed.text).not.toContain("added:");
+  });
+
+  it("puts a run of offscreen elements on one line, flagged once, each keeping its ref", async () => {
+    const snap = await buildSnapshot(invoiceTable({ rows: 5, offscreenFrom: 1 }), null);
+    expect(snap.text.split("\n")).toEqual([
+      '[ref=10] button "Remove INV-0"',
+      '{offscreen} [ref=11] button "Remove INV-1" · [ref=12] button "Remove INV-2" · [ref=13] button "Remove INV-3" · [ref=14] button "Remove INV-4"',
+      '[ref=99] button "Save changes"',
+    ]);
+    const one = await buildSnapshot(invoiceTable({ rows: 2, offscreenFrom: 1 }), null);
+    expect(one.text).toContain('[ref=11] button "Remove INV-1" {offscreen}');
   });
 
   it("sweeps cursor:pointer div-soup through getEventListeners and includes only listeners that click", async () => {

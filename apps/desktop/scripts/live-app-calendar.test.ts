@@ -33,6 +33,11 @@ describe("live runs never read the real calendar", () => {
     expect(env.REALM_QUIET_WINDOWS).toBeUndefined();
     expect(env.REALM_MEETINGWATCH_BIN).toBe(noCalendarHelper());
   });
+
+  it("a check seen on screen is seen when an agent runs it, and a quiet one stays quiet", () => {
+    expect(liveEnv({ REALM_AGENT_SHELL: "1" }, true).REALM_AGENT_SHELL).toBeUndefined();
+    expect(liveEnv({ REALM_AGENT_SHELL: "1" }, false).REALM_AGENT_SHELL).toBe("1");
+  });
 });
 
 /** Main starts `realmkeys` for the double-tap, and with `--swallow` once a chord is registered. A live

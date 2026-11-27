@@ -171,3 +171,17 @@ describe("booting, as simctl is actually run", () => {
     expect(await simctl({ REALM_XCRUN_BIN: broken }).boot("U")).toMatchObject({ ok: false });
   });
 });
+
+describe("waiting for SpringBoard, as simctl is actually run", () => {
+  it("asks again until SpringBoard has posted its pid, and stops at once on a device that is off", async () => {
+    // Both answers captured from `simctl spawn <udid> notifyutil -g com.apple.springboard.finishedstartup`.
+    const dir = tempDir("realm-simctl-");
+    const count = join(dir, "count"), up = join(dir, "up"), off = join(dir, "off");
+    writeFileSync(up, `#!/bin/sh\necho "$@" >> "${count}"\nif [ $(wc -l < "${count}") -lt 3 ]; then echo "com.apple.springboard.finishedstartup 0"; else echo "com.apple.springboard.finishedstartup 48228"; fi\n`);
+    writeFileSync(off, "#!/bin/sh\necho 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nProcess spawn via launchd failed because device is not booted.' >&2\nexit 149\n");
+    for (const f of [up, off]) chmodSync(f, 0o755);
+    expect(await simctl({ REALM_XCRUN_BIN: up }).springBoardStarted("U")).toBe(true);
+    expect(readFileSync(count, "utf8").trim().split("\n")).toEqual(Array(3).fill("simctl spawn U notifyutil -g com.apple.springboard.finishedstartup"));
+    expect(await simctl({ REALM_XCRUN_BIN: off }).springBoardStarted("U")).toBe(false);
+  });
+});
