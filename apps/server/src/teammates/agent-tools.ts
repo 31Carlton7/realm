@@ -1,5 +1,5 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { EFFORT_LEVELS, TEAMMATE_COLORS, TEAMMATE_PERMISSION_MODES, TEAMMATE_SHAPES, TEAM_LIST_TOOL, TEAM_MESSAGE_TOOL, TEAM_SET_ACCESS_TOOL, TEAMMATE_CREATE_TOOL, TEAMMATE_GET_TOOL, TEAMMATE_SESSIONS_TOOL, TEAMMATE_UPDATE_TOOL, TEAMMATES_PROVIDER_NAME } from "@realm/contracts";
+import { EFFORT_LEVELS, TEAMMATE_COLORS, TEAMMATE_PERMISSION_MODES, TEAMMATE_SHAPES, TEAM_LIST_TOOL, TEAM_MESSAGE_TOOL, TEAM_SET_ACCESS_TOOL, TEAMMATE_ARCHIVE_TOOL, TEAMMATE_CREATE_TOOL, TEAMMATE_GET_TOOL, TEAMMATE_REORDER_TOOL, TEAMMATE_RUN_CLOCK_TOOL, TEAMMATE_SET_LEAD_TOOL, TEAMMATE_SESSIONS_TOOL, TEAMMATE_UPDATE_TOOL, TEAMMATES_PROVIDER_NAME } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err } from "../mcp/tool-result";
 import type { TeammatesStore } from "./store";
@@ -94,6 +94,70 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: TEAMMATE_ARCHIVE_TOOL,
+    description: [
+      "Archive a teammate when the person asks: it leaves the Team list and the team tools, an archived Lead leaves the space with none, and its clock stops. Its sessions stay. `archived: false` brings it back.",
+      "The same rules as teammate_create: the Lead in its own chat or one of the person's sessions, in a turn the person started, on a card unless you are on Full access.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "its handle, e.g. \"scout\"; archived teammates are found too" },
+        archived: { type: "boolean", description: "false brings an archived teammate back; true when left out" },
+      },
+      required: ["to"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: TEAMMATE_SET_LEAD_TOOL,
+    description: [
+      "Make a teammate the space's Lead when the person asks, or leave the space with none (`to: null`).",
+      "Only the Lead in its own chat or one of the person's sessions, in a turn the person started: a teammate cannot make itself the Lead. The person always approves it on a card, even on Full access.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: { to: { type: ["string", "null"], description: "its handle, e.g. \"cto\", or null for no Lead" } },
+      required: ["to"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: TEAMMATE_REORDER_TOOL,
+    description: [
+      "Set the Team list's order and sections when the person asks: every teammate on it, top to bottom, each with the section it sits in (none for the top).",
+      "The Lead in its own chat or one of the person's sessions, in a turn the person started. No card: it only moves rows.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: {
+        order: {
+          type: "array", description: "every teammate on the Team list, top to bottom",
+          items: {
+            type: "object",
+            properties: { handle: { type: "string" }, group: { type: ["string", "null"], description: "its section, or null for the top" } },
+            required: ["handle"], additionalProperties: false,
+          },
+        },
+      },
+      required: ["order"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: TEAMMATE_RUN_CLOCK_TOOL,
+    description: [
+      "Fire a teammate's clock now, as Run now on its page does: its clock's prompt becomes a turn in its chat, and its next scheduled run stays where it was.",
+      "The Lead in its own chat or one of the person's sessions, in a turn the person started, on a card unless you are on Full access.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: { to: { type: "string", description: "its handle, e.g. \"polish\"" } },
+      required: ["to"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: TEAM_MESSAGE_TOOL,
     description: [
       "Message a teammate: your message becomes a turn in its own chat, marked as from you, after the turn it is on. Use it to ask a teammate something or to hand it work that is its to do.",
@@ -131,14 +195,15 @@ const TOOLS: Tool[] = [
 ];
 
 /**
- * The `realm-team` provider: `team_list`, `teammate_get`, `teammate_sessions`, `teammate_create`, `teammate_update`, `team_message` and `team_set_access`, in every session of a
+ * The `realm-team` provider: `team_list`, `teammate_get`, `teammate_sessions`, `teammate_create`, `teammate_update`,
+ * `teammate_archive`, `teammate_set_lead`, `teammate_reorder`, `teammate_run_clock`, `team_message` and `team_set_access`, in every session of a
  * space that has teammates — theirs and the person's own, so "ask @cto" works from anywhere in the
  * space. `team_set_access` refuses every caller but the Lead in a turn the person started.
  */
 export function createTeammatesProvider(d: {
   store: Pick<TeammatesStore, "hasAny">;
   teammates: Pick<TeammatesService, "teamList" | "teammateGet" | "teammateSessions" | "teamMessage" | "teamSetAccess">;
-  manage: Pick<TeamManageTools, "create" | "update">;
+  manage: Pick<TeamManageTools, "create" | "update" | "archive" | "setLead" | "reorder" | "runClock">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
 }): RealmToolProvider {
   return {
@@ -157,6 +222,10 @@ export function createTeammatesProvider(d: {
           case TEAMMATE_SESSIONS_TOOL: return d.teammates.teammateSessions(ctx, args);
           case TEAMMATE_CREATE_TOOL: return await d.manage.create(ctx, args);
           case TEAMMATE_UPDATE_TOOL: return await d.manage.update(ctx, args);
+          case TEAMMATE_ARCHIVE_TOOL: return await d.manage.archive(ctx, args);
+          case TEAMMATE_SET_LEAD_TOOL: return await d.manage.setLead(ctx, args);
+          case TEAMMATE_REORDER_TOOL: return await d.manage.reorder(ctx, args);
+          case TEAMMATE_RUN_CLOCK_TOOL: return await d.manage.runClock(ctx, args);
           case TEAM_MESSAGE_TOOL: return await d.teammates.teamMessage(ctx, args);
           case TEAM_SET_ACCESS_TOOL: return await d.teammates.teamSetAccess(ctx, args);
           default: return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);

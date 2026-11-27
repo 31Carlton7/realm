@@ -1,6 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
-  AGENT_MODELS, EFFORT_LEVELS, TeammateCreateArgsSchema, TeammateUpdateArgsSchema, normalizeHandle, teammateByHandle,
+  AGENT_MODELS, EFFORT_LEVELS, TeammateArchiveArgsSchema, TeammateCreateArgsSchema, TeammateGetArgsSchema, TeammateReorderArgsSchema,
+  TeammateSetLeadArgsSchema, TeammateUpdateArgsSchema, normalizeHandle, teammateByHandle,
   type AgentKind, type Session, type Teammate, type UpdateTeammateInput,
 } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
@@ -10,14 +11,16 @@ import { askCard, refuseUnlessPersonTurn, type AgentWriteRule } from "../mcp/age
 import type { ProviderCallContext } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import { modelNameOf } from "../sessions/handover";
+import type { ScheduleService } from "../schedules/service";
 import { RpcError } from "../store/rows";
 import { pickFolder } from "../workspace/spaces";
 import type { TeammatesService } from "./service";
 
 /**
- * The tools that change the Team itself: `teammate_create` and `teammate_update`. They wrap the
- * service's `create` and `update`, which the Add a teammate and Edit sheets call, behind the gates
- * every agent write to Realm keeps:
+ * The tools that change the Team itself: `teammate_create`, `teammate_update`, `teammate_archive`,
+ * `teammate_set_lead`, `teammate_reorder` and `teammate_run_clock`. They wrap the service methods the
+ * Add a teammate and Edit sheets, the Team list and a teammate's Run now call, behind the gates every
+ * agent write to Realm keeps:
  *
  * - the caller is the space's Lead in its own chat, or a session of the person's (not a teammate's
  *   task session, nor another teammate's chat);
@@ -25,10 +28,12 @@ import type { TeammatesService } from "./service";
  * - no teammate is put on more access than the caller has (`rank`, as `team_set_access`);
  * - a folder is taken the way `space_create` takes one (`pickFolder`);
  * - a card, unless the caller is on Full access; and a card that shows even on Full access when the
- *   change lowers a teammate's model or effort, saying from what to what.
+ *   change lowers a teammate's model or effort, saying from what to what, or hands over the Lead.
+ *   Reordering the Team list is cosmetic and asks no card.
  */
 export type TeamManageDeps = {
-  team: Pick<TeammatesService, "create" | "update" | "get" | "list" | "turnOrigin" | "teammateOf">;
+  team: Pick<TeammatesService, "create" | "update" | "archive" | "setLead" | "reorder" | "get" | "list" | "turnOrigin" | "teammateOf">;
+  schedules: Pick<ScheduleService, "runNow">;
   sessions: { get(id: string): Session; personStartedTurn(id: string): boolean; probeCached(): { rows: ProbeResult[] } | null };
   broker: Pick<BrowserPermissionBroker, "gate">;
   /** The mode a new session on `kind` starts in when nobody named one (Settings' default). */
@@ -104,6 +109,88 @@ export class TeamManageTools {
     }
     const now = this.d.team.get(target.id);
     return ok(`Changed @${now.handle}: ${said.join("; ")}.`);
+  }
+
+  /** `teammate_archive`: off the Team list and out of the tools, or back on it. Its sessions stay. */
+  async archive(ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
+    const a = parseArgs(TeammateArchiveArgsSchema, raw); if ("error" in a) return a.error;
+    const archived = a.value.archived ?? true;
+    const nothing = "Nothing changed.";
+    const caller = this.caller(ctx, archived ? "archive a teammate" : "bring a teammate back", nothing); if ("error" in caller) return caller.error;
+    const turn = this.personTurn(caller, { rule: archived ? "Teammates are archived" : "Teammates are brought back", nothing }); if (turn) return turn;
+    const target = this.find(caller.session.spaceId, a.value.to, true, nothing); if ("error" in target) return target.error;
+    if (target.archived === archived) return ok(`@${target.handle} is already ${archived ? "archived" : "on the Team list"}. ${nothing}`);
+    const title = archived
+      ? `Archive @${target.handle} (${target.name}): it leaves the Team list and the team tools${target.lead ? ", and the space has no Lead until you pick one" : ""}${target.schedule?.enabled ? ", and its clock stops" : ""}. Its sessions stay.`
+      : `Bring @${target.handle} (${target.name}) back onto the Team list`;
+    const denied = await askCard(this.d.broker, ctx.sessionId, { toolKey: "teammate_archive", title, input: { to: target.handle, archived } });
+    if (denied) return denied;
+    const now = this.d.team.archive(target.id, archived);
+    return ok(archived
+      ? `Archived @${now.handle}. Its sessions stay; teammate_archive with archived: false brings it back.`
+      : `@${now.handle} is back on the Team list${now.handle !== target.handle ? ` (as @${now.handle}: @${target.handle} was taken while it was away)` : ""}.`);
+  }
+
+  /** `teammate_set_lead`: make a teammate the space's Lead, or leave the space with none. Always on a card. */
+  async setLead(ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
+    const a = parseArgs(TeammateSetLeadArgsSchema, raw); if ("error" in a) return a.error;
+    const nothing = "Nothing changed.";
+    const caller = this.caller(ctx, "choose the Lead", nothing); if ("error" in caller) return caller.error;
+    const turn = this.personTurn(caller, { rule: "The Lead is chosen", nothing }); if (turn) return turn;
+    const spaceId = caller.session.spaceId;
+    const current = this.d.team.list(spaceId).find((t) => t.lead) ?? null;
+    const target = a.value.to === null ? null : this.find(spaceId, a.value.to, false, nothing);
+    if (target && "error" in target) return target.error;
+    if (target?.id === current?.id) return ok(`${target ? `@${target.handle} is already the Lead` : "The space already has no Lead"}. ${nothing}`);
+    const title = target
+      ? `Make @${target.handle} (${target.name}) the Lead${current ? `, in place of @${current.handle}` : ""}`
+      : `Leave the space with no Lead (@${current!.handle} stops being the Lead)`;
+    const denied = await askCard(this.d.broker, ctx.sessionId, { toolKey: "teammate_set_lead", title, input: { to: target?.handle ?? null }, always: true });
+    if (denied) return denied;
+    this.d.team.setLead(spaceId, target?.id ?? null);
+    return ok(target ? `@${target.handle} is the Lead now${current ? `; @${current.handle} is not` : ""}.` : `The space has no Lead now; @${current!.handle} is not.`);
+  }
+
+  /** `teammate_reorder`: the Team list's order and sections, every teammate on it, top to bottom. No card: it is cosmetic. */
+  async reorder(ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
+    const a = parseArgs(TeammateReorderArgsSchema, raw); if ("error" in a) return a.error;
+    const nothing = "Nothing changed.";
+    const caller = this.caller(ctx, "reorder the Team list", nothing); if ("error" in caller) return caller.error;
+    const turn = this.personTurn(caller, { rule: "The Team list is reordered", nothing }); if (turn) return turn;
+    const listed = this.d.team.list(caller.session.spaceId);
+    const order: { id: string; group: string | null }[] = [];
+    for (const o of a.value.order) {
+      const t = teammateByHandle(listed, o.handle);
+      if (!t) return err(`there is no @${normalizeHandle(o.handle)} on the Team list. ${nothing}`);
+      if (order.some((x) => x.id === t.id)) return err(`@${t.handle} is named twice. ${nothing}`);
+      order.push({ id: t.id, group: o.group ?? null });
+    }
+    const missing = listed.filter((t) => !order.some((o) => o.id === t.id));
+    if (missing.length > 0) return err(`name every teammate on the Team list, top to bottom; missing: ${missing.map((t) => `@${t.handle}`).join(", ")}. ${nothing}`);
+    const now = this.d.team.reorder({ spaceId: caller.session.spaceId, order });
+    return ok(`The Team list is now: ${now.map((t) => `@${t.handle}${t.group ? ` (${t.group})` : ""}`).join(", ")}.`);
+  }
+
+  /** `teammate_run_clock`: fire a teammate's clock now, as Run now on its page does. */
+  async runClock(ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
+    const a = parseArgs(TeammateGetArgsSchema, raw); if ("error" in a) return a.error;
+    const nothing = "Nothing ran.";
+    const caller = this.caller(ctx, "run a teammate's clock", nothing); if ("error" in caller) return caller.error;
+    const turn = this.personTurn(caller, { rule: "Clocks are run by hand", nothing }); if (turn) return turn;
+    const target = this.find(caller.session.spaceId, a.value.to, false, nothing); if ("error" in target) return target.error;
+    if (!target.schedule) return err(`@${target.handle} has no clock. teammate_update with schedule gives it one. ${nothing}`);
+    const denied = await askCard(this.d.broker, ctx.sessionId, { toolKey: "teammate_run_clock", title: `Run @${target.handle}'s clock now: "${target.schedule.prompt}" in its chat`, input: { to: target.handle } });
+    if (denied) return denied;
+    try { this.d.schedules.runNow(target.schedule.id); } catch (e) { return err(`${e instanceof RpcError ? e.message : String(e)}. ${nothing}`); }
+    return ok(`@${target.handle}'s clock ran: its prompt is a turn in its chat, session ${this.d.team.get(target.id).homeSessionId}. teammate_sessions shows the task sessions it starts.`);
+  }
+
+  /** `to` on the Team list, or among the archived too when `archived`. */
+  private find(spaceId: string, to: string, archived: boolean, nothing: string): Teammate | { error: CallToolResult } {
+    const listed = this.d.team.list(spaceId);
+    const t = teammateByHandle(archived ? [...listed, ...this.d.team.list(spaceId, true)] : listed, to);
+    if (t) return t;
+    return { error: err(`there is no @${normalizeHandle(to)} here. Teammates here: ${listed.map((x) => `@${x.handle}`).join(", ") || "none"}. ${nothing}`) };
   }
 
   /** The caller, when it may change the Team: the Lead in its own chat, or a session of the person's. */
