@@ -53,10 +53,14 @@ export async function seedNodeModules(source: string, worktree: string, opts: { 
   const temp = `.realm-seed-${randomBytes(4).toString("hex")}`;
   const exec = opts.run ?? run;
   try {
-    await Promise.all(dirs.map(async (dir) => {
+    // Every cp settles before any fails the seed: the finally would otherwise remove a temp dir a
+    // slower cp is still writing into, and that cp would leave it behind.
+    const copies = await Promise.allSettled(dirs.map(async (dir) => {
       mkdirSync(join(worktree, dir, temp), { recursive: true });
       await exec(worktree, "cp", ["-c", "-R", join(source, dir, "node_modules"), join(worktree, dir, temp, "node_modules")]);
     }));
+    const failed = copies.find((c) => c.status === "rejected");
+    if (failed) throw failed.reason;
     // Root first: once an install has made it, the install owns the worktree's packages too.
     if (existsSync(join(worktree, "node_modules"))) return "install-won";
     for (const dir of dirs) {
