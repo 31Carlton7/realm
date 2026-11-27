@@ -17,8 +17,9 @@ import { z } from "zod";
  * `normal`/`warn`/`critical` start as macOS's level (`kern.memorystatus_vm_pressure_level`, the one
  * Activity Monitor colours green, yellow and red). macOS can stay green while the Mac pages out to a
  * swap file that only ever grows — measured on this Mac at 20 GB of swap and load averages in the
- * hundreds — so swapping out steadily between two readings lifts `normal` to `warn`. `unknown` is a
- * platform with no answer.
+ * hundreds — so swapping out steadily between two readings lifts `normal` to `warn`, and so does swap
+ * that is already most of the way full while little memory is available, or a disk with too little free
+ * for swap to grow into. `unknown` is a platform with no answer.
  */
 export const MEMORY_PRESSURES = ["normal", "warn", "critical", "unknown"] as const;
 export const MemoryPressureSchema = z.enum(MEMORY_PRESSURES);
