@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import type { AgentFill, AgentSigninsStatus, SecurityCodesStatus, UnlockSessionHours } from "@realm/contracts";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { useApp } from "../../state/store";
+import { turnOnSignins } from "../../state/turn-on-signins";
 
 /**
  * Settings ▸ Sign-ins ▸ Let agents finish sign-ins: main's switch (`agent-signins.ts`) and, once it is
@@ -28,13 +29,13 @@ export function AgentSigninsSection({ profileId, profileName }: { profileId: str
   }, []);
   if (!status) return null;
 
-  // On also turns Security codes on, which is the first thing a sign-in's second step needs.
   const toggle = async () => {
     setBusy(true);
     try {
-      const next = (await api()?.setSignins?.(!status.enabled)) ?? status;
-      setStatus(next);
-      if (next.enabled && codes && !codes.enabled) setCodes((await api()?.setCodes?.(true)) ?? codes);
+      if (status.enabled) { setStatus((await api()?.setSignins?.(false)) ?? status); return; }
+      const on = await turnOnSignins();
+      setStatus(on.signins ?? status);
+      if (on.codes) setCodes(on.codes);
     } finally { setBusy(false); }
   };
 
@@ -86,21 +87,30 @@ function SigninGrants({ codes, setCodes, profileId, profileName }: {
   );
   const sources = codes?.enabled ? codes.sources : null;
   const messages = sources?.Messages ?? null;
+  const mail = sources?.Mail ?? null;
   const notifications = sources?.Notifications ?? null;
 
+  // A Mac with no Messages history reads codes from Mail alone, so Mail decides the row there.
   const codesGrant: Grant = !codes?.enabled
     ? { name: "Read sign-in codes from Messages and Mail", desc: "Lets agents fill the code a site texts or emails you. Realm finds the code and types it, and the agent never sees it.",
         granted: false, state: "Off", actions: <button type="button" className="btn-quiet" onClick={turnOnCodes}>Turn on</button> }
     : messages === "ok"
       ? { name: "Read sign-in codes from Messages and Mail", desc: "", granted: true, state: "Granted" }
-      : { name: "Read sign-in codes from Messages and Mail", desc: "macOS has no dialog for Full Disk Access. Turn on Realm in System Settings ▸ Privacy & Security ▸ Full Disk Access.",
-          granted: false, state: "Needs Full Disk Access", actions: fullDisk };
+      : messages === "missing" && mail === "ok"
+        ? { name: "Read sign-in codes from Messages and Mail", desc: "Only Mail can be read here.", granted: true, state: "Granted" }
+        : messages === "missing" && mail === "missing"
+          ? { name: "Read sign-in codes from Messages and Mail", desc: "There is no Messages history or mail on this Mac for Realm to read.", granted: false, state: "Nothing to read" }
+          : { name: "Read sign-in codes from Messages and Mail", desc: "macOS has no dialog for Full Disk Access. Turn on Realm in System Settings ▸ Privacy & Security ▸ Full Disk Access.",
+              granted: false, state: "Needs Full Disk Access", actions: fullDisk };
 
+  // `missing` is believed only where Realm could look, so no grant would change it.
   const notificationsGrant: Grant = notifications === "ok"
     ? { name: "Codes from notifications on this Mac", desc: "", granted: true, state: "Granted" }
-    : notifications === "no_access" && messages === "ok"
-      ? { name: "Codes from notifications on this Mac", desc: "Realm can't read notifications on this Mac.", granted: false, state: "Not granted" }
-      : { name: "Codes from notifications on this Mac", desc: codes?.enabled ? "Comes with the same Full Disk Access." : "Comes with the row above.", granted: false, state: codes?.enabled ? "Needs Full Disk Access" : "Off" };
+    : notifications === "missing"
+      ? { name: "Codes from notifications on this Mac", desc: "This Mac has no notification history to read.", granted: false, state: "Nothing to read" }
+      : notifications === "no_access" && messages === "ok"
+        ? { name: "Codes from notifications on this Mac", desc: "Realm can't read notifications on this Mac.", granted: false, state: "Not granted" }
+        : { name: "Codes from notifications on this Mac", desc: codes?.enabled ? "Comes with the same Full Disk Access." : "Comes with the row above.", granted: false, state: codes?.enabled ? "Needs Full Disk Access" : "Off" };
 
   const accessibility = computer?.rows.find((r) => r.id === "accessibility") ?? null;
   const appsGrant: Grant = accessibility?.state === "granted"

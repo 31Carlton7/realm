@@ -1279,6 +1279,8 @@ describe("Sign-ins tab", () => {
       expect(sheet).toHaveTextContent(/never receives a password/);
       expect(sheet).toHaveTextContent(/only on this Mac/);
       expect(sheet).toHaveTextContent(/not for your personal accounts/);
+      // Agent sign-ins preapprove a fill on the agent's own site, so the approval line says when it holds.
+      expect(sheet).toHaveTextContent(/While Let agents finish sign-ins is off, each fill still needs your approval in the session\./);
       fireEvent.click(screen.getByRole("button", { name: /Turn on for/ }));
       await waitFor(() => expect(api.calls).toContain("credentialSetUnlockPolicy:p1:unattended"));
       await waitFor(() => expect(screen.getByRole("radio", { name: "Without asking" })).toBeChecked());

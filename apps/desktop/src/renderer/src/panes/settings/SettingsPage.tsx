@@ -2054,7 +2054,7 @@ function UnlockPolicyRows({ profileId, profileName }: { profileId: string; profi
               <li>The agent still never receives a password. Realm types it into the page.</li>
               <li>Every fill is written to Realm's credential log.</li>
               <li>It works only on this Mac. A copy of Realm's files on another Mac asks for Touch ID again.</li>
-              <li>Each fill still needs your approval in the session, as it does today.</li>
+              <li>While Let agents finish sign-ins is off, each fill still needs your approval in the session.</li>
             </ul>
             <p className="settings-hint">macOS asks for Touch ID or your login password to turn this on.</p>
             {error !== null && <p className="settings-hint" role="alert">{error}</p>}
