@@ -3,8 +3,7 @@ import { join } from "node:path";
 
 /**
  * The quick chat panel's material: macOS's frosted vibrancy behind each of the panel's shapes, cut to
- * its outline (native/PanelMaterial.m). A window's own `vibrancy` is one rectangle behind the whole
- * page, and the panel is a capsule, a pill and a card with the desktop clear round them.
+ * its outline (native/PanelMaterial.m).
  *
  * The page measures its shapes and sends them here; this turns them into the module's terms and
  * holds them to the window. Electron-free apart from the loader, so the sizing is a unit test's.
@@ -14,9 +13,10 @@ import { join } from "node:path";
 export type PageShape = { x: number; y: number; width: number; height: number; radius: number; squircle?: boolean; alpha?: number };
 
 /** A shape as the module takes it: points from the view's left and bottom edges. */
-export type MaterialShape = { x: number; bottom: number; width: number; height: number; radius: number; squircle: boolean; alpha: number };
+type MaterialShape = { x: number; bottom: number; width: number; height: number; radius: number; squircle: boolean; alpha: number };
 
-/** The panel has four shapes at most (the card, the answer, the bar, the toolbar); more is a page bug. */
+/** The panel draws four shapes at most (the card, the answer, the bar, the toolbar). A longer list is a
+ *  page bug, and is cut rather than drawn. */
 const MOST_SHAPES = 8;
 
 /**
