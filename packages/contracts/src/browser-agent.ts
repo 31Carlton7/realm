@@ -440,7 +440,7 @@ export const CREDENTIAL_STORAGE_NOTE =
  *  and authenticator-app prompts are not automated here and no amount of retrying makes them so. The
  *  one exception is a code sent by text or email (`security-codes.ts`). Settings shows it. */
 export const CREDENTIAL_2FA_LIMITS_NOTE =
-  "Two-factor steps are not automated, except a code the site sends by text or email: with Settings ▸ Sign-ins ▸ Security codes on, Realm fills it, and when an agent asks, only after you approve that fill. A push (Duo, Okta Verify) or an authenticator app's code you complete yourself in the pane.";
+  "Two-factor steps are not automated, except a code the site sends by text or email: with Settings ▸ Passwords ▸ Security codes on, Realm fills it, and when an agent asks, only after you approve that fill. A push (Duo, Okta Verify) or an authenticator app's code you complete yourself in the pane.";
 
 /** The same limit said to an agent, after every credential list and fill: steer the second step to
  *  the one kind Realm can fill, so a push or an authenticator app is never the first thing tried. */

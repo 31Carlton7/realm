@@ -905,7 +905,7 @@ export async function performCodeFill(send: CdpSend, targets: readonly string[],
 
 /** Refusal wording for the reasons the STORE decides (this module never learns more than the code). */
 const REVEAL_REFUSALS: Partial<Record<BrowserRefusal, string>> = {
-  no_credential: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins",
+  no_credential: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Passwords",
   no_store: "macOS is not offering Realm an encryption key right now, so Realm will not generate a password it cannot store — nothing was filled",
   no_presence: "the Touch ID / login check was cancelled or failed, so nothing was filled",
 };
