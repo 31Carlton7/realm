@@ -50,7 +50,14 @@ export function QuickChatPanelApp() {
       });
       return steps;
     };
-    const focusBar = () => document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input")?.focus();
+    /* With an answer up there is no bar to type in, and main's focus has already handed the keyboard
+       to the page's first control, the answer pill, which then wears the focus ring and its tooltip.
+       A key typed there is caught by the window, so nothing needs to hold the focus. */
+    const focusBar = () => {
+      const input = document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input");
+      if (input) input.focus();
+      else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    };
     const show = () => step(() => store.getState().showQuickChatPanel()).then(() => {
       dismissBootSplash();
       panelCameIn();
