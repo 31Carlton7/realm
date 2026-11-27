@@ -6,6 +6,7 @@ import { openDatabase } from "./database";
 import { migrations } from "./migrations";
 import { ItemsStore } from "../store/items";
 import { SessionEventsStore } from "../store/sessions";
+import { EventRetention } from "../store/event-retention";
 
 /**
  * Checking a migration against a REAL home directory: never copy `realm.db` on its own. `openDatabase`
@@ -2468,8 +2469,8 @@ describe("the schedule-zone migration — the zone a schedule is computed in, an
   };
   const zones = (db: DatabaseSync) => db.prepare("SELECT id, next_run_at, time_zone, last_slot FROM schedules ORDER BY id").all();
 
-  it("is followed only by the compact-window, double-tap side and schedule-maker migrations, and a home one short of it reaches the end", () => {
-    expect(SCHEDULE_ZONE_AT).toBe(migrations.length - 4);
+  it("is followed only by the compact-window, double-tap side, schedule-maker and event-retention migrations, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_ZONE_AT).toBe(SCHEDULE_MAKER_AT - 3);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     db.close();
@@ -2530,8 +2531,8 @@ describe("the compact-window migration — the window a teammate's chat is compa
     return { p, db: openDatabase(p) };
   };
 
-  it("comes after the schedule zone, followed only by the double-tap side and schedule-maker migrations, and a home one short of it reaches the end", () => {
-    expect(COMPACT_WINDOW_AT).toBe(migrations.length - 3);
+  it("comes after the schedule zone, followed only by the double-tap side, schedule-maker and event-retention migrations, and a home one short of it reaches the end", () => {
+    expect(COMPACT_WINDOW_AT).toBe(SCHEDULE_MAKER_AT - 2);
     expect(COMPACT_WINDOW_AT).toBe(SCHEDULE_ZONE_AT + 1);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
@@ -2579,8 +2580,8 @@ describe("the double-tap side migration: Left for a home that never chose, Eithe
   };
   const side = (db: DatabaseSync) => (db.prepare("SELECT value_json FROM settings WHERE key = 'keys.doubleTapSide'").get() as { value_json: string } | undefined)?.value_json;
 
-  it("comes after the compact window, followed only by the schedule-maker migration, and a home one short of it reaches the end", () => {
-    expect(DOUBLE_TAP_SIDE_AT).toBe(migrations.length - 2);
+  it("comes after the compact window, followed only by the schedule-maker and event-retention migrations, and a home one short of it reaches the end", () => {
+    expect(DOUBLE_TAP_SIDE_AT).toBe(SCHEDULE_MAKER_AT - 1);
     expect(DOUBLE_TAP_SIDE_AT).toBe(COMPACT_WINDOW_AT + 1);
     const { db } = migrated({});
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
@@ -2649,8 +2650,8 @@ describe("the schedule-maker migration: the session whose agent made a schedule"
   };
   const makers = (db: DatabaseSync) => db.prepare("SELECT id, title, next_run_at, permission_mode, created_by_session FROM schedules ORDER BY id").all();
 
-  it("is appended at the end of the chain, after the double-tap side, and a home one short of it reaches the end", () => {
-    expect(SCHEDULE_MAKER_AT).toBe(migrations.length - 1);
+  it("comes after the double-tap side, followed only by the event-retention migration, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_MAKER_AT).toBe(EVENT_RETENTION_AT - 1);
     expect(SCHEDULE_MAKER_AT).toBe(DOUBLE_TAP_SIDE_AT + 1);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
@@ -2674,6 +2675,77 @@ describe("the schedule-maker migration: the session whose agent made a schedule"
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     expect(() => again.exec(migrations[SCHEDULE_MAKER_AT]!)).toThrow();
     expect(again.prepare("SELECT created_by_session FROM schedules WHERE id = 'invoice'").get()).toEqual({ created_by_session: "sess-1" });
+    again.close();
+  });
+});
+
+/** The tables event retention reads, as a home one short of its migration has them: written out by
+ *  hand, never replayed from `migrations`. */
+const BEFORE_EVENT_RETENTION = `
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE items (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL, title TEXT NOT NULL, sort_order INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0,
+  ref_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  status TEXT NOT NULL, provider_session_id TEXT, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  activity_at INTEGER NOT NULL DEFAULT 0, teammate_home INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+CREATE TABLE event_tool_names (seq INTEGER PRIMARY KEY REFERENCES session_events(seq) ON DELETE CASCADE, tool TEXT NOT NULL);
+`;
+const EVENT_RETENTION_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS event_retention"));
+
+describe("the event-retention migration: a cursor per session for event retention", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_EVENT_RETENTION);
+    for (let v = 1; v <= EVENT_RETENTION_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
+      INSERT INTO sessions (id, space_id, status, title, created_at, updated_at, activity_at) VALUES ('old', 'sp1', 'idle', 'Old', 1, 1, 1);
+      INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('old', 1, 'user_message', '{"text":"hi"}');`);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+
+  it("is appended at the end of the chain, and a home one short of it reaches the end", () => {
+    expect(EVENT_RETENTION_AT).toBe(migrations.length - 1);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("starts every session with no cursor, leaves its events as they were, and goes with its session", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT * FROM event_retention").all()).toEqual([]);
+    expect(db.prepare("SELECT session_id, type, payload_json FROM session_events").all()).toEqual([{ session_id: "old", type: "user_message", payload_json: '{"text":"hi"}' }]);
+    db.prepare("INSERT INTO event_retention (session_id, through_seq) VALUES ('old', 1)").run();
+    db.prepare("DELETE FROM sessions WHERE id = 'old'").run();
+    expect(db.prepare("SELECT * FROM event_retention").all()).toEqual([]);
+    db.close();
+  });
+
+  it("gives retention the tables it reads: an old session's long tool result is trimmed on a migrated home", () => {
+    const { p, db } = migrated();
+    db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('old', 1, 'tool_result', ?)")
+      .run(JSON.stringify({ toolUseId: "t", content: "x".repeat(10_000), isError: false }));
+    const r = new EventRetention({ db, dbPath: p, settings: { get: () => 30 }, busy: () => false, freeDiskBytes: () => 0, now: () => 100 * 86_400_000 });
+    expect(r.step()).toMatchObject({ trimmed: 1 });
+    expect(db.prepare("SELECT session_id, through_seq FROM event_retention").all()).toEqual([{ session_id: "old", through_seq: 2 }]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing, the statement is safe to meet twice, and a cursor is kept", () => {
+    const { p, db } = migrated();
+    db.prepare("INSERT INTO event_retention (session_id, through_seq) VALUES ('old', 1)").run();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.exec(migrations[EVENT_RETENTION_AT]!);
+    expect(again.prepare("SELECT session_id, through_seq FROM event_retention").all()).toEqual([{ session_id: "old", through_seq: 1 }]);
     again.close();
   });
 });

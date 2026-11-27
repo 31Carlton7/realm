@@ -15,6 +15,8 @@ import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
 import { ArtifactsStore } from "./store/artifacts";
 import { PayloadCompactor } from "./store/payload-compaction";
+import { EventRetention, agentsNeedTheServer } from "./store/event-retention";
+import { BOOT_ID, clearMaintenance, writeMaintenance } from "./daemon/state";
 import { TerminalHistoryStore, TerminalsStore } from "./store/terminals";
 import { Drain } from "./daemon/drain";
 
@@ -2017,6 +2019,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // resumable, and standing aside while an agent works (`PayloadCompactor` states the design).
   const payloadCompactor = new PayloadCompactor({ db, busy: () => sessions.statusCounts().working > 0 });
   void payloadCompactor.run();
+  // When the owner sets a retention window, sessions idle past it have their long tool payloads cut.
+  // Either way the file is shrunk when enough is free (`EventRetention` states the rule). Never during
+  // boot: first after ten minutes, then every six hours.
+  const eventRetention = new EventRetention({
+    db, dbPath: dbPath(opts.home), settings,
+    busy: () => agentsNeedTheServer(sessions.statusCounts()),
+    freeDiskBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+    maintenance: {
+      begin: () => writeMaintenance(opts.home, { pid: process.pid, bootId: BOOT_ID, what: "vacuum", startedAt: Date.now() }),
+      end: () => clearMaintenance(opts.home),
+    },
+  });
+  eventRetention.start(10 * 60_000, 6 * 60 * 60_000);
   // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in
   // the background (`SessionService.backfillTurnMedia`).
   void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));
@@ -2081,6 +2096,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     claudeBackfill?.stop(); // likewise for Claude's memory: no run starts on a closing handle
     payloadCompactor.stop(); // likewise its batches
+    eventRetention.stop(); // and retention's, and its VACUUM
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     team?.close(); // and a teammate's clock turn must not stop a session on one
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle

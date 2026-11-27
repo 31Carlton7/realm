@@ -15,7 +15,7 @@
  *     that wrote this file", and the only reason the other two are worth asking.
  */
 import { performance } from "node:perf_hooks";
-import { DAEMON_PROTOCOL_MAX, DAEMON_PROTOCOL_MIN, type DaemonState } from "@realm/contracts";
+import { DAEMON_PROTOCOL_MAX, DAEMON_PROTOCOL_MIN, MAINTENANCE_MAX_MS, type DaemonState, type MaintenanceMarker } from "@realm/contracts";
 import { appTokenSha256 } from "./app-token";
 
 /** What `system.info` said, or null for a port that did not answer in time. */
@@ -31,9 +31,10 @@ export type LaunchDecision =
    *  running files that are gone, and loads the new bundle's in their place for anything it has not
    *  loaded yet. */
   | { kind: "handoff"; state: DaemonState; why: HandoffWhy }
-  /** Something is there and not answering yet: mid-boot, or draining for a handoff already underway.
-   *  The caller waits and asks again rather than starting a second one. */
-  | { kind: "wait"; state: DaemonState; why: "booting" | "draining" };
+  /** Something is there and not answering yet: mid-boot, draining for a handoff already underway, or
+   *  busy with maintenance it said it was starting (`MaintenanceMarker`). The caller waits and asks
+   *  again rather than starting a second one. */
+  | { kind: "wait"; state: DaemonState; why: "booting" | "draining" | "maintenance" };
 
 export type HandoffWhy = "bundle" | "protocol" | "replaced";
 
@@ -46,6 +47,9 @@ export function decideLaunch(d: {
   /** The bundle id of whatever is at the daemon's own `entry` now (`currentBundleId`'s "missing" for
    *  nothing). Unknown — undefined — is never read as replaced. */
   onDisk?: string;
+  /** `maintenance.json`, and the wall clock its `startedAt` is read against. */
+  maintenance?: MaintenanceMarker | null;
+  wallNow?: number;
 }): LaunchDecision {
   const { state, pidAlive, probe, ours } = d;
   if (!state) return { kind: "spawn", reason: "none" };
@@ -60,7 +64,11 @@ export function decideLaunch(d: {
   // Draining is checked before the port, because a draining daemon still answers perfectly well and
   // would otherwise be adopted — which is precisely the thing a drain exists to stop.
   if (state.state === "draining") return { kind: "wait", state, why: "draining" };
-  if (!probe) return { kind: "wait", state, why: "booting" };
+  if (!probe) {
+    const m = d.maintenance;
+    const inMaintenance = m && m.pid === state.pid && m.bootId === state.bootId && (d.wallNow ?? Date.now()) - m.startedAt < MAINTENANCE_MAX_MS;
+    return { kind: "wait", state, why: inMaintenance ? "maintenance" : "booting" };
+  }
   // A different bootId on the recorded port is not our daemon, whatever the pid says. Spawning is
   // safe even if we are wrong about that, because realm-server's own home lock is the backstop.
   if (probe.bootId !== state.bootId) return { kind: "spawn", reason: "stale" };
@@ -199,6 +207,9 @@ export async function ensureDaemon(d: {
   replace: (state: DaemonState, why: "unresponsive" | "draining" | "unowned") => Promise<void>;
   /** The bundle id now at a daemon's `entry` (see `decideLaunch`'s `onDisk`). */
   bundleOnDisk?: (entry: string) => string;
+  /** `maintenance.json` (see `decideLaunch`'s `maintenance`), and the wall clock it is read against. */
+  readMaintenance?: (home: string) => MaintenanceMarker | null;
+  wallNow?: () => number;
   /** Stop any realm-server still holding this home that no state file names — called right before
    *  this launch starts the one a home may have. */
   clearStrays?: () => Promise<void>;
@@ -221,6 +232,8 @@ export async function ensureDaemon(d: {
   const waitingSince = new Map<string, number>();
   /** Daemons already handed off or replaced, by boot id. One still there afterwards is not going. */
   const replaced = new Set<string>();
+  /** Daemons found busy with maintenance, by boot id, so the wait is logged once. */
+  const inMaintenance = new Set<string>();
 
   for (;;) {
     const state = d.readState(d.home);
@@ -235,6 +248,8 @@ export async function ensureDaemon(d: {
       probe: state && alive && !replacedOnDisk ? await d.probe(state.port, state.token) : null,
       ours: { bundleId: d.ourBundleId },
       onDisk,
+      maintenance: state && alive ? d.readMaintenance?.(d.home) : null,
+      wallNow: (d.wallNow ?? Date.now)(),
     });
 
     if (decision.kind === "adopt") {
@@ -285,6 +300,14 @@ export async function ensureDaemon(d: {
         spawned = true;
         deadline = now() + DAEMON_WAIT_MS;
       }
+    } else if (decision.why === "maintenance") {
+      // Busy on purpose, and it said so. Its time not answering starts again when the marker goes.
+      if (!inMaintenance.has(decision.state.bootId)) d.log?.(`[daemon] pid ${decision.state.pid} is compacting realm.db; waiting for it`);
+      inMaintenance.add(decision.state.bootId);
+      waitingSince.delete(decision.state.bootId);
+      deadline = now() + DAEMON_WAIT_MS;
+      await sleep(500);
+      continue;
     } else if (!spawned) {
       // A daemon that was here before this launch, and has had its chance: it wrote its state file, so
       // it finished booting long ago, and one that will not answer is stuck. A drain that has not
