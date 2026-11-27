@@ -7,7 +7,9 @@
  * click on its space in the rail asks) activates the app: quiet mode writes that `app.focus` down in
  * the log instead of doing it. Then an agent's `space_switch` to the same space: the window that shows
  * it may come up inside Realm, and the log gains no `app.focus`. `lsappinfo front` is sampled every
- * 100 ms throughout, and Realm's Electron is never the front app.
+ * 100 ms throughout, and Realm's Electron is never the front app. Last, with the quick chat panel key
+ * as the person typing into it has it, the agent asks for that space again: the panel stays key and its
+ * page keeps the keyboard.
  */
 import { execFile } from "node:child_process";
 import fs from "node:fs";
@@ -15,6 +17,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 import { launchLiveApp, sleep, until } from "./lib/live-app.mjs";
+import { noCalendar } from "./quick-chat-panel/no-calendar.mjs";
 
 const run = promisify(execFile);
 const js = (v) => JSON.stringify(v);
@@ -65,7 +68,8 @@ function sampleFront() {
 const scriptFile = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR ?? "/tmp", "realm-agent-raise-")), "fake-script.json");
 fs.writeFileSync(scriptFile, js(SCRIPT));
 const front = sampleFront();
-const app = await launchLiveApp({ name: "agent-raise", inspect: true, env: { REALM_FAKE_SCRIPT: scriptFile } });
+const calendar = noCalendar();
+const app = await launchLiveApp({ name: "agent-raise", inspect: true, env: { ...calendar.env, REALM_FAKE_SCRIPT: scriptFile } });
 const focusLog = () => fs.readFileSync(path.join(app.scratch, "electron.log"), "utf8").split("\n").filter((l) => l.startsWith("[quiet-windows] app focus"));
 let api = null;
 try {
@@ -112,11 +116,34 @@ try {
   const byAgent = focusLog().slice(beforeAgent);
   check("the agent's request never activates the app", byAgent.length === 0, byAgent);
   check("the window on that space came up inside Realm all the same", await keyWindow() === secondWindow, { key: await keyWindow(), secondWindow });
+
+  // The person is typing in the quick chat panel when the agent asks for that space again.
+  await ev(`window.realm.quickChatPanel.setShortcut("mod+ctrl+alt+shift+f19").then(() => true)`);
+  const panelId = await until(() => app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => !w.isResizable())?.id ?? null`), 20_000, "the quick chat panel");
+  await until(() => app.main.eval(`!require("electron").BrowserWindow.fromId(${panelId}).webContents.isLoading()`), 20_000, "the panel's page");
+  // What the panel's own open does: show it, make it key and give its page the keyboard.
+  await app.main.eval(`(() => { const p = require("electron").BrowserWindow.fromId(${panelId}); p.showInactive(); p.focus(); p.webContents.focus(); return true; })()`);
+  const keyboard = () => app.main.eval(`require("electron").webContents.getFocusedWebContents()?.id ?? null`);
+  const panelPage = await app.main.eval(`require("electron").BrowserWindow.fromId(${panelId}).webContents.id`);
+  check("the panel is key with the keyboard before the agent asks", await keyWindow() === panelId && await keyboard() === panelPage);
+  await api.call("settings.set", { key: "ui.activeSpaceId", value: home.id });
+  const beforePanel = focusLog().length;
+  await api.call("sessions.send", { id: first.id, text: `switch space ${js({ spaceId: other.id })}` });
+  const second = await until(async () => {
+    const events = (await api.call("sessions.events", { id: first.id, afterSeq: 0, limit: 2000 })).map((e) => e.event);
+    const calls = events.filter((e) => e.type === "tool_call" && e.payload.name.endsWith("space_switch"));
+    return calls.length === 2 && events.find((e) => e.type === "tool_result" && e.payload.toolUseId === calls[1].payload.toolUseId);
+  }, 30_000, "the second space_switch result");
+  console.log(`     space_switch answered: ${js(second.payload.content)}`);
+  await sleep(500);
+  check("the panel stays key and keeps the keyboard", await keyWindow() === panelId && await keyboard() === panelPage, { key: await keyWindow(), keyboard: await keyboard(), panelId, panelPage });
+  check("the agent's request over the panel never activates the app", focusLog().slice(beforePanel).length === 0, focusLog().slice(beforePanel));
 } finally {
   api?.close();
   await front.stop();
   const ours = front.pids.filter((p) => p === app.electron.pid).length;
   check("Realm's Electron was never the front app", ours === 0, { samples: front.pids.length, realmInFront: ours, frontPids: [...new Set(front.pids)] });
   await app.stop();
+  calendar.remove();
   fs.rmSync(path.dirname(scriptFile), { recursive: true, force: true });
 }

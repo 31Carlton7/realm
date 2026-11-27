@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bringForward, raiseBy } from "./bring-forward";
+import { bringForward, panelIsKey, raiseBy } from "./bring-forward";
 
-function rig(o: { minimized?: boolean; appActive: boolean }) {
+function rig(o: { minimized?: boolean; appActive: boolean; panelKey?: boolean }) {
   const calls: string[] = [];
   const win = {
     isMinimized: () => o.minimized ?? false,
@@ -9,7 +9,7 @@ function rig(o: { minimized?: boolean; appActive: boolean }) {
     show: () => calls.push("show"),
     focus: () => calls.push("focus"),
   };
-  const deps = { appActive: o.appActive, activateApp: () => calls.push("activate app") };
+  const deps = { appActive: o.appActive, panelKey: o.panelKey ?? false, activateApp: () => calls.push("activate app") };
   return { calls, win, deps };
 }
 
@@ -31,6 +31,18 @@ describe("bringForward", () => {
     bringForward(win, "agent", deps);
     expect(calls).toEqual(["show", "focus"]);
   });
+
+  it("leaves the window behind the quick chat panel while the person types in it, when an agent asked", () => {
+    const { calls, win, deps } = rig({ minimized: true, appActive: true, panelKey: true });
+    bringForward(win, "agent", deps);
+    expect(calls).toEqual([]);
+  });
+
+  it("still raises the window over the panel, Realm included, when the person asked", () => {
+    const { calls, win, deps } = rig({ appActive: true, panelKey: true });
+    bringForward(win, "person", deps);
+    expect(calls).toEqual(["show", "focus", "activate app"]);
+  });
 });
 
 describe("raiseBy", () => {
@@ -40,5 +52,17 @@ describe("raiseBy", () => {
     expect(raiseBy(undefined)).toBe("person");
     expect(raiseBy(null)).toBe("person");
     expect(raiseBy({ type: "click" })).toBe("person");
+  });
+});
+
+describe("panelIsKey", () => {
+  const panel = { id: "panel" };
+  const main = { id: "main" };
+
+  it("is true only when the focused window is the quick chat panel", () => {
+    expect(panelIsKey(panel, panel)).toBe(true);
+    expect(panelIsKey(main, panel)).toBe(false);
+    expect(panelIsKey(main, null)).toBe(false);
+    expect(panelIsKey(null, null)).toBe(false);
   });
 });
