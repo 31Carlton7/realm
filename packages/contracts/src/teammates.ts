@@ -19,6 +19,8 @@ export const TEAMMATES_PROVIDER_NAME = "realm-team";
 export const TEAM_LIST_TOOL = "team_list";
 export const TEAM_MESSAGE_TOOL = "team_message";
 export const TEAM_SET_ACCESS_TOOL = "team_set_access";
+export const TEAMMATE_GET_TOOL = "teammate_get";
+export const TEAMMATE_SESSIONS_TOOL = "teammate_sessions";
 
 /** The eight shapes and twelve colours an icon is made of: one flat shape, two eye strokes. */
 export const TEAMMATE_SHAPES = ["circle", "flower", "squircle", "pill", "triangle", "hexagon", "cloud", "drop"] as const;
@@ -246,6 +248,18 @@ export const TeamMessageArgsSchema = z.object({
   wait: z.boolean().optional(),
 });
 export type TeamMessageArgs = z.infer<typeof TeamMessageArgsSchema>;
+
+/** `team_list`'s arguments: `archived` lists the archived teammates instead. */
+export const TeamListArgsSchema = z.object({ archived: z.boolean().optional() });
+
+/** `teammate_get`'s arguments. `to` is a handle, `@handle`, or `lead`; an archived teammate is found too. */
+export const TeammateGetArgsSchema = z.object({ to: z.string().trim().min(1).max(60) });
+
+/** `teammate_sessions`'s arguments: newest first, `limit` of them. */
+export const TeammateSessionsArgsSchema = z.object({
+  to: z.string().trim().min(1).max(60),
+  limit: z.number().int().min(1).optional(),
+});
 
 /** `team_set_access`'s arguments. `mode` is any string, so a read-only one is refused by name rather
  *  than by a schema error. */

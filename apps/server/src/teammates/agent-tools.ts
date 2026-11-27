@@ -1,5 +1,5 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { TEAM_LIST_TOOL, TEAM_MESSAGE_TOOL, TEAM_SET_ACCESS_TOOL, TEAMMATES_PROVIDER_NAME } from "@realm/contracts";
+import { TEAM_LIST_TOOL, TEAM_MESSAGE_TOOL, TEAM_SET_ACCESS_TOOL, TEAMMATE_GET_TOOL, TEAMMATE_SESSIONS_TOOL, TEAMMATES_PROVIDER_NAME } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err } from "../mcp/tool-result";
 import type { TeammatesStore } from "./store";
@@ -8,8 +8,38 @@ import type { TeammatesService } from "./service";
 const TOOLS: Tool[] = [
   {
     name: TEAM_LIST_TOOL,
-    description: "The teammates in this space: each one's handle, what it does, whether it is the Lead, whether it is idle, working or needs the person, the task it is on, and its model. Read-only.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    description: [
+      "The teammates in this space: each one's handle, what it does, whether it is the Lead, whether it is idle, working or needs the person, the task it is on, and its model. Read-only.",
+      "Under each, how it is set up: its id, engine and model id, effort, access, folder, group, clock (cron, next run or paused), and its chat's session id. `archived: true` lists the archived teammates instead.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: { archived: { type: "boolean", description: "list the archived teammates instead of the current ones" } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: TEAMMATE_GET_TOOL,
+    description: "One teammate in full: how it is set up, its whole brief, what its clock says, and its newest task sessions. Finds archived teammates too. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: { to: { type: "string", description: "its handle, e.g. \"cto\", or \"lead\"" } },
+      required: ["to"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: TEAMMATE_SESSIONS_TOOL,
+    description: "The task sessions a teammate started, newest first: each one's title, session id, state, when it was last active, and what came of it (a PR, a release, a failure). session_read reads one. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "its handle, e.g. \"cto\", or \"lead\"" },
+        limit: { type: "number", description: "how many, newest first (default 20)" },
+      },
+      required: ["to"],
+      additionalProperties: false,
+    },
   },
   {
     name: TEAM_MESSAGE_TOOL,
@@ -49,13 +79,13 @@ const TOOLS: Tool[] = [
 ];
 
 /**
- * The `realm-team` provider: `team_list`, `team_message` and `team_set_access`, in every session of a
+ * The `realm-team` provider: `team_list`, `teammate_get`, `teammate_sessions`, `team_message` and `team_set_access`, in every session of a
  * space that has teammates — theirs and the person's own, so "ask @cto" works from anywhere in the
  * space. `team_set_access` refuses every caller but the Lead in a turn the person started.
  */
 export function createTeammatesProvider(d: {
   store: Pick<TeammatesStore, "hasAny">;
-  teammates: Pick<TeammatesService, "teamList" | "teamMessage" | "teamSetAccess">;
+  teammates: Pick<TeammatesService, "teamList" | "teammateGet" | "teammateSessions" | "teamMessage" | "teamSetAccess">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
 }): RealmToolProvider {
   return {
@@ -69,7 +99,9 @@ export function createTeammatesProvider(d: {
         return err(`the ${TEAMMATES_PROVIDER_NAME} tools are off for this space — mcp.setProviderEnabled turns them back on.`);
       try {
         switch (tool) {
-          case TEAM_LIST_TOOL: return d.teammates.teamList(ctx);
+          case TEAM_LIST_TOOL: return d.teammates.teamList(ctx, args);
+          case TEAMMATE_GET_TOOL: return d.teammates.teammateGet(ctx, args);
+          case TEAMMATE_SESSIONS_TOOL: return d.teammates.teammateSessions(ctx, args);
           case TEAM_MESSAGE_TOOL: return await d.teammates.teamMessage(ctx, args);
           case TEAM_SET_ACCESS_TOOL: return await d.teammates.teamSetAccess(ctx, args);
           default: return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
