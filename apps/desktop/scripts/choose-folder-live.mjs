@@ -117,7 +117,8 @@ try {
   await until(() => ev(`!!document.querySelector('.question-answered')`), 15_000, "the answered card");
   const answered = await ev(`document.querySelector('.question-answered').innerText`);
   log("3-answered", answered);
-  check("the transcript keeps the question with the folder chosen", answered.includes(PROMPT) && answered.includes(real), answered);
+  // The card keeps the folder as the panel gave it; the agent was told it resolved (/var is /private/var).
+  check("the transcript keeps the question with the folder chosen", answered.includes(PROMPT) && answered.includes(chosen), answered);
   await shoot("chosen");
   log("page-colours", pages);
 } finally {
