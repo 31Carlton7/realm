@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DAEMON_UNRESPONSIVE_MS, DAEMON_WAIT_MS, daemonModeEnabled, decideLaunch, ensureDaemon, followDaemon, type HandoffWhy, type Probe } from "./daemon";
-import type { DaemonState } from "@realm/contracts";
+import { MAINTENANCE_MAX_MS, type DaemonState, type MaintenanceMarker } from "@realm/contracts";
 import { appTokenSha256 } from "./app-token";
 
 const OURS = { bundleId: "100:200" };
@@ -277,6 +277,69 @@ describe("ensureDaemon", () => {
     const w = world(state());
     expect((await ensureDaemon(w.deps())).stale).toBeNull();
 });
+
+  describe("a daemon compacting realm.db", () => {
+    const WALL = 1_800_000_000_000;
+    const marker = (over: Partial<MaintenanceMarker> = {}): MaintenanceMarker => ({ pid: 4242, bootId: "boot-a", what: "vacuum", startedAt: WALL, ...over });
+    /** A daemon that answers nothing until `answersAfterMs`, while the marker says `m`. */
+    const busy = (m: MaintenanceMarker | null, answersAfterMs = Infinity) => {
+      const w = world(state());
+      const deps = w.deps();
+      return {
+        w,
+        run: () => ensureDaemon({
+          ...deps,
+          // The vacuuming daemon is boot-a; the one spawned to replace it answers at once.
+          probe: async (): Promise<Probe> => { const f = w.deps().readState(); if (!f) return null; return f.bootId !== "boot-a" || w.clock() >= answersAfterMs ? probe({ bootId: f.bootId }) : null; },
+          readMaintenance: () => m,
+          wallNow: () => WALL + w.clock(),
+          replace: async (s: DaemonState, why: string) => { w.replaced.push(s.pid); w.handoffs.push(why); w.set(null); },
+          spawn: () => { deps.spawn(); w.set(state({ bootId: "boot-b", pid: 5151 })); },
+        }),
+      };
+    };
+
+    it("is waited on, not read as booting, while its marker names it and is under the cap", () => {
+      const at = (m: MaintenanceMarker | null, wallNow = WALL + 1000) => decideLaunch({ state: state(), pidAlive: true, probe: null, ours: OURS, maintenance: m, wallNow });
+      expect(at(marker())).toEqual({ kind: "wait", state: state(), why: "maintenance" });
+      expect(at(marker(), WALL + MAINTENANCE_MAX_MS)).toMatchObject({ why: "booting" });
+      expect(at(marker({ pid: 999 }))).toMatchObject({ why: "booting" });
+      expect(at(marker({ bootId: "boot-old" }))).toMatchObject({ why: "booting" });
+      expect(at(null)).toMatchObject({ why: "booting" });
+      // A dead pid is dead, marker or not; one that answers is adopted.
+      expect(decideLaunch({ state: state(), pidAlive: false, probe: null, ours: OURS, maintenance: marker(), wallNow: WALL })).toEqual({ kind: "spawn", reason: "dead" });
+      expect(decideLaunch({ state: state(), pidAlive: true, probe: probe(), ours: OURS, maintenance: marker(), wallNow: WALL })).toEqual({ kind: "adopt", state: state() });
+    });
+
+    it("waits past the unresponsive limit for a vacuum that finishes, and adopts it", async () => {
+      // MUTANT: treat a maintenance wait as booting, and the server is replaced at 10 s, mid-VACUUM.
+      const b = busy(marker(), 60_000);
+      const handle = await b.run();
+      expect(handle).toMatchObject({ adopted: true, state: { bootId: "boot-a" } });
+      expect(b.w.replaced).toEqual([]);
+      expect(b.w.clock()).toBeGreaterThanOrEqual(60_000);
+    });
+
+    it("replaces it once the cap has passed, so a marker a crash left cannot hold a launch forever", async () => {
+      const b = busy(marker());
+      const handle = await b.run();
+      expect(b.w.replaced).toEqual([4242]);
+      expect(b.w.handoffs).toEqual(["unresponsive"]);
+      expect(b.w.clock()).toBeGreaterThanOrEqual(MAINTENANCE_MAX_MS);
+      expect(b.w.clock()).toBeLessThan(MAINTENANCE_MAX_MS + DAEMON_UNRESPONSIVE_MS + DAEMON_WAIT_MS);
+      expect(handle.state.bootId).toBe("boot-b");
+    });
+
+    it("ignores a stale marker, from a dead pid or another boot, and replaces as before", async () => {
+      for (const m of [marker({ pid: 999 }), marker({ bootId: "boot-old" })]) {
+        const b = busy(m);
+        await b.run();
+        expect(b.w.replaced).toEqual([4242]);
+        expect(b.w.clock()).toBeGreaterThanOrEqual(DAEMON_UNRESPONSIVE_MS);
+        expect(b.w.clock()).toBeLessThan(DAEMON_UNRESPONSIVE_MS + 1000);
+      }
+    });
+  });
 
 describe("followDaemon", () => {
   const known = { port: 8790, token: "t" };

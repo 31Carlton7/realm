@@ -15,7 +15,8 @@ import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
 import { ArtifactsStore } from "./store/artifacts";
 import { PayloadCompactor } from "./store/payload-compaction";
-import { EventRetention } from "./store/event-retention";
+import { EventRetention, agentsNeedTheServer } from "./store/event-retention";
+import { BOOT_ID, clearMaintenance, writeMaintenance } from "./daemon/state";
 import { TerminalHistoryStore, TerminalsStore } from "./store/terminals";
 import { Drain } from "./daemon/drain";
 
@@ -2002,8 +2003,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // boot: first after ten minutes, then every six hours.
   const eventRetention = new EventRetention({
     db, dbPath: dbPath(opts.home), settings,
-    busy: () => sessions.statusCounts().working > 0,
+    busy: () => agentsNeedTheServer(sessions.statusCounts()),
     freeDiskBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+    maintenance: {
+      begin: () => writeMaintenance(opts.home, { pid: process.pid, bootId: BOOT_ID, what: "vacuum", startedAt: Date.now() }),
+      end: () => clearMaintenance(opts.home),
+    },
   });
   eventRetention.start(10 * 60_000, 6 * 60 * 60_000);
   // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in

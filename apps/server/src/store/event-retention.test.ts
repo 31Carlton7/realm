@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { SessionEventSchema, sessionEvent, type SessionEvent } from "@realm/contracts";
@@ -10,9 +11,10 @@ import { EnvironmentsStore } from "./environments";
 import { SessionsStore, SessionEventsStore } from "./sessions";
 import { SettingsStore } from "./settings";
 import { decodePayload } from "./event-payload";
+import { clearMaintenance, writeMaintenance } from "../daemon/state";
 import {
   EVENT_RETENTION_DAYS_KEY, EventRetention, RECLAIM_MIN_BYTES, TRIM_HEAD, TRIM_OVER, TRIM_TAIL,
-  reclaimDecision, retentionDays, trimPayload, trimText,
+  agentsNeedTheServer, reclaimDecision, retentionDays, trimPayload, trimText,
 } from "./event-retention";
 
 const DAY = 86_400_000;
@@ -111,11 +113,34 @@ describe("the retention rule", () => {
     expect(isTrimmed(h.db, past)).toBe(true);
   });
 
-  it("keeps whole every session the person can still be working in: running, waiting on them, pinned, or a teammate's home chat", () => {
+  it("counts the window from the last activity, not from when the session was made", () => {
+    const h = home();
+    const revived = h.session("revived", 1);
+    h.db.prepare("UPDATE sessions SET created_at = ? WHERE id = ?").run(NOW - 100 * DAY, revived);
+    const r = retention(h);
+    while (!r.step().finished) { /* every cold session */ }
+    expect(isTrimmed(h.db, revived)).toBe(false);
+  });
+
+  it("trims every large payload of a session that holds more than one batch of them, across steps", async () => {
+    const h = home();
+    const big = h.session("big", 60);
+    for (let i = 0; i < 450; i++) h.events.append(big, sessionEvent("tool_result", { toolUseId: `t${i}`, content: long(400, `out${i}`), isError: false }, NOW - 60 * DAY));
+    const r = retention(h);
+    let steps = 0;
+    while (!r.step().finished) steps++;
+    expect(steps).toBeGreaterThanOrEqual(3);
+    const results = rawPayloads(h.db, big).filter((p) => p.type === "tool_result").map((p) => (JSON.parse(p.text) as { content: string }).content);
+    expect(results).toHaveLength(451);
+    for (const c of results) expect(c.length).toBeLessThan(TRIM_OVER);
+  });
+
+  it("keeps whole every session the person can still be working in: running, waiting on them, moving, pinned, or a teammate's home chat", () => {
     const h = home();
     const kept = [
       h.session("running", 90, { status: "running" }),
       h.session("waiting", 90, { status: "waiting_permission" }),
+      h.session("moving", 90, { status: "moving" }),
       h.session("pinned", 90, { pinned: true }),
       h.session("teammate", 90, { teammateHome: true }),
     ];
@@ -165,6 +190,12 @@ describe("the retention rule", () => {
     expect(isTrimmed(h.db, sixty)).toBe(false);
   });
 
+  it("counts a session waiting on a permission card or an ask as busy, like one that is running", () => {
+    expect(agentsNeedTheServer({ working: 0, needsYou: 0 })).toBe(false);
+    expect(agentsNeedTheServer({ working: 1, needsYou: 0 })).toBe(true);
+    expect(agentsNeedTheServer({ working: 0, needsYou: 1 })).toBe(true);
+  });
+
   it("waits while an agent is working", async () => {
     const h = home();
     const old = h.session("old", 60);
@@ -203,6 +234,7 @@ describe("reclaiming free pages", () => {
   it("runs only with enough to reclaim, no agent working, and twice the database's size free on disk", () => {
     expect(reclaimDecision(enough)).toEqual({ run: true });
     expect(reclaimDecision({ ...enough, freelistBytes: RECLAIM_MIN_BYTES - 1 }).run).toBe(false);
+    expect(reclaimDecision({ ...enough, freelistBytes: RECLAIM_MIN_BYTES - 1, freedBytes: 1 }).run).toBe(true);
     expect(reclaimDecision({ ...enough, freelistBytes: RECLAIM_MIN_BYTES / 2, freedBytes: RECLAIM_MIN_BYTES / 2 }).run).toBe(true);
     expect(reclaimDecision({ ...enough, busy: true }).run).toBe(false);
     expect(reclaimDecision({ ...enough, freeDiskBytes: 2e9 - 1 })).toEqual({ run: false, reason: "2000.0 MB free on disk, needs 2000.0 MB" });
@@ -276,5 +308,81 @@ describe("reclaiming free pages", () => {
     const busy = retention(h, { reclaimMinBytes: 1024 * 1024, busy: () => true });
     expect(busy.reclaim()).toMatchObject({ ran: false, reason: "an agent is working" });
     expect(size(h.path)).toBe(before);
+  });
+
+  it("counts a trimmed byte once: what trimming moved onto the freelist is not counted again", async () => {
+    // Incompressible output, so each payload spills into overflow pages that trimming frees whole.
+    const h = home();
+    const id = h.session("noisy", 60);
+    for (let i = 0; i < 200; i++) h.events.append(id, sessionEvent("tool_result", { toolUseId: `n${i}`, content: randomBytes(48 * 1024).toString("base64"), isError: false }, NOW - 60 * DAY));
+    h.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").all();
+    const deps = { db: h.db, dbPath: h.path, settings: h.settings, busy: () => false, freeDiskBytes: () => 1e12, now: () => NOW, pauseMs: 0, log: () => {}, reclaimMinBytes: Infinity };
+    const r = new EventRetention(deps);
+    const pruned = await r.prune();
+    const freelist = (h.db.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count * 4096;
+    // Most of what was trimmed is on the freelist now. Counting it there and again as trimmed
+    // would clear a threshold half again over the freelist; counted once, it can't.
+    expect(freelist).toBeGreaterThan((pruned.bytesBefore - pruned.bytesAfter) * 0.8);
+    deps.reclaimMinBytes = Math.floor(freelist * 1.5);
+    expect(r.reclaim()).toMatchObject({ ran: false, reason: expect.stringContaining("to reclaim") });
+    deps.reclaimMinBytes = freelist;
+    expect(r.reclaim()).toMatchObject({ ran: true });
+  });
+
+  it("says it is starting, with the size and free pages, and marks the server as busy with maintenance until it is done", () => {
+    const h = withFreePages(4);
+    const marker = join(h.dir, "maintenance.json");
+    const logged: string[] = [];
+    let markedDuring = false;
+    const r = retention(h, {
+      reclaimMinBytes: 1024 * 1024,
+      log: (l) => { logged.push(l); },
+      maintenance: {
+        begin: () => { writeMaintenance(h.dir, { pid: process.pid, bootId: "boot", what: "vacuum", startedAt: Date.now() }); markedDuring = existsSync(marker); },
+        end: () => clearMaintenance(h.dir),
+      },
+    });
+    expect(r.reclaim().ran).toBe(true);
+    expect(markedDuring).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+    expect(logged[0]).toMatch(/^\[db\] vacuum starting: \d+\.\d MB with its WAL, \d+ free pages \(\d+\.\d MB\)/);
+    expect(logged[1]).toMatch(/^\[db\] vacuum: /);
+  });
+
+  it("removes the marker even when the VACUUM throws", () => {
+    const h = withFreePages(4);
+    const marker = join(h.dir, "maintenance.json");
+    let markedAtVacuum = false;
+    const failing = new Proxy(h.db, {
+      get(t, k) {
+        if (k === "exec") return (sql: string) => { if (sql === "VACUUM") { markedAtVacuum = existsSync(marker); throw new Error("database or disk is full"); } return t.exec(sql); };
+        const v = Reflect.get(t, k) as unknown;
+        return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+      },
+    });
+    const r = retention(h, {
+      db: failing, reclaimMinBytes: 1024 * 1024,
+      maintenance: { begin: () => writeMaintenance(h.dir, { pid: process.pid, bootId: "boot", what: "vacuum", startedAt: Date.now() }), end: () => clearMaintenance(h.dir) },
+    });
+    expect(r.reclaim()).toMatchObject({ ran: false, reason: "database or disk is full" });
+    expect(markedAtVacuum).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("waits on another connection's reader before truncating the WAL, and says when it couldn't", () => {
+    const h = withFreePages(4);
+    const reader = openDatabase(h.path);
+    reader.exec("BEGIN");
+    reader.prepare("SELECT COUNT(*) FROM sessions").get();
+    const logged: string[] = [];
+    try {
+      const done = retention(h, { reclaimMinBytes: 1024 * 1024, lockWaitMs: 300, log: (l) => logged.push(l) }).reclaim();
+      expect(done.ran).toBe(true);
+      expect(done.ms).toBeGreaterThanOrEqual(250);
+      expect(logged.at(-1)).toMatch(/another connection held the WAL, so it was not truncated$/);
+    } finally {
+      reader.exec("COMMIT");
+      reader.close();
+    }
   });
 });
