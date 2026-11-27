@@ -154,6 +154,24 @@ describe("the list of a session's sub-agents", () => {
     store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "01ARZ3NDEKTSV4RRFFQ69G5TMX" });
     await waitFor(() => expect(api.calls).toContain("getDelegatedChild:se1:01ARZ3NDEKTSV4RRFFQ69G5TMX"));
     expect(store.getState().subagents.se1?.map((c) => c.session.id)).toEqual(["se2", "se3", "se4"]);
+
+    // One deleted under the lead is no longer its sub-agent, and leaves the list.
+    held.se1 = [...CHILDREN];
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "se4" });
+    await waitFor(() => expect(store.getState().subagents.se1?.map((c) => c.session.id)).toEqual(["se2", "se3"]));
+  });
+
+  it("a change naming one sub-agent while the list is being read reads the list again", async () => {
+    const api = fakeApi({ items: ITEMS, sessions: [LEAD, LUNA, FABLE], delegatedChildren: { se1: CHILDREN } });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    await store.getState().loadSubagents("se1");
+    const reads = () => api.calls.filter((c) => c === "listDelegatedChildren:se1").length;
+    const reading = store.getState().refreshSubagents("se1");
+    // Mutant: patch the row anyway — the read in flight lands after it, from before the change.
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "se2" });
+    expect(reads()).toBe(3);
+    await reading;
   });
 
   it("a change while an open's read is in flight reads again, after the change", async () => {

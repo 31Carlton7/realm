@@ -384,7 +384,10 @@ describe("the lead's list of its sub-agents", () => {
     await app.agentRuns.start(ctx, { goal: "go" });
     const [child] = children(ctx);
     expect(await app.agentRuns.wait(ctx, {})).toMatchObject({ isError: false });
-    await waitFor(() => c.frames.filter((f) => f.event === "delegation.changed" && f.payload.childId === child!.id).length >= 2);
+    const changes = () => c.frames.filter((f) => f.event === "delegation.changed" && f.payload.sessionId === ctx.sessionId);
+    await waitFor(() => changes().length >= 3);
+    // Every one of them is this one run's: its begin, its settle and its collect.
+    expect(changes().map((f) => f.payload.childId)).toEqual(changes().map(() => child!.id));
     c.close();
   });
 
@@ -408,6 +411,10 @@ describe("the lead's list of its sub-agents", () => {
     expect((await one(ctx.sessionId)).child).toBeNull();
     const stranger = app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default" });
     expect((await one(stranger.session.id)).child).toBeNull();
+    // Another lead's sub-agent is not this one's.
+    const theirs = app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default",
+      dispatchedBy: { kind: "agent_run", sessionId: stranger.session.id } });
+    expect((await one(theirs.session.id)).child).toBeNull();
     c.close();
   });
 
