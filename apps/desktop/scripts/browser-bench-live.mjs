@@ -123,6 +123,8 @@ const linesOf = (snap) => snap.split("\n").flatMap((l) => l.replace(/^\{offscree
   .map((l) => /^\[ref=(\d+)\] (\S+)(?: "(.*?)")?(.*)$/.exec(l)).filter(Boolean)
   .map(([, ref, role, name, rest]) => ({ ref: Number(ref), role, name: name ?? "", rest }));
 const lineFor = (snap, name, role) => linesOf(snap).find((l) => l.name.trim().toLowerCase() === name.toLowerCase() && (!role || l.role === role)) ?? null;
+/** A diff's lines without its removed section: what the page still has. */
+const stillListed = (snap) => snap.replace(/^removed:\n(?:\[ref=.*\n?)*/m, "");
 const nextOffset = (snap) => Number(/Snapshot again with offset: (\d+)/.exec(snap)?.[1]) || null;
 
 /* ---------------------------------- the tasks ---------------------------------- */
@@ -246,7 +248,7 @@ const TASKS = [
         saveMarkedNew: !!save && (save.rest.endsWith(" [new]") || /^changed:$/m.test(after)),
       };
     },
-    check: async ({ state, pane }) => !lineFor(state.after ?? "", "Remove INV-1007") && (await pane(`!document.getElementById("save").disabled && document.querySelectorAll("#rows tr").length === 11`)),
+    check: async ({ state, pane }) => !lineFor(stillListed(state.after ?? ""), "Remove INV-1007") && (await pane(`!document.getElementById("save").disabled && document.querySelectorAll("#rows tr").length === 11`)),
   },
 ];
 

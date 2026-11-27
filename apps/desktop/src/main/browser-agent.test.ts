@@ -429,6 +429,27 @@ describe("buildSnapshot", () => {
     expect((await buildSnapshot(next, alone.index, { diff: true })).text).toContain("so this is the whole list");
   });
 
+  it("diff does not call an element removed while an overlay covers it", async () => {
+    const page = (modal: boolean) => {
+      const doc = makeSnapshotDoc();
+      doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 42 }), [10, 10, 100, 30], { paint: 1 });
+      const ax: AxEntry[] = [{ backendDOMNodeId: 42, role: "button", name: "Behind the modal" }];
+      if (modal) {
+        doc.addLayout(doc.addNode({ tag: "DIV", backendId: 99 }), [0, 0, 1000, 800], { paint: 50, styles: { "background-color": "rgba(0, 0, 0, 0.8)" } });
+        doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 43 }), [400, 300, 100, 30], { paint: 60 });
+        ax.push({ backendDOMNodeId: 43, role: "button", name: "Close" });
+      }
+      return fakeSend({ snapshot: doc.payload(), ax }).send;
+    };
+    const first = await buildSnapshot(page(false), null);
+    const covered = await buildSnapshot(page(true), first.index, { diff: true });
+    expect(covered.text).toContain('added:\n[ref=43] button "Close"');
+    expect(covered.text).not.toContain("removed:");
+    const closed = await buildSnapshot(page(false), covered.index, { diff: true });
+    expect(closed.text).toContain('removed:\n[ref=43] button "Close"');
+    expect(closed.text).not.toContain("added:");
+  });
+
   it("puts a run of offscreen elements on one line, flagged once, each keeping its ref", async () => {
     const snap = await buildSnapshot(invoiceTable({ rows: 5, offscreenFrom: 1 }), null);
     expect(snap.text.split("\n")).toEqual([

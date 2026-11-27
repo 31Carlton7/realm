@@ -215,7 +215,8 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   // new. The index keeps every element still on the page, listed this time or not: a narrowed or
   // cut-off snapshot sees part of the page, and the next one must not call the rest new. A page none
   // of whose refs survive is a different document (a navigation), and nothing on it is "new" to mark.
-  const present = new Set(visible.map((c) => c.backendNodeId));
+  // An element under an overlay is still on the page: it is not listed, and it is not removed either.
+  const present = new Set(interactive.map((c) => c.backendNodeId));
   const prior = previous && [...previous.keys()].some((ref) => present.has(ref)) ? previous : null;
   const index: SnapshotIndex = new Map([...(prior ?? [])].filter(([ref]) => present.has(ref)));
   const diff = scope.diff === true && prior !== null;
