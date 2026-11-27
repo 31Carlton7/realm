@@ -197,6 +197,67 @@ describe("the index a session reads, by agent", () => {
   });
 });
 
+describe("a space folder index longer than Claude's auto-memory loads", () => {
+  /** An index of `n` entries, line N saying "note N", except the three about notarizing: line 50, which
+   *  Claude loads itself, and lines 210 and 220 past its 200. */
+  const index = (n: number): string[] => Array.from({ length: n }, (_, i) => {
+    const line = i + 1;
+    if (line === 50) return "- [Notary head](notary-head.md) — notarization needs the keychain unlocked";
+    if (line === 210) return "- [Notary tail](notary-tail.md) — notarization stalls on the asc upload";
+    if (line === 220) return "- [Notary keychain](notary-keychain.md) — notarization fails when the keychain item locks";
+    return `- [Entry ${line}](entry-${line}.md) — note ${line}`;
+  });
+  const PROMPT = "notarization keeps failing on the keychain, what do I do";
+
+  async function withIndex(n: number) {
+    const h = await made();
+    await h.repos.edit(P, { op: "add", entry: "ROOT-FACT the user is Carlton", sessionId: SESSION });
+    const dir = h.repos.spaceFolderFor(SPACE)!.dir;
+    mkdirSync(dir, { recursive: true });
+    const all = index(n);
+    writeFileSync(join(dir, "MEMORY.md"), `${all.join("\n")}\n`);
+    const environments = { ensurePrimary: (spaceId: string): Environment => ({ id: "e", spaceId, path: h.home, branch: null, kind: "primary", portBlockStart: null, createdAt: 0, updatedAt: 0 }) };
+    const memory = new MemoryService({ home: h.home, settings: h.settings, environments, claudeDir: join(h.home, "claude-home"), repos: h.repos });
+    const context = (kind: "claude" | "codex") => memory.systemContextFor({ spaceId: SPACE, kind, cwd: h.home, skillsInjected: false, query: PROMPT })!;
+    return { ...h, all, context };
+  }
+  /** The lines of the workspace folder's index block, or null when the context has none. */
+  const folderLines = (context: string): string[] | null => {
+    const m = /<memory-index folder="workspace">\n([\s\S]*?)\n<\/memory-index>/.exec(context);
+    return m ? m[1]!.split("\n") : null;
+  };
+
+  it("hands Claude lines 201 to 222 and none before, the ones about the prompt first", async () => {
+    const { all, context } = await withIndex(222);
+    const claude = context("claude");
+    const got = folderLines(claude)!;
+    // THE MUTANTS: a cut at 199 or 201, or the head handed over too, changes this set.
+    expect([...got].sort()).toEqual(all.slice(200).sort());
+    expect(got.slice(0, 2)).toEqual([all[219], all[209]]);
+    expect(got.slice(2)).toEqual(all.slice(200).filter((l) => !l.includes("Notary")));
+    expect(claude).not.toContain("Notary head");
+    expect(claude).toContain("Your auto-memory loads only the first 200 lines of");
+    expect(claude).toContain("the ones closest to this session's first prompt (or its title) first");
+    expect(claude).toContain("ROOT-FACT");
+  });
+
+  it("hands Claude nothing of a 150-line index, or of one at exactly 200", async () => {
+    for (const n of [150, 200]) {
+      const { repos, context } = await withIndex(n);
+      expect(folderLines(context("claude"))).toBeNull();
+      expect(repos.indexesFor(SPACE, { forAgent: "claude" }).map((r) => r.kind)).toEqual(["root"]);
+    }
+  });
+
+  it("hands Codex the whole 222-line index in its own order, as before", async () => {
+    const { all, context } = await withIndex(222);
+    const codex = context("codex");
+    expect(folderLines(codex)).toEqual(all);
+    expect(codex).toContain("Its MEMORY.md follows.");
+    expect(codex).not.toContain("Your auto-memory loads");
+  });
+});
+
 describe("a space moved to another profile", () => {
   const WORK = "01ARZ3NDEKTSV4RRFFQ69G5FPW";
   const SCHOOL = "01ARZ3NDEKTSV4RRFFQ69G5FPS";
