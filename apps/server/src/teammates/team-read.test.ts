@@ -109,8 +109,9 @@ describe("the realm-team provider", () => {
     const { spaceId, home, make } = await boot();
     const captain = make("Captain", { lead: true });
     const ctx = { sessionId: captain.homeSessionId!, spaceId };
-    const provider = createTeammatesProvider({ store: { hasAny: () => true }, teammates: app.team, manage: { create: async () => ({ content: [] }), update: async () => ({ content: [] }) }, across: new CrossSpaceTeamTools({ team: app.team, spaces: new SpacesStore(app.db, home), sessions: app.sessions, broker: { gate: async () => ({ allowed: true }) } }), mcp: { providerEnabled: () => true } });
-    expect((await provider.tools(ctx)).map((t) => t.name)).toEqual(["team_list", "teammate_get", "teammate_sessions", "teammate_create", "teammate_update", "team_message", "team_set_access", "space_teams"]);
+    const none = async () => ({ content: [] });
+    const provider = createTeammatesProvider({ store: { hasAny: () => true }, teammates: app.team, manage: { create: none, update: none, archive: none, setLead: none, reorder: none, runClock: none }, across: new CrossSpaceTeamTools({ team: app.team, spaces: new SpacesStore(app.db, home), sessions: app.sessions, broker: { gate: async () => ({ allowed: true }) } }), mcp: { providerEnabled: () => true } });
+    expect((await provider.tools(ctx)).map((t) => t.name)).toEqual(["team_list", "teammate_get", "teammate_sessions", "teammate_create", "teammate_update", "teammate_archive", "teammate_set_lead", "teammate_reorder", "teammate_run_clock", "team_message", "team_set_access", "space_teams"]);
     expect(text(await provider.call(ctx, "teammate_get", { to: "captain" }))).toContain("@captain (Lead) (you) — Captain");
     expect(text(await provider.call(ctx, "teammate_sessions", { to: "captain" }))).toBe("@captain has started no task sessions.");
     expect(text(await provider.call(ctx, "team_list", { archived: true }))).toBe("This space has no archived teammates.");

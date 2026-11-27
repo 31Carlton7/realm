@@ -1777,7 +1777,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createTeammatesProvider({
     store: teammatesStore, teammates: team, mcp,
     manage: new TeamManageTools({
-      team, sessions, broker: browserBroker, userHome, realmHome: opts.home,
+      team, schedules, sessions, broker: browserBroker, userHome, realmHome: opts.home,
       defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
     }),
     across: new CrossSpaceTeamTools({ team, spaces, sessions, broker: browserBroker }),
