@@ -104,7 +104,7 @@ export class WindowIdle<W extends IdleWindow> {
     const now = this.d.now();
     const answers: Promise<{ id: number; kept: IdleKeep | null }>[] = [];
     for (const { win, focusedAt } of this.windows.values()) {
-      if (win.isDestroyed() || this.unloaded.has(win.id) || this.waking.has(win.id) || now - focusedAt < idleMs) continue;
+      if (win.isDestroyed() || this.unloaded.has(win.id) || this.isLoading(win) || now - focusedAt < idleMs) continue;
       const reason = win.id === this.lastUsed ? "last" : this.d.keep(win);
       if (reason) {
         // Still in use: its clock starts again from now, so leaving it later is when it starts to idle.
@@ -161,7 +161,6 @@ export function wakesWindows(payload: unknown): boolean {
   return status === "running" || status === "waiting_permission";
 }
 
-/** The spaces with a session working or waiting on an answer. */
 export function busySpaces(sessions: readonly { spaceId: string; status: string }[]): Set<string> {
   return new Set(sessions.filter((s) => s.status === "running" || s.status === "waiting_permission").map((s) => s.spaceId));
 }
