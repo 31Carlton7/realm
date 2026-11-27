@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { parseScreen, parseStream, serveSimCommand, parseUiState, parseAxTree, parseEvents, parseClaim, serveSim } from "./serve-sim";
+import { parseScreen, parseStream, serveSimCommand, parseUiState, parseAxTree, parseEvents, parseClaim, serveSim, AxReadTimedOut, type ServeSimStream } from "./serve-sim";
 
 /** Both transcribed from a real `serve-sim@0.1.46` run against a booted iPhone 17 Pro. */
 const DETACHED = '{"url":"http://127.0.0.1:3100","streamUrl":"http://127.0.0.1:3100/helper/75D1511C-5E00-41A6-9CA2-1650DEAAF571/stream.mjpeg","wsUrl":"ws://127.0.0.1:3100/helper/75D1511C-5E00-41A6-9CA2-1650DEAAF571/ws","port":3100,"device":"75D1511C-5E00-41A6-9CA2-1650DEAAF571"}';
@@ -149,6 +149,21 @@ describe("parseAxTree", () => {
       children: [{ AXLabel: "Hidden", type: "Button", enabled: true, frame: { x: 0, y: 0, width: 0, height: 0 }, children: [] }],
     }]))!;
     expect(tree.elements).toHaveLength(0);
+  });
+});
+
+describe("serveSim's tree read", () => {
+  const stream: ServeSimStream = { running: true, device: "UDID", url: "http://127.0.0.1:3100", streamUrl: null, wsUrl: null, port: 3100, pid: 1 };
+  const read = (answer: () => Promise<Response>) => serveSim({}, answer as unknown as typeof fetch).ax(stream, "UDID");
+
+  it("is no tree for a 503 or a dropped connection — the device's \"not yet\"", async () => {
+    expect(await read(async () => new Response("", { status: 503 }))).toBeNull();
+    expect(await read(async () => { throw new TypeError("fetch failed"); })).toBeNull();
+  });
+
+  it("is an AxReadTimedOut when the daemon does not answer in time (#645)", async () => {
+    // THE MUTANT: a timeout read as "not yet", which every step then asks again.
+    await expect(read(async () => { throw new DOMException("The operation was aborted due to timeout", "TimeoutError"); })).rejects.toBeInstanceOf(AxReadTimedOut);
   });
 });
 

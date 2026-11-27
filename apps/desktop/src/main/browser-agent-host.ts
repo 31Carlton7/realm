@@ -5,9 +5,9 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential, type AgentFillKind } from "@realm/contracts";
 import { isAbsolute } from "node:path";
-import type { LatestCode } from "./security-codes";
+import { missedCodeError, type CodeWait } from "./security-codes";
 import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { credentialSiteMatch } from "./password-match";
@@ -189,18 +189,26 @@ export type BrowserAgentHostDeps = {
    * Security codes (`security-codes.ts`), for the `codesEnabled` and `fillCode` ops alone. Absent is
    * the same answer as the switch being off: nothing is read and nothing is filled.
    */
-  codes?: { enabled(): boolean; latest(origin: string): Promise<LatestCode | null> };
+  codes?: { enabled(): boolean; waitFor(origin: string, o: { signal?: AbortSignal }): Promise<CodeWait> };
   /**
    * Paint `fields` over in a JPEG screenshot (base64), as the phone's picture is covered; null when it
    * cannot. Absent is the same answer: a screenshot with a secret field in it is then not taken.
    */
   coverShot?(jpeg: string, fields: SecretFields): string | null;
+  /** Let agents finish sign-ins (`agent-signins.ts`): the switch, and the log of agent fills Settings
+   *  lists. Absent is the switch off, with nothing logged. */
+  signins?: { enabled(): boolean; record(fill: { site: string; kind: AgentFillKind; sessionId: string | null }): void };
 };
 
 /** Who a fill was for, as realm-server named it: the asking session's space. */
 type FillWho = { spaceId?: string };
 function fillWho(params: Record<string, unknown>): FillWho {
   return typeof params.spaceId === "string" && params.spaceId ? { spaceId: params.spaceId } : {};
+}
+
+/** The agent's session a fill was for, as realm-server named it, for the log Settings lists. */
+function fillSession(params: Record<string, unknown>): string | null {
+  return typeof params.sessionId === "string" && params.sessionId ? params.sessionId : null;
 }
 
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
@@ -299,6 +307,8 @@ export class BrowserAgentHost {
    *  taken out (`hideCodes`): the page may draw the code as text, submit it in a URL or log it, and an
    *  agent may copy it into a field of its own. */
   private readonly filledCodes = new Map<string, Set<string>>();
+  /** Per view, the fill waiting for its code to arrive, so an interrupted turn can stop it. */
+  private readonly codeWaits = new Map<string, AbortController>();
 
   /**
    * The theme accent every mark this host draws inside a page is painted in — the action ring, the
@@ -702,6 +712,8 @@ export class BrowserAgentHost {
        *  is off without a card being raised for a fill that could not happen. Reads no message. */
       case "codesEnabled":
         return { enabled: this.d.codes?.enabled() ?? false };
+      case "signinsEnabled":
+        return { enabled: this.d.signins?.enabled() ?? false };
       /**
        * Type the security code that just arrived into the code field at `ref` — after the person
        * approved this fill on its card, which is the only way realm-server sends this op. The code is
@@ -721,17 +733,34 @@ export class BrowserAgentHost {
         if (!origin) return { ok: false, refused: "origin_mismatch", error: "this pane is not on an http(s) page, so nothing was filled" } satisfies BrowserActResult;
         const entry = this.ensure(browserId);
         const send = entry.binding.send;
+        const notCodeField = { ok: false, error: `ref=${ref} is not a one-time-code field, and Realm fills a code only into one — take a fresh browser_snapshot` } satisfies BrowserActResult;
+        if (!(await codeTargets(send, ref))) return notCodeField;
+        this.codeWaits.get(browserId)?.abort();
+        const waiting = new AbortController();
+        this.codeWaits.set(browserId, waiting);
+        const started = Date.now();
+        const wait = await codes.waitFor(origin, { signal: waiting.signal }).catch(() => null)
+          .finally(() => { if (this.codeWaits.get(browserId) === waiting) this.codeWaits.delete(browserId); });
+        if (!wait) return { ok: false, error: "Realm could not read Messages or Mail, so nothing was filled" } satisfies BrowserActResult;
+        if (!wait.found) {
+          return { ok: false, error: wait.cancelled ? "the wait for a code was cancelled, so nothing was filled" : missedCodeError(wait.miss, Date.now() - started) } satisfies BrowserActResult;
+        }
+        const found = wait.found;
+        // The page had up to a minute and a half to redraw its field: found again, not reused.
         const targets = await codeTargets(send, ref);
-        if (!targets) return { ok: false, error: `ref=${ref} is not a one-time-code field, and Realm fills a code only into one — take a fresh browser_snapshot` } satisfies BrowserActResult;
-        const found = await codes.latest(origin).catch(() => null);
-        if (!found) return { ok: false, error: "no security code arrived by Messages or Mail in the last 5 minutes, so nothing was filled" } satisfies BrowserActResult;
+        if (!targets) return notCodeField;
         const result = await performCodeFill(send, targets.objectIds, { origin, code: found.code });
         if (result.ok) {
+          this.d.signins?.record({ site: origin, kind: "code", sessionId: fillSession(params) });
           this.codeFilled(browserId, targets.backendNodeIds, found.code);
           this.d.typed?.(browserId);
         }
         return result;
       }
+      /** The fill's turn was interrupted: stop waiting for its code. Fills nothing, reads nothing. */
+      case "fillCodeCancel":
+        this.codeWaits.get(browserId)?.abort();
+        return { cancelled: true };
       case "dismissDialog": {
         const entry = this.ensure(browserId);
         const pending = this.takePendingChooser(entry);
@@ -880,7 +909,10 @@ export class BrowserAgentHost {
           return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
         this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error", who);
-        if (result.ok) this.d.typed?.(browserId);
+        if (result.ok) {
+          this.d.typed?.(browserId);
+          this.d.signins?.record({ site: origin, kind: generate ? "generated" : "password", sessionId: fillSession(params) });
+        }
         // The id travels back only for a generated fill, and only as metadata: it is how the agent
         // fills this same new password into a confirm field without ever being told what it is.
         return result.ok && generate && credentialId

@@ -17,7 +17,7 @@ import { SCREENSHOT_MAX_EDGE } from "../machines/driver";
 import { downscale, encodePng } from "../machines/framebuffer";
 import { decodePngToRgba, pngSize } from "../machines/qmp-driver";
 import { RpcError } from "../store/rows";
-import type { SimulatorService } from "./service";
+import { TreeReadTimedOut, type SimulatorService } from "./service";
 import { DEVICE_KEYS, inputRefusal, type DeviceInput, type DevicePoint } from "./device-input";
 import { findLabel, inStatusBar, runPath, tapPoint, type ExecIO, type ExecResult, type ExecStopReason } from "./executor";
 import type { ScreenMotion } from "./screen-motion";
@@ -1195,14 +1195,15 @@ const LIVE_READ_RETRY_MS = 400;
  * The tree a step acts on. A read that lands while a screen is still arriving can get the device's
  * "not yet" — MEASURED, on the read straight after a tap that pushed Settings ▸ General — and the
  * moment after one step is exactly when the next one reads. So "not yet" is asked again, briefly, as
- * the Android driver asks again for its own; anything else is the answer.
+ * the Android driver asks again for its own; anything else is the answer, and so is a read that
+ * timed out, which would only time out again.
  */
 async function liveTree(c: Call, row: Simulator): Promise<SimulatorAxTree> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await c.d.simulators.ax(row.id);
     } catch (e) {
-      if (attempt >= LIVE_READ_ATTEMPTS || !(e instanceof RpcError && e.code === "UNAVAILABLE")) throw e;
+      if (attempt >= LIVE_READ_ATTEMPTS || e instanceof TreeReadTimedOut || !(e instanceof RpcError && e.code === "UNAVAILABLE")) throw e;
       await new Promise((r) => setTimeout(r, LIVE_READ_RETRY_MS));
     }
   }

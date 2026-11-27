@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { android, androidBins, encodeInputText, firstUntypeable, parseAdbDevices, parseAvds, parseBounds, parsePackages, parseUiAutomator, parseWmSize } from "./android";
@@ -184,5 +184,17 @@ describe("input, as adb is actually run", () => {
     const failed = await droid.key("emulator-5554", "KEYCODE_HOME");
     expect(failed.ok).toBe(false);
     expect(failed.detail).toContain("keyevent KEYCODE_HOME");
+  });
+});
+
+describe("booting", () => {
+  it("starts the emulator without its own window — the pane is the only picture of the phone", async () => {
+    const dir = tempDir("realm-emulator-");
+    const log = join(dir, "argv"), bin = join(dir, "emulator");
+    writeFileSync(bin, `#!/bin/sh\necho "$@" > "${log}"\n`);
+    chmodSync(bin, 0o755);
+    expect(await android({ REALM_EMULATOR_BIN: bin }).boot("Pixel_7_API_36")).toEqual({ ok: true, detail: "" });
+    await vi.waitFor(() => expect(existsSync(log)).toBe(true));
+    expect(readFileSync(log, "utf8").trim().split(" ")).toEqual(["-avd", "Pixel_7_API_36", "-no-window", "-no-audio", "-no-boot-anim", "-no-snapshot"]);
   });
 });

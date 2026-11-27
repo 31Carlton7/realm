@@ -10,6 +10,19 @@ export const KEYS_DOUBLE_TAP_KEY = "keys.doubleTapCommand";
 export const KEYS_DOUBLE_TAP_DEFAULT = true;
 
 /**
+ * Which Command key the double-tap is read on. Left unless changed, so Right Command stays free for
+ * Siri, which macOS can put on a double-tap of it. A home that had saved the double-tap on before
+ * there was a choice was moved to `either`, what it had (migrations.ts); every other home has no
+ * value and reads the default.
+ */
+export const KEYS_DOUBLE_TAP_SIDE_KEY = "keys.doubleTapSide";
+export const COMMAND_SIDES = ["left", "right", "either"] as const;
+export type CommandSide = (typeof COMMAND_SIDES)[number];
+export const COMMAND_SIDE_DEFAULT: CommandSide = "left";
+export const isCommandSide = (x: unknown): x is CommandSide => COMMAND_SIDES.includes(x as CommandSide);
+export const COMMAND_SIDE_LABEL: Record<CommandSide, string> = { left: "Left Command", right: "Right Command", either: "Either" };
+
+/**
  * The modifier held for assistant chords. Fn unless changed. The other two exist because some
  * keyboards handle Fn inside the keyboard and never send it to the Mac.
  */

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { PaneHealth } from "@realm/contracts";
+import { SECURITY_CODE_WAIT_MS, type PaneHealth } from "@realm/contracts";
 import type { WebSocket } from "ws";
 import type { RpcServer } from "../rpc/server";
 
@@ -23,6 +23,11 @@ export const BROWSER_HOST_OPS = [
    *  the request carries a ref and the card's origin, the answer `{ ok, detail }`. */
   "codesEnabled",
   "fillCode",
+  /** Stop a `fillCode` still waiting for its code, because the agent's call was cancelled. */
+  "fillCodeCancel",
+  /** Whether the person let agents finish sign-ins (main's `agent-signins.ts`): no card for a code
+   *  fill or an own-site password fill. Main's file; no op writes it. */
+  "signinsEnabled",
   /**
    * Hand realm-server the `oauth` domain key from main's safeStorage-anchored keyring, so
    * `readOauthState` can stay synchronous while tokens stop being plaintext in `realm.db`.
@@ -117,6 +122,9 @@ export type HostOp = (typeof HOST_OPS)[number];
  *  listener sweep; a heavy page can take seconds — but a minute means the view is gone or the page is
  *  hung, and the agent deserves an answer either way. */
 const OP_TIMEOUT_MS = 60_000;
+
+/** Ops that run longer than that by design: a code fill waits for its code to arrive. */
+const LONG_OP_TIMEOUT_MS: Partial<Record<HostOp, number>> = { fillCode: SECURITY_CODE_WAIT_MS + 30_000 };
 
 /** How long main gets to answer `paneHealth`. It answers from main itself, past a page that may be
  *  hung, so a few seconds of silence means main is the one not answering. */
@@ -281,7 +289,7 @@ export class BrowserHostBridge {
 
   /** An op on a pane, whose timeout has the pane checked before it rejects. */
   private watched(op: HostOp, params: Record<string, unknown>, browserId: string): Promise<unknown> {
-    return this.send(op, params, OP_TIMEOUT_MS).catch(async (e: unknown) => {
+    return this.send(op, params, LONG_OP_TIMEOUT_MS[op] ?? OP_TIMEOUT_MS).catch(async (e: unknown) => {
       if (!(e instanceof OpTimeout) || PERSON_OPS.has(op)) throw e;
       const health = await this.check(browserId);
       if (health === "ok") throw e;

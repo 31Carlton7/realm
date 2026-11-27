@@ -237,6 +237,46 @@ describe("frozen through a session's restarts, end to end", () => {
     forget.mockRestore();
   }, 20_000);
 
+  it("fits a long space index to the session's first prompt, and keeps that fit across a server restart", async () => {
+    const home = tempDir("realm-memory-ranked-");
+    vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
+    let codex = new RecordingAdapter("codex");
+    app = await createApp({ home, port: 0, adapters: { codex }, claudeDir: join(home, "claude-home") });
+    let c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const space = (await c.call("spaces.create", { profileId: p.id, name: "A" })).result;
+    const repo = (await c.call("memory.repo.create", { scope: "profile", ownerId: p.id })).result.path as string;
+    // 220 entries, 22,000 characters: over the space folder's cap. Line 215 is the one about notarizing.
+    const pad = (line: string) => line.padEnd(99, ".");
+    const notary = pad("- [Notary profile](notary-profile.md) — the keychain item locks after a reboot; use the asc API key");
+    const index = Array.from({ length: 220 }, (_, i) => pad(i === 214 ? notary : `- [Filler ${i}](filler-${i}.md) — an entry about something else`));
+    const startOn = async (id: string, text: string) => {
+      const before = codex.starts.length;
+      await c.call("sessions.send", { id, text });
+      await waitFor(() => codex.starts.length === before + 1);
+      return codex.starts.at(-1)!.systemContext ?? "";
+    };
+    // A first start names the space's folder; the index is written into it after.
+    await startOn((await c.call("sessions.create", { spaceId: space.id, agentKind: "codex" })).result.session.id, "hello");
+    writeFileSync(join(repo, "spaces", "a", "MEMORY.md"), `${index.join("\n")}\n`);
+    const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "codex" })).result;
+
+    const first = await startOn(session.id, "notarization keeps failing on the keychain");
+    expect(first).toContain(notary);
+    // Cut in order, the tail would keep lines up to about 197 and stop there.
+    expect(first).not.toContain(index[218]);
+    expect(first).toContain("the rest were ranked out");
+
+    // A new server has no frozen block: it ranks against the stored first prompt, not this message.
+    c.close();
+    await app.close();
+    codex = new RecordingAdapter("codex");
+    app = await createApp({ home, port: 0, adapters: { codex }, claudeDir: join(home, "claude-home") });
+    c = await client(app.port);
+    expect(await startOn(session.id, "something else entirely")).toBe(first);
+    c.close();
+  }, 20_000);
+
   it("gives a restarted session the exact context of its first start after an agent's save, and a new one after the user's edit", async () => {
     const home = tempDir("realm-memory-freeze-int-");
     vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));

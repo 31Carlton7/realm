@@ -1,0 +1,211 @@
+{
+  "commit": "c9b4fc71a310a780d9931543c1c4abcfbb0634b6",
+  "ranAt": "2026-11-26T08:42:40.804Z",
+  "runs": 3,
+  "tokenEstimate": "ceil(chars / 4)",
+  "viewport": {
+    "window": {
+      "width": 1440,
+      "height": 900
+    },
+    "pane": {
+      "width": 554,
+      "height": 820
+    }
+  },
+  "toolsList": {
+    "browser": {
+      "tools": 15,
+      "bytes": 13658,
+      "tokens": 3398
+    },
+    "gateway": {
+      "tools": 77,
+      "bytes": 74933,
+      "tokens": 18660
+    }
+  },
+  "tasks": [
+    {
+      "id": "form",
+      "title": "Fill and submit the 12-field sign-up",
+      "success": "3/3",
+      "toolCalls": 15,
+      "snapshotCalls": 2,
+      "snapshotChars": 2575,
+      "snapshotTokens": 644,
+      "largestSnapshotChars": 2072,
+      "returnedChars": 2992,
+      "returnedTokens": 748,
+      "imageBytes": 0,
+      "actMs": 13,
+      "snapshotMs": 9,
+      "taskMs": 639,
+      "snapshotCharsByRun": [
+        2383,
+        2575,
+        2575
+      ],
+      "taskMsByRun": [
+        680,
+        620,
+        639
+      ],
+      "notes": null,
+      "failures": []
+    },
+    {
+      "id": "catalog",
+      "title": "Add product 250 to the cart (icon-only buttons)",
+      "success": "3/3",
+      "toolCalls": 4,
+      "snapshotCalls": 3,
+      "snapshotChars": 70511,
+      "snapshotTokens": 17628,
+      "largestSnapshotChars": 24906,
+      "returnedChars": 70541,
+      "returnedTokens": 17636,
+      "imageBytes": 0,
+      "actMs": 170,
+      "snapshotMs": 133,
+      "taskMs": 567,
+      "snapshotCharsByRun": [
+        69578,
+        70511,
+        70890
+      ],
+      "taskMsByRun": [
+        573,
+        567,
+        566
+      ],
+      "notes": {
+        "snapshotPages": 2,
+        "unnamedButtons": 266,
+        "cartShown": true
+      },
+      "failures": []
+    },
+    {
+      "id": "docs",
+      "title": "Reach \"Getting started\" in the docs, step by step",
+      "success": "3/3",
+      "toolCalls": 5,
+      "snapshotCalls": 3,
+      "snapshotChars": 4164,
+      "snapshotTokens": 1041,
+      "largestSnapshotChars": 1527,
+      "returnedChars": 4223,
+      "returnedTokens": 1056,
+      "imageBytes": 0,
+      "actMs": 167,
+      "snapshotMs": 8,
+      "taskMs": 357,
+      "snapshotCharsByRun": [
+        4164,
+        4164,
+        4164
+      ],
+      "taskMsByRun": [
+        357,
+        353,
+        358
+      ],
+      "notes": null,
+      "failures": []
+    },
+    {
+      "id": "docs-walk",
+      "title": "Reach \"Getting started\" with one browser_do",
+      "success": "3/3",
+      "toolCalls": 1,
+      "snapshotCalls": 0,
+      "snapshotChars": 0,
+      "snapshotTokens": 0,
+      "largestSnapshotChars": 0,
+      "returnedChars": 1534,
+      "returnedTokens": 384,
+      "imageBytes": 0,
+      "actMs": 444,
+      "snapshotMs": null,
+      "taskMs": 444,
+      "snapshotCharsByRun": [
+        0,
+        0,
+        0
+      ],
+      "taskMsByRun": [
+        454,
+        436,
+        444
+      ],
+      "notes": null,
+      "failures": []
+    },
+    {
+      "id": "dialog",
+      "title": "Snapshot a page under a modal",
+      "success": "3/3",
+      "toolCalls": 1,
+      "snapshotCalls": 1,
+      "snapshotChars": 1473,
+      "snapshotTokens": 369,
+      "largestSnapshotChars": 1473,
+      "returnedChars": 1473,
+      "returnedTokens": 369,
+      "imageBytes": 0,
+      "actMs": null,
+      "snapshotMs": 7,
+      "taskMs": 7,
+      "snapshotCharsByRun": [
+        1473,
+        1473,
+        1473
+      ],
+      "taskMsByRun": [
+        7,
+        19,
+        7
+      ],
+      "notes": {
+        "backgroundListed": 7
+      },
+      "failures": []
+    },
+    {
+      "id": "spa-diff",
+      "title": "Remove a row, then re-snapshot",
+      "success": "3/3",
+      "toolCalls": 3,
+      "snapshotCalls": 2,
+      "snapshotChars": 3747,
+      "snapshotTokens": 937,
+      "largestSnapshotChars": 1981,
+      "returnedChars": 3777,
+      "returnedTokens": 945,
+      "imageBytes": 0,
+      "actMs": 165,
+      "snapshotMs": 11,
+      "taskMs": 185,
+      "snapshotCharsByRun": [
+        3747,
+        3747,
+        3747
+      ],
+      "taskMsByRun": [
+        185,
+        187,
+        185
+      ],
+      "notes": {
+        "linesBefore": 28,
+        "linesAfter": 26,
+        "markedNew": 10,
+        "removalNamed": false,
+        "saveEnabledShown": true,
+        "saveMarkedNew": false
+      },
+      "failures": []
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 import { SNAPSHOT_STYLES } from "./browser-agent";
+import type { CodeWait } from "./security-codes";
 
 const SECRET = "correct horse battery staple";
 /** What the fake store "generates". A distinct string so a test can tell the two values apart in the
@@ -41,6 +42,8 @@ function setup(opts: {
   screenshotTimeoutMs?: number;
   /** Run while the page is being captured — something the page does mid-snapshot. */
   duringCapture?: () => void;
+  /** Let agents finish sign-ins: the switch, and the log the host writes each agent fill to. */
+  signins?: { enabled: boolean; fills: { site: string; kind: string; sessionId: string | null }[] };
   /** Answers that depend on the params — consulted first, `undefined` falls through to the rest. */
   respond?: (method: string, params?: Record<string, unknown>) => unknown;
   /** The page being brought back from a discard: settles when it has loaded. */
@@ -93,6 +96,7 @@ function setup(opts: {
       ...(opts.popups ? { popups: opts.popups } : {}),
     } : null),
     ...(opts.openedTabs ? { takeOpenedTabs: async () => opts.openedTabs!.splice(0) } : {}),
+    ...(opts.signins ? { signins: { enabled: () => opts.signins!.enabled, record: (fill) => { opts.signins!.fills.push(fill); } } } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.screenshotTimeoutMs !== undefined ? { screenshotTimeoutMs: opts.screenshotTimeoutMs } : {}),
     secrets: opts.credentials === undefined ? undefined : {
@@ -546,6 +550,16 @@ describe("BrowserAgentHost — fillCredential", () => {
       expect(r).toMatchObject({ ok: false, refused: "origin_mismatch" });
       expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
     });
+  });
+
+  it("logs an agent fill for Settings, by site, kind and session, and answers the switch", async () => {
+    const signins = { enabled: true, fills: [] as { site: string; kind: string; sessionId: string | null }[] };
+    const { host } = setup({ credentials: [cred], signins });
+    expect(await host.handleOp("signinsEnabled", {})).toEqual({ enabled: true });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork", sessionId: "sess1" });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "ghost", profileId: "pWork", sessionId: "sess1" });
+    expect(signins.fills).toEqual([{ site: "https://example.com", kind: "password", sessionId: "sess1" }]);
+    expect(JSON.stringify(signins.fills)).not.toContain(SECRET);
   });
 
   it("fills on a matching origin and logs exactly timestamp/origin/credentialId/outcome", async () => {
@@ -1406,7 +1420,7 @@ describe("BrowserAgentHost — annotate", () => {
 describe("BrowserAgentHost — fillCode", () => {
   const CODE = "482913";
   /** A page whose ref 7 is a code field of `boxes` inputs (0 = not a code field). */
-  function codePage(opts: { enabled?: boolean; code?: string | null; boxes?: number; page?: string; respond?: (method: string, params?: Record<string, unknown>) => unknown; coverShot?: (jpeg: string, fields: { vw: number; vh: number; rects: number[][] }) => string | null } = {}) {
+  function codePage(opts: { enabled?: boolean; code?: string | null; wait?: (signal?: AbortSignal) => Promise<CodeWait>; signins?: unknown[]; boxes?: number; page?: string; respond?: (method: string, params?: Record<string, unknown>) => unknown; coverShot?: (jpeg: string, fields: { vw: number; vh: number; rects: number[][] }) => string | null } = {}) {
     const reads: string[] = [];
     const typed: string[] = [];
     let emit: ((method: string, params: unknown) => void) | null = null;
@@ -1434,12 +1448,17 @@ describe("BrowserAgentHost — fillCode", () => {
       typed: (id) => typed.push(id),
       codes: {
         enabled: () => opts.enabled ?? true,
-        latest: async (origin) => { reads.push(origin); return opts.code === null ? null : { code: opts.code ?? CODE, source: "Messages" }; },
+        waitFor: async (origin, o) => {
+          reads.push(origin);
+          if (opts.wait) return opts.wait(o.signal);
+          return opts.code === null ? { found: null, cancelled: false, miss: { Messages: "quiet", Mail: "quiet", Notifications: "quiet" } } : { found: { code: opts.code ?? CODE, source: "Messages" } };
+        },
       },
       ...(opts.coverShot ? { coverShot: opts.coverShot } : {}),
+      ...(opts.signins ? { signins: { enabled: () => true, record: (fill) => { opts.signins!.push(fill); } } } : {}),
     });
     const keys = () => calls.filter((c) => c.method === "Input.dispatchKeyEvent" && c.params?.type === "keyDown").map((c) => c.params?.text).join("");
-    return { host, calls, reads, typed, keys, emit: (method: string, params: unknown) => emit?.(method, params) };
+    return { host, calls, reads, typed, keys, fills: opts.signins ?? [], emit: (method: string, params: unknown) => emit?.(method, params) };
   }
   const fill = (host: BrowserAgentHost) => host.handleOp("fillCode", { browserId: "b1", ref: 7, origin: "https://example.com" }) as Promise<{ ok: boolean; detail?: string; error?: string; refused?: string }>;
 
@@ -1451,6 +1470,15 @@ describe("BrowserAgentHost — fillCode", () => {
     expect(p.reads).toEqual(["https://example.com"]);
     expect(p.typed).toEqual(["b1"]);
     expect(JSON.stringify(r)).not.toContain(CODE);
+  });
+
+  it("logs the fill for Settings by site and session, and only a fill that happened", async () => {
+    const filled = codePage({ signins: [] });
+    await filled.host.handleOp("fillCode", { browserId: "b1", ref: 7, origin: "https://example.com", sessionId: "sess1" });
+    expect(filled.fills).toEqual([{ site: "https://example.com", kind: "code", sessionId: "sess1" }]);
+    const missed = codePage({ code: null, signins: [] });
+    await missed.host.handleOp("fillCode", { browserId: "b1", ref: 7, origin: "https://example.com", sessionId: "sess1" });
+    expect(missed.fills).toEqual([]);
   });
 
   it("types one digit per box into a split field", async () => {
@@ -1480,9 +1508,30 @@ describe("BrowserAgentHost — fillCode", () => {
     expect(p.keys()).toBe("");
   });
 
-  it("says so when no code arrived, and types nothing", async () => {
+  it("says which source was empty when no code arrived, and types nothing", async () => {
     const p = codePage({ code: null });
-    expect(await fill(p.host)).toMatchObject({ ok: false, error: expect.stringContaining("last 5 minutes") });
+    expect(await fill(p.host)).toMatchObject({ ok: false, error: expect.stringMatching(/^no security code arrived in \d+ s.*Text Message Forwarding.*Mail may not be fetching/) });
+    expect(p.keys()).toBe("");
+  });
+
+  it("stops waiting when the call is cancelled, and types nothing", async () => {
+    const p = codePage({ wait: (signal) => new Promise((resolve) => signal?.addEventListener("abort", () => resolve({ found: null, cancelled: true }))) });
+    const pending = fill(p.host);
+    await vi.waitFor(() => expect(p.reads).toHaveLength(1));
+    expect(await p.host.handleOp("fillCodeCancel", { browserId: "b1" })).toEqual({ cancelled: true });
+    expect(await pending).toMatchObject({ ok: false, error: expect.stringContaining("cancelled") });
+    expect(p.keys()).toBe("");
+  });
+
+  it("finds the field again after the wait, and refuses one that is no longer a code field", async () => {
+    // THE MUTANT: the nodes found before a minute and a half of waiting typed into after it.
+    let codeField = true;
+    const p = codePage({
+      wait: async () => { codeField = false; return { found: { code: CODE, source: "Mail" } }; },
+      respond: (method, params) => (!codeField && method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("codeGroupOf")
+        ? { result: params?.returnByValue ? { value: null } : { subtype: "null" } } : undefined),
+    });
+    expect(await fill(p.host)).toMatchObject({ ok: false, error: expect.stringContaining("not a one-time-code field") });
     expect(p.keys()).toBe("");
   });
 

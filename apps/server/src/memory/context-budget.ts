@@ -1,4 +1,5 @@
 import { MEMORY_REPO_INDEX_FILE } from "@realm/contracts";
+import { MemorySearch, terms } from "./search";
 
 /**
  * How much of what AGENTS wrote travels into every session, and which part gives way first.
@@ -30,11 +31,58 @@ export const SPACE_FOLDER_INDEX_CAP = 20_000;
 export const TEAM_INDEX_CAP = 8_000;
 export const PROFILE_INDEX_CAP = 8_000;
 
+/**
+ * What a save may add to an index, and when it says the index is getting long. These are checked
+ * where entries are written; the caps above only cut what a session is handed.
+ *
+ * - **One index line, 200.** A save whose line would run longer writes a hook this long at most to
+ *   MEMORY.md and the whole entry to a fact file it links (`MemoryRepoService.edit`). Root entries had
+ *   reached a median of 357 characters and a longest of 735, so the profile root fit 21 of its 53.
+ * - **A warning at 180 lines or 18,000 characters.** Claude's own auto-memory loads the first 200
+ *   lines of an index, and `SPACE_FOLDER_INDEX_CAP` cuts at 20,000 characters: the warning comes a
+ *   tenth before either, while there is still room to tidy. It never refuses the save.
+ */
+export const INDEX_LINE_MAX = 200;
+export const INDEX_WARN_LINES = 180;
+export const INDEX_WARN_CHARS = 18_000;
+/**
+ * The share of a cut index's room its first lines keep, whole and in order; the rest goes to the lines
+ * after them that rank highest for what the session is about (`indexQuery`). Half, because the top of
+ * an index is where its owner puts what every session needs, and what is past it was written later,
+ * not less.
+ */
+export const INDEX_HEAD_SHARE = 0.5;
+/** How much of one index the ranking chooses from: ten caps' worth, so a long index's tail is read
+ *  instead of cut at the cap before anything is ranked. */
+export const INDEX_READ_MAX = 10 * SPACE_FOLDER_INDEX_CAP;
+
+/** What a session's indexes are ranked against: its first prompt, or its title while it has none. "" —
+ *  no ranking, the index cut at a line as it always was — when it has neither. */
+export function indexQuery(firstPrompt: string | null | undefined, title: string | null | undefined): string {
+  return firstPrompt?.trim() || title?.trim() || "";
+}
+
+/** The lines of an index Claude's auto-memory loads; the rest it drops. */
+const CLAUDE_INDEX_LINES = 200;
+
+/** What a save tells the agent once `index` (an index's whole text, as the save left it) is at
+ *  `INDEX_WARN_LINES` or `INDEX_WARN_CHARS`, or null while it is under both. */
+export function indexWarning(file: string, index: string): string | null {
+  const lines = index === "" ? 0 : index.replace(/\n$/, "").split("\n").length;
+  const over = [
+    lines >= INDEX_WARN_LINES ? `${lines} lines (the warning is at ${INDEX_WARN_LINES}; Claude loads the first ${CLAUDE_INDEX_LINES})` : null,
+    index.length >= INDEX_WARN_CHARS ? `${index.length.toLocaleString("en-US")} characters (the warning is at ${INDEX_WARN_CHARS.toLocaleString("en-US")})` : null,
+  ].filter((x) => x !== null);
+  if (over.length === 0) return null;
+  return `${file} is now ${over.join(" and ")}. Entries past the cut are not loaded into new sessions: merge entries that say the same thing, memory_remove ones that are no longer true, or move detail into topic files.`;
+}
+
 /** One block competing for the budget. `priority` is lower for the more specific block, which gives
  *  way last. `pointer` is the line that says where the rest is, shown when the block is cut. `cut`
  *  says the text is already short of the whole (a read cap upstream), so it needs its pointer even if
- *  all of it fits here. */
-export type BudgetBlock = { priority: number; cap: number; text: string; pointer: string; cut?: boolean };
+ *  all of it fits here. `query`, when it has words, is what a block that does not fit ranks its lines
+ *  against past its head (`INDEX_HEAD_SHARE`). */
+export type BudgetBlock = { priority: number; cap: number; text: string; pointer: string; cut?: boolean; query?: string };
 /** What of one block fits: its text, whole or cut at a line, and whether it needs its pointer. */
 export type FittedBlock = { text: string; cut: boolean };
 
@@ -61,11 +109,39 @@ export function fitBlocks(blocks: readonly BudgetBlock[], total: number): Fitted
       left -= b.text.length;
       return;
     }
-    const text = b.cut && b.text.length + b.pointer.length <= room ? b.text : cutAtLine(b.text, room - b.pointer.length);
+    const max = room - b.pointer.length;
+    const text = b.cut && b.text.length <= max ? b.text
+      : b.query && terms(b.query).length > 0 ? fitRanked(b.text, max, b.query, b.cut === true)
+      : cutAtLine(b.text, max);
     out[i] = { text, cut: true };
     left -= text.length + b.pointer.length;
   });
   return out;
+}
+
+/**
+ * At most `max` of `text` in whole lines: its head up to `INDEX_HEAD_SHARE` of `max`, then the lines
+ * after it that rank highest for `query`, then the rest in order while they fit. The lines kept stay
+ * in the order the index has them. `partial` drops the last line, which a read cap may have cut short.
+ */
+function fitRanked(text: string, max: number, query: string, partial: boolean): string {
+  const head = cutAtLine(text, Math.floor(max * INDEX_HEAD_SHARE));
+  const lines = text.split("\n");
+  if (partial) lines.pop();
+  const from = head === "" ? 0 : head.split("\n").length;
+  const tail = lines.slice(from);
+  const ranked = new MemorySearch().rankIndexLines(tail.join("\n"), query);
+  const rankedSet = new Set(ranked);
+  const order = [...ranked, ...tail.map((_, i) => i).filter((i) => !rankedSet.has(i))];
+  let left = max - head.length;
+  const kept = new Set<number>();
+  for (const i of order) {
+    const cost = tail[i]!.length + 1;
+    if (tail[i]!.trim() === "" || cost > left) continue;
+    kept.add(i);
+    left -= cost;
+  }
+  return [head, ...tail.filter((_, i) => kept.has(i))].filter((l) => l !== "").join("\n");
 }
 
 /** The longest start of `text` that ends at a line break and is at most `max` long — "" when not even
@@ -89,30 +165,34 @@ export type RepoIndexLike = { scope: "profile" | "space"; kind?: "root" | "space
  * The repos' indexes fitted to `MEMORY_INDEX_BUDGET`: the space folder's first, then a team repo's,
  * then the profile's root — the most specific gives way last. Each entry comes back with `index` cut
  * to what fits and `truncated` set where anything is missing, so the block that renders it adds
- * `readRestPointer` — the line this budget held room for.
+ * `readRestPointer` — the line this budget held room for. With a `query` (`indexQuery`), what is cut
+ * past an index's head is what ranked lowest for it, and `ranked` says so.
  */
-export function budgetRepoIndexes<T extends RepoIndexLike>(indexes: readonly T[], total = MEMORY_INDEX_BUDGET): T[] {
+export function budgetRepoIndexes<T extends RepoIndexLike>(indexes: readonly T[], total = MEMORY_INDEX_BUDGET, query = ""): (T & { ranked: boolean })[] {
+  const ranked = terms(query).length > 0;
   const fitted = fitBlocks(indexes.map((r) => {
     const folder = r.kind === "spaceFolder";
     return {
       priority: folder ? 0 : r.scope === "space" ? 1 : 2,
       cap: folder ? SPACE_FOLDER_INDEX_CAP : r.scope === "space" ? TEAM_INDEX_CAP : PROFILE_INDEX_CAP,
-      text: r.index, pointer: readRestPointer(r), cut: r.truncated,
+      text: r.index, pointer: readRestPointer({ ...r, ranked }), cut: r.truncated, query,
     };
   }), total);
-  return indexes.map((r, i) => ({ ...r, index: fitted[i]!.text, truncated: fitted[i]!.cut }));
+  return indexes.map((r, i) => ({ ...r, index: fitted[i]!.text, truncated: fitted[i]!.cut, ranked: ranked && fitted[i]!.cut }));
 }
 
 /**
  * The line under a cut index that says how to read the rest: `memory_read` with the file and the
- * repo, which works whether the session has one repo or two.
+ * repo, which works whether the session has one repo or two. A `ranked` cut says which lines were left
+ * out: past its first lines, the ones that ranked lowest for this session.
  */
-export function readRestPointer(r: Pick<RepoIndexLike, "scope" | "kind" | "path">): string {
-  if (r.kind !== "spaceFolder") return `That MEMORY.md is longer than this; \`memory_read\` MEMORY with \`repo: "${r.scope}"\` for the rest.`;
+export function readRestPointer(r: Pick<RepoIndexLike, "scope" | "kind" | "path"> & { ranked?: boolean }): string {
+  const which = r.ranked ? "; past its first lines, the entries shown are the ones that rank highest for this session's first prompt (or its title), and the rest were ranked out" : "";
+  if (r.kind !== "spaceFolder") return `That MEMORY.md is longer than this${which}; \`memory_read\` MEMORY with \`repo: "${r.scope}"\` for the rest.`;
   const folder = spaceFolderOf(r.path);
   return folder
-    ? `This space's MEMORY.md is longer than this; \`memory_read\` ${folder}/MEMORY with \`repo: "${r.scope}"\` for the rest.`
-    : `This space's MEMORY.md is longer than this; \`memory_read\` spaces with \`repo: "${r.scope}"\` lists the space folders, and this space's has the rest.`;
+    ? `This space's MEMORY.md is longer than this${which}; \`memory_read\` ${folder}/MEMORY with \`repo: "${r.scope}"\` for the rest.`
+    : `This space's MEMORY.md is longer than this${which}; \`memory_read\` spaces with \`repo: "${r.scope}"\` lists the space folders, and this space's has the rest.`;
 }
 
 /** `spaces/<folder>` from a space folder entry's path — the folder itself or its MEMORY.md — or null

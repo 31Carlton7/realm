@@ -172,6 +172,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "quick-chat-shortcut", tab: "keys", section: "From anywhere", label: "Open the quick chat from any app", terms: "global shortcut hotkey popup panel anywhere system-wide",
     available: () => capabilities().quickChatPanel },
   { id: "double-tap-command", tab: "keys", section: "From anywhere", label: "Double-tap Command opens the quick chat", terms: "global hotkey shortcut cmd popup anywhere", available: () => capabilities().accessibility },
+  { id: "double-tap-side", tab: "keys", section: "From anywhere", label: "Command key to double-tap", terms: "left right either command siri quick chat", available: () => capabilities().accessibility },
   { id: "quick-chat-hide", tab: "keys", section: "From anywhere", label: "Hide the quick chat from screen sharing", terms: "screen share recording capture zoom meet private",
     available: () => capabilities().quickChatPanel },
   { id: "assistant-hold-key", tab: "keys", section: "From anywhere", label: "Hold for assistant shortcuts", terms: "fn globe right option command modifier meeting hotkey", available: () => capabilities().accessibility },

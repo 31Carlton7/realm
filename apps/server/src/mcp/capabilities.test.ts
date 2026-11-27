@@ -200,6 +200,32 @@ describe("capabilitiesContext", () => {
   });
 });
 
+describe("keeping agents off the user's screen", () => {
+  // THE MUTANT for each: delete the sentence. Nothing else tells an agent that its own shell's
+  // `open` puts a window, the user's browser or Simulator.app in front of the user's work.
+  it("tells every session, tools or none, how to start apps and binaries without coming to the front", () => {
+    for (const text of [capabilitiesContext([]), capabilitiesContext([DOCS_PROVIDER_NAME])]) {
+      expect(text).toContain("## Staying off the user's screen");
+      expect(text).toContain("Open a Mac app with `open -g -j`, never a bare `open X.app`.");
+      expect(text).toContain(
+        "Never run a binary under `~/Desktop`, `~/Documents` or `~/Downloads` as its own responsible process " +
+        "(launched with `open`, or with its responsibility disclaimed): macOS asks the user for that folder in a " +
+        "dialog that stays up after the process is killed. Copy it out of those folders first.");
+    }
+  });
+
+  it("sends a dev server to the browser pane and a device to the simulator pane, only where the session has them", () => {
+    const both = capabilitiesContext([BROWSER_PROVIDER_NAME, SIMULATOR_PROVIDER_NAME]);
+    expect(both).toContain(
+      "Open a dev server here with `browser_open http://localhost:…`, never `open <url>`, which hands it to the " +
+      "user's own browser and brings that to the front.");
+    expect(both).toContain("and never run `open -a Simulator`: the pane already streams the device.");
+    const neither = capabilitiesContext([DOCS_PROVIDER_NAME]);
+    expect(neither).not.toContain("open <url>");
+    expect(neither).not.toContain("open -a Simulator");
+  });
+});
+
 describe("the blocks Realm draws, as the preamble teaches them", () => {
   const text = capabilitiesContext([]);
   /** The JSON the preamble shows for a fence, read back out of the prose it sits in. */

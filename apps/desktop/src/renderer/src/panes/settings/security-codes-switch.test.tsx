@@ -22,7 +22,7 @@ afterEach(() => { (window as unknown as { realm: unknown }).realm = saved; });
 
 describe("Settings ▸ Sign-ins ▸ Security codes", () => {
   it("starts off, says what Realm reads and when, and turns on with one press", async () => {
-    const sets = bridge({ enabled: false, sources: null }, (on) => ({ enabled: on, sources: { Messages: "ok", Mail: "ok" } }));
+    const sets = bridge({ enabled: false, sources: null }, (on) => ({ enabled: on, sources: { Messages: "ok", Mail: "ok", Notifications: "missing" } }));
     render(<SecurityCodesSwitch />);
     const toggle = await screen.findByRole("switch", { name: "Fill codes from Messages and Mail" });
     expect(toggle).not.toBeChecked();
@@ -35,9 +35,9 @@ describe("Settings ▸ Sign-ins ▸ Security codes", () => {
   });
 
   it("says which source macOS is keeping from Realm, and where to grant it", () => {
-    expect(securityCodesLine({ enabled: true, sources: { Messages: "no_access", Mail: "ok" } }))
+    expect(securityCodesLine({ enabled: true, sources: { Messages: "no_access", Mail: "ok", Notifications: "missing" } }))
       .toBe("macOS isn't letting Realm read Messages. Turn on Realm under System Settings ▸ Privacy & Security ▸ Full Disk Access.");
-    expect(securityCodesLine({ enabled: true, sources: { Messages: "ok", Mail: "missing" } })).toMatch(/Only Messages can be read here\.$/);
-    expect(securityCodesLine({ enabled: true, sources: { Messages: "missing", Mail: "missing" } })).toMatch(/nothing|no Messages/i);
+    expect(securityCodesLine({ enabled: true, sources: { Messages: "ok", Mail: "missing", Notifications: "missing" } })).toMatch(/Only Messages can be read here\.$/);
+    expect(securityCodesLine({ enabled: true, sources: { Messages: "missing", Mail: "missing", Notifications: "missing" } })).toMatch(/nothing|no Messages/i);
   });
 });
