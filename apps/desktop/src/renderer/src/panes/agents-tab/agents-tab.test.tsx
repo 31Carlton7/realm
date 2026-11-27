@@ -112,8 +112,7 @@ describe("the list of a session's sub-agents", () => {
     </StoreContext.Provider>);
     await card(/^Write the tests\./);
     await screen.findByRole("group", { name: "Agents in this session" });
-    // Mutant: the tab's mount reads with `refreshSubagents` again — two reads for one open, the pane's
-    // and the tab's, on every cold switch to a lead.
+    // Mutant: the tab's mount reads with `refreshSubagents` again, so one open reads twice.
     expect(reads()).toBe(1);
     store.getState().applyDelegationChanged({ sessionId: "se1", running: [] });
     // Mutant: a change joins the read in flight, or reads nothing once the list is held.

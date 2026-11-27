@@ -64,7 +64,7 @@ export function AgentsTab({ item, visible }: PaneProps) {
   // And again whenever a child changes state: a wait starting or ending is what moves its spent
   // budget from ticking to held, and only the server knows how long it was held.
   const statuses = useApp((s) => (s.subagents[leadId] ?? NO_CHILDREN).map((c) => s.sessionStatus[c.session.id] ?? "").join(","));
-  // From when the list arrives: its arrival is not a child changing state, and was just read.
+  // Counted from the list's arrival, which is a read of its own and not a child changing state.
   const seenStatuses = useRef(loaded ? statuses : null);
   useEffect(() => {
     if (!loaded) return;

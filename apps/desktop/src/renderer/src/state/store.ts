@@ -8190,8 +8190,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       applyBrowserClosed(browserId) { api.destroyBrowserView(browserId); },
       async refreshDelegatedRuns(sessionId) {
-        // Only the runs: what read this set — a mount, a reconnect — reads the list of sub-agents
-        // beside it (`loadSubagents`, `refreshSubagents`), and a second read here doubled every open.
+        // Only the runs: every caller (a mount, a reconnect) reads the list of sub-agents itself.
         setDelegatedRuns(sessionId, await api.listDelegatedRuns(sessionId));
       },
       applyDelegationChanged({ sessionId, running }) {
