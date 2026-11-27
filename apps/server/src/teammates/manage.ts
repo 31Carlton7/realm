@@ -151,7 +151,7 @@ export class TeamManageTools {
     return ok(target ? `@${target.handle} is the Lead now${current ? `; @${current.handle} is not` : ""}.` : `The space has no Lead now; @${current!.handle} is not.`);
   }
 
-  /** `teammate_reorder`: the Team list's order and sections, every teammate on it, top to bottom. No card: it is cosmetic. */
+  /** `teammate_reorder`: the Team list's order and sections, every teammate on it, top to bottom. */
   async reorder(ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
     const a = parseArgs(TeammateReorderArgsSchema, raw); if ("error" in a) return a.error;
     const nothing = "Nothing changed.";
