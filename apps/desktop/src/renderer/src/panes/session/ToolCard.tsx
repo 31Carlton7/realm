@@ -348,6 +348,10 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
  * wrap onto a line the box never shows (styles.css), but a wrapped box keeps the width it shrank to,
  * so the reserved "1 failed" stood a gap away from the last count it followed. Measured against the
  * group, whose width the head cannot change, so the measure never feeds itself.
+ *
+ * Every run drawn at once is fitted in one pass (`fitWork`): the widths cleared, then all of them
+ * measured, then all of them set. Fitted one by one, each run's write threw away the layout the next
+ * one's read needed, and a transcript opening on forty runs laid itself out eighty times.
  */
 function useWorkFit(key: string) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -355,23 +359,59 @@ function useWorkFit(key: string) {
     const work = ref.current;
     const group = work?.closest(".tool-group");
     if (!work || !group) return;
-    const fit = () => {
-      work.style.maxWidth = "";
-      if (work.getBoundingClientRect().width === 0) return; // not laid out (a folded or hidden pane)
-      const parts = [...work.children];
-      const first = parts[0]?.getBoundingClientRect();
-      if (!first) return;
-      const shown = parts.filter((p) => Math.abs(p.getBoundingClientRect().top - first.top) < 2);
-      const right = shown[shown.length - 1]!.getBoundingClientRect().right;
-      work.style.maxWidth = `${Math.ceil(right - work.getBoundingClientRect().left)}px`;
-    };
-    fit();
-    if (typeof ResizeObserver === "undefined") return; // jsdom
-    const ro = new ResizeObserver(fit);
-    ro.observe(group);
-    return () => ro.disconnect();
+    queueFit(work);
+    return watchGroup(group, work);
   }, [key]);
   return ref;
+}
+
+const fitting = new Set<HTMLElement>();
+function queueFit(work: HTMLElement) {
+  // A microtask runs after the commit's layout effects and before the frame is painted.
+  if (fitting.size === 0) queueMicrotask(fitWork);
+  fitting.add(work);
+}
+function fitWork() {
+  const works = [...fitting].filter((w) => w.isConnected);
+  fitting.clear();
+  for (const w of works) w.style.maxWidth = "";
+  const widths = works.map((work): number | null => {
+    if (work.getBoundingClientRect().width === 0) return null; // not laid out (a folded or hidden pane)
+    const parts = [...work.children];
+    const first = parts[0]?.getBoundingClientRect();
+    if (!first) return null;
+    const shown = parts.filter((p) => Math.abs(p.getBoundingClientRect().top - first.top) < 2);
+    return Math.ceil(shown[shown.length - 1]!.getBoundingClientRect().right - work.getBoundingClientRect().left);
+  });
+  works.forEach((w, i) => {
+    const px = widths[i];
+    if (px === null) { fitted.delete(w); return; }
+    w.style.maxWidth = `${px}px`;
+    fitted.add(w);
+  });
+}
+
+/** One observer for every group: a group that changes width refits its work, in the same single
+ *  pass. Its first report of a group is the width the mount has just fitted to, when the mount could
+ *  measure it, and is passed over. */
+let groups: ResizeObserver | null = null;
+const workOf = new WeakMap<Element, HTMLElement>();
+const widthOf = new WeakMap<Element, number>();
+const fitted = new WeakSet<HTMLElement>();
+function watchGroup(group: Element, work: HTMLElement): () => void {
+  if (typeof ResizeObserver === "undefined") return () => {}; // jsdom
+  groups ??= new ResizeObserver((entries) => {
+    for (const e of entries) {
+      const w = workOf.get(e.target);
+      const width = e.contentRect.width, last = widthOf.get(e.target);
+      widthOf.set(e.target, width);
+      if (!w || width === last || (last === undefined && fitted.has(w))) continue;
+      queueFit(w);
+    }
+  });
+  workOf.set(group, work);
+  groups.observe(group);
+  return () => { groups?.unobserve(group); workOf.delete(group); };
 }
 
 /** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still

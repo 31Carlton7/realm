@@ -43,6 +43,7 @@ const ASSERT = process.env.SWITCH_ASSERT !== "0";
 const OUT = process.env.SWITCH_OUT ?? null;
 const FRAMES = process.env.SWITCH_FRAMES ?? null;
 const SCRATCH_HOME = process.env.SWITCH_HOME_DIR ?? null;
+const SPACE = process.env.SWITCH_SPACE ?? null;
 const PROFILE = process.env.SWITCH_PROFILE ?? null;
 const BEHAVIOUR = process.env.SWITCH_BEHAVIOUR === "1";
 /** Only the screencasts: one launch that opens every target once and films a warm switch, then a
@@ -198,8 +199,18 @@ function freshHome() {
   execFileSync("cp", ["-c", SOURCE_DB, path.join(home, "realm.db")]);
   const user = path.join(dir, "user");
   fs.mkdirSync(user, { recursive: true });
-  return { dir, home, user };
+  const userData = path.join(dir, "userData");
+  fs.rmSync(userData, { recursive: true, force: true });
+  fs.mkdirSync(userData, { recursive: true });
+  // The window opens on the targets' space, as a window restored from its last quit would.
+  if (SPACE) fs.writeFileSync(path.join(userData, "windows.json"), JSON.stringify({ windows: [{ profileId: null, spaceId: SPACE, showing: SPACE }] }));
+  return { dir, home, user, userData };
 }
+
+const launchIn = (where, renderer) => launchLiveApp({
+  name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000,
+  env: { REALM_HOME: where.home, HOME: where.user, LIVE_USER_DATA: where.userData },
+});
 
 const load = () => {
   const [one] = os.loadavg();
@@ -211,10 +222,7 @@ const load = () => {
 
 async function oneLaunch(n, renderer, targets) {
   const where = freshHome();
-  const app = await launchLiveApp({
-    name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000,
-    env: { REALM_HOME: where.home, HOME: where.user },
-  });
+  const app = await launchIn(where, renderer);
   const runs = [];
   try {
     const { page } = app;
@@ -294,7 +302,7 @@ async function captureFrames(app, targets) {
 /** A cold switch: the first open of the long session in a fresh launch. */
 async function coldFrames(renderer, targets) {
   const where = freshHome();
-  const app = await launchLiveApp({ name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000, env: { REALM_HOME: where.home, HOME: where.user } });
+  const app = await launchIn(where, renderer);
   try {
     const { page } = app;
     await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
@@ -320,7 +328,7 @@ async function coldFrames(renderer, targets) {
 async function behaviour(renderer, targets) {
   const [long, , short] = targets;
   const where = freshHome();
-  const app = await launchLiveApp({ name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000, env: { REALM_HOME: where.home, HOME: where.user } });
+  const app = await launchIn(where, renderer);
   const fails = [];
   const check = (ok, what, seen) => { console.log(`  ${ok ? "ok  " : "FAIL"} ${what}${seen === undefined ? "" : `: ${JSON.stringify(seen)}`}`); if (!ok) fails.push(what); };
   try {

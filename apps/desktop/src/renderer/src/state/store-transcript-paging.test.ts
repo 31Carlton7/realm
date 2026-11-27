@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { createAppStore } from "./store";
+import { FIRST_PAGE, PAGE_BACK } from "./transcript-paging";
 import { fakeApi, item, session } from "./store.test-fakes";
 import { emptyTranscript, reduceTranscript, type Block } from "../panes/session/transcript-model";
 
@@ -30,16 +31,27 @@ function seed(extra: { seenSeq?: number; log?: StoredSessionEvent[] } = {}) {
 const reads = (calls: string[]) => calls.filter((c) => c.startsWith("sessionEvents"));
 
 describe("opening a long session", () => {
-  it("reads one page from the end and starts at the latest prompt with enough after it", async () => {
+  it("draws the last turn from a small read first, then reads the rest of the tail in front of it", async () => {
     const { api, store } = seed(); await store.getState().boot();
+    const limits: number[] = [];
+    const before = api.sessionEventsBefore;
+    api.sessionEventsBefore = (id, seq, limit, types) => { if (!types) limits.push(limit); return before(id, seq, limit, types); };
+    const drawn: { from: number | undefined; said: number }[] = [];
+    const stop = store.subscribe((s, p) => {
+      const t = s.transcripts.se1?.t;
+      if (t && t !== p.transcripts.se1?.t) drawn.push({ from: t.earlier?.from, said: said(t.blocks).length });
+    });
     await store.getState().openSession("se1");
+    stop();
+    // First 2851..3000, kept from the last prompt with at least sixty events after it; then 2701..2900
+    // in front of it.
+    expect(drawn).toEqual([{ from: 2901, said: 100 }, { from: 2701, said: 300 }]);
+    expect(limits).toEqual([FIRST_PAGE, PAGE_BACK]);
     const { t, lastSeq } = store.getState().transcripts.se1!;
     expect(lastSeq).toBe(N);
     // 2701..3000: three hundred events, the first of them a prompt.
-    expect(t.earlier?.from).toBe(2701);
     expect(t.blocks[0]).toMatchObject({ kind: "user", text: "q2701", seq: 2701 });
-    expect(said(t.blocks)).toHaveLength(300);
-    expect(reads(api.calls)).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:end:init,usage,summary,prompt_hint"]);
+    expect(reads(api.calls)).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:end:init,usage,summary,prompt_hint", "sessionEventsBefore:se1:2901"]);
   });
 
   it("still knows what the log last said about the model and the meter, wherever it said it", async () => {
@@ -89,7 +101,7 @@ describe("reading further back", () => {
     expect(t.earlier?.from).toBe(1701);
     expect(said(t.blocks)).toHaveLength(1300);
     const front = t.blocks.length - before.blocks.length;
-    expect(t.base).toBe(-front);
+    expect(t.base).toBe((before.base ?? 0) - front);
     // The blocks already held are the same blocks, at the same place in the transcript's numbering.
     expect(t.blocks.slice(front)).toEqual(before.blocks);
     expect(t.blocks[front]).toBe(before.blocks[0]);

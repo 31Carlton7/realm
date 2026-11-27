@@ -1,5 +1,5 @@
 import { Icon, TeammateIcon } from "@realm/ui";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, moveFailedSentence, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Asker, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AccessLine } from "./AccessLine";
 import { SpaceMadeLine } from "./SpaceMadeLine";
@@ -58,13 +58,21 @@ export const WINDOW_BLOCKS = 400;
 export const EARLIER_BLOCKS = 400;
 /** How far before the cut the window may reach to open on a prompt rather than mid-answer. */
 const SNAP_BLOCKS = 200;
+/**
+ * A pane opening on the end of its log (`stage`) draws about a screenful in its first frame, cut
+ * where it falls, and then the rest of its window above the reader, FILL_BLOCKS a frame. Drawn whole,
+ * a window of a few hundred tool runs and answers held the switch to it for most of a second.
+ */
+export const FIRST_BLOCKS = 30;
+export const FILL_BLOCKS = 60;
 
 /** Where the drawn part of a transcript starts, aiming for `want` blocks: on the prompt just before
- *  the cut when there is one within reach, so the window opens on a question rather than mid-answer. */
-export function windowStart(blocks: readonly Block[], want = WINDOW_BLOCKS, end = blocks.length): number {
+ *  the cut when there is one within `snap` of it, so the window opens on a question rather than
+ *  mid-answer. */
+export function windowStart(blocks: readonly Block[], want = WINDOW_BLOCKS, end = blocks.length, snap = SNAP_BLOCKS): number {
   if (end <= want) return 0;
   const cut = end - want;
-  for (let i = cut; i >= Math.max(0, cut - SNAP_BLOCKS); i--) if (blocks[i]!.kind === "user") return i;
+  for (let i = cut; i >= Math.max(0, cut - snap); i--) if (blocks[i]!.kind === "user") return i;
   return cut;
 }
 /** A turn's edit card, keyed off the run line it sits above. */
@@ -289,7 +297,7 @@ function TeammateSender({ from, teammates }: { from: { title: string; teammateId
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES, onContinueOn, agentLabel = "the agent", asker, onCancelMove }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, stage = false, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES, onContinueOn, agentLabel = "the agent", asker, onCancelMove }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** Take the turn a usage limit stopped onto another of the agent's accounts. Absent draws no offer. */
   onContinueOn?: (accountId: string) => void;
@@ -386,6 +394,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
    *  session id, from the pane. Null (the default) opts out entirely, which is right for the
    *  read-only mounts: a fork preview and a test are not somebody's place in a log. */
   scrollKey?: string | null;
+  /** Draw the end first and the rest of the window over the next frames (`FIRST_BLOCKS`): a pane
+   *  being switched to. A reader being put back where they were gets the window whole. */
+  stage?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   /* Where this reader was last time this log was on screen, read ONCE at mount. A space switch
@@ -410,10 +421,29 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      is read in front, every index moves and the block the window starts on does not. */
   const [floor, setFloor] = useState<number | null>(() => (mark && !mark.atEnd ? mark.from ?? null : null));
   const base = transcript.base ?? 0;
-  const auto = windowStart(transcript.blocks);
+  /* Where a staged window starts, in the transcript's numbering, so blocks read in front of it later
+     stay undrawn until the fill reaches them. Decided on the first render with blocks to draw. */
+  const count0 = transcript.blocks.length;
+  const stageAt = () => windowStart(transcript.blocks, FIRST_BLOCKS, count0, 0) + base;
+  const [staged, setStaged] = useState<number | null | undefined>(() => (!stage || restoring ? null : count0 > 0 ? stageAt() : undefined));
+  if (staged === undefined && count0 > 0) setStaged(stageAt());
+  const full = windowStart(transcript.blocks);
+  const auto = staged == null ? full : Math.max(full, Math.min(count0, staged - base));
   const start = floor === null ? auto : Math.max(0, Math.min(floor - base, auto));
   const startRef = useRef(start);
   startRef.current = start;
+  /* The staged window's fill: a step further up each frame after the one painted, as a transition,
+     so a click or a keystroke meanwhile is not held behind it. A reader who scrolls up holds the
+     window instead (`floor`), and reaching for more draws it as it always has. */
+  useEffect(() => {
+    if (staged == null || floor !== null || staged - base <= full) return;
+    const to = full + base;
+    let timer = 0;
+    const frame = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => startTransition(() => setStaged((s) => (s == null ? s : Math.max(to, s - FILL_BLOCKS)))));
+    });
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+  }, [staged, floor, base, full]);
   const baseRef = useRef(base);
   baseRef.current = base;
   const more = transcript.earlier !== undefined && onEarlier !== undefined;
