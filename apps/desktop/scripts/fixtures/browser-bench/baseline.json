@@ -1,6 +1,6 @@
 {
-  "commit": "9e70ae5e1565f259747e05f279e604aa3c726b11",
-  "ranAt": "2026-11-27T11:25:49.876Z",
+  "commit": "642aa74ae8f96d1c425d534f6b855bdc4e64efcb",
+  "ranAt": "2026-11-27T13:07:58.574Z",
   "runs": 3,
   "tokenEstimate": "ceil(chars / 4)",
   "viewport": {
@@ -11,6 +11,17 @@
     "pane": {
       "width": 554,
       "height": 820
+    },
+    "paneView": {
+      "x": 886,
+      "y": 80,
+      "width": 554,
+      "height": 820
+    },
+    "display": {
+      "id": 3,
+      "label": "Sceptre O34",
+      "scaleFactor": 1
     }
   },
   "toolsList": {
@@ -20,9 +31,9 @@
       "tokens": 3634
     },
     "gateway": {
-      "tools": 82,
-      "bytes": 79237,
-      "tokens": 19734
+      "tools": 86,
+      "bytes": 81810,
+      "tokens": 20376
     }
   },
   "tasks": [
@@ -38,18 +49,18 @@
       "returnedChars": 1925,
       "returnedTokens": 482,
       "imageBytes": 0,
-      "actMs": 14,
-      "snapshotMs": 11,
-      "taskMs": 657,
+      "actMs": 10,
+      "snapshotMs": 8,
+      "taskMs": 602,
       "snapshotCharsByRun": [
         1495,
         1508,
         1508
       ],
       "taskMsByRun": [
-        1306,
-        657,
-        640
+        1190,
+        602,
+        585
       ],
       "notes": null,
       "failures": [
@@ -62,24 +73,24 @@
       "success": "3/3",
       "toolCalls": 4,
       "snapshotCalls": 3,
-      "snapshotChars": 42547,
+      "snapshotChars": 42548,
       "snapshotTokens": 10637,
-      "largestSnapshotChars": 22275,
-      "returnedChars": 42577,
+      "largestSnapshotChars": 22276,
+      "returnedChars": 42578,
       "returnedTokens": 10645,
       "imageBytes": 0,
       "actMs": 166,
-      "snapshotMs": 127,
-      "taskMs": 547,
+      "snapshotMs": 113,
+      "taskMs": 505,
       "snapshotCharsByRun": [
-        41875,
-        42547,
+        41876,
+        42548,
         42740
       ],
       "taskMsByRun": [
-        558,
-        538,
-        547
+        518,
+        501,
+        505
       ],
       "notes": {
         "snapshotPages": 2,
@@ -101,17 +112,17 @@
       "returnedTokens": 595,
       "imageBytes": 0,
       "actMs": 166,
-      "snapshotMs": 8,
-      "taskMs": 350,
+      "snapshotMs": 7,
+      "taskMs": 346,
       "snapshotCharsByRun": [
         2319,
         2319,
         2319
       ],
       "taskMsByRun": [
-        350,
-        361,
-        346
+        348,
+        346,
+        341
       ],
       "notes": null,
       "failures": []
@@ -128,18 +139,18 @@
       "returnedChars": 1200,
       "returnedTokens": 300,
       "imageBytes": 0,
-      "actMs": 443,
+      "actMs": 440,
       "snapshotMs": null,
-      "taskMs": 443,
+      "taskMs": 440,
       "snapshotCharsByRun": [
         0,
         0,
         0
       ],
       "taskMsByRun": [
-        446,
-        439,
-        443
+        440,
+        440,
+        435
       ],
       "notes": null,
       "failures": []
@@ -157,8 +168,8 @@
       "returnedTokens": 271,
       "imageBytes": 0,
       "actMs": null,
-      "snapshotMs": 7,
-      "taskMs": 7,
+      "snapshotMs": 6,
+      "taskMs": 6,
       "snapshotCharsByRun": [
         1082,
         1082,
@@ -166,8 +177,8 @@
       ],
       "taskMsByRun": [
         7,
-        7,
-        7
+        6,
+        6
       ],
       "notes": {
         "backgroundListed": 7
@@ -186,18 +197,18 @@
       "returnedChars": 2113,
       "returnedTokens": 529,
       "imageBytes": 0,
-      "actMs": 165,
-      "snapshotMs": 10,
-      "taskMs": 183,
+      "actMs": 163,
+      "snapshotMs": 9,
+      "taskMs": 180,
       "snapshotCharsByRun": [
         2083,
         2083,
         2083
       ],
       "taskMsByRun": [
-        183,
-        187,
-        183
+        185,
+        180,
+        176
       ],
       "notes": {
         "linesBefore": 28,

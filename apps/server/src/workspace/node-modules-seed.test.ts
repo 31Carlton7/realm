@@ -168,6 +168,22 @@ describe("seedNodeModules", () => {
     expect(seedTemps(worktree)).toEqual([]);
   });
 
+  it("waits for every cp before removing the temp clones when one fails early", async () => {
+    const { source, worktree } = checkouts(LOCK, LOCK);
+    let slowCp: Promise<void> | null = null;
+    const run: SeedRun = async (_cwd, _cmd, args) => {
+      if (args.at(-1)!.startsWith(join(worktree, "packages"))) {
+        slowCp = new Promise((resolve) => setTimeout(resolve, 50)).then(() => { mkdirSync(join(args.at(-1)!, "cloned"), { recursive: true }); });
+        return slowCp;
+      }
+      throw new Error("cp exited 1");
+    };
+    expect(await seedNodeModules(source, worktree, { platform: "darwin", run })).toBe("clone-failed");
+    await slowCp;
+    expect(existsSync(join(worktree, "node_modules"))).toBe(false);
+    expect(seedTemps(worktree)).toEqual([]);
+  });
+
   it("does nothing off macOS, where cp has no -c", async () => {
     const { source, worktree } = checkouts(LOCK, LOCK);
     const { run, calls } = recorder();
