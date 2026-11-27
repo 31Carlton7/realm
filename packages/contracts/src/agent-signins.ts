@@ -25,6 +25,14 @@ export const AGENT_SIGNINS_CARD = "agent_signins";
 
 export const AGENT_SIGNINS_CARD_TITLE = "Let agents finish sign-ins? Opens Settings";
 
+/**
+ * Set on a password fill card's input when sign-ins are off and the fill is on the password's own
+ * site: the card answers Allow once, Turn on sign-ins or Deny. Turn on sets main's switch through
+ * Settings' own IPC, then answers Allow, so the fill goes ahead with no second card. Only a person
+ * may answer it Allow (the broker's `personOnly`).
+ */
+export const AGENT_SIGNINS_OFFER = "offersSignins";
+
 /** What an agent is told when it reached for a fill while this is off. */
 export const AGENT_SIGNINS_OFF =
   "Realm asked the user to turn on agent sign-ins (Settings ▸ Sign-ins ▸ Let agents finish sign-ins). Nothing was filled.";

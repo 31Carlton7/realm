@@ -40,6 +40,7 @@ import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
 import { EditPasswordSheet, ImportPasswordsButton, KeychainNeededNotice, KeychainPasswords, PasswordExceptions, PasswordRowActions, SecurityCodesSwitch, UnreadablePasswordsNotice, matchesPasswordSearch } from "./PasswordsSection";
+import { AgentSigninsSection } from "./AgentSigninsSection";
 import { PageRail } from "../../components/page-nav";
 import { PLAIN_REASON_TEXT, type Look } from "../../glass/look";
 import { usePlainReason } from "../../glass/use-look";
@@ -2189,6 +2190,7 @@ function SignInsTab() {
           Only {profile.name}'s agents and browser panes can use these. Each profile keeps its own.
         </p>
       )}
+      <AgentSigninsSection profileId={profileId} profileName={profile?.name ?? "this profile"} />
 
       <div className="settings-head-row" data-setting="saved-signins">
         <h3 className="settings-head">Saved passwords</h3>

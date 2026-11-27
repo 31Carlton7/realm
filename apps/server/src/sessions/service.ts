@@ -13,6 +13,7 @@ import type { EnvironmentsStore } from "../store/environments";
 import type { SpacesStore } from "../store/spaces";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
+import type { Answerer } from "../browsers/permissions";
 import { NotFoundError, RpcError } from "../store/rows";
 import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
@@ -327,7 +328,7 @@ export class SessionService {
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
-    browserPermissions?: { owns(requestId: string): boolean; skippedUnderBypass(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void };
+    browserPermissions?: { owns(requestId: string): boolean; skippedUnderBypass(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string, by?: Answerer): boolean; release(sessionId: string): void };
     /** Computer use granted by a mention, per session (`computer/session-grants.ts`): what an
      *  `@Messages` in a delivered message writes, and what a deleted session takes with it. Optional —
      *  a harness without it treats an app mention as text and grants nothing. */
@@ -1115,7 +1116,7 @@ export class SessionService {
     this.d.failover?.cancel(id);
     await this.live.get(id)?.handle.interrupt();
   }
-  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): void {
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers, by: Answerer = "process"): void {
     this.get(id);
     // A masked answer is remembered BEFORE it goes anywhere, so the first event to quote it back — the
     // agent's tool result, often the very next thing on the wire — already finds it scrubbed.
@@ -1126,7 +1127,10 @@ export class SessionService {
     // BEFORE the live-handle check: the prompt blocks an MCP call inside the gateway, which stays
     // answerable even if the adapter process died while the card sat unanswered. Questions Realm
     // asks itself (`ui_ask`, an MCP server's elicitation) ride the same route, answers and all.
-    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision, answers, id); return; }
+    if (this.d.browserPermissions?.owns(requestId)) {
+      if (!this.d.browserPermissions.resolve(requestId, decision, answers, id, by)) throw new RpcError("FORBIDDEN", "only the person at Realm can answer this card");
+      return;
+    }
     const l = this.live.get(id);
     if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
     l.handle.respondPermission(requestId, decision, answers);

@@ -50,7 +50,7 @@ function setup(opts: {
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
   rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", favicon: "", createdAt: 1, updatedAt: 1 });
 
-  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean; preapproved?: boolean; promptUnderBypass?: boolean; onAlwaysAllow?: () => void }[], bridge: [] as { op: string; params: Record<string, unknown> }[], invites: [] as { toolName: string; title: string }[], notes: [] as SessionEvent[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
+  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean; preapproved?: boolean; promptUnderBypass?: boolean; personOnly?: boolean; onAlwaysAllow?: () => void }[], bridge: [] as { op: string; params: Record<string, unknown> }[], invites: [] as { toolName: string; title: string }[], notes: [] as SessionEvent[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
   const bridgeResults: Record<string, unknown> = {
     describe: { open: true, url: "https://example.com/checkout", title: "Example", element: { role: "button", name: "Submit order", tag: "button", inputType: null } },
     snapshot: { url: "https://example.com/", title: "Example", text: '[ref=11] button "Submit order"', elementCount: 1 },
@@ -112,7 +112,7 @@ function setup(opts: {
       gate: async (_sessionId, toolKey, title, input, toolName, gateOpts) => {
         calls.gates.push({
           toolKey, toolName, title, input, alwaysPrompt: gateOpts?.alwaysPrompt === true, ...(gateOpts?.preapproved ? { preapproved: true } : {}),
-          ...(gateOpts?.promptUnderBypass ? { promptUnderBypass: true } : {}), ...(gateOpts?.onAlwaysAllow ? { onAlwaysAllow: gateOpts.onAlwaysAllow } : {}),
+          ...(gateOpts?.promptUnderBypass ? { promptUnderBypass: true } : {}), ...(gateOpts?.personOnly ? { personOnly: true } : {}), ...(gateOpts?.onAlwaysAllow ? { onAlwaysAllow: gateOpts.onAlwaysAllow } : {}),
         });
         return opts.gate ?? { allowed: true };
       },
@@ -752,12 +752,23 @@ describe("browser_credentials / browser_fill_credential", () => {
       expect(calls.notes).toEqual([expect.objectContaining({ type: "signin_filled", payload: { site: "https://login.example.com", kind: "password", note: "Realm filled a saved password on login.example.com" } })]);
     });
 
-    it("with agent sign-ins off, keeps the card and asks once to turn them on", async () => {
+    it("with agent sign-ins off, the one fill card offers to turn them on, for a person to answer", async () => {
       const { call, calls } = setup({ bridgeResults: site() });
+      const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(r.isError).toBeFalsy();
+      expect(calls.gates).toHaveLength(1);
+      expect(calls.gates[0]).toMatchObject({ personOnly: true, promptUnderBypass: true, input: { offersSignins: true } });
+      expect(calls.gates[0]!.preapproved).toBeUndefined();
+      // No invitation beside it: the card is the offer.
+      expect(calls.invites).toEqual([]);
+      expect(calls.bridge.filter((b) => b.op === "fillCredential")).toHaveLength(1);
+    });
+
+    it("does not offer to turn sign-ins on where the person already said always", async () => {
+      const { call, calls } = setup({ bridgeResults: site(true) });
       await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
-      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
-      expect(calls.gates.map((g) => g.preapproved)).toEqual([undefined, undefined]);
-      expect(calls.invites).toEqual([{ toolName: "agent_signins", title: "Let agents finish sign-ins? Opens Settings" }]);
+      expect(calls.gates[0]!.input.offersSignins).toBeUndefined();
+      expect(calls.gates[0]!.personOnly).toBeUndefined();
     });
 
     it("skips the card where the person already said always — and only there", async () => {

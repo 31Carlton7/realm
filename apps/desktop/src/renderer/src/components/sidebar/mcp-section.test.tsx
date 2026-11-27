@@ -431,8 +431,8 @@ describe("scoped server groups (W4)", () => {
  * switch that rendered ON against that would be wrong about a permission in the direction that
  * matters.
  */
-describe("finishing sign-ins", () => {
-  const SWITCH = "Let Realm finish sign-ins in this space";
+describe("approving agent CLI logins", () => {
+  const SWITCH = "Approve agent CLI logins in this space";
 
   it("is off in a space that has never been asked", async () => {
     await mount();

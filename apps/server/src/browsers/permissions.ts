@@ -22,7 +22,12 @@ type PendingPrompt = { sessionId: string; toolKey: string; settle: Settle; timer
   /** Set for a QUESTION (`ask`): what its answers are held to, and how the log keeps them. */
   card?: AskCard;
   /** Set for an `invite`: nothing waits on it, so it never holds its session waiting. */
-  invite?: boolean };
+  invite?: boolean;
+  /** Only a person may answer Allow (`GateOptions.personOnly`). */
+  personOnly?: boolean };
+
+/** Who answered a card: a person, on Realm's window or their phone, or Realm's own code in process. */
+export type Answerer = "person" | "process";
 
 /**
  * How a question ended, for the caller that asked it. `refused`: Realm declined it before anyone saw
@@ -87,6 +92,12 @@ export type GateOptions = {
    * by the tenth. It records nothing durable — `onAlwaysAllow` still answers to "always" alone.
    */
   perSession?: boolean;
+  /**
+   * Only a person may answer it: an Allow that arrives from in process (`Answerer`), where an agent's
+   * tool call would come from, is refused and the card stays up. Deny is anyone's, so a session that
+   * ends still takes its cards down. Set on a password fill that offers to turn on agent sign-ins.
+   */
+  personOnly?: boolean;
 };
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
@@ -137,10 +148,12 @@ export class BrowserPermissionBroker {
 
   /** The user's answer, routed here by `SessionService.respondPermission`. Unknown ids are ignored
    *  (a stale card answered after the timeout already denied it), and so is an answer naming another
-   *  session than the one the card was put to. */
-  resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void {
+   *  session than the one the card was put to. False only for an Allow on a `personOnly` card that a
+   *  person did not give, which leaves the card up. */
+  resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string, by: Answerer = "process"): boolean {
     const p = this.pending.get(requestId);
-    if (!p || (sessionId !== undefined && p.sessionId !== sessionId)) return;
+    if (!p || (sessionId !== undefined && p.sessionId !== sessionId)) return true;
+    if (p.personOnly && decision !== "deny" && by !== "person") return false;
     this.pending.delete(requestId);
     clearTimeout(p.timer);
     if (p.card) {
@@ -151,7 +164,7 @@ export class BrowserPermissionBroker {
       this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision: answered ? "allow" : "deny", ...(answered ? { answers: loggableAnswers(p.card, given) } : {}) }));
       this.settled(p.sessionId);
       p.settle(answered ? { decision: "allow", answers: given } : { decision: "deny" });
-      return;
+      return true;
     }
     // An `alwaysPrompt` gate records nothing: the user answering "always" to a credential fill card
     // must not silently license the next one, on whatever origin that turns out to be.
@@ -167,6 +180,7 @@ export class BrowserPermissionBroker {
     this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision }));
     if (!p.invite) this.settled(p.sessionId);
     p.settle({ decision });
+    return true;
   }
 
   /** The session is waiting on nothing of the broker's any more, so it is running again — and not
@@ -290,7 +304,7 @@ export class BrowserPermissionBroker {
         resolve("deny");
       }, PROMPT_TIMEOUT_MS);
       this.pending.set(requestId, { sessionId, toolKey, settle: (r) => resolve(r.decision), timer, alwaysPrompt: opts.alwaysPrompt === true, perSession: opts.perSession === true, onAlwaysAllow: opts.onAlwaysAllow,
-        bypassable: !opts.alwaysPrompt && !opts.promptUnderBypass });
+        bypassable: !opts.alwaysPrompt && !opts.promptUnderBypass, personOnly: opts.personOnly === true });
       // Emitted AFTER the pending entry exists: a same-tick respondPermission must find it.
       // `toolName` is what the card SHOWS; `toolKey` is what `allow_always` remembers. They differ when
       // the grant must be narrower than the tool — Plan 20's ask keys on `agent_ask:<targetId>` so

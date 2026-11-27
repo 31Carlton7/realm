@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  AGENT_SIGNINS_CARD, AGENT_SIGNINS_CARD_TITLE, AGENT_SIGNINS_OFF, agentFillNote, sessionEvent,
+  AGENT_SIGNINS_CARD, AGENT_SIGNINS_CARD_TITLE, AGENT_SIGNINS_OFF, AGENT_SIGNINS_OFFER, agentFillNote, sessionEvent,
   BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema, refineKeyAction,
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
@@ -663,22 +663,27 @@ const HANDLERS: Record<string, Handler> = {
        - on a page of the password's own site: the card, which offers "Always allow on this site".
          That answer is kept in main for THIS password on THIS exact origin, and after it the card is
          skipped there — never the unlock, which main still asks for on every fill. With "Let agents
-         finish sign-ins" on, no card here at all; the unlock still runs;
+         finish sign-ins" on, no card here at all; the unlock still runs. Off, the card offers to turn
+         it on in place of "Always allow", and only a person may answer it (`personOnly`);
        - on any other page: the card on every fill (`alwaysPrompt`), whatever the person turned on:
          a password going into another site's page is how a phishing page would get it;
        - `bypassPermissions` skips none of it (`promptUnderBypass`): a secret entering a page is not an
          ordinary action. A read-only mode refuses before any of this. */
     const standing = pageOrigin !== null;
-    const finishing = await signinsOn(d, ctx);
+    // On its own site with sign-ins off, the fill card itself offers to turn them on, so no
+    // invitation goes up beside it.
+    const finishing = await signinsOn(d, ctx, { invite: !standing });
+    const offersSignins = standing && !finishing && onSite?.agentAllowed !== true;
     const allowKey = `browser_fill_credential:${credential.id}@${pageOrigin ?? ""}`;
     const gate = await d.broker.gate(
       ctx.sessionId, standing ? allowKey : "browser_fill_credential", title,
       // The input echoed onto the permission event — the card's "what was asked for" detail. Origin,
       // username and label, exactly as the spec requires, and structurally nothing else.
-      { browserId: row.value.id, ref: args.value.ref, origin: credential.origin, username: credential.username, label: credential.label, ...(standing ? { page: pageOrigin } : { always: false }) },
+      { browserId: row.value.id, ref: args.value.ref, origin: credential.origin, username: credential.username, label: credential.label, ...(standing ? { page: pageOrigin } : { always: false }), ...(offersSignins ? { [AGENT_SIGNINS_OFFER]: true } : {}) },
       "browser_fill_credential",
       standing ? {
         promptUnderBypass: true,
+        personOnly: offersSignins,
         preapproved: finishing || onSite?.agentAllowed === true,
         onAlwaysAllow: () => { void d.bridge.call("credentialAllow", { profileId: profileIdOf(d, ctx), credentialId: credential.id, origin: pageOrigin }).catch(() => {}); },
       }
@@ -962,10 +967,10 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
  * gets one card per session asking them to turn it on, which the agent cannot answer for them: it
  * opens Settings, and the switch is main's.
  */
-async function signinsOn(d: Deps, ctx: ProviderCallContext): Promise<boolean> {
+async function signinsOn(d: Deps, ctx: ProviderCallContext, o: { invite: boolean } = { invite: true }): Promise<boolean> {
   const r = (await d.bridge.call("signinsEnabled", {}).catch(() => null)) as { enabled?: boolean } | null;
   if (r?.enabled === true) return true;
-  d.broker.invite(ctx.sessionId, AGENT_SIGNINS_CARD, AGENT_SIGNINS_CARD_TITLE, { opens: "settings:signins" });
+  if (o.invite) d.broker.invite(ctx.sessionId, AGENT_SIGNINS_CARD, AGENT_SIGNINS_CARD_TITLE, { opens: "settings:signins" });
   return false;
 }
 
