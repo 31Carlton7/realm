@@ -30,6 +30,7 @@ import { DocumentPreviewServer } from "./documents/preview";
 import { MachineService } from "./machines/service";
 import { SimulatorService } from "./simulators/service";
 import { ViewerService } from "./viewers/service";
+import { HiddenApps } from "./viewers/hidden-apps";
 import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
@@ -1027,7 +1028,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const adaptIdle = (minutes: number, windows?: PressureIdleMinutes): number => resourcesLate?.adapt(minutes, windows) ?? minutes;
   const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), frontApp: async () => (await machineProbe.frontApp?.()) ?? null, home: opts.home, adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
-  const viewers = new ViewerService();
+  /* The origins Realm loads its own renderer from, measured rather than assumed: a packaged window
+     is a `file://` document and Chromium stamps `Origin: file://` on its WebSocket handshake; under
+     `pnpm dev` the window is the Vite server and stamps that origin instead. Everything else that
+     dials Realm's sockets (main's bridge, the CLI, the live checks) is `ws` from Node and sends no
+     Origin at all. */
+  const rendererOrigins = ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])];
+  const viewers = new ViewerService({
+    apps: new HiddenApps(),
+    ownDevtoolsPort: Number(process.env.REALM_DEVTOOLS_PORT) || null,
+    allowedOrigins: rendererOrigins,
+  });
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id), readsOutside: (id, abs) => documents.readsOutside(id, abs) });
@@ -2027,12 +2038,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     token: opts.token,
     cliToken: opts.cliToken,
     owner,
-    /* The origins Realm loads its own renderer from, measured rather than assumed: a packaged window
-       is a `file://` document and Chromium stamps `Origin: file://` on its WebSocket handshake; under
-       `pnpm dev` the window is the Vite server and stamps that origin instead. Everything else that
-       dials this socket (main's bridge, the CLI, the live checks) is `ws` from Node and sends no
-       Origin at all. */
-    allowedOrigins: ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])],
+    allowedOrigins: rendererOrigins,
   });
   // After the socket is up, so the first `remote.changed` has somebody to reach.
   remote.start();
