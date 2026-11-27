@@ -2468,8 +2468,8 @@ describe("the schedule-zone migration — the zone a schedule is computed in, an
   };
   const zones = (db: DatabaseSync) => db.prepare("SELECT id, next_run_at, time_zone, last_slot FROM schedules ORDER BY id").all();
 
-  it("is followed only by the compact-window and double-tap side migrations, and a home one short of it reaches the end", () => {
-    expect(SCHEDULE_ZONE_AT).toBe(migrations.length - 3);
+  it("is followed only by the compact-window, double-tap side and schedule-maker migrations, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_ZONE_AT).toBe(migrations.length - 4);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     db.close();
@@ -2530,8 +2530,8 @@ describe("the compact-window migration — the window a teammate's chat is compa
     return { p, db: openDatabase(p) };
   };
 
-  it("comes after the schedule zone, followed only by the double-tap side, and a home one short of it reaches the end", () => {
-    expect(COMPACT_WINDOW_AT).toBe(migrations.length - 2);
+  it("comes after the schedule zone, followed only by the double-tap side and schedule-maker migrations, and a home one short of it reaches the end", () => {
+    expect(COMPACT_WINDOW_AT).toBe(migrations.length - 3);
     expect(COMPACT_WINDOW_AT).toBe(SCHEDULE_ZONE_AT + 1);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
@@ -2579,8 +2579,8 @@ describe("the double-tap side migration: Left for a home that never chose, Eithe
   };
   const side = (db: DatabaseSync) => (db.prepare("SELECT value_json FROM settings WHERE key = 'keys.doubleTapSide'").get() as { value_json: string } | undefined)?.value_json;
 
-  it("is appended at the end of the chain, after the compact window, and a home one short of it reaches the end", () => {
-    expect(DOUBLE_TAP_SIDE_AT).toBe(migrations.length - 1);
+  it("comes after the compact window, followed only by the schedule-maker migration, and a home one short of it reaches the end", () => {
+    expect(DOUBLE_TAP_SIDE_AT).toBe(migrations.length - 2);
     expect(DOUBLE_TAP_SIDE_AT).toBe(COMPACT_WINDOW_AT + 1);
     const { db } = migrated({});
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
@@ -2614,6 +2614,66 @@ describe("the double-tap side migration: Left for a home that never chose, Eithe
     const again = openDatabase(p);
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     expect(side(again)).toBe('"left"');
+    again.close();
+  });
+});
+
+/** The schedules table as it shipped before the schedule-maker migration, written out by hand. */
+const BEFORE_SCHEDULE_MAKER = `
+-- Every home has it (v1).
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE schedules (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, goal TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, constraints_json TEXT,
+  next_run_at INTEGER, last_run_at INTEGER, last_run_id TEXT, last_skipped_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  new_session_per_run INTEGER NOT NULL DEFAULT 1, archive_succeeded INTEGER NOT NULL DEFAULT 0, role_id TEXT,
+  permission_mode TEXT, time_zone TEXT, last_slot TEXT);
+`;
+const SCHEDULE_MAKER_AT = migrations.findIndex((m) => m.includes("ALTER TABLE schedules ADD COLUMN created_by_session"));
+
+describe("the schedule-maker migration: the session whose agent made a schedule", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_SCHEDULE_MAKER);
+    for (let v = 1; v <= SCHEDULE_MAKER_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
+      INSERT INTO schedules (id, space_id, title, goal, cron, next_run_at, created_at, updated_at, role_id, permission_mode, time_zone) VALUES
+        ('invoice', 'sp1', 'Persona invoice', 'Send it.', '0 9 30 11 *', 2000, 10, 10, NULL, 'bypassPermissions', 'America/Los_Angeles'),
+        ('clock', 'sp1', 'Scout', 'Check in.', '0 * * * *', 3000, 30, 30, 'role-1', NULL, NULL);`);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  const makers = (db: DatabaseSync) => db.prepare("SELECT id, title, next_run_at, permission_mode, created_by_session FROM schedules ORDER BY id").all();
+
+  it("is appended at the end of the chain, after the double-tap side, and a home one short of it reaches the end", () => {
+    expect(SCHEDULE_MAKER_AT).toBe(migrations.length - 1);
+    expect(SCHEDULE_MAKER_AT).toBe(DOUBLE_TAP_SIDE_AT + 1);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("reads every existing schedule as the person's (NULL), and leaves the rest of its row as it was", () => {
+    const { db } = migrated();
+    expect(makers(db)).toEqual([
+      { id: "clock", title: "Scout", next_run_at: 3000, permission_mode: null, created_by_session: null },
+      { id: "invoice", title: "Persona invoice", next_run_at: 2000, permission_mode: "bypassPermissions", created_by_session: null },
+    ]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing and keeps a maker that was recorded", () => {
+    const { p, db } = migrated();
+    db.prepare("UPDATE schedules SET created_by_session = 'sess-1' WHERE id = 'invoice'").run();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(() => again.exec(migrations[SCHEDULE_MAKER_AT]!)).toThrow();
+    expect(again.prepare("SELECT created_by_session FROM schedules WHERE id = 'invoice'").get()).toEqual({ created_by_session: "sess-1" });
     again.close();
   });
 });

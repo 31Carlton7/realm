@@ -97,11 +97,16 @@ const BLOCKS: Record<string, string> = {
     "or on a cron — and `schedule_list` says what this space already has waiting; check it first. What fires is a " +
     "fresh session with none of this conversation, so write its goal as complete standing instructions. Use it " +
     "only when the ask is about later — work you can finish in this turn is finished in this turn — and say back " +
-    "the moment you set. It runs in this session's permission mode as it is when you schedule it, never higher.",
+    "the moment you set. It runs in this session's permission mode as it is when you schedule it, never higher. " +
+    "`schedule_update`, `schedule_pause`, `schedule_resume`, `schedule_run_now` and `schedule_delete` change one by " +
+    "the id `schedule_list` shows, in a turn the user started: one this session made is its own, anyone else's " +
+    "asks the user first.",
 
   "realm-team":
     "- **This space's teammates.** `team_list` says who is here — each teammate's handle, what it does, whether it " +
-    "is the Lead, and what it is working on. `team_message` puts a message in a teammate's own chat (`to`: its handle, " +
+    "is the Lead, and what it is working on, and under each its id, model, effort, access, folder, group and clock. " +
+    "`teammate_get` reads one in full (its whole brief and what its clock says), and `teammate_sessions` lists the " +
+    "task sessions it started and what came of each, a PR, a release or a failure. `team_message` puts a message in a teammate's own chat (`to`: its handle, " +
     "or `lead`): to ask it something, or to hand it work that is its to do. Add `wait: true` only when you cannot go on " +
     "without its answer; otherwise carry on, and it answers in its own chat. `team_set_access` sets a teammate's access " +
     "when the person asks: only the Lead, in its own chat, in a turn the person started (never one a teammate's message, " +

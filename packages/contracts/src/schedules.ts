@@ -533,6 +533,10 @@ export const ScheduleSchema = z.object({
   /** The teammate whose clock this is, or null (contracts/teammates.ts `TeammateSchedule`). Its page
    *  edits it and the Scheduled page does not list it; it fires into the teammate's chat, not a run. */
   roleId: z.string().nullable(),
+  /** The session whose agent made this (`schedule_create`), or null: the person made it, or it is older
+   *  than the column. What lets an agent change or delete its own schedules without a card, and never
+   *  anyone else's without one. */
+  createdBySession: z.string().nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
 });

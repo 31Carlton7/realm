@@ -140,7 +140,7 @@ try {
   phone.send("connect");
   await phone.next(/^connected /, 30_000, "connected");
 
-  const transcript = () => ev(`document.querySelector('.transcript')?.textContent ?? ''`);
+  const transcript = () => ev(`[...document.querySelectorAll('.transcript')].find((t) => t.offsetParent !== null)?.textContent ?? ''`);
   const railNames = () => ev(`[...document.querySelectorAll('.rail-spaces .rail-space')].map((b) => b.getAttribute('aria-label'))`);
   const shown = async () => (await api.call("settings.get", { key: "ui.activeSpaceId" })).value;
   const results = async () => (await api.call("sessions.events", { id: captain.homeSessionId, afterSeq: 0, limit: 500 }))

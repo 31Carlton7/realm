@@ -40,7 +40,7 @@ export function checkInOf(t: Teammate): Schedule | null {
   return {
     id: clock.id, spaceId: t.spaceId, title: t.name, goal: clock.prompt, cron: clock.cron, enabled: clock.enabled, constraints: null,
     nextRunAt: clock.nextRunAt, lastRunAt: clock.lastRunAt, lastRunId: null, lastSkippedAt: clock.lastSkippedAt,
-    newSessionPerRun: false, archiveSucceeded: false, roleId: t.id, permissionMode: null, createdAt: t.createdAt, updatedAt: t.updatedAt,
+    newSessionPerRun: false, archiveSucceeded: false, roleId: t.id, permissionMode: null, createdBySession: null, createdAt: t.createdAt, updatedAt: t.updatedAt,
   };
 }
 
