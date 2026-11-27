@@ -953,6 +953,33 @@ describe("ClaudeAdapter", () => {
       expect(await hook({ hook_event_name: "SessionStart", source: "resume" })).toEqual({});
     });
 
+    it("hands the first prompt its context once, never on a resume, and again after a compaction", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      for (const resume of [null, "psid-1"]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], resume, firstPromptContext: "RANKED", afterCompaction: () => "Still open: one task." });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      type Hook = (input: unknown) => Promise<unknown>;
+      type Hooks = { SessionStart: { hooks: Hook[] }[]; UserPromptSubmit: { hooks: Hook[] }[] };
+      const prompt = { hook_event_name: "UserPromptSubmit", prompt: "hi" };
+      const fresh = captureOptions[0]!.hooks as Hooks;
+      // THE MUTANT: no UserPromptSubmit hook — the ranked lines reach no request at all.
+      expect(await fresh.UserPromptSubmit[0]!.hooks[0]!(prompt)).toEqual({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: "RANKED" } });
+      // THE MUTANT: no one-shot flag — every turn carries the lines again.
+      expect(await fresh.UserPromptSubmit[0]!.hooks[0]!(prompt)).toEqual({});
+      // THE MUTANT: leave the context out of the compaction note — a compacted session loses the lines.
+      expect(await fresh.SessionStart[0]!.hooks[0]!({ hook_event_name: "SessionStart", source: "compact" }))
+        .toEqual({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "Still open: one task.\n\nRANKED" } });
+      const resumed = captureOptions[1]!.hooks as Hooks;
+      // THE MUTANT: send it on a resume too — the conversation already holds it, and it would ride twice.
+      expect(await resumed.UserPromptSubmit[0]!.hooks[0]!(prompt)).toEqual({});
+      expect(await resumed.SessionStart[0]!.hooks[0]!({ hook_event_name: "SessionStart", source: "compact" }))
+        .toEqual({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "Still open: one task.\n\nRANKED" } });
+    });
+
     describe("reasoning effort", () => {
       it("hands the SDK a level it has a word for, and never one from another harness", async () => {
         for (const [effort, sent] of [["max", "max"], ["minimal", undefined], [null, undefined]] as const) {

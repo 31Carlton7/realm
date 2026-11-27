@@ -56,6 +56,10 @@ export type StartOptions = {
    *  engine with no such concept is silence, which the prompter reads as "no switch to offer". */
   fastMode?: boolean;
   systemContext?: string;
+  /** Context the session's first prompt carries, after `systemContext` and everything else the agent
+   *  is handed before it: not sent again on a `resume`, whose conversation holds it, but sent again
+   *  after a compaction, which replaces that conversation. Claude only. */
+  firstPromptContext?: string;
   /**
    * Realm keeps this session's memory, in this folder of the user's memory repo. Claude writes its
    * own auto-memory here instead of under `~/.claude/projects` (the `autoMemoryDirectory` setting,

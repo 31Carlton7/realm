@@ -478,6 +478,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
     const env = { ...MCP_OUTPUT_ENV, ...CLAUDE_LISTING_ENV, ...process.env, ...opts.env };
     const switchable = bypassSwitchable(env);
+    let promptContextSent = Boolean(opts.resume);
     const options: Options = {
       cwd: opts.cwd,
       model: opts.model ?? undefined,
@@ -583,16 +584,32 @@ export class ClaudeAdapter implements AgentAdapter {
         } satisfies DeclaredSettings,
       } : {}),
       // A compaction keeps the system prompt and replaces the conversation with a summary. The CLI
-      // starts the session again from the summary, and this hook's text is added beside it.
-      ...(opts.afterCompaction ? {
+      // starts the session again from the summary, and this hook's text is added beside it. The first
+      // prompt's context was in the conversation, so it is added again.
+      //
+      // The first prompt's context rides as that prompt's hook context, which the CLI puts after the
+      // prompt (at the end of the system-role message that follows it, measured on CLI 2.1.325), so
+      // nothing ahead of the prompt differs between two sessions handed the same `systemContext`.
+      ...(opts.afterCompaction || opts.firstPromptContext ? {
         hooks: {
           SessionStart: [{
             matcher: "compact",
             hooks: [async (input) => {
-              const note = input.hook_event_name === "SessionStart" && input.source === "compact" ? opts.afterCompaction!() : undefined;
+              const note = input.hook_event_name === "SessionStart" && input.source === "compact"
+                ? [opts.afterCompaction?.(), opts.firstPromptContext].filter(Boolean).join("\n\n")
+                : "";
               return note ? { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: note } } : {};
             }],
           }],
+          ...(opts.firstPromptContext ? {
+            UserPromptSubmit: [{
+              hooks: [async () => {
+                if (promptContextSent) return {};
+                promptContextSent = true;
+                return { hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: opts.firstPromptContext } };
+              }],
+            }],
+          } : {}),
         },
       } : {}),
     };
