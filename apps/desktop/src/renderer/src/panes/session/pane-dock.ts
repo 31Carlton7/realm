@@ -60,8 +60,9 @@ export function usePaneRect(anchorRef: React.RefObject<HTMLElement | null>): Pan
          `.panel` ancestor to exist, and a session pane rendered without one then measured the whole
          window and pinned itself over the transcript it was meant to sit beside. */
       const leaf = anchorRef.current?.closest(".panel");
-      const pane = (anchorRef.current?.closest(".session-pane")
-        ?? leaf?.querySelector(".session-pane") ?? leaf) as HTMLElement | null;
+      // The leaf's pane on show: the sessions it showed before stay mounted in it, hidden (warm-panes.ts).
+      const shown = leaf ? [...leaf.querySelectorAll(".session-pane")].find((el) => !el.closest("[hidden]")) : undefined;
+      const pane = (anchorRef.current?.closest(".session-pane") ?? shown ?? leaf) as HTMLElement | null;
       // No pane to dock to (the opener rendered on its own) falls back to the viewport's right edge
       // rather than to nothing. A panel that hides itself when it cannot find its anchor is a panel
       // that vanishes for a reason the user cannot see.

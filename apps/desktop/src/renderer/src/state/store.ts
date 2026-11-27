@@ -6453,7 +6453,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const events = read.events;
           // After the log, so the text a reply has streamed so far — in no stored event yet — picks
           // up where the log stops. Without it a window reloaded mid-turn starts the reply mid-sentence.
-          const streaming = await api.sessionStreaming(id);
+          // A session at rest is streaming nothing, and asking would cost a second round trip after
+          // the log's. Read as nothing yet, `withStreamed` applies every event that arrived meanwhile.
+          const status = get().sessionStatus[id];
+          const streaming = status === "idle" || status === "ended" || status === "error" ? { seq: -1, message: null } : await api.sessionStreaming(id);
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           refreshGitFor(id); // opening a session refreshes its cwd's git context

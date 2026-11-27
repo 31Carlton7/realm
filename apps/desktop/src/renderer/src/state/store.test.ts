@@ -1556,6 +1556,24 @@ describe("app store", () => {
       expect(reply()).toEqual([expect.objectContaining({ text: "Reading the fixtures and the rest", streaming: false })]);
     });
 
+    it("a session at rest opens without asking what it is streaming, and still takes a reply that starts during the read", async () => {
+      api = fakeApi({
+        items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+        sessions: [session("se1", "s1", { status: "idle" })],
+        sessionEvents: { se1: [stored("se1", 1, sessionEvent("user_message", { text: "read the tests", attachments: [] }))] },
+      });
+      api.delays["sessionEvents:se1"] = 20;
+      const store = createAppStore(api); await store.getState().boot();
+      // THE MUTANT: ask `sessions.streaming` whatever the status, a second round trip on every open.
+      const streaming = vi.spyOn(api, "sessionStreaming");
+      const p = store.getState().openSession("se1");
+      store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m2", delta: "Starting", at: 5 })), ephemeral: true });
+      await p;
+      expect(streaming).not.toHaveBeenCalled();
+      const reply = store.getState().transcripts.se1!.t.blocks.filter((b) => b.kind === "assistant");
+      expect(reply).toEqual([expect.objectContaining({ messageId: "m2", text: "Starting", streaming: true })]);
+    });
+
     it("applySessionStatus updates the status map and the cached session", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       store.getState().applySessionStatus("se1", "waiting_permission");

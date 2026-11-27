@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../state/store";
 import { BackdropRenderer, LOOKS, readPalette, resolveColor, type Palette, type Rect, type Rgb } from "./hero-backdrop";
 import { COLOR_LOOKS, paintColorBackdrop, type ColorRender, type Picture, type TextRun } from "./hero-backdrop-color";
@@ -89,7 +89,7 @@ function onceQuiet(fn: () => void) {
  * same picture lies softened behind the transcript. The first message settles one into the other:
  * the empty session's picture holds still under the chat's until the chat's has faded in over it.
  */
-export function SessionBackdrop({ sessionId, hero }: { sessionId: string; hero: boolean }) {
+export function SessionBackdrop({ sessionId, hero, shown = true }: { sessionId: string; hero: boolean; shown?: boolean }) {
   const pref = useApp((s) => s.background);
   const motion = useApp((s) => s.backgroundMotion);
   const mine = useYourBackgrounds();
@@ -102,47 +102,59 @@ export function SessionBackdrop({ sessionId, hero }: { sessionId: string; hero: 
   const loops = !!backdrop.loop;
   // One shape for both states, so the empty session's canvas is the same element through the settle.
   return <>
-    {(hero || under) && <HeroBackdrop key="hero" backdrop={backdrop} held={!hero} underLoop={looping.hero} />}
-    {loops && (hero || under) && <LoopBackdrop key="hero-loop" backdrop={backdrop} phase="hero" held={!hero}
+    {(hero || under) && <HeroBackdrop key="hero" backdrop={backdrop} held={!hero} underLoop={looping.hero} shown={shown} />}
+    {loops && (hero || under) && <LoopBackdrop key="hero-loop" backdrop={backdrop} phase="hero" held={!hero} shown={shown}
       onShowing={(on) => setLooping((l) => ({ ...l, hero: on }))} />}
     {!hero && <ChatBackdrop key="chat" backdrop={backdrop} settle={under} onSettled={() => setUnder(false)} underLoop={looping.chat} />}
-    {loops && !hero && <LoopBackdrop key="chat-loop" backdrop={backdrop} phase="chat" settle={under}
+    {loops && !hero && <LoopBackdrop key="chat-loop" backdrop={backdrop} phase="chat" settle={under} shown={shown}
       onShowing={(on) => setLooping((l) => ({ ...l, chat: on }))} />}
   </>;
 }
 
 /** `held` stops the picture where it is: it no longer follows the greeting or the prompter, or moves.
- *  `underLoop` hides it while its loop plays over it. */
-export function HeroBackdrop({ backdrop, held = false, underLoop = false }: { backdrop: Backdrop; held?: boolean; underLoop?: boolean }) {
+ *  `underLoop` hides it while its loop plays over it. `shown` is false while the session's pane is
+ *  kept hidden (warm-panes.ts). */
+export function HeroBackdrop({ backdrop, held = false, underLoop = false, shown = true }: { backdrop: Backdrop; held?: boolean; underLoop?: boolean; shown?: boolean }) {
   return backdrop.effect === "dither" || backdrop.effect === "halftone"
-    ? <ShaderBackdrop backdrop={backdrop} look={backdrop.effect} held={held} />
+    ? <ShaderBackdrop backdrop={backdrop} look={backdrop.effect} held={held} shown={shown} />
     : <ColorBackdrop backdrop={backdrop} look={backdrop.effect} held={held} underLoop={underLoop} />;
 }
 
-function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; look: keyof typeof LOOKS; held: boolean }) {
+/**
+ * A WebGL look. Its renderer, and the WebGL context with it, lives only while the pane is shown: a
+ * renderer holds one of the ~16 contexts Chromium allows a window before it drops the oldest, and a
+ * pane kept hidden would otherwise keep drawing frames no one sees. Hidden, the canvas is let go;
+ * shown again, a new one is built before the frame is painted and drawn from the picture already
+ * decoded, so the pane comes back with its backdrop.
+ */
+function ShaderBackdrop({ backdrop, look: lookId, held, shown }: { backdrop: Backdrop; look: keyof typeof LOOKS; held: boolean; shown: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const heldRef = useRef(held);
   heldRef.current = held;
-  useEffect(() => {
+  // What a renderer built again starts from: the decoded picture, the calm box and the drift's clock.
+  const kept = useRef<{ key: string; img: HTMLImageElement } | null>(null);
+  const calmRef = useRef<Rect>({ x: 0, y: 0, w: 0, h: 0 });
+  const t0 = useRef(performance.now());
+  useLayoutEffect(() => {
     const canvas = ref.current;
     const pane = canvas?.parentElement;
-    if (!canvas || !pane) return;
+    if (!shown || !canvas || !pane) return;
     const look = LOOKS[lookId];
     const root = document.documentElement;
     let r: BackdropRenderer;
     try { r = new BackdropRenderer(canvas); } catch { canvas.hidden = true; return; }
     let pal: Palette = readPalette(root);
-    let calm: Rect = { x: 0, y: 0, w: 0, h: 0 };
+    let calm = calmRef.current;
     let dpr = 1;
     let raf = 0;
     let last = 0;
     let disposed = false;
     let loaded = "";
-    const t0 = performance.now();
+    if (kept.current) { r.use(kept.current.img); loaded = kept.current.key; }
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
     const profile = window.localStorage?.getItem("realm.heroBackdropProfile") === "1";
     const stats = { frames: 0, drawMs: [] as number[] };
-    const time = (now: number) => (backdrop.moves ? ((now - t0) / 1000) * look.speed : 0);
+    const time = (now: number) => (backdrop.moves ? ((now - t0.current) / 1000) * look.speed : 0);
     if (profile) {
       // A frame's whole cost, CPU and GPU, read back n times in a row: an upper bound, since each
       // read waits out the GPU process's round trip as well as the draw.
@@ -155,7 +167,7 @@ function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; 
       dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = Math.round(box.width * dpr), h = Math.round(box.height * dpr);
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-      calm = calmRect(pane, box) ?? calm;
+      if (!heldRef.current) calm = calmRef.current = calmRect(pane, box) ?? calm;
     };
     const paint = (now: number) => {
       const s = profile ? performance.now() : 0;
@@ -170,8 +182,9 @@ function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; 
       raf = requestAnimationFrame(tick);
     };
     let painted = "";
+    // Held, it paints only the first frame of a renderer built again, where the last one left off.
     const refresh = () => {
-      if (disposed || heldRef.current) return;
+      if (disposed || (heldRef.current && painted)) return;
       measure();
       const key = JSON.stringify([canvas.width, canvas.height, pal, calm]);
       if (key !== painted || moving()) { painted = key; paint(performance.now()); }
@@ -182,7 +195,9 @@ function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; 
       const pic = await pictureFor(backdrop, pal.dark);
       if (disposed || !pic || pic.key === loaded) return;
       loaded = pic.key;
-      await r.load(pic.url);
+      const img = await r.load(pic.url);
+      if (disposed) return;
+      kept.current = { key: pic.key, img };
       painted = "";
       refresh();
       setGlassDim(pane, canvas, pal.ground, resolveColor);
@@ -193,6 +208,7 @@ function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; 
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "data-quiet", "data-low-power-mode", "style"] });
     reduce?.addEventListener?.("change", refresh);
     document.addEventListener("visibilitychange", refresh);
+    if (loaded) refresh();
     void load();
 
     return () => {
@@ -205,8 +221,9 @@ function ShaderBackdrop({ backdrop, look: lookId, held }: { backdrop: Backdrop; 
       r.destroy();
     };
   // The key names the picture and its treatment; a new object for the same backdrop is not a new one.
-  }, [backdrop.key, backdrop.moves, lookId]);
-  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
+  }, [backdrop.key, backdrop.moves, lookId, shown]);
+  // A canvas whose context was let go cannot be given another, so each showing has its own.
+  return <canvas key={String(shown)} ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} />;
 }
 
 /** Every run of text the picture could sit behind, with the ratio it needs: 3 for large text, 4.5
@@ -439,12 +456,14 @@ const unionRect = (rects: Rect[]): Rect | undefined => {
  * hushed under the words for their inks; behind a transcript it is
  * softened by the edge blur's deeper radius and every pixel hushed for the body, quiet and link inks.
  * It shows only while frames arrive; whenever the loop stops it goes and its still is there.
+ * Like ShaderBackdrop's, its renderer lives only while the pane is shown; the still covers until
+ * frames arrive again.
  *
  * It is sized as the stills are: at once on mount, and after a resize only once the pane has held
  * still (`onceQuiet`), stretched by CSS in between, so a dragged window edge costs a frame nothing.
  */
-function LoopBackdrop({ backdrop, phase, held = false, settle = false, onShowing }: {
-  backdrop: Backdrop; phase: "hero" | "chat"; held?: boolean; settle?: boolean; onShowing: (on: boolean) => void;
+function LoopBackdrop({ backdrop, phase, held = false, settle = false, shown = true, onShowing }: {
+  backdrop: Backdrop; phase: "hero" | "chat"; held?: boolean; settle?: boolean; shown?: boolean; onShowing: (on: boolean) => void;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const heldRef = useRef(held);
@@ -458,7 +477,7 @@ function LoopBackdrop({ backdrop, phase, held = false, settle = false, onShowing
   useEffect(() => {
     const canvas = ref.current;
     const pane = canvas?.parentElement;
-    if (!canvas || !pane || !backdrop.loop) return;
+    if (!shown || !canvas || !pane || !backdrop.loop) return;
     const root = document.documentElement;
     let r: LoopRenderer;
     try { r = new LoopRenderer(canvas, phase); } catch { return; }
@@ -542,7 +561,7 @@ function LoopBackdrop({ backdrop, phase, held = false, settle = false, onShowing
       r.destroy();
     };
   // The key names the picture and its treatment; a new object for the same backdrop is not a new one.
-  }, [backdrop.key, phase]);
-  return <canvas ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} data-loop=""
+  }, [backdrop.key, phase, shown]);
+  return <canvas key={String(shown)} ref={ref} className="hero-backdrop" aria-hidden="true" data-look={backdrop.key} data-loop=""
     data-phase={phase === "chat" ? "chat" : undefined} data-settle={settle || undefined} />;
 }
