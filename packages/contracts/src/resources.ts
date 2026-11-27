@@ -123,7 +123,10 @@ export const RESOURCE_CATEGORY_LABEL: Record<ResourceCategory, string> = {
  */
 export const BROWSER_DISCARD_HIDDEN_KEY = "browser.discardHiddenMinutes";
 export const BROWSER_DISCARD_HIDDEN_DEFAULT = 20;
-/** How many of the most recently hidden browser panes are kept loaded whatever the window says. */
+/**
+ * How many of the most recently hidden browser panes, counted across every window, stay loaded past the
+ * window above — each for at most main's `HIDDEN_KEEP_MAX_MS` (2 hours), or the window if it is longer.
+ */
 export const BROWSER_KEEP_HIDDEN_KEY = "browser.keepHidden";
 export const BROWSER_KEEP_HIDDEN_DEFAULT = 3;
 

@@ -96,6 +96,13 @@ describe("Settings ▸ RAM", () => {
     await waitFor(() => expect(api.calls).toContain("resourcesSetPolicy:resources.adaptive:false"));
   });
 
+  it("says hidden panes are kept loaded for two hours at most, not forever", async () => {
+    // THE MUTANT: the copy from before the age limit, "however long ago that was".
+    await mount();
+    expect(row("ram-browser-keep").title).toMatch(/for up to 2 hours/);
+    expect(row("ram-browser-idle").title).toMatch(/still loading is kept for up to 2 hours/);
+  });
+
   it("lists other apps by name and size only, with nothing to press", async () => {
     await mount();
     const others = document.querySelector(".ram-others") as HTMLElement;
