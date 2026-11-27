@@ -1,5 +1,5 @@
 import {
-  appendDelta, bareToolName, goalTurnLabel, moveFailedSentence, normalizeHandle, TEAM_MESSAGE_TOOL, teammateByHandle, teammateWords,
+  appendDelta, bareToolName, browserToolSummary, goalTurnLabel, moveFailedSentence, normalizeHandle, TEAM_MESSAGE_TOOL, teammateByHandle, teammateWords,
   type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent, type TabCard,
 } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
@@ -29,6 +29,8 @@ const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !=
 export function summarize(name: string, input: Record<string, unknown>): string {
   const first = (...keys: string[]) => { for (const k of keys) { const v = str(input[k]); if (v) return v; } return null; };
   const line = (s: string) => clip(s.split("\n")[0]!.trim(), 120);
+  const browser = browserToolSummary(name, input);
+  if (browser !== null) return browser ? line(browser) : name;
   switch (name) {
     case "Bash": return line(first("command") ?? name);
     case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": return clipStart((first("file_path", "notebook_path", "path") ?? name).split("\n")[0]!.trim(), 120);
