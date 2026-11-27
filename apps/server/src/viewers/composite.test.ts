@@ -138,6 +138,9 @@ describe("ViewerService compositing child views", () => {
     // Inside the rect's corners, and just outside each edge.
     await frameWith(client, [[102, 52], [297, 147], [200, 100], [97, 100], [303, 100], [200, 47], [200, 153]],
       ["blue", "blue", "blue", "red", "red", "red", "red"]);
+    // The window repaints under a still child.
+    app.frame("W", await solid(800, 600, GREEN), 800, 600);
+    await frameWith(client, [[200, 100], [50, 50], [700, 500]], ["blue", "green", "green"]);
   });
 
   it("follows the rect as main moves the view", async () => {
