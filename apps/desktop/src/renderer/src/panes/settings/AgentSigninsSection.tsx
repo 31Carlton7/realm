@@ -90,7 +90,6 @@ function SigninGrants({ codes, setCodes, profileId, profileName }: {
   const mail = sources?.Mail ?? null;
   const notifications = sources?.Notifications ?? null;
 
-  // A Mac with no Messages history reads codes from Mail alone, so Mail decides the row there.
   const codesGrant: Grant = !codes?.enabled
     ? { name: "Read sign-in codes from Messages and Mail", desc: "Lets agents fill the code a site texts or emails you. Realm finds the code and types it, and the agent never sees it.",
         granted: false, state: "Off", actions: <button type="button" className="btn-quiet" onClick={turnOnCodes}>Turn on</button> }
