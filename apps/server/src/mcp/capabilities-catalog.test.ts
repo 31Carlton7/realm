@@ -117,7 +117,7 @@ describe("realm_capabilities", () => {
     const one = text(await client.callTool({ name: "realm-workspace__realm_capabilities", arguments: { group: "realm-browser" } }));
     expect(one).toContain("## browser_fill_credential");
     // The whole description, past the first sentence the summary stops at.
-    expect(one).toContain("A code the site then sends by text or email is browser_fill_code");
+    expect(one).toContain("For a second step, prefer a code by text or email");
     const bad = await client.callTool({ name: "realm-workspace__realm_capabilities", arguments: { group: "realm-nope" } });
     expect(bad.isError).toBe(true);
     expect(text(bad)).toContain("realm-browser");

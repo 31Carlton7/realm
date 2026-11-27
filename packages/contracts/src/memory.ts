@@ -180,8 +180,9 @@ export const MEMORY_REPO_INDEX_FILE = "MEMORY.md";
 /** What a new repo's `MEMORY.md` starts as — the spec skill's own seed, byte for byte. */
 export const MEMORY_REPO_INITIAL_INDEX = "# Memory\n\n## Index\n";
 
-/** Cap on the `MEMORY.md` content injected into one session. The spec asks for a short file; a long one
- *  is cut here, with a pointer to `memory_read`, so it can never crowd the space's own document out. */
+/** Cap on the `MEMORY.md` content `memory_index` returns. The spec asks for a short file; a long one is
+ *  cut here, with a pointer to `memory_read`. What a session starts with is fitted to its own budget
+ *  (the server's `context-budget.ts`). */
 export const MEMORY_REPO_INDEX_MAX = 20_000;
 
 /** Cap on one entry. An entry is one line of one fact, and a paragraph is a topic file. */

@@ -21,6 +21,9 @@ browser and brings it to the front of what they are doing.
    cut off, its last lines say how many were left out — follow them rather than concluding a
    control is missing: `offset` pages through the rest, `query: "save"` lists only elements whose
    role, name or value match, and `within: <ref>` lists one region (the note names the regions).
+   A control with no name reads as what it shows, `icon:trash` or `img:avatar`, and `in:"…"` quotes
+   the row or card around controls that would otherwise read alike. Lines carry no coordinates;
+   pass `detail: "geometry"` only when where things sit on the page matters.
 2. **Act by ref, one intent at a time.** `browser_act` clicks/types/keys/scrolls by `[ref=N]`.
    Refs are re-resolved to live geometry at act time, so a stale ref fails honestly rather than
    clicking the wrong place — but a ref from before a navigation is stale on purpose: re-snapshot.
@@ -59,13 +62,22 @@ that opened one would take the pane away from the user until they dismissed it b
   nothing is on screen. Either `browser_upload` with that same ref to fill it, or
   `browser_dismiss_dialog({ browserId })` to cancel it. Do not leave one open: the page is waiting.
 
-## Security codes
+## Signing in
 
-When a sign-in sends a code by text or email, `browser_fill_code({ browserId, ref })` with the code
-field's ref (or its first single-digit box) fills it without you seeing it. It works only while the
-user has Settings ▸ Sign-ins ▸ Security codes on, asks them on a card every time, and answers
-`filled`, `declined`, or why nothing was filled. Call it after the page says the code was sent; never
-ask the user to paste a code into chat. A push (Duo, Okta) or an authenticator app is theirs.
+Sign-ins are yours to finish. You never see a password or a code: Realm types them.
+
+1. **On a password field:** `browser_credentials({ browserId })`, then `browser_fill_credential`
+   with the id. On a sign-up form with no saved password, fill with `generate` instead.
+2. **On a second-step chooser:** pick text/SMS, then email, then anything else. On Duo, open
+   "Other options" and choose "Text me a passcode". Never choose a push while another method is
+   offered.
+3. **Once the page says the code was sent,** call `browser_fill_code({ browserId, ref })` once,
+   with the code field's ref (or its first single-digit box). Realm waits up to 90 s for the code
+   to arrive. If it times out, press "resend" once, then report.
+4. **If only a push, an authenticator app or a security key is left,** stop and say which one and
+   where. Never read a code with `mac messages`, `mac mail` or a screenshot.
+5. **Never put a password or code in a file, a reply, a commit or a memory,** and never ask the
+   user to paste one into chat.
 
 ## Page discipline
 
@@ -75,9 +87,10 @@ ask the user to paste a code into chat. A push (Duo, Okta) or an authenticator a
 - **Wait for pages honestly.** After `browser_open`/`browser_navigate`, the page needs time. If a
   snapshot looks empty or half-loaded, wait a moment and re-snapshot once or twice before
   concluding the page is broken.
-- **Hard blocks are yours too.** Password fields, OAuth consent screens, downloads without a grant,
-  and uploads from credential paths are refused server-side in every mode. Do not try to route
-  around them; report that a sign-in, a download or a file is needed and let the user do it in the
+- **Hard blocks are yours too.** Typing into a password field, OAuth consent screens, downloads
+  without a grant, and uploads from credential paths are refused server-side in every mode. Do not
+  try to route around them. A password field takes `browser_fill_credential` (see Signing in); for
+  the rest, report that a consent, a download or a file is needed and let the user do it in the
   pane.
 
 ## When to give up
@@ -85,7 +98,8 @@ ask the user to paste a code into chat. A push (Duo, Okta) or an authenticator a
 Give up — with a clear report, not silence — when any of these holds:
 
 - The same act has failed twice with re-snapshots in between.
-- Progress needs a sign-in, a CAPTCHA, a payment, or anything behind a hard block.
+- Progress needs a CAPTCHA, a payment, a sign-in step left with only a push, an authenticator app
+  or a security key, or anything behind a hard block.
 - The page requires an origin outside your allowed list.
 - You have spent most of your action budget without measurable progress toward the goal.
 

@@ -113,10 +113,11 @@ describe("installQuietWindows", () => {
     expect(dock.hide).toHaveBeenCalled();
     await app.dock.show();
     app.dock.bounce();
-    app.focus();
+    app.focus({ steal: true });
     expect(realDockShow).not.toHaveBeenCalled();
     expect(realBounce).not.toHaveBeenCalled();
     expect(realFocus).not.toHaveBeenCalled();
+    expect(quietWindowsLog).toContainEqual({ what: "app focus", detail: { steal: true } });
   });
 
   it("shows every window inactive, transparent, unfocusable, click-through and never covered", () => {

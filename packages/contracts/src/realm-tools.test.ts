@@ -11,7 +11,7 @@ describe("REALM_READ_ONLY_TOOLS", () => {
       "realm-agent__agent_peers", "realm-agent__agent_status",
       "realm-schedule__schedule_list",
       "realm-docs__docs_search", "realm-docs__docs_read", "realm-docs__docs_state",
-      "realm-team__team_list",
+      "realm-team__team_list", "realm-team__teammate_get", "realm-team__teammate_sessions",
       "realm-memory__memory_index", "realm-memory__memory_read", "realm-memory__memory_search",
       "realm-goal__goal_status",
     ]);
@@ -21,7 +21,8 @@ describe("REALM_READ_ONLY_TOOLS", () => {
     for (const changes of [
       "realm-agent__agent_run", "realm-agent__agent_start", "realm-agent__agent_wait", "realm-agent__agent_ask",
       "realm-agent__agent_answer", "realm-agent__agent_review", "realm-agent__browser_agent_run",
-      "realm-schedule__schedule_create", "realm-docs__docs_open", "realm-docs__docs_list", "realm-docs__docs_progress",
+      "realm-schedule__schedule_create", "realm-schedule__schedule_update", "realm-schedule__schedule_pause",
+      "realm-schedule__schedule_resume", "realm-schedule__schedule_run_now", "realm-schedule__schedule_delete", "realm-docs__docs_open", "realm-docs__docs_list", "realm-docs__docs_progress",
       "realm-goal__update_goal", "realm-browser__browser_fill_credential", "realm-terminal__terminal_write", "realm-ui__ui_ask",
       "realm-workspace__pane_show", "realm-workspace__session_open", "realm-workspace__space_switch", "realm-workspace__space_create", "realm-workspace__settings_set",
       "realm-team__team_message", "realm-team__team_set_access",

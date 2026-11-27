@@ -939,9 +939,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     landingSpaceId: () => data.landingSpaceId ?? null,
     openSpaceWindow: async (spaceId) => { calls.push(`openSpaceWindow:${spaceId}`); },
     /** Another window shows the space when the test says one does (`spacesInOtherWindows`). */
-    focusSpaceWindow: async (spaceId, sessionId) => {
+    focusSpaceWindow: async (spaceId, sessionId, by) => {
       const elsewhere = data.spacesInOtherWindows.includes(spaceId);
-      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}${sessionId ? `:${sessionId}` : ""}`);
+      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}${sessionId ? `:${sessionId}` : ""}${by === "agent" ? " by agent" : ""}`);
       return elsewhere;
     },
     newWindow: async () => { calls.push("newWindow"); return data.newWindowOpens; },
@@ -1960,7 +1960,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
         newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false, roleId: null,
-        permissionMode: input.permissionMode ?? "bypassPermissions", createdAt: Date.now(), updatedAt: Date.now(),
+        permissionMode: input.permissionMode ?? "bypassPermissions", createdBySession: null, createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];
       return made;

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoices — Northwind</title>
+<style>
+  body { font: 14px/1.4 -apple-system, sans-serif; margin: 0; color: #1d1d1f; }
+  header { padding: 12px 24px; border-bottom: 1px solid #ddd; display: flex; gap: 18px; align-items: center; }
+  header .save { margin-left: auto; }
+  table { margin: 16px 24px; border-collapse: collapse; width: 640px; }
+  td, th { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eee; }
+</style>
+</head>
+<body>
+<header><a href="#">Northwind</a><a href="#">Invoices</a><a href="#">Customers</a><button class="save" id="save" disabled>Save changes</button></header>
+<table>
+  <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th></th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script>
+  const CUSTOMERS = ["Acme", "Globex", "Initech", "Umbrella", "Hooli", "Stark", "Wayne", "Wonka", "Tyrell", "Cyberdyne", "Soylent", "Vandelay"];
+  const rows = document.getElementById("rows");
+  const save = document.getElementById("save");
+  CUSTOMERS.forEach((customer, i) => {
+    const id = `INV-${1001 + i}`;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><a href="#${id}"></a></td><td></td><td>$${(120 + i * 35).toFixed(2)}</td><td><button>Remove</button></td>`;
+    tr.querySelector("a").textContent = id;
+    tr.children[1].textContent = customer;
+    const remove = tr.querySelector("button");
+    remove.setAttribute("aria-label", `Remove ${id}`);
+    remove.addEventListener("click", () => { tr.remove(); save.disabled = false; });
+    rows.append(tr);
+  });
+</script>
+</body>
+</html>

@@ -192,10 +192,16 @@ export class BackdropRenderer {
     this.tex = gl.createTexture()!;
   }
 
-  async load(url: string): Promise<void> {
+  async load(url: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.src = url;
     await img.decode();
+    this.use(img);
+    return img;
+  }
+
+  /** A picture already decoded, uploaded at once: a renderer built again draws on its first frame. */
+  use(img: HTMLImageElement) {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);

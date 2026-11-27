@@ -308,18 +308,19 @@ export class MemoryRepoService {
   }
 
   /**
-   * Each active repo's `MEMORY.md` as one session receives it: whole up to `MEMORY_REPO_INDEX_MAX`,
-   * cut after that — the cap is per file, so a team's long index never crowds out the user's. After
-   * the profile's root index comes the space folder's, except for Claude: that folder is its own
-   * auto-memory directory, which it loads itself.
+   * Each active repo's `MEMORY.md` as one session receives it: whole up to `MEMORY_REPO_INDEX_MAX`
+   * (or `readMax`), cut after that — the cap is per file, so a team's long index never crowds out the
+   * user's. After the profile's root index comes the space folder's, except for Claude: that folder is
+   * its own auto-memory directory, which it loads itself.
    */
-  indexesFor(spaceId: string, opts: { forAgent?: AgentKind } = {}): RepoIndex[] {
+  indexesFor(spaceId: string, opts: { forAgent?: AgentKind; readMax?: number } = {}): RepoIndex[] {
+    const max = opts.readMax ?? MEMORY_REPO_INDEX_MAX;
     const out: RepoIndex[] = [];
     const push = (scope: MemoryRepoScope, kind: RepoIndex["kind"], path: string, file: string): void => {
       let index: string;
       try { index = readFileSync(file, "utf8"); } catch { return; }
-      const truncated = index.length > MEMORY_REPO_INDEX_MAX;
-      out.push({ scope, kind, path, index: truncated ? index.slice(0, MEMORY_REPO_INDEX_MAX) : index, truncated });
+      const truncated = index.length > max;
+      out.push({ scope, kind, path, index: truncated ? index.slice(0, max) : index, truncated });
     };
     for (const repo of this.activeFor(spaceId)) {
       push(repo.scope, "root", repo.path, join(repo.path, MEMORY_REPO_INDEX_FILE));
