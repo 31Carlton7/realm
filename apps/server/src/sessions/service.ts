@@ -2431,9 +2431,11 @@ export class SessionService {
       // A teammate's home chat is compacted well short of a 1M window; its task sessions are not.
       ...(compactWindow ? { autoCompactWindow: compactWindow, afterCompaction: () => this.d.teammateHome?.afterCompaction?.(id) } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
-      // under, for a log line or a bug report to read. Nothing reads them back. Then the folder of the
-      // account the session runs on, which is what the CLI signs in with.
-      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), ...this.d.accounts?.envFor(s.agentKind, s.accountId) },
+      // under, for a log line or a bug report to read. Nothing reads them back. Then
+      // `REALM_AGENT_SHELL`, which keeps a dev Realm the agent starts off the screen
+      // (apps/desktop/src/main/quiet-windows.ts), and the folder of the account the session runs on,
+      // which is what the CLI signs in with.
+      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), REALM_AGENT_SHELL: "1", ...this.d.accounts?.envFor(s.agentKind, s.accountId) },
       ...(wrap ? { wrap } : {}),
       ...(fork ? { resumeAt: fork.at, resumeDropsTurn: fork.dropsTurn } : {}),
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`),

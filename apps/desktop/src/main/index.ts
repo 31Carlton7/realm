@@ -65,7 +65,7 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
-import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
+import { agentUserData, installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
 import { bringForward, raiseBy, type RaiseBy } from "./bring-forward";
 import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
 import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
@@ -118,6 +118,11 @@ const platform = platformCapabilities(process.platform);
 const quiet = quietWindowsOn({ packaged: app.isPackaged, env: process.env });
 if (quiet) installQuietWindows();
 else delete process.env[QUIET_WINDOWS_ENV];
+const agentUserDataDir = agentUserData({
+  packaged: app.isPackaged, env: process.env, appPath: app.getAppPath(), tmpDir: tmpdir(),
+  userData: app.getPath("userData"), defaultUserData: join(app.getPath("appData"), app.name),
+});
+if (agentUserDataDir) app.setPath("userData", agentUserDataDir);
 // Windows shows a notification only for an app it can name, and names it by this id — the appId
 // electron-builder registers the Start menu shortcut under.
 if (process.platform === "win32") app.setAppUserModelId("co.charmtechnologies.realm");
