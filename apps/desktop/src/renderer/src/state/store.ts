@@ -6513,7 +6513,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // fetch re-derives it from persisted events and the reply streaming now, which is the same
         // text those deltas were spelling out.
         pendingDeltas.delete(id);
-        /** How much of the tail is still to read in front of what the first paint drew. */
+        // How much of the tail is still to read in front of what the first paint drew.
         let fill = 0;
         try {
           /* A log end read ahead of the click is drawn now, before anything is asked of the server,

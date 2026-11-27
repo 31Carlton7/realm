@@ -403,7 +403,8 @@ function ChatBackdrop({ backdrop, settle, onSettled, underLoop }: { backdrop: Ba
       const track = trackOf(pane, box, 1 / SCALE);
       const key = JSON.stringify([w, h, dpr, pal, blur, inks, links, track]);
       if (key === drawn) return;
-      let pixels = hushedPixels.get(`${backdrop.key}|${key}`);
+      const kept = `${backdrop.key}|${key}`;
+      let pixels = hushedPixels.get(kept);
       if (!pixels) {
         const pic = await pictureFor(backdrop, pal.dark);
         if (!pic || stale()) return;
@@ -417,7 +418,7 @@ function ChatBackdrop({ backdrop, settle, onSettled, underLoop }: { backdrop: Ba
         pixels = art.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, art.width, art.height);
         const range = readableRange(pal.ground, inks, links);
         hushTrack(pixels.data, sharp.data, aw, hushToward(pal, range), range, track);
-        keepHushed(`${backdrop.key}|${key}`, pixels);
+        keepHushed(kept, pixels);
       }
       if (canvas.width !== pixels.width || canvas.height !== pixels.height) { canvas.width = pixels.width; canvas.height = pixels.height; }
       canvas.getContext("2d")!.putImageData(pixels, 0, 0);

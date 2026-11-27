@@ -95,7 +95,7 @@ describe("TailCache", () => {
   it("holds at most `size` entries, dropping the oldest put", () => {
     const c = new TailCache(2, 100);
     c.put("a", entry(1)); c.put("b", entry(1)); c.put("c", entry(1));
-    expect([c.has("a"), c.has("b"), c.has("c"), c.count]).toEqual([false, true, true, 2]);
+    expect([c.has("a"), c.has("b"), c.has("c")]).toEqual([false, true, true]);
     // Putting one again makes it the newest.
     c.put("b", entry(1)); c.put("d", entry(1));
     expect([c.has("b"), c.has("c"), c.has("d")]).toEqual([true, false, true]);

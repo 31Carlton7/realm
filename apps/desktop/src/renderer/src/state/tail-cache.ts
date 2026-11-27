@@ -30,6 +30,4 @@ export class TailCache<T extends { events: readonly unknown[] }> {
   }
 
   delete(id: string): void { this.entries.delete(id); }
-
-  get count(): number { return this.entries.size; }
 }
