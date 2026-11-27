@@ -100,7 +100,6 @@ export class ViewerService {
     const entry = this.viewers.get(id);
     if (!entry) throw new NotFoundError("viewer", id);
     this.viewers.delete(id);
-    entry.viewer.status = "closed";
     for (const ws of entry.inputs) ws.close();
     await entry.relay.close();
   }

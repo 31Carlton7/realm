@@ -1,6 +1,6 @@
 import type { ServerResponse } from "node:http";
 import { WebSocket } from "ws";
-import { ViewerInputSchema, type ViewerInput } from "@realm/contracts";
+import { ViewerInputSchema } from "@realm/contracts";
 
 /**
  * One Electron webContents as MJPEG, over the app's own DevTools protocol.
@@ -15,10 +15,10 @@ import { ViewerInputSchema, type ViewerInput } from "@realm/contracts";
  * page's DOM, as `capturePage()` is.
  */
 
-export const BOUNDARY = "realmframe";
+const BOUNDARY = "realmframe";
 const JPEG_QUALITY = 70;
 /** How long a page may sit still before its last frame is sent again. */
-export const STILL_MS = 1000;
+const STILL_MS = 1000;
 /** How long close waits for `Page.stopScreencast` before dropping the socket anyway. */
 const STOP_WAIT_MS = 500;
 
@@ -130,12 +130,12 @@ export class ElectronRelay {
   async input(raw: unknown): Promise<void> {
     const parsed = ViewerInputSchema.safeParse(raw);
     if (!parsed.success) return;
-    const msg: ViewerInput = parsed.data;
+    const msg = parsed.data;
     if (msg.type === "text") { await this.send("Input.insertText", { text: msg.text }); return; }
     if (msg.type === "key") {
       const type = msg.action === "up" ? "keyUp" : msg.text ? "keyDown" : "rawKeyDown";
       await this.send("Input.dispatchKeyEvent", {
-        type, key: msg.key, code: msg.code, windowsVirtualKeyCode: msg.keyCode, modifiers: msg.modifiers ?? 0,
+        type, key: msg.key, code: msg.code, windowsVirtualKeyCode: msg.keyCode, modifiers: msg.modifiers,
         ...(type === "keyDown" ? { text: msg.text, unmodifiedText: msg.text } : {}),
       });
       return;
@@ -145,7 +145,7 @@ export class ElectronRelay {
     if (!at) return;
     const type = { down: "mousePressed", up: "mouseReleased", move: "mouseMoved", wheel: "mouseWheel" }[msg.action];
     await this.send("Input.dispatchMouseEvent", {
-      type, x: at.x, y: at.y, button: msg.button, clickCount: msg.clickCount, modifiers: msg.modifiers ?? 0,
+      type, x: at.x, y: at.y, button: msg.button, clickCount: msg.clickCount, modifiers: msg.modifiers,
       ...(msg.action === "wheel" ? { deltaX: msg.deltaX, deltaY: msg.deltaY } : {}),
     });
   }

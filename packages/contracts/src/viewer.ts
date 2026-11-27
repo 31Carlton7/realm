@@ -9,7 +9,7 @@ import { IdSchema } from "./ids";
 export const ViewerKindSchema = z.enum(["electron", "native", "web"]);
 export type ViewerKind = z.infer<typeof ViewerKindSchema>;
 
-export const ViewerStatusSchema = z.enum(["connecting", "live", "exited", "closed"]);
+export const ViewerStatusSchema = z.enum(["connecting", "live", "exited"]);
 export type ViewerStatus = z.infer<typeof ViewerStatusSchema>;
 
 export const ViewerSchema = z.object({
