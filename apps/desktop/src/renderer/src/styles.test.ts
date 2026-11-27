@@ -255,13 +255,14 @@ describe("§6 motion table", () => {
     };
     const matches = (el: Element, s: string) => { try { return el.matches(s); } catch { return false; } };
     const fades = (el: Element) => entrances.flatMap(partsOf).filter((s) => matches(el, s));
-    // Taken back by a later rule on the same selector with more after it, which always outranks it.
+    // Taken back by a later rule on the same selector with more appended, which always outranks it.
     const takenBack = (el: Element, s: string) => RULES.slice(RULES.findIndex((r) => partsOf(r).includes(s)))
       .some((r) => /animation:\s*none/.test(r.body) && partsOf(r).some((o) => o.startsWith(s) && o !== s && matches(el, o)));
     const session = slot(`<div class="session-pane"><canvas class="hero-backdrop" data-phase="chat"></canvas></div>`);
     for (const el of [session.querySelector(".pane-slot")!, session.querySelector(".session-pane")!, session.querySelector(".hero-backdrop")!]) {
       expect(fades(el).filter((s) => !takenBack(el, s)), el.className).toEqual([]);
     }
+    // Every other kind keeps its entrance, so a selector the matcher cannot read is not a pass.
     expect(fades(slot(`<div class="terminal-pane"></div>`).querySelector(".pane-slot")!)).not.toEqual([]);
   });
 
