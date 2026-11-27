@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Improved
+
+- **Hidden browser panes give their memory back after 2 hours.** A browser pane kept loaded only because it was one of the most recently hidden (Settings > RAM, "Hidden browser panes kept loaded"), or because its page was still loading, is now discarded once it has been hidden for 2 hours, like any other hidden pane. The panes kept loaded are one count across every window, where each window used to keep its own. A pane is still never discarded while it is on screen, or while its page plays audio or video (muted too), holds typing, keeps anything in its session storage, such as a sign-in, or has DevTools open, even if a frame on it never finishes loading. Nor is one an agent used in the last few minutes. A discarded pane keeps its tab, its address and where it was scrolled to, and loads that address again when you show it. That load is a fresh GET, so a pane hidden for more than 2 hours comes back without its Back and Forward history, without the result of a form it had sent, and without anything the page kept only in memory, such as where you were in a single-page app that the address does not record. (#693, #705)
+
 ## v2.22.0 - 2026-11-22
 
 Claude sessions show their first words without waiting on a slow plan-limits read, and a quick chat can be saved to a space.
