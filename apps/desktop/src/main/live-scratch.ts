@@ -20,10 +20,17 @@ const BANNER_SCRIPT = `(() => {
 export type LiveScratch = {
   windowOptions: { show: false; focusable: false; title: string };
   bannerScript: string;
+  /** `REALM_LIVE_HIDDEN_KEEP_MS`: the hidden browser pane age limit (`HIDDEN_KEEP_MAX_MS`), shortened
+   *  so a check need not wait two hours. */
+  hiddenKeepMs: number | null;
 };
 
 export function liveScratch(d: { packaged: boolean; env: Record<string, string | undefined> }): LiveScratch | null {
   if (d.packaged) return null;
   if (d.env.REALM_ENABLE_FAKE_AGENT !== "1" || d.env.REALM_LIVE_SCRATCH !== "1") return null;
-  return { windowOptions: { show: false, focusable: false, title: SCRATCH_TITLE }, bannerScript: BANNER_SCRIPT };
+  const hiddenKeepMs = Number(d.env.REALM_LIVE_HIDDEN_KEEP_MS);
+  return {
+    windowOptions: { show: false, focusable: false, title: SCRATCH_TITLE }, bannerScript: BANNER_SCRIPT,
+    hiddenKeepMs: Number.isFinite(hiddenKeepMs) && hiddenKeepMs > 0 ? hiddenKeepMs : null,
+  };
 }

@@ -18,4 +18,10 @@ describe("liveScratch", () => {
     expect(liveScratch({ packaged: false, env: { REALM_LIVE_SCRATCH: "1" } })).toBeNull();
     expect(liveScratch({ packaged: false, env: { REALM_ENABLE_FAKE_AGENT: "1" } })).toBeNull();
   });
+
+  it("shortens the hidden pane age limit only when asked, with a positive number", () => {
+    expect(liveScratch({ packaged: false, env: harness })?.hiddenKeepMs).toBeNull();
+    expect(liveScratch({ packaged: false, env: { ...harness, REALM_LIVE_HIDDEN_KEEP_MS: "5000" } })?.hiddenKeepMs).toBe(5000);
+    expect(liveScratch({ packaged: false, env: { ...harness, REALM_LIVE_HIDDEN_KEEP_MS: "soon" } })?.hiddenKeepMs).toBeNull();
+  });
 });

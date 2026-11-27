@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  ACTIVATION_MS, AGENT_GRACE_MS, PARKED_OPENERS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, sendAsAgent, type TabAnswer, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
+  ACTIVATION_MS, AGENT_GRACE_MS, PARKED_OPENERS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, sendAsAgent, type TabAnswer, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, HIDDEN_KEEP_MAX_MS, HiddenViews, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks, type WindowKeyboard,
@@ -506,7 +506,7 @@ function fakeView() {
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
 }
 
-function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReason | null>; now?: () => number; windowGone?: () => boolean } = {}) {
+function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReason | null>; now?: () => number; windowGone?: () => boolean; pool?: HiddenViews } = {}) {
   const views = new Map<string, ReturnType<typeof fakeView>>();
   const states: BrowserViewState[] = [];
   const found: (FindResult & { id: string })[] = [];
@@ -523,6 +523,7 @@ function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReas
     emulate: (id, metrics) => emulations.push({ id, metrics }), openTab: (m) => tabs.push(m),
     closeTab: (id) => closedTabs.push(id),
     ...(o.guard ? { guard: o.guard } : {}), ...(o.now ? { now: o.now } : {}), ...(o.windowGone ? { windowGone: o.windowGone } : {}),
+    ...(o.pool ? { pool: o.pool } : {}),
   });
   return { host, views, states, factory, found, findRequests, emulations, tabs, closedTabs };
 }
@@ -1796,6 +1797,146 @@ describe("BrowserPaneHost — discarding hidden views", () => {
     expect(host.has("b")).toBe(false);
     host.destroyPartition(P);
     expect(host.has("w")).toBe(false);
+  });
+});
+
+/**
+ * The hidden views of every window, counted as one, and kept loaded for a while rather than forever.
+ * What must die: the "most recently hidden" exemption counted per window (eleven windows, thirty-three
+ * unthrottled renderers), that exemption or a slow page's "loading" lasting for days, and any of it
+ * reaching a page on screen, one playing audio or one an agent is driving.
+ */
+describe("HiddenViews — every window's hidden panes, with an age limit", () => {
+  const MIN = 60_000;
+  const R = { x: 10, y: 20, width: 400, height: 300 };
+  function windows(guard?: (id: string) => Promise<KeepReason | null>, limit = 3) {
+    let t = 1_000_000;
+    const now = () => t;
+    const pool = new HiddenViews({ now, limit: () => limit });
+    const open = () => {
+      const env = makeHost(2, { now, pool, ...(guard ? { guard } : {}) });
+      const page = (id: string) => {
+        env.host.create(id, `https://${id}.example`, null, P);
+        const v = env.views.get(id)!;
+        v.nav.url = `https://${id}.example/`; v.nav.ready = true; v.nav.loading = false;
+        env.host.setBounds(id, R, 2, true);
+        return v;
+      };
+      return { ...env, page, hide: (id: string) => env.host.setBounds(id, R, 2, false) };
+    };
+    return { pool, open, at: (ms: number) => { t = 1_000_000 + ms; } };
+  }
+
+  it("keeps a recently hidden pane only until the age limit, then discards it", async () => {
+    // THE MUTANT: the "recent" exemption ahead of any age check, which kept a pane hidden for three days.
+    const { pool, open, at } = windows();
+    const w = open();
+    w.page("a");
+    at(0); w.hide("a");
+    at(HIDDEN_KEEP_MAX_MS - MIN);
+    expect(await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 3 })).toEqual({ discarded: [], kept: [{ id: "a", reason: "recent" }] });
+    at(HIDDEN_KEEP_MAX_MS);
+    expect((await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 3 })).discarded).toEqual(["a"]);
+    expect(alive(w.views.get("a")!)).toBe(false);
+    expect(w.host.isDiscarded("a")).toBe(true);
+    expect(HIDDEN_KEEP_MAX_MS).toBe(2 * 60 * MIN);
+  });
+
+  it("counts the most recently hidden across every window, not in each", async () => {
+    // THE MUTANT: each window's sweep keeping its own three.
+    const { pool, open, at } = windows();
+    const one = open(), two = open();
+    for (const id of ["a1", "a2", "a3", "a4"]) one.page(id);
+    for (const id of ["b1", "b2", "b3", "b4"]) two.page(id);
+    for (const [i, [w, id]] of ([[one, "a1"], [two, "b1"], [one, "a2"], [two, "b2"], [one, "a3"], [two, "b3"], [one, "a4"], [two, "b4"]] as const).entries()) {
+      at(i * MIN); w.hide(id);
+    }
+    at(30 * MIN);
+    const r = await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 3 });
+    expect(r.kept).toEqual([{ id: "b4", reason: "recent" }, { id: "a4", reason: "recent" }, { id: "b3", reason: "recent" }]);
+    expect(r.discarded.sort()).toEqual(["a1", "a2", "a3", "b1", "b2"]);
+  });
+
+  it("holds the off-screen budget across every window, oldest first", async () => {
+    // THE MUTANT: a budget per window, so two windows keep six unmounted pages between them.
+    const { pool, open, at } = windows();
+    const one = open(), two = open();
+    for (const id of ["a1", "a2"]) one.page(id);
+    for (const id of ["b1", "b2"]) two.page(id);
+    at(0); one.host.retain("a1");
+    at(MIN); two.host.retain("b1");
+    at(2 * MIN); one.host.retain("a2");
+    at(3 * MIN); two.host.retain("b2");
+    await pool.settled();
+    expect(["a1", "a2", "b1", "b2"].filter((id) => one.host.isDiscarded(id) || two.host.isDiscarded(id))).toEqual(["a1"]);
+  });
+
+  it("keeps a page its guard calls loading only until the age limit", async () => {
+    // THE MUTANT: "loading" sparing a page forever — a frame too slow to answer is read as loading,
+    // so under load nothing was ever discarded.
+    const { pool, open, at } = windows(async () => "loading");
+    const w = open();
+    w.page("slow");
+    at(0); w.hide("slow");
+    at(30 * MIN);
+    expect(await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 })).toEqual({ discarded: [], kept: [{ id: "slow", reason: "loading" }] });
+    at(HIDDEN_KEEP_MAX_MS);
+    expect((await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 })).discarded).toEqual(["slow"]);
+  });
+
+  it("lets the off-screen budget take a slow page once it is past the age limit", async () => {
+    const { pool, open, at } = windows(async (id) => (id === "slow" ? "loading" : null), 1);
+    const w = open();
+    w.page("slow"); w.page("next");
+    at(0); w.host.retain("slow");
+    at(MIN); w.host.retain("next");
+    await pool.settled();
+    expect(w.host.isDiscarded("slow")).toBe(false);
+    at(HIDDEN_KEEP_MAX_MS + MIN); w.page("last"); w.host.retain("last");
+    await pool.settled();
+    expect(w.host.isDiscarded("slow")).toBe(true);
+  });
+
+  it("never takes a pane on screen, one playing audio or one an agent is driving, however old", async () => {
+    const { pool, open, at } = windows(async (id) => (id === "audio" ? "media" : null), 1);
+    const one = open(), two = open();
+    one.page("shown"); one.page("audio"); two.page("driven"); two.page("plain"); two.page("other");
+    at(0); one.host.retain("audio"); two.host.retain("driven");
+    at(3 * 24 * 60 * MIN);
+    two.host.touch("driven"); // an agent's op, just now
+    two.host.retain("plain"); two.host.retain("other");
+    await pool.settled();
+    expect((await pool.sweep({ hiddenMs: 0, keepHidden: 0 })).kept).toEqual(expect.arrayContaining([{ id: "audio", reason: "media" }, { id: "driven", reason: "agent" }]));
+    expect(one.host.isDiscarded("shown")).toBe(false);
+    expect(one.host.isDiscarded("audio")).toBe(false);
+    expect(two.host.isDiscarded("driven")).toBe(false);
+    expect(two.host.isDiscarded("plain")).toBe(true);
+  });
+
+  it("brings an aged-out pane back on its own page when it is shown again", async () => {
+    const { pool, open, at } = windows();
+    open().page("other");
+    const w = open();
+    const v = w.page("b");
+    v.nav.url = "https://b.example/inbox";
+    at(0); w.hide("b");
+    at(HIDDEN_KEEP_MAX_MS);
+    await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 3 });
+    expect(w.host.isDiscarded("b")).toBe(true);
+    w.host.setBounds("b", R, 2, true);
+    expect(w.factory).toHaveBeenCalledTimes(2);
+    expect(w.views.get("b")!.calls).toContain("load:https://b.example/inbox");
+    expect(w.host.isDiscarded("b")).toBe(false);
+  });
+
+  it("forgets a closed window's panes", async () => {
+    const { pool, open, at } = windows();
+    const gone = open(), kept = open();
+    gone.page("g"); kept.page("k");
+    at(0); gone.hide("g"); at(MIN); kept.hide("k");
+    gone.host.destroyAll();
+    at(30 * MIN);
+    expect(await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 3 })).toEqual({ discarded: [], kept: [{ id: "k", reason: "recent" }] });
   });
 });
 
