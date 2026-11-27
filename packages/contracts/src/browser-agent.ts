@@ -235,8 +235,9 @@ export type BrowserPageActivity = { loading: boolean; requests: number; quietMs:
 export type BrowserReadResult = { text: string; loadError?: BrowserLoadError | null;
   /** The page's filled-in fields, secret ones hidden — only when the read asked for them (`fields`). */
   fields?: PageField[] };
-/** `loadError`: the capture is of the empty document Chromium commits for a failed load. */
-export type BrowserScreenshotResult = { data: string; mimeType: string; loadError?: BrowserLoadError | null };
+/** `loadError`: the capture is of the empty document Chromium commits for a failed load. `legend`:
+ *  only on an annotated capture — a `[N] ref=… role "name"` line for each numbered box drawn in it. */
+export type BrowserScreenshotResult = { data: string; mimeType: string; legend?: string; loadError?: BrowserLoadError | null };
 export type BrowserNavigateResult = { url: string | null };
 
 /**

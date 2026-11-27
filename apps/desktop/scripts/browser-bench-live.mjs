@@ -21,6 +21,8 @@
  *   --out <file>   where the JSON goes (default: $TMPDIR/realm-browser-bench.json)
  *   --runs <n>     runs per task (default 3)
  *   --dump <dir>   also write what every call of the first run returned, one file a call
+ *   --shots <dir>  also write annotated screenshots of catalog and dialog, each with its legend
+ *   --display builtin   run on the Mac's built-in display (2× on a Retina Mac) rather than the main one
  *
  * When fixtures/browser-bench/baseline.json is there and --out is not it, the table shows each number
  * against the baseline's. To make a new baseline: --out apps/desktop/scripts/fixtures/browser-bench/baseline.json
@@ -40,6 +42,8 @@ const BASELINE = path.join(FIXTURES, "baseline.json");
 const OUT = path.resolve(flag("--out", path.join(os.tmpdir(), "realm-browser-bench.json")));
 const RUNS = Number(flag("--runs", 3));
 const DUMP = flag("--dump", null);
+const SHOTS = flag("--shots", null);
+const DISPLAY = flag("--display", "main");
 const VIEWPORT = { width: 1440, height: 900 };
 /** Chromium's switches for a window that is covered or in the background: lay it out and run its timers
  *  anyway, or the pane gets no bounds and every element reads as offscreen. */
@@ -125,6 +129,18 @@ const linesOf = (snap) => snap.split("\n").flatMap((l) => l.replace(/^\{offscree
 const lineFor = (snap, name, role) => linesOf(snap).find((l) => l.name.trim().toLowerCase() === name.toLowerCase() && (!role || l.role === role)) ?? null;
 /** A diff's lines without its removed section: what the page still has. */
 const stillListed = (snap) => snap.replace(/^removed:\n(?:\[ref=.*\n?)*/m, "");
+/** The lines of a snapshot that are on screen: an offscreen run starts with `{offscreen}`. */
+const onScreen = (snap) => linesOf(snap.split("\n").filter((l) => !l.startsWith("{offscreen}")).join("\n"));
+/** An annotated screenshot's legend, `[N] ref=… role "name"`, as the same shape `linesOf` gives. */
+const legendOf = (shot) => shot.split("\n").map((l) => /^\[(\d+)\] ref=(\d+) (\S+)(?: "(.*)")?$/.exec(l)).filter(Boolean)
+  .map(([, n, ref, role, name]) => ({ n: Number(n), ref: Number(ref), role, name: name ?? "" }));
+/** Each on-screen product's cart button: the first button after the product's link, as the card lays
+ *  them out — the one way to tell twenty unnamed buttons apart without a picture. */
+const cartButtons = (lines) => lines.flatMap((l, i) => {
+  const n = /^Product (\d+)$/.exec(l.name)?.[1];
+  const button = n && lines.slice(i + 1).find((m) => m.role === "button");
+  return button ? [{ product: Number(n), ref: button.ref }] : [];
+});
 const nextOffset = (snap) => Number(/Snapshot again with offset: (\d+)/.exec(snap)?.[1]) || null;
 
 /* ---------------------------------- the tasks ---------------------------------- */
@@ -136,6 +152,19 @@ const FORM = [
 ];
 const FORM_CHECKS = ["Send me product news", "I agree to the terms"];
 const FORM_NAMES = ["firstName", "lastName", "email", "phone", "company", "jobTitle", "street", "city", "postalCode", "country"];
+
+/** A task that clicks the cart button of every product `read` finds on screen; it worked when the
+ *  cart got exactly those products, in that order. */
+const addEveryOnScreen = (id, by, read) => ({
+  id, page: "catalog", title: `Add every on-screen product to the cart, by ${by}`,
+  async run(t) {
+    const targets = cartButtons(await read(t));
+    t.state.expected = targets.map((x) => x.product);
+    for (const x of targets) await t.act({ kind: "click", ref: x.ref });
+    return { targets: targets.length };
+  },
+  check: ({ cartBefore, state }) => state.expected?.length > 0 && JSON.stringify(seen.cart.slice(cartBefore)) === JSON.stringify(state.expected),
+});
 
 /**
  * Each task gets a pane already on its page, and `t` — `t.snapshot(args)`, `t.act(action)`,
@@ -191,6 +220,8 @@ const TASKS = [
     },
     check: ({ cartBefore }) => { const added = seen.cart.slice(cartBefore); return added.length === 1 && added[0] === 250; },
   },
+  addEveryOnScreen("catalog-icons", "the snapshot", async (t) => onScreen(await t.snapshot())),
+  addEveryOnScreen("catalog-icons-annotated", "an annotated screenshot", async (t) => legendOf(await t.screenshot({ annotate: true }))),
   {
     id: "docs", page: "docs", title: 'Reach "Getting started" in the docs, step by step',
     async run(t) {
@@ -271,7 +302,13 @@ async function main() {
   const { page } = app;
   // Sized from main, not emulated in the renderer: main sizes the pane's view from the renderer's
   // devicePixelRatio over the display's scaleFactor, so an emulated ratio of 1 on a 2× display halves it.
-  await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).setContentSize(${VIEWPORT.width}, ${VIEWPORT.height})`);
+  await app.main.eval(`(() => {
+    const { BrowserWindow, screen } = require("electron");
+    const win = BrowserWindow.getAllWindows().find((w) => w.isResizable());
+    const builtin = ${JSON.stringify(DISPLAY === "builtin")} ? screen.getAllDisplays().find((d) => d.internal) : null;
+    if (builtin) win.setPosition(builtin.workArea.x, builtin.workArea.y);
+    win.setContentSize(${VIEWPORT.width}, ${VIEWPORT.height});
+  })()`);
 
   // Onboarding makes the space. Its first session runs a real engine, so nothing is typed there.
   await until(() => page.eval(`!!document.querySelector('.onboarding input:not([type=radio])')`), 30_000, "onboarding");
@@ -360,6 +397,7 @@ async function main() {
       const t = {
         state,
         snapshot: (scope = {}) => record("browser_snapshot", scope),
+        screenshot: (args = {}) => record("browser_screenshot", args),
         act: (action) => record("browser_act", { action, intent: `${action.kind} for the benchmark` }),
         do: (args) => record("browser_do", args),
         waitFor: (pathname) => loaded(pathname),
@@ -370,7 +408,7 @@ async function main() {
       try { notes = await task.run(t); } catch (e) { failure = String(e?.message ?? e); }
       const ok = !failure && !calls.some((c) => c.error) && (await Promise.resolve(task.check(ctx)).catch(() => false));
       const snaps = calls.filter((c) => c.tool === "browser_snapshot");
-      const acts = calls.filter((c) => c.tool !== "browser_snapshot");
+      const acts = calls.filter((c) => c.tool === "browser_act" || c.tool === "browser_do");
       runs.push({
         ok, failure: failure ?? calls.find((c) => c.error)?.error ?? (ok ? null : "the page did not end where the task wanted"),
         toolCalls: calls.length,
@@ -409,6 +447,32 @@ async function main() {
     };
     results.push(row);
     console.log(`${row.success === `${RUNS}/${RUNS}` ? "PASS" : "FAIL"} ${task.id} ${row.success}${row.failures.length ? ` ${JSON.stringify(row.failures)}` : ""}`);
+  }
+
+  if (SHOTS) {
+    fs.mkdirSync(SHOTS, { recursive: true });
+    const shoot = async (name, url, prepare) => {
+      await callTool("browser_navigate", { browserId, url });
+      await loaded(new URL(url).pathname);
+      await sleep(300);
+      if (prepare) await pane(prepare);
+      let boxes = 0;
+      for (const annotate of [false, true]) {
+        const { r } = await callTool("browser_screenshot", { browserId, annotate });
+        const image = r.content.find((c) => c.type === "image");
+        fs.writeFileSync(path.join(SHOTS, `${name}${annotate ? "-annotated" : ""}.jpg`), Buffer.from(image.data, "base64"));
+        if (annotate) {
+          fs.writeFileSync(path.join(SHOTS, `${name}-annotated.txt`), `${text(r)}\n`);
+          boxes = legendOf(text(r)).length;
+        }
+      }
+      const left = await pane(`document.querySelectorAll('[data-realm-agent-highlight="refs"]').length`);
+      console.log(`shot ${name}: ${boxes} boxes, ${left} left in the page`);
+    };
+    await shoot("catalog", `${SITE}/catalog.html?shot=1`);
+    await shoot("dialog", `${SITE}/dialog.html?shot=1`);
+    // A password field in the header: it has to come out grey in the annotated picture too.
+    await shoot("catalog-password", `${SITE}/catalog.html?shot=2`, `(() => { const i = document.createElement("input"); i.type = "password"; i.value = "hunter2-secret"; i.placeholder = "Password"; document.querySelector("header").prepend(i); return true; })()`);
   }
 
   // Read once the tasks are done: a pane just opened has not been laid out, and reads 0×0.
