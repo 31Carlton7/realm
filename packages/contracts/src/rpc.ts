@@ -45,6 +45,7 @@ import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
 import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
 import { GoalSchema, GoalStatusSchema } from "./goal";
+import { ViewerOpenSchema, ViewerSchema } from "./viewer";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
 import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema, PendingMoveSchema } from "./session-move";
@@ -798,6 +799,12 @@ export const Methods = {
   /** The pane is showing this device right now — sent while it is on screen, about once a minute. What
    *  keeps a simulator Realm booted from being shut down as idle (`SIMULATOR_IDLE_SHUTDOWN_KEY`). */
   "simulators.seen": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /* Viewers: a hidden app on this Mac shown as a picture (`viewer.ts`). In memory only: a viewer is
+     a live connection to a running process, and nothing about it survives that process. */
+  "viewers.open": { params: ViewerOpenSchema, result: z.object({ viewer: ViewerSchema }) },
+  "viewers.list": { params: z.object({}), result: z.object({ viewers: z.array(ViewerSchema) }) },
+  "viewers.close": { params: z.object({ viewerId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** The device's own settings, read fresh: appearance, text size, the accessibility switches. */
   "simulators.ui": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ui: SimulatorUiStateSchema }) },
   /** Set one, and answer with what the device reports afterwards — never with the value that was

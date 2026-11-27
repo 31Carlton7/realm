@@ -93,6 +93,7 @@ export * from "./connectors";
 export * from "./machine";
 export * from "./simulator";
 export * from "./simulator-input";
+export * from "./viewer";
 export * from "./goal";
 export * from "./workspace";
 export * from "./agent-settings";
