@@ -488,6 +488,8 @@ describe("SessionService over rpc", () => {
       const before = replies();
       await c.call("sessions.send", { id, text });
       await waitFor(async () => replies() > before && (await c.call("sessions.get", { id })).result.status === "idle");
+      // A turn that called a tool is measured after it settles, and the engine is not idle until that ends.
+      await (app.sessions as unknown as { measuring: Map<string, Promise<void>> }).measuring.get(id);
     };
     const cron = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
     await settle(cron.id, "addcron");
