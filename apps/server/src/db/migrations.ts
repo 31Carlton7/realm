@@ -1330,4 +1330,13 @@ export const migrations: string[] = [
   // reads as the person's: nothing recorded which agent made which, so none is an agent's own to change
   // without a card. A second run fails on the ALTER, inside the migration's transaction.
   `ALTER TABLE schedules ADD COLUMN created_by_session TEXT;`,
+  // How far event retention has read each session (`store/event-retention.ts`): `through_seq` is the
+  // last event it looked at, so an idle session is read once and a session that wakes and goes quiet
+  // again is read from there. It goes with its session by the cascade. Nothing to backfill, and
+  // `IF NOT EXISTS`, so the statement is safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS event_retention (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    through_seq INTEGER NOT NULL);
+  `,
 ];

@@ -9,7 +9,7 @@
 import { readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DAEMON_LOCK_FILE, DAEMON_STATE_FILE, DaemonStateSchema, type DaemonState } from "@realm/contracts";
+import { DAEMON_LOCK_FILE, DAEMON_STATE_FILE, DaemonStateSchema, MAINTENANCE_FILE, MaintenanceMarkerSchema, type DaemonState, type MaintenanceMarker } from "@realm/contracts";
 
 /**
  * Where `~/Realm` is — resolved HERE rather than read back from the server, because adoption has to
@@ -29,6 +29,14 @@ export function readDaemonState(home: string): DaemonState | null {
   try { raw = readFileSync(daemonStatePath(home), "utf8"); } catch { return null; }
   try {
     const parsed = DaemonStateSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch { return null; }
+}
+
+/** `maintenance.json`, or null for every kind of absence, as `readDaemonState`. */
+export function readMaintenance(home: string): MaintenanceMarker | null {
+  try {
+    const parsed = MaintenanceMarkerSchema.safeParse(JSON.parse(readFileSync(join(home, MAINTENANCE_FILE), "utf8")));
     return parsed.success ? parsed.data : null;
   } catch { return null; }
 }

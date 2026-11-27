@@ -9,7 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
-import { daemonStatePath, defaultRealmHome, forgetDeadServer, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
+import { daemonStatePath, defaultRealmHome, forgetDeadServer, readDaemonState, readMaintenance, readStateForPort, realmHomePath } from "./daemon-state";
 import { appTokenSha256, liveAppTokenFile, mintAppToken, sealAppToken, unsealAppToken } from "./app-token";
 import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type DaemonEndpoint, type HandoffResult, type HandoffWhy } from "./daemon";
 import { SERVER_ENTRY_SUFFIX, STOP_WAIT_MS, realProcessOps, runsServer, stopServerProcess, stopStrayServers, waitForExit } from "./daemon-stop";
@@ -2752,6 +2752,7 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
       onHandoff: (running, why) => handOff(running, why),
       replace: replaceServer,
       bundleOnDisk: (entry) => { try { return bundleIdOf(statSync(entry)); } catch { return "missing"; } },
+      readMaintenance,
       clearStrays: () => clearStrayServers(home),
       log: (line) => console.error(line),
     });

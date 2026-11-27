@@ -38,6 +38,26 @@ export const DaemonStateSchema = z.object({
 });
 export type DaemonState = z.infer<typeof DaemonStateSchema>;
 
+/**
+ * Written by a server about to block its own event loop for longer than a launcher would wait on it
+ * (a VACUUM of realm.db), and removed when it is done. A launcher that finds a daemon not answering
+ * waits on one whose pid and bootId match this, instead of replacing it as stuck, but only for
+ * `MAINTENANCE_MAX_MS` from `startedAt`, so a marker a crash left behind cannot hold a launch forever.
+ *
+ * A file of its own rather than a value of `DaemonState.state`: an older launcher parses the state
+ * file with its own schema, and an unknown value there would read as no daemon at all, and it would
+ * start a second one. An older launcher never reads this file.
+ */
+export const MaintenanceMarkerSchema = z.object({
+  pid: z.number().int().positive(),
+  bootId: z.string().min(1),
+  what: z.enum(["vacuum"]),
+  startedAt: z.number().int(),
+});
+export type MaintenanceMarker = z.infer<typeof MaintenanceMarkerSchema>;
+export const MAINTENANCE_FILE = "maintenance.json";
+export const MAINTENANCE_MAX_MS = 10 * 60_000;
+
 export const DAEMON_STATE_FILE = "daemon.json";
 export const DAEMON_LOCK_FILE = "daemon.lock";
 /** The app's token, sealed by Electron's `safeStorage`, for an app reattaching to a daemon that

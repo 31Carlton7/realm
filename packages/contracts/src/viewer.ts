@@ -16,7 +16,7 @@ export const ViewerSchema = z.object({
   id: IdSchema,
   kind: ViewerKindSchema,
   title: z.string(),
-  /** `multipart/x-mixed-replace` JPEG frames. Loopback, with a per-boot token in the path. */
+  /** `multipart/x-mixed-replace` JPEG frames. Loopback, with this viewer's own secret in the path. */
   streamUrl: z.string(),
   /** A WebSocket taking `ViewerInput` messages as JSON text. */
   inputUrl: z.string(),
@@ -27,15 +27,16 @@ export type Viewer = z.infer<typeof ViewerSchema>;
 
 export const ViewerOpenSchema = z.object({
   kind: z.literal("electron"),
-  /** The app's `--remote-debugging-port`, on 127.0.0.1. */
-  cdpPort: z.number().int().min(1).max(65535),
+  /** A quiet app Realm launched itself, as its launcher recorded it. The DevTools port comes from that
+   *  record and never from the caller: CDP input skips every guard the app's own UI has, so a port
+   *  named by a caller could drive anything on this Mac with a debug port open. */
+  appId: IdSchema,
   /** Which page to show when the app has several: the DevTools target id (`/json/list`'s `id`)… */
   targetId: z.string().max(128).optional(),
   /** …or else the first page target whose URL starts with this. Two windows of one app often share a
    *  URL (Realm's main window and its quick chat panel do), so an id is the reliable choice. */
   targetUrl: z.string().optional(),
   title: z.string().max(200).optional(),
-  pid: z.number().int().nullable().default(null),
   /** The pane's size in device pixels. The screencast is scaled down to fit it; absent, frames come
    *  at the page's own size. */
   maxWidth: z.number().int().positive().optional(),
@@ -48,22 +49,27 @@ export type ViewerOpen = z.input<typeof ViewerOpenSchema>;
 /** CDP's modifier bits: Alt 1, Ctrl 2, Meta 4, Shift 8. */
 const Modifiers = z.number().int().min(0).max(15).default(0);
 
+const MouseButton = z.enum(["left", "middle", "right", "none"]);
+const pointer = {
+  type: z.literal("pointer"),
+  x: z.number(), y: z.number(),
+  width: z.number().positive(), height: z.number().positive(),
+  clickCount: z.number().int().min(0).default(1),
+  deltaX: z.number().default(0), deltaY: z.number().default(0),
+  modifiers: Modifiers,
+};
+
 /**
  * What the input socket takes. Pointer positions are in VIEWER coordinates: CSS pixels inside a box
  * of `width` x `height` in which the picture is letterboxed (object-fit: contain). The relay maps
  * them to the page.
+ *
+ * A press or release is the left button unless it says otherwise; a move or a wheel is no button,
+ * so a hover is not read as a drag. A drag sends its moves with the button held.
  */
-export const ViewerInputSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("pointer"),
-    action: z.enum(["down", "move", "up", "wheel"]),
-    x: z.number(), y: z.number(),
-    width: z.number().positive(), height: z.number().positive(),
-    button: z.enum(["left", "middle", "right", "none"]).default("left"),
-    clickCount: z.number().int().min(0).default(1),
-    deltaX: z.number().default(0), deltaY: z.number().default(0),
-    modifiers: Modifiers,
-  }),
+export const ViewerInputSchema = z.union([
+  z.object({ ...pointer, action: z.enum(["down", "up"]), button: MouseButton.default("left") }),
+  z.object({ ...pointer, action: z.enum(["move", "wheel"]), button: MouseButton.default("none") }),
   z.object({
     type: z.literal("key"),
     action: z.enum(["down", "up"]),

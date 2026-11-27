@@ -15,7 +15,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
-import { DAEMON_LOCK_FILE, DAEMON_STATE_FILE, DaemonStateSchema, bundleIdOf, type DaemonState } from "@realm/contracts";
+import { DAEMON_LOCK_FILE, DAEMON_STATE_FILE, DaemonStateSchema, MAINTENANCE_FILE, bundleIdOf, type DaemonState, type MaintenanceMarker } from "@realm/contracts";
 
 export type { DaemonState };
 export const stateFile = (home: string): string => join(home, DAEMON_STATE_FILE);
@@ -100,6 +100,19 @@ export function clearState(home: string, owner: { pid: number }): void {
   const current = readState(home);
   if (current && current.pid !== owner.pid) return;
   rmSync(stateFile(home), { force: true });
+}
+
+/** Tell a launcher this server is about to stop answering on purpose (`MaintenanceMarker`). Written
+ *  by rename, as the state file is. */
+export function writeMaintenance(home: string, marker: MaintenanceMarker): void {
+  const target = join(home, MAINTENANCE_FILE);
+  const tmp = `${target}.${marker.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(marker)}\n`);
+  renameSync(tmp, target);
+}
+
+export function clearMaintenance(home: string): void {
+  rmSync(join(home, MAINTENANCE_FILE), { force: true });
 }
 
 export type LockOutcome = { kind: "acquired" } | { kind: "held"; pid: number };

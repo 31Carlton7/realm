@@ -20,6 +20,8 @@ const RESTRICTED = [
   "remote.pair.answer",
   // Each widens what an agent may do without asking.
   "sessions.setOptions", "teammates.update", "teams.access.set", "runs.approve", "computer.allowedApps.set", "mcp.setAllowedTools",
+  // A viewer's input reaches a page past every guard its UI has.
+  "viewers.open", "viewers.list", "viewers.close",
 ];
 
 /** Every method the `realm` CLI calls, read from its source so a new command is covered by itself.

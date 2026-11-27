@@ -1147,6 +1147,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   the box's moving edge; everything beside it — the panes, a page over them, a bar's title — is laid
   out from that edge or moves on the same curve and duration. A layer placed against the window
   instead lands on its final edge in the first frame, and what it covers flashes through beside it.
+- A swap that keeps its ground is a cut. A session's picture is its pane's ground, so a pane switched
+  to another session does not fade in: an entrance from clear showed the bare window for the first
+  frames of every switch, a dark pane before the picture came back. Content entering a pane of
+  another kind still settles in.
 - Contextual icon swaps use opacity, blur from 4 px to 0, and scale from 0.25 to 1 with no bounce.
 - Do not animate content merely because it scrolled into view.
 - Do not add parallax, auto-scrolling marquees, simulated typing, or decorative pulsing.

@@ -21,6 +21,8 @@ const JPEG_QUALITY = 70;
 const STILL_MS = 1000;
 /** How long close waits for `Page.stopScreencast` before dropping the socket anyway. */
 const STOP_WAIT_MS = 500;
+/** How long the socket may take to open, and a command to be answered, before the app counts as hung. */
+export const CDP_TIMEOUT_MS = 5000;
 
 type Size = { width: number; height: number };
 
@@ -38,11 +40,12 @@ export function toPage(p: { x: number; y: number } & Size, page: Size): { x: num
 }
 
 type CdpMessage = { id?: number; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { message: string } };
+type ScreencastFrame = { data: string; sessionId: number; metadata: { deviceWidth: number; deviceHeight: number } };
 
 export class ElectronRelay {
   private ws: WebSocket | null = null;
   private nextId = 1;
-  private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   private readonly clients = new Set<ServerResponse>();
   private frame: Buffer | null = null;
   /** The page's viewport in CSS pixels, from the latest frame's metadata. */
@@ -52,25 +55,45 @@ export class ElectronRelay {
 
   constructor(
     private readonly wsUrl: string,
-    private readonly opts: { maxWidth?: number; maxHeight?: number; everyNthFrame?: number; stillMs?: number; onExit: () => void },
+    private readonly opts: { maxWidth?: number; maxHeight?: number; everyNthFrame?: number; stillMs?: number; timeoutMs?: number; onExit: () => void },
   ) {}
 
+  /** Attaches to the page. The screencast itself runs only while someone is watching (`serve`). */
   async start(): Promise<void> {
-    const ws = new WebSocket(this.wsUrl, { perMessageDeflate: false });
+    const ws = new WebSocket(this.wsUrl, { perMessageDeflate: false, handshakeTimeout: this.timeoutMs });
     this.ws = ws;
     await new Promise<void>((resolve, reject) => {
       ws.once("open", resolve);
       ws.once("error", reject);
     });
-    ws.on("message", (raw) => this.receive(JSON.parse(String(raw)) as CdpMessage));
+    ws.on("message", (raw) => {
+      let msg: CdpMessage;
+      try { msg = JSON.parse(String(raw)) as CdpMessage; } catch { return; }
+      this.receive(msg);
+    });
     ws.on("close", () => this.teardown(true));
     ws.on("error", () => {});
     await this.send("Page.enable");
-    await this.send("Page.startScreencast", {
+  }
+
+  private get timeoutMs(): number {
+    return this.opts.timeoutMs ?? CDP_TIMEOUT_MS;
+  }
+
+  private startScreencast(): void {
+    void this.send("Page.startScreencast", {
       format: "jpeg", quality: JPEG_QUALITY, everyNthFrame: this.opts.everyNthFrame ?? 1,
       ...(this.opts.maxWidth ? { maxWidth: this.opts.maxWidth } : {}),
       ...(this.opts.maxHeight ? { maxHeight: this.opts.maxHeight } : {}),
-    });
+    }).catch(() => {});
+  }
+
+  /** With nobody watching, Chromium is told to stop capturing: a screencast with no client still costs
+   *  the app most of a core on moving content. */
+  private stopScreencast(): void {
+    if (this.stillTimer) clearTimeout(this.stillTimer);
+    this.stillTimer = null;
+    void this.send("Page.stopScreencast").catch(() => {});
   }
 
   private send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -78,7 +101,11 @@ export class ElectronRelay {
     if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("the app's DevTools socket is closed"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`the app did not answer ${method}`));
+      }, this.timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
       ws.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -87,20 +114,28 @@ export class ElectronRelay {
     if (m.id !== undefined) {
       const p = this.pending.get(m.id);
       this.pending.delete(m.id);
+      if (p) clearTimeout(p.timer);
       if (m.error) p?.reject(new Error(m.error.message)); else p?.resolve(m.result);
       return;
     }
     if (m.method !== "Page.screencastFrame" || !m.params) return;
-    const { data, sessionId, metadata } = m.params as { data: string; sessionId: number; metadata: { deviceWidth: number; deviceHeight: number } };
+    const { data, sessionId, metadata } = m.params as ScreencastFrame;
     void this.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
+    let page: Size;
+    try {
+      page = { width: metadata.deviceWidth, height: metadata.deviceHeight };
+      if (typeof data !== "string" || !(page.width > 0) || !(page.height > 0)) return;
+    } catch { return; }
     this.frame = Buffer.from(data, "base64");
-    this.page = { width: metadata.deviceWidth, height: metadata.deviceHeight };
+    this.page = page;
     this.broadcast();
   }
 
   private broadcast(): void {
     for (const res of this.clients) this.write(res);
     if (this.stillTimer) clearTimeout(this.stillTimer);
+    this.stillTimer = null;
+    if (this.clients.size === 0) return;
     this.stillTimer = setTimeout(() => this.broadcast(), this.opts.stillMs ?? STILL_MS);
   }
 
@@ -111,7 +146,8 @@ export class ElectronRelay {
     res.write("\r\n");
   }
 
-  /** A client on the picture. One multipart response, held open until the viewer closes. */
+  /** A client on the picture. One multipart response, held open until the viewer closes. The first
+   *  client starts the screencast and the last one to leave stops it. */
   serve(res: ServerResponse): void {
     if (this.ended) { res.writeHead(404).end(); return; }
     res.writeHead(200, {
@@ -121,7 +157,11 @@ export class ElectronRelay {
     });
     res.flushHeaders();
     this.clients.add(res);
-    res.on("close", () => this.clients.delete(res));
+    res.on("close", () => {
+      if (!this.clients.delete(res) || this.clients.size > 0 || this.ended) return;
+      this.stopScreencast();
+    });
+    if (this.clients.size === 1) this.startScreencast();
     this.write(res);
   }
 
@@ -165,7 +205,7 @@ export class ElectronRelay {
     this.stillTimer = null;
     for (const res of this.clients) res.end();
     this.clients.clear();
-    for (const p of this.pending.values()) p.reject(new Error("the app's DevTools socket closed"));
+    for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error("the app's DevTools socket closed")); }
     this.pending.clear();
     this.ws?.close();
     this.ws = null;

@@ -15,6 +15,8 @@ import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
 import { ArtifactsStore } from "./store/artifacts";
 import { PayloadCompactor } from "./store/payload-compaction";
+import { EventRetention, agentsNeedTheServer } from "./store/event-retention";
+import { BOOT_ID, clearMaintenance, writeMaintenance } from "./daemon/state";
 import { TerminalHistoryStore, TerminalsStore } from "./store/terminals";
 import { Drain } from "./daemon/drain";
 
@@ -30,6 +32,7 @@ import { DocumentPreviewServer } from "./documents/preview";
 import { MachineService } from "./machines/service";
 import { SimulatorService } from "./simulators/service";
 import { ViewerService } from "./viewers/service";
+import { HiddenApps } from "./viewers/hidden-apps";
 import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
@@ -74,6 +77,7 @@ import { machineState, readEval, trainCheckpoint } from "./laya/training";
 import { LayaRecorder } from "./laya/recorder";
 import type { LayaRuntime } from "./laya/runtime";
 import { ResourceService } from "./resources/service";
+import { ServerMemory } from "./resources/server-memory";
 import { ResourcePolicies } from "./resources/policies";
 import { ResourceControls } from "./resources/controls";
 import { createMachineStatusTools } from "./resources/agent-tools";
@@ -1021,13 +1025,29 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the simulator sweep before it shuts anything down. A quiet, empty machine unless `main.ts` passed
      the real one. */
   const machineProbe = opts.resources?.probe ?? quietMachineProbe();
+  // This process's own memory over time, for server.log and `machine_status` (`resources/server-memory.ts`).
+  /* Whether a session has a turn running, and the free space under the home: what the work that can
+     wait (Laya's auto-install, the heap snapshot) asks before it starts. `sessions` is built further down. */
+  const agentsWorking = (): boolean => sessions.statusCounts().working > 0;
+  const homeFreeBytes = (): number | null => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } };
+  const serverMemory = new ServerMemory({ log: (line) => console.error(line), snapshotDir: join(opts.home, "logs"), busy: agentsWorking, freeBytes: homeFreeBytes });
   /* The resource service, built further down once every service it asks exists; the idle windows read
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
   const adaptIdle = (minutes: number, windows?: PressureIdleMinutes): number => resourcesLate?.adapt(minutes, windows) ?? minutes;
   const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), frontApp: async () => (await machineProbe.frontApp?.()) ?? null, home: opts.home, adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
-  const viewers = new ViewerService();
+  /* The origins Realm loads its own renderer from, measured rather than assumed: a packaged window
+     is a `file://` document and Chromium stamps `Origin: file://` on its WebSocket handshake; under
+     `pnpm dev` the window is the Vite server and stamps that origin instead. Everything else that
+     dials Realm's sockets (main's bridge, the CLI, the live checks) is `ws` from Node and sends no
+     Origin at all. */
+  const rendererOrigins = ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])];
+  const viewers = new ViewerService({
+    apps: new HiddenApps(),
+    ownDevtoolsPort: Number(process.env.REALM_DEVTOOLS_PORT) || null,
+    allowedOrigins: rendererOrigins,
+  });
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id), readsOutside: (id, abs) => documents.readsOutside(id, abs) });
@@ -1317,8 +1337,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ...(opts.layaAutoInstall ? {
       autoInstall: {
         onboarded: () => spaces.listAll().length > 0,
-        busy: () => sessions.statusCounts().working > 0,
-        freeBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+        busy: agentsWorking,
+        freeBytes: homeFreeBytes,
       },
     } : {}),
     ...(layaRuntime && layaResources
@@ -1703,6 +1723,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         return resourcesLate.snapshot();
       },
       processes: () => machineProbe.processes(),
+      server: () => serverMemory.status(),
       inSpace: (part, spaceId) => {
         if (!part.ownerId) return false;
         switch (part.category) {
@@ -1999,6 +2020,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // resumable, and standing aside while an agent works (`PayloadCompactor` states the design).
   const payloadCompactor = new PayloadCompactor({ db, busy: () => sessions.statusCounts().working > 0 });
   void payloadCompactor.run();
+  // When the owner sets a retention window, sessions idle past it have their long tool payloads cut.
+  // Either way the file is shrunk when enough is free (`EventRetention` states the rule). Never during
+  // boot: first after ten minutes, then every six hours.
+  const eventRetention = new EventRetention({
+    db, dbPath: dbPath(opts.home), settings,
+    busy: () => agentsNeedTheServer(sessions.statusCounts()),
+    freeDiskBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+    maintenance: {
+      begin: () => writeMaintenance(opts.home, { pid: process.pid, bootId: BOOT_ID, what: "vacuum", startedAt: Date.now() }),
+      end: () => clearMaintenance(opts.home),
+    },
+  });
+  eventRetention.start(10 * 60_000, 6 * 60 * 60_000);
   // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in
   // the background (`SessionService.backfillTurnMedia`).
   void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));
@@ -2011,6 +2045,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   laya.boot();
   // Memory pressure, read every half minute from here on.
   resources.start();
+  // …and this process's own memory, every five minutes into server.log.
+  serverMemory.start();
   // …and the simulators Realm booted, looked over once a minute for one nobody is using.
   simulators.startIdleSweep();
   // …and the browser panes that have been off screen long enough to give their memory back.
@@ -2028,12 +2064,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     token: opts.token,
     cliToken: opts.cliToken,
     owner,
-    /* The origins Realm loads its own renderer from, measured rather than assumed: a packaged window
-       is a `file://` document and Chromium stamps `Origin: file://` on its WebSocket handshake; under
-       `pnpm dev` the window is the Vite server and stamps that origin instead. Everything else that
-       dials this socket (main's bridge, the CLI, the live checks) is `ws` from Node and sends no
-       Origin at all. */
-    allowedOrigins: ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])],
+    allowedOrigins: rendererOrigins,
   });
   // After the socket is up, so the first `remote.changed` has somebody to reach.
   remote.start();
@@ -2066,6 +2097,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     claudeBackfill?.stop(); // likewise for Claude's memory: no run starts on a closing handle
     payloadCompactor.stop(); // likewise its batches
+    eventRetention.stop(); // and retention's, and its VACUUM
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     team?.close(); // and a teammate's clock turn must not stop a session on one
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
@@ -2074,6 +2106,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     memoryLearner?.close(); // likewise a session's quiet timer
     memoryTidier?.close(); // and the tidy pass's clock
     resources.close();
+    serverMemory.close();
     resourcePolicies.close();
     terminals.closeAll();
     cliInstaller.disposeAll();

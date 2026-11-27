@@ -35,12 +35,12 @@ export function useSessionSubagents(sessionId: string): SessionSubagent[] {
   const loaded = useApp((s) => s.subagents[sessionId] !== undefined);
   const runs = useApp((s) => s.delegatedRuns[sessionId]);
   const statuses = useApp((s) => s.sessionStatus);
-  const refreshSubagents = useApp((s) => s.refreshSubagents);
+  const loadSubagents = useApp((s) => s.loadSubagents);
   const run = useApp((s) => s.run);
   // The children are read on demand — by the Agents tab, or a delegation line. A session with a run
   // in flight and neither on screen still owes the prompter's row its list.
   const owed = !loaded && (runs?.some((r) => r.owned) ?? false);
-  useEffect(() => { if (owed) run(() => refreshSubagents(sessionId)); }, [owed, sessionId, refreshSubagents, run]);
+  useEffect(() => { if (owed) run(() => loadSubagents(sessionId)); }, [owed, sessionId, loadSubagents, run]);
   const live = status === undefined || status === "running" || status === "waiting_permission";
   return useMemo(() => {
     const harness: SessionSubagent[] = harnessAgents(blocks, live).map((h) => ({
