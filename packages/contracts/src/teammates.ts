@@ -258,7 +258,7 @@ export const TeammateGetArgsSchema = z.object({ to: z.string().trim().min(1).max
 /** `teammate_sessions`'s arguments: newest first, `limit` of them. */
 export const TeammateSessionsArgsSchema = z.object({
   to: z.string().trim().min(1).max(60),
-  limit: z.number().int().min(1).max(200).optional(),
+  limit: z.number().int().min(1).optional(),
 });
 
 /** `team_set_access`'s arguments. `mode` is any string, so a read-only one is refused by name rather

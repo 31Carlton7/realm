@@ -52,6 +52,8 @@ const firstLine = (s: string): string => s.trim().split("\n").find((l) => l.trim
 
 const when = (ms: number): string => new Date(ms).toISOString();
 
+const stateWords = (state: TeammateState): string => (state === "needs-you" ? "needs the person" : state);
+
 /** How a teammate is set up, on one line: what `team_list` adds under each teammate and `teammate_get` opens with. */
 function setupOf(t: Teammate): string {
   const clock = t.schedule
@@ -751,7 +753,7 @@ export class TeammatesService {
     const probes = this.d.sessions.probeCached()?.rows ?? [];
     return ok(rows.map((t) => {
       const what = firstLine(t.brief) || t.name;
-      const state = t.state === "needs-you" ? "needs the person" : t.state;
+      const state = stateWords(t.state);
       const task = t.liveTask ? ` on "${t.liveTask}"` : "";
       const model = modelNameOf(t.agentKind, t.model, probes);
       return `- @${t.handle}${t.lead ? " (Lead)" : ""}${t.id === me?.id ? " (you)" : ""} — ${t.name}: ${clip(what, 160)} · ${state}${task} · ${model}\n  ${setupOf(t)}`;
@@ -766,12 +768,12 @@ export class TeammatesService {
     const t = this.get(row.id);
     const me = this.sessionTeammate(ctx.sessionId);
     const model = modelNameOf(t.agentKind, t.model, this.d.sessions.probeCached()?.rows ?? []);
-    const state = t.state === "needs-you" ? "needs the person" : t.state;
+    const state = stateWords(t.state);
     const lines = [
       `@${t.handle}${t.lead ? " (Lead)" : ""}${t.id === me?.id ? " (you)" : ""}${t.archived ? " (archived)" : ""} — ${t.name}`,
       setupOf(t),
       `Model: ${model}${t.model ? ` (${t.model})` : " (the CLI's default)"}. Now: ${state}${t.liveTask ? ` on "${t.liveTask}"` : ""}.`,
-      ...(t.schedule ? [`Its clock says: ${clip(t.schedule.prompt, 2_000)}${t.schedule.lastRunAt ? ` Last ran ${when(t.schedule.lastRunAt)}.` : ""}${t.schedule.lastSkippedAt ? ` Last skipped ${when(t.schedule.lastSkippedAt)}.` : ""}`] : []),
+      ...(t.schedule ? [`Its clock says: ${t.schedule.prompt}${t.schedule.lastRunAt ? ` Last ran ${when(t.schedule.lastRunAt)}.` : ""}${t.schedule.lastSkippedAt ? ` Last skipped ${when(t.schedule.lastSkippedAt)}.` : ""}`] : []),
       "Brief:",
       t.brief.trim() || "(none)",
     ];

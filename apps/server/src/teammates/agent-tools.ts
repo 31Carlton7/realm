@@ -35,7 +35,7 @@ const TOOLS: Tool[] = [
       type: "object",
       properties: {
         to: { type: "string", description: "its handle, e.g. \"cto\", or \"lead\"" },
-        limit: { type: "number", description: "how many, newest first (default 20, at most 200)" },
+        limit: { type: "number", description: "how many, newest first (default 20)" },
       },
       required: ["to"],
       additionalProperties: false,
