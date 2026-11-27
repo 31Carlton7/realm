@@ -1,4 +1,5 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import { noMcpServers } from "./no-mcp";
 
 type QueryFn = typeof sdkQuery;
 
@@ -20,6 +21,7 @@ export async function generateSvgIcon(prompt: string, deps: { query?: QueryFn } 
     options: {
       maxTurns: 1,
       allowedTools: [],
+      ...noMcpServers(),
       model: "claude-haiku-4-5",
       systemPrompt: [
         "You generate a single square icon as raw SVG markup, in the style of a small, clean, modern app icon —",

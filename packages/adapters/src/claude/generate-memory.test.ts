@@ -96,4 +96,12 @@ describe("the background model", () => {
     expect([extraction.asked[0]!.options.model, tidy.asked[0]!.options.model]).toEqual([BACKGROUND_MODEL, BACKGROUND_MODEL]);
     expect(BACKGROUND_MODEL).toBe("claude-opus-5-5");
   });
+
+  it("loads no MCP servers and no claude.ai connectors in either call", async () => {
+    const extraction = fakeQuery('{"memories": []}');
+    const tidy = fakeQuery('{"operations": []}');
+    await generateMemoryExtraction(INPUT, { query: extraction.query });
+    await generateMemoryTidyPlan(TIDY, { query: tidy.query });
+    for (const f of [extraction, tidy]) expect(f.asked[0]!.options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
+  });
 });
