@@ -148,7 +148,7 @@ describe("a pane switched to draws its end first", () => {
   it("draws a screenful in the first frame, then the rest of its window above it, a step a frame", async () => {
     const blocks = session(200, 10);
     render(<Transcript transcript={model(blocks)} sessionStatus="idle" onDecide={() => {}} stage />);
-    // The last FIRST_BLOCKS blocks, cut where they fall: three whole turns.
+    // The last FIRST_BLOCKS blocks: three whole turns.
     expect(rows()).toBe(FIRST_BLOCKS / 10);
     const newest = screen.getByText("prompt 199").closest(".msg-user-row");
     await frames(1);
@@ -158,6 +158,13 @@ describe("a pane switched to draws its end first", () => {
     // Grown above the rows already drawn, which stay mounted, and as history rather than news.
     expect(screen.getByText("prompt 199").closest(".msg-user-row")).toBe(newest);
     expect(screen.getByText("prompt 165").closest(".msg-user-row")!.hasAttribute("data-enter")).toBe(false);
+  });
+
+  it("opens on the prompt before its first screenful when one is that close, not inside its run", () => {
+    // Turns of 25 blocks: the cut 30 from the end falls five blocks into a turn.
+    render(<Transcript transcript={model(session(200, 25))} sessionStatus="idle" onDecide={() => {}} stage />);
+    expect(rows()).toBe(2);
+    expect(document.querySelector(".msg-user-row")!.textContent).toContain("prompt 198");
   });
 
   it("draws an earlier stretch read in front of it by the same steps, not in one frame", async () => {

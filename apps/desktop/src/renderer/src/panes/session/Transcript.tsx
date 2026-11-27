@@ -59,9 +59,10 @@ export const EARLIER_BLOCKS = 400;
 /** How far before the cut the window may reach to open on a prompt rather than mid-answer. */
 const SNAP_BLOCKS = 200;
 /**
- * A pane opening on the end of its log (`stage`) draws about a screenful in its first frame, cut
- * where it falls, and then the rest of its window above the reader, FILL_BLOCKS a frame. Drawn whole,
- * a window of a few hundred tool runs and answers held the switch to it for most of a second.
+ * A pane opening on the end of its log (`stage`) draws about a screenful in its first frame, from the
+ * prompt before it when one is that close again (so its first run is drawn whole), and then the rest
+ * of its window above the reader, FILL_BLOCKS a frame. Drawn whole, a window of a few hundred tool
+ * runs and answers held the switch to it for most of a second.
  */
 export const FIRST_BLOCKS = 30;
 export const FILL_BLOCKS = 60;
@@ -424,7 +425,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   /* Where a staged window starts, in the transcript's numbering, so blocks read in front of it later
      stay undrawn until the fill reaches them. Decided on the first render with blocks to draw. */
   const count0 = transcript.blocks.length;
-  const stageAt = () => windowStart(transcript.blocks, FIRST_BLOCKS, count0, 0) + base;
+  const stageAt = () => windowStart(transcript.blocks, FIRST_BLOCKS, count0, FIRST_BLOCKS) + base;
   const [staged, setStaged] = useState<number | null | undefined>(() => (!stage || restoring ? null : count0 > 0 ? stageAt() : undefined));
   if (staged === undefined && count0 > 0) setStaged(stageAt());
   const full = windowStart(transcript.blocks);
