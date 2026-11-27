@@ -1296,7 +1296,13 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("session.saved", { sessionId: p.id, seqs });
     return { seqs };
   });
-  reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
+  // A person answers on a socket (Realm's window, the owner's other Mac) or from their phone; a call
+  // made in process is Realm's own code, which may not answer Allow on a card kept for a person.
+  reg("sessions.respondPermission", (p, ctx) => {
+    const by = ctx.client !== null || ctx.principal.startsWith("phone:") ? "person" : "process";
+    d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers, by);
+    return { ok: true as const };
+  });
   // A model, level or mode picked on a teammate's chat is the teammate's from then on, and a mode
   // reaches its task sessions before this returns. The desktop composer and the phone's
   // `session.configure` both set the chip through here.

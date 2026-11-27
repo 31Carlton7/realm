@@ -40,4 +40,16 @@ describe("Settings ▸ Sign-ins ▸ Security codes", () => {
     expect(securityCodesLine({ enabled: true, sources: { Messages: "ok", Mail: "missing", Notifications: "missing" } })).toMatch(/Only Messages can be read here\.$/);
     expect(securityCodesLine({ enabled: true, sources: { Messages: "missing", Mail: "missing", Notifications: "missing" } })).toMatch(/nothing|no Messages/i);
   });
+
+  it("with Full Disk Access on, says notifications can't be read rather than asking for Full Disk Access", () => {
+    // Messages read is Full Disk Access on, so a notifications database Realm still can't open has
+    // moved or is locked. THE MUTANT: Notifications left in the Full Disk Access step.
+    expect(securityCodesLine({ enabled: true, sources: { Messages: "ok", Mail: "ok", Notifications: "no_access" } }))
+      .toBe("Realm can't read notifications on this Mac.");
+    expect(securityCodesLine({ enabled: true, sources: { Messages: "ok", Mail: "no_access", Notifications: "no_access" } }))
+      .toBe("macOS isn't letting Realm read Mail. Turn on Realm under System Settings ▸ Privacy & Security ▸ Full Disk Access.");
+    // With Full Disk Access off, every source it holds back is named in the one step.
+    expect(securityCodesLine({ enabled: true, sources: { Messages: "no_access", Mail: "ok", Notifications: "no_access" } }))
+      .toBe("macOS isn't letting Realm read Messages or Notifications. Turn on Realm under System Settings ▸ Privacy & Security ▸ Full Disk Access.");
+  });
 });

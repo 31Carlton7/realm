@@ -335,6 +335,38 @@ describe("gate({ preapproved, onAlwaysAllow })", () => {
  * tap; a grant that leaks to another device or another session; a plain "Allow" written down as if
  * it had been "always"; and a read-only session let through on the strength of a grant.
  */
+describe("gate({ personOnly })", () => {
+  const opts = { promptUnderBypass: true, personOnly: true } as const;
+
+  it("refuses an Allow answered from in process, and keeps the card up for the person", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    let settled = false;
+    const gate = broker.gate("s1", "browser_fill_credential:cred-1@https://example.com", "Fill", {}, "browser_fill_credential", opts);
+    void gate.then(() => { settled = true; });
+    const requestId = requestIdOf(events);
+    expect(broker.resolve(requestId, "allow", undefined, "s1")).toBe(false);
+    expect(broker.resolve(requestId, "allow_always", undefined, "s1", "process")).toBe(false);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(events.some((e) => e.ev.type === "permission_response")).toBe(false);
+    expect(broker.resolve(requestId, "allow", undefined, "s1", "person")).toBe(true);
+    expect(await gate).toEqual({ allowed: true });
+  });
+
+  it("takes a Deny from anyone, so a session that goes still takes its card down", async () => {
+    const { broker, events } = setup();
+    const gate = broker.gate("s1", "k", "Fill", {}, "browser_fill_credential", opts);
+    expect(broker.resolve(requestIdOf(events), "deny", undefined, "s1", "process")).toBe(true);
+    expect(await gate).toEqual({ allowed: false, reason: "the user denied this action" });
+  });
+
+  it("is not one Full access answers for the person", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    void broker.gate("s1", "k", "Fill", {}, "browser_fill_credential", opts);
+    expect(broker.skippedUnderBypass(requestIdOf(events))).toBe(false);
+  });
+});
+
 describe("gate({ perSession })", () => {
   const opts = { perSession: true } as const;
   const ask = (broker: BrowserPermissionBroker, sessionId: string, key: string) =>
