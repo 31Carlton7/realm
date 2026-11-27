@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  MEMORY_INDEX_BUDGET, PROFILE_INDEX_CAP, SPACE_FOLDER_INDEX_CAP, TEAM_INDEX_CAP,
-  budgetRepoIndexes, fitBlocks, readRestPointer, type RepoIndexLike,
+  INDEX_HEAD_SHARE, MEMORY_INDEX_BUDGET, PROFILE_INDEX_CAP, SPACE_FOLDER_INDEX_CAP, TEAM_INDEX_CAP,
+  budgetRepoIndexes, fitBlocks, indexQuery, readRestPointer, type RepoIndexLike,
 } from "./context-budget";
 
 /** `n` index lines of exactly `width` characters each (the newline included), numbered so a cut can be read. */
@@ -114,6 +114,75 @@ describe("budgetRepoIndexes", () => {
     const [r] = budgetRepoIndexes([{ scope: "space", path: "/team", index: lines(200), truncated: false }]);
     expect(r!.index.length).toBeLessThanOrEqual(TEAM_INDEX_CAP);
     expect(r!.truncated).toBe(true);
+  });
+});
+
+describe("budgetRepoIndexes, ranked for the session", () => {
+  const folder = (index: string) => ({ scope: "profile" as const, kind: "spaceFolder" as const, path: "/mine/spaces/realm", index, truncated: false });
+  const pad = (line: string) => line.padEnd(99, ".");
+  /** A 220-line, 22,000-character index — over the 20,000 cap — with one entry about notarizing, on
+   *  line 215 (index 214), and every other line a numbered filler that shares none of its words. */
+  const NOTARY = pad("- [Notary profile](notary-profile.md) — the keychain item locks after a reboot; use the asc API key");
+  const index220 = (): string[] => lines(220).split("\n").map((l, i) => (i === 214 ? NOTARY : l));
+  const PROMPT = "notarization keeps failing on the keychain, what do I do";
+
+  it("loads line 215 for a prompt that matches only it, and drops a tail line the prompt does not touch", () => {
+    const all = index220();
+    const [out] = budgetRepoIndexes([folder(all.join("\n"))], MEMORY_INDEX_BUDGET, PROMPT);
+    const kept = out!.index.split("\n");
+    expect(out!.truncated).toBe(true);
+    expect(kept).toContain(NOTARY);
+    // THE MUTANT: the tail cut in order, as before. It keeps lines up to about 197 and never reaches 215.
+    expect(kept).not.toContain(all[218]);
+    expect(out!.index.length + readRestPointer(out!).length).toBeLessThanOrEqual(SPACE_FOLDER_INDEX_CAP);
+    // What is kept stays in the index's own order.
+    expect(kept).toEqual(all.filter((l) => kept.includes(l)));
+  });
+
+  it("keeps the head whole even when the prompt matches more of the tail than fits", () => {
+    // Every line from 100 on is about notarizing, and none before it: ranked from the top, they would
+    // push the head out.
+    const all = lines(220).split("\n").map((l, i) => (i >= 100 ? pad(`- notarize step ${i}`) : l));
+    const [out] = budgetRepoIndexes([folder(all.join("\n"))], MEMORY_INDEX_BUDGET, "notarize");
+    const kept = out!.index.split("\n");
+    const headLines = Math.floor((SPACE_FOLDER_INDEX_CAP * INDEX_HEAD_SHARE) / 100) - 2;
+    // THE MUTANT: rank the head too. The first lines match nothing and would all be ranked out.
+    expect(kept.slice(0, headLines)).toEqual(all.slice(0, headLines));
+    expect(kept.length).toBeGreaterThan(headLines);
+  });
+
+  it("asks the first prompt, then the title, and with neither cuts in order as it always did", () => {
+    expect(indexQuery("  notarize  ", "Deploy")).toBe("notarize");
+    expect(indexQuery("", "Deploy")).toBe("Deploy");
+    expect(indexQuery(undefined, null)).toBe("");
+    const all = index220();
+    const [byTitle] = budgetRepoIndexes([folder(all.join("\n"))], MEMORY_INDEX_BUDGET, indexQuery("", "Notary keychain locked"));
+    expect(byTitle!.index.split("\n")).toContain(NOTARY);
+    const [plain] = budgetRepoIndexes([folder(all.join("\n"))], MEMORY_INDEX_BUDGET, indexQuery("  ", null));
+    const [before] = budgetRepoIndexes([folder(all.join("\n"))]);
+    expect(plain).toEqual(before);
+    expect(plain!.ranked).toBe(false);
+    expect(plain!.index).toBe(all.slice(0, plain!.index.split("\n").length).join("\n"));
+    expect(plain!.index.split("\n")).not.toContain(NOTARY);
+  });
+
+  it("gives the same lines every time, ties going to the earlier line", () => {
+    // Two lines equally about notarizing, and room for the first line and one more.
+    const twins = lines(60).split("\n").map((l, i) => (i === 40 || i === 50 ? pad("- notarize") : l));
+    const pointer = readRestPointer({ ...folder(""), ranked: true });
+    const fit = () => fitBlocks([{ priority: 0, cap: 200 + pointer.length, text: twins.join("\n"), pointer, query: "notarize" }], 100_000)[0]!;
+    const first = fit();
+    expect(first).toEqual({ text: `${twins[0]}\n${twins[40]}`, cut: true });
+    for (let i = 0; i < 5; i++) expect(fit()).toEqual(first);
+  });
+
+  it("says in its pointer that the lines left out were ranked out, only when they were", () => {
+    const [ranked] = budgetRepoIndexes([folder(index220().join("\n"))], MEMORY_INDEX_BUDGET, PROMPT);
+    expect(ranked!.ranked).toBe(true);
+    expect(readRestPointer(ranked!)).toContain("the rest were ranked out");
+    expect(readRestPointer(ranked!)).toContain('`memory_read` spaces/realm/MEMORY with `repo: "profile"`');
+    const [whole] = budgetRepoIndexes([folder(lines(10))], MEMORY_INDEX_BUDGET, PROMPT);
+    expect(whole).toMatchObject({ truncated: false, ranked: false });
   });
 });
 

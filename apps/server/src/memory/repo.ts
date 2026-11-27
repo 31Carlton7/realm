@@ -3,13 +3,14 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   MEMORY_DOC_MAX, MEMORY_REPO_INDEX_FILE, MEMORY_REPO_INDEX_MAX, MEMORY_REPO_INITIAL_INDEX,
-  amrRepoSourceLink, applyMemoryEdit, githubRepoOf, memoryEntryProblem, parseMemoryEntry, wikiLinkTarget, withIndexLink,
+  amrRepoSourceLink, applyMemoryEdit, formatMemoryEntry, githubRepoOf, memoryEntryProblem, parseMemoryEntry, wikiLinkFor, wikiLinkTarget, withIndexLink,
   type AgentKind, type MemoryClaudeImport, type MemoryEntry, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemoryRepoSync,
 } from "@realm/contracts";
 import type { GhRun } from "../code-review/gh";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { GIT_DIFF_FLAGS, gitCapture, gitReason, type GitResult, type GitRun } from "../workspace/git-exec";
+import { INDEX_LINE_MAX } from "./context-budget";
 import { claudeFact, claudeFactFile, claudeIndexTarget, mergeClaudeIndex, withClaudeIndexLine, type ClaudeFactType } from "./claude-facts";
 import { planClaudeImport, type ClaudeMemorySource } from "./claude-import";
 import { MemorySearch } from "./search";
@@ -88,10 +89,10 @@ export type ClaudeCommit = { sha: string | null; committed: string[]; held: { pa
 /** The paths of `git status --porcelain -z` (with `--no-renames`, one path per entry, never quoted). */
 const statusPaths = (z: string): string[] => z.split("\0").filter(Boolean).map((e) => e.slice(3));
 
-/** A space's name as a folder: lowercase letters, digits and dashes. */
-export function folderSlug(name: string): string {
+/** A space's name as a folder, or a fact's text as a file name: lowercase letters, digits and dashes. */
+export function folderSlug(name: string, fallback = "space"): string {
   const s = name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, 48).replace(/-+$/, "");
-  return s || "space";
+  return s || fallback;
 }
 
 type RepoConfig = { path: string; push: boolean; pushRemote: string | null };
@@ -162,6 +163,29 @@ const today = (): string => {
 
 const short = (text: string, n = 60): string => (text.length <= n ? text : `${text.slice(0, n - 1).trimEnd()}…`);
 
+/** Where the whole of an entry too long for an index line is kept. */
+const FACTS_DIR = "facts";
+/** A fact file is named for this many of the fact's first words. */
+const FACT_NAME_WORDS = 6;
+const FACT_LINK = /\(\[\[(facts\/[a-z0-9-]+)\]\]\)$/;
+
+/** The fact file an index line is the hook for, or null for a line that is not one. */
+function factLinkIn(line: string | undefined): string | null {
+  const m = line === undefined ? null : FACT_LINK.exec(parseMemoryEntry(line)?.text ?? "");
+  return m ? `${m[1]}.md` : null;
+}
+
+/** The index line for a long entry: as much of its text as fits `INDEX_LINE_MAX` beside the link to
+ *  `fact`, cut at a word. Its source and date are kept in the fact file. */
+function hookFor(entry: MemoryEntry, fact: string): MemoryEntry {
+  const link = ` (${wikiLinkFor(fact)})`;
+  const room = INDEX_LINE_MAX - "- ".length - link.length;
+  if (entry.text.length <= room) return { text: `${entry.text}${link}`, meta: {} };
+  const head = entry.text.slice(0, room - 1);
+  const word = head.lastIndexOf(" ");
+  return { text: `${(word > room / 2 ? head.slice(0, word) : head).trimEnd()}…${link}`, meta: {} };
+}
+
 export type MemoryRepoDeps = {
   home: string;
   settings: SettingsStore;
@@ -195,7 +219,9 @@ export type MemoryRepoDeps = {
   syncTimeoutMs?: number;
 };
 
-export type MemoryEditOutcome = { changed: boolean; file: string; line: string | null; sha: string | null; diff: string };
+/** `fact`: the file a long entry was written to, its hook being `line`. `index`: the repo's MEMORY.md as
+ *  the write left it, for `indexWarning`. */
+export type MemoryEditOutcome = { changed: boolean; file: string; line: string | null; sha: string | null; diff: string; fact?: string; index?: string };
 
 /**
  * A profile's memory repo: an Agent Memory Repo (github.com/AgentMemoryRepo/agentmemoryrepo) that
@@ -282,18 +308,19 @@ export class MemoryRepoService {
   }
 
   /**
-   * Each active repo's `MEMORY.md` as one session receives it: whole up to `MEMORY_REPO_INDEX_MAX`,
-   * cut after that — the cap is per file, so a team's long index never crowds out the user's. After
-   * the profile's root index comes the space folder's, except for Claude: that folder is its own
-   * auto-memory directory, which it loads itself.
+   * Each active repo's `MEMORY.md` as one session receives it: whole up to `MEMORY_REPO_INDEX_MAX`
+   * (or `readMax`), cut after that — the cap is per file, so a team's long index never crowds out the
+   * user's. After the profile's root index comes the space folder's, except for Claude: that folder is
+   * its own auto-memory directory, which it loads itself.
    */
-  indexesFor(spaceId: string, opts: { forAgent?: AgentKind } = {}): RepoIndex[] {
+  indexesFor(spaceId: string, opts: { forAgent?: AgentKind; readMax?: number } = {}): RepoIndex[] {
+    const max = opts.readMax ?? MEMORY_REPO_INDEX_MAX;
     const out: RepoIndex[] = [];
     const push = (scope: MemoryRepoScope, kind: RepoIndex["kind"], path: string, file: string): void => {
       let index: string;
       try { index = readFileSync(file, "utf8"); } catch { return; }
-      const truncated = index.length > MEMORY_REPO_INDEX_MAX;
-      out.push({ scope, kind, path, index: truncated ? index.slice(0, MEMORY_REPO_INDEX_MAX) : index, truncated });
+      const truncated = index.length > max;
+      out.push({ scope, kind, path, index: truncated ? index.slice(0, max) : index, truncated });
     };
     for (const repo of this.activeFor(spaceId)) {
       push(repo.scope, "root", repo.path, join(repo.path, MEMORY_REPO_INDEX_FILE));
@@ -641,18 +668,34 @@ export class MemoryRepoService {
       const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
       if (before === null && o.op !== "add") throw new RpcError("MEMORY_FILE_NOT_FOUND", `${rel} is not in the memory repo`);
       const isIndex = rel === MEMORY_REPO_INDEX_FILE;
-      const edit = o.op === "add" ? { op: "add" as const, entry: entry! }
-        : o.op === "replace" ? { op: "replace" as const, match: o.match!, entry: entry! }
-        : { op: "remove" as const, match: o.match! };
-      const r = applyMemoryEdit(before ?? "", edit, { isIndex, title: basename(rel, ".md") });
+      const editWith = (e: MemoryEntry | null) => applyMemoryEdit(before ?? "", o.op === "add" ? { op: "add", entry: e! }
+        : o.op === "replace" ? { op: "replace", match: o.match!, entry: e! }
+        : { op: "remove", match: o.match! }, { isIndex, title: basename(rel, ".md") });
+      let r = editWith(entry);
       if (!r.ok) throw new RpcError("MEMORY_NO_MATCH", `${rel}: ${r.error}`);
       if (!r.changed) return { changed: false, file: rel, line: null, sha: null, diff: "" };
-      const writes = new Map<string, string>([[rel, r.content]]);
+      const writes = new Map<string, string | null>();
+      let line = entry;
+      let fact: string | undefined;
+      if (isIndex && entry && formatMemoryEntry(entry).length > INDEX_LINE_MAX) {
+        const placed = this.factFileFor(repo, entry, o.op === "replace" ? factLinkIn(r.old) : null);
+        // Said before: the index already has its hook.
+        if (o.op === "add" && (before ?? "").includes(wikiLinkFor(placed.rel))) return { changed: false, file: rel, line: null, sha: null, diff: "" };
+        fact = placed.rel;
+        line = hookFor(entry, fact);
+        writes.set(fact, placed.content);
+        r = editWith(line);
+        if (!r.ok) throw new RpcError("MEMORY_NO_MATCH", `${rel}: ${r.error}`);
+      }
+      writes.set(rel, r.content);
+      // The fact file of a hook the edit replaced or removed goes with it, unless the index still links it.
+      const dropped = isIndex ? factLinkIn(r.old) : null;
+      if (dropped && !r.content.includes(wikiLinkFor(dropped))) writes.set(dropped, null);
       if (before === null && !isIndex) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), rel));
       const verb = o.op === "add" ? "Remember" : o.op === "replace" ? "Update" : "Forget";
       const what = o.op === "remove" ? (parseMemoryEntry(o.match!)?.text ?? o.match!) : entry!.text;
       const out = await this.commitFiles(repo, writes, `${verb} ${short(what)}`, o.author);
-      return { changed: true, file: rel, line: entry ? `- ${entry.text}` : null, ...out };
+      return { changed: true, file: rel, line: line ? `- ${line.text}` : null, fact, index: writes.get(MEMORY_REPO_INDEX_FILE) ?? this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), ...out };
     });
     if (out.changed) void this.queueSync(owner);
     return out;
@@ -676,7 +719,7 @@ export class MemoryRepoService {
       const writes = new Map<string, string>([[rel, content]]);
       if (before === null) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), rel));
       const out = await this.commitFiles(repo, writes, `${before === null ? "Save" : "Update"} ${rel}`, author);
-      return { changed: true, file: rel, line: null, ...out };
+      return { changed: true, file: rel, line: null, index: writes.get(MEMORY_REPO_INDEX_FILE) ?? this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), ...out };
     });
     if (out.changed) void this.queueSync(owner);
     return out;
@@ -1176,6 +1219,20 @@ export class MemoryRepoService {
 
   private readOrEmpty(repo: string, rel: string): string {
     try { return readFileSync(join(repo, rel), "utf8"); } catch { return ""; }
+  }
+
+  /** The fact file for a long index entry, as a topic file holding just it: `reuse` (the file of the
+   *  hook it replaces) when there is one, else `facts/<first-words>.md` — the file that already holds this
+   *  fact, or the first of `-2`, `-3`, … not holding another. */
+  private factFileFor(repo: string, entry: MemoryEntry, reuse: string | null): { rel: string; content: string } {
+    const topic = (rel: string) => ({ rel, content: `# ${basename(rel, ".md")}\n\n${formatMemoryEntry(entry)}\n` });
+    if (reuse) return topic(reuse);
+    const base = folderSlug(entry.text.split(/\s+/).slice(0, FACT_NAME_WORDS).join(" "), "fact");
+    for (let n = 1; ; n++) {
+      const rel = `${FACTS_DIR}/${n === 1 ? base : `${base}-${n}`}.md`;
+      const now = this.readOrEmpty(repo, rel);
+      if (now === "" || now.split("\n").some((l) => parseMemoryEntry(l)?.text === entry.text)) return topic(rel);
+    }
   }
 
   /** Write the files (null deletes one), stage exactly them, commit exactly them. A failed commit puts

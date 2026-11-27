@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { MEMORY_DOC_MAX, MEMORY_REPO_ENTRY_MAX } from "@realm/contracts";
+import { MEMORY_DOC_MAX, MEMORY_REPO_ENTRY_MAX, MEMORY_REPO_INDEX_FILE } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
+import { INDEX_LINE_MAX, indexWarning } from "./context-budget";
 import type { ActiveRepo, MemoryEditOutcome, MemoryRepoService, RepoOwner } from "./repo";
 
 export const MEMORY_PROVIDER_NAME = "realm-memory";
@@ -81,6 +82,7 @@ const TOOLS: Tool[] = [
       "Remember one durable fact for later sessions — a preference, a decision, something the user would otherwise repeat — as one entry on one line, committed to the memory repo.",
       "Skip what is cheap to rediscover or matters only to this task. Never save a password, token or key.",
       "Put it in MEMORY.md (the default) only if every session needs it; otherwise name a topic file, which is linked from the index for you.",
+      `MEMORY.md lines are kept to ${INDEX_LINE_MAX} characters: a longer entry is saved to its own file under facts/, and MEMORY.md gets a short line linking it.`,
       "When a fact has changed, pass the old entry's text as `replaces` instead of adding one that contradicts it.",
       "The source session and date are added for you. Tell the user what you saved.",
     ].join(" "),
@@ -220,5 +222,8 @@ function done(d: MemoryAgentToolsDeps, repo: ActiveRepo, two: boolean, r: Memory
   const where = two ? ` in the ${repo.scope} memory repo` : "";
   if (!r.changed) return ok(`Already in ${r.file}${where}; nothing changed.`);
   d.onChanged?.(ownerOf(repo));
-  return ok(`${verb} ${r.file}${where}${r.line ? `: ${r.line}` : ""} (commit ${r.sha?.slice(0, 7)}).`);
+  const saved = `${verb} ${r.file}${where}${r.line ? `: ${r.line}` : ""} (commit ${r.sha?.slice(0, 7)}).`;
+  const fact = r.fact ? ` The line is the hook; the whole entry is in ${r.fact}.` : "";
+  const warning = r.index === undefined ? null : indexWarning(MEMORY_REPO_INDEX_FILE, r.index);
+  return ok(`${saved}${fact}${warning ? `\n\n${warning}` : ""}`);
 }
