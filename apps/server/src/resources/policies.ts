@@ -10,7 +10,7 @@ export function minutesSetting(raw: unknown, fallback: number): number {
 
 /**
  * The resource policies that run on the server's clock without a service of their own: discarding
- * browser panes off screen past their window (main's `BrowserPaneHost.sweep` decides, view by view,
+ * browser panes off screen past their window (main's `HiddenViews.sweep` decides, view by view,
  * what may go), and stopping stdio MCP servers that have gone without a call (`McpHub.sleepIdle`).
  * Each other policy lives with what it governs — the engine reaper in the session service, Laya's idle
  * stop in the Laya service, the simulator sweep in the simulator service — because each needs that
