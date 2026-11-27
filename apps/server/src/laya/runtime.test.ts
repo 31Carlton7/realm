@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { tempDir } from "@realm/test-utils";
-import { LAYA_REQUIREMENT, LayaStepError, realLayaRuntime, serveEnv, type InstallProgress, type LayaProcess } from "./runtime";
+import { LAYA_REQUIREMENT, LayaStepError, layaAutoInstallOn, realLayaRuntime, serveEnv, type InstallProgress, type LayaProcess } from "./runtime";
 import { until } from "./test-fakes";
 
 /**
@@ -108,6 +108,17 @@ describe("building the runtime", () => {
     // An arm64 Linux or Windows machine has the arch and none of the Metal behind it.
     expect(realLayaRuntime({ home: tempDir("realm-laya-rt-"), arch: "arm64", platform: "linux" }).unavailable).toMatch(/Mac only/);
     expect(realLayaRuntime({ home: tempDir("realm-laya-rt-"), arch: "arm64", platform: "win32" }).unavailable).toMatch(/Mac only/);
+  });
+});
+
+describe("whether Laya installs itself", () => {
+  it("does in a server nothing set apart", () => {
+    expect(layaAutoInstallOn({})).toBe(true);
+  });
+
+  it("does not under the fake agent, nor in the home a dev Realm an agent started gets", () => {
+    expect(layaAutoInstallOn({ REALM_ENABLE_FAKE_AGENT: "1" })).toBe(false);
+    expect(layaAutoInstallOn({ REALM_NO_LAYA_AUTO_INSTALL: "1" })).toBe(false);
   });
 });
 
