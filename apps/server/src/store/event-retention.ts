@@ -1,10 +1,7 @@
 import { statSync } from "node:fs";
-import { EVENT_RETENTION_DAYS_DEFAULT, EVENT_RETENTION_DAYS_KEY, type SessionEvent } from "@realm/contracts";
+import { DB_COMPACT_MIN_MB, EVENT_RETENTION_DAYS_KEY, parseRetentionDays, type SessionEvent } from "@realm/contracts";
 import type { Db } from "../db/database";
 import { decodePayload, encodePayload } from "./event-payload";
-
-export { EVENT_RETENTION_DAYS_KEY };
-const DEFAULT_RETENTION_DAYS = EVENT_RETENTION_DAYS_DEFAULT;
 
 /** A string longer than `TRIM_OVER` characters keeps its first `TRIM_HEAD` and last `TRIM_TAIL`.
  *  What is kept, plus the note, stays above `COMPRESS_MIN_BYTES`, so a trimmed payload is still a
@@ -14,7 +11,7 @@ export const TRIM_HEAD = 1024;
 export const TRIM_TAIL = 512;
 
 /** Space worth giving back to the disk. Below this a VACUUM costs more than it returns. */
-export const RECLAIM_MIN_BYTES = 64 * 1024 * 1024;
+export const RECLAIM_MIN_BYTES = DB_COMPACT_MIN_MB * 1024 * 1024;
 /** A VACUUM writes a second copy of the database before it lets the first go. */
 const RECLAIM_DISK_FACTOR = 2;
 
@@ -22,10 +19,6 @@ const RETENTION_BATCH_EVENTS = 200;
 
 /** The ExitPlanMode card shows the plan in full, so its input is never cut. */
 const UNTRIMMED_TOOLS = new Set(["ExitPlanMode"]);
-
-export function retentionDays(stored: unknown): number {
-  return typeof stored === "number" && Number.isFinite(stored) && stored >= 0 ? Math.floor(stored) : DEFAULT_RETENTION_DAYS;
-}
 
 export function trimText(s: string): string {
   if (s.length <= TRIM_OVER) return s;
@@ -137,7 +130,7 @@ export class EventRetention {
 
   private get log() { return this.d.log ?? ((l: string) => console.error(l)); }
 
-  days(): number { return retentionDays(this.d.settings.get(EVENT_RETENTION_DAYS_KEY)); }
+  days(): number { return parseRetentionDays(this.d.settings.get(EVENT_RETENTION_DAYS_KEY)); }
 
   cutoff(): number { return (this.d.now ?? Date.now)() - this.days() * 86_400_000; }
 

@@ -8,7 +8,7 @@ import { QuickChatModelRow } from "../../components/settings/QuickChatModelRow";
 import { MeetingsRow } from "../../components/settings/MeetingsRow";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_LIMITS_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
-  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, EVENT_RETENTION_CHOICES, EVENT_RETENTION_COPY, hasAccounts, type AgentKind, type MidTurnMode, type ReducedMotionPref,
+  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, EVENT_RETENTION_COPY, retentionChoicesFor, hasAccounts, type AgentKind, type MidTurnMode, type ReducedMotionPref,
   EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge,
   FEATURE_REQUEST_URL, REALM_REPO_URL, bugReportUrl, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
@@ -1479,13 +1479,13 @@ function GeneralTab() {
       <h3 className="settings-head">Storage</h3>
       <ul className="settings-list">
         <li className="settings-row" data-setting="event-retention"
-          title="A tool call's input and a tool result's text over 2,048 characters keep their first 1,024 and last 512, with a note of how much was cut. Every message, every event and every plan stays whole, and the transcript still opens. A session that is running, waiting on you, pinned, or a teammate's chat is never trimmed.">
+          title={EVENT_RETENTION_COPY.rule}>
           <div className="settings-row-main">
             <span className="settings-row-name">{EVENT_RETENTION_COPY.label}</span>
-            <span className="settings-row-desc">{EVENT_RETENTION_COPY.detail}</span>
+            <span className="settings-row-desc">{EVENT_RETENTION_COPY.detail} {EVENT_RETENTION_COPY.compaction}</span>
           </div>
           <fieldset className="settings-tabs" aria-label={EVENT_RETENTION_COPY.label}>
-            {EVENT_RETENTION_CHOICES.map((c) => (
+            {retentionChoicesFor(eventRetentionDays).map((c) => (
               <label key={c.days} className="settings-tab" data-selected={eventRetentionDays === c.days || undefined}>
                 <input type="radio" name="settings-event-retention" value={c.days} checked={eventRetentionDays === c.days}
                   onChange={() => run(() => setEventRetentionDays(c.days))} />

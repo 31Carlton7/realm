@@ -1598,7 +1598,12 @@ describe("trimming old tool output", () => {
     const group = screen.getByRole("group", { name: EVENT_RETENTION_COPY.label });
     // MUTANT: default it to 30 days, and Realm cuts output nobody agreed to lose.
     expect(within(group).getByRole("radio", { name: "Off" })).toBeChecked();
-    expect(screen.getByText(EVENT_RETENTION_COPY.detail)).toBeInTheDocument();
+    const row = group.closest("li")!;
+    expect(row).toHaveTextContent(EVENT_RETENTION_COPY.detail);
+    expect(row).toHaveTextContent(/applies at the next run, within 6 hours/);
+    expect(row).toHaveTextContent(/compacts realm\.db while no agent is working once 64 MB or more is unused/);
+    expect(row.getAttribute("title")).toBe(EVENT_RETENTION_COPY.rule);
+    expect(row.getAttribute("title")).not.toMatch(/every event|2,048/);
 
     fireEvent.click(within(group).getByRole("radio", { name: "30 days" }));
     await waitFor(() => expect(store.getState().eventRetentionDays).toBe(30));
@@ -1614,6 +1619,20 @@ describe("trimming old tool output", () => {
     const group = screen.getByRole("group", { name: EVENT_RETENTION_COPY.label });
     expect(within(group).getByRole("radio", { name: "90 days" })).toBeChecked();
     expect(within(group).getByRole("radio", { name: "Off" })).not.toBeChecked();
+  });
+
+  it("shows a stored 30.5 as the 30 days the server applies, and an off-list 45 as its own choice", async () => {
+    // MUTANT: read the setting with its old integer-only check, and 30.5 shows Off while the server trims at 30.
+    await mount({ settings: { [EVENT_RETENTION_DAYS_KEY]: 30.5 } });
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    expect(within(screen.getByRole("group", { name: EVENT_RETENTION_COPY.label })).getByRole("radio", { name: "30 days" })).toBeChecked();
+    cleanup();
+    // MUTANT: offer only the usual three, and 45 selects nothing.
+    await mount({ settings: { [EVENT_RETENTION_DAYS_KEY]: 45 } });
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    const group = screen.getByRole("group", { name: EVENT_RETENTION_COPY.label });
+    expect(within(group).getByRole("radio", { name: "45 days" })).toBeChecked();
+    expect(within(group).getAllByRole("radio").map((r) => r.closest("label")!.textContent)).toEqual(["Off", "30 days", "45 days", "90 days"]);
   });
 });
 

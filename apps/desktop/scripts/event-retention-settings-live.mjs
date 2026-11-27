@@ -6,8 +6,8 @@
  * Boots the built app quietly on a scratch home with the scripted agent and opens Settings. The row
  * must start on Off with nothing stored; a click on 30 days must reach the server (read back over
  * `settings.get`); a value written over RPC (90) must show once Settings is opened again. Captures
- * the Storage section in light and dark (light.png, dark.png, unflattened, with pages.json) to LIVE_OUT_DIR. Ports: LIVE_SERVER_PORT
- * (8788) and LIVE_CDP_PORT (9223). Nothing is billed.
+ * the Storage section in light and dark (light.png, dark.png, unflattened, with pages.json) to LIVE_OUT_DIR. Every port is a
+ * free one. Nothing is billed.
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -52,10 +52,7 @@ const web = spawn("python3", ["-m", "http.server", String(httpPort), "--bind", "
 process.on("exit", () => web.kill());
 const rendererUrl = `http://127.0.0.1:${httpPort}/index.html`;
 await until(() => fetch(rendererUrl).then((r) => r.ok), 10_000, "the renderer over http");
-const app = await launchLiveApp({
-  name: "event-retention-settings", rendererUrl,
-  serverPort: Number(process.env.LIVE_SERVER_PORT ?? 8788), cdpPort: Number(process.env.LIVE_CDP_PORT ?? 9223),
-});
+const app = await launchLiveApp({ name: "event-retention-settings", rendererUrl });
 const page = app.page;
 const shown = () => page.eval(`(() => {
   const set = document.querySelector('fieldset[aria-label="Trim old tool output"]');

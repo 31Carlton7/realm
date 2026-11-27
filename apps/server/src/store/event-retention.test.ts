@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { SessionEventSchema, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { EVENT_RETENTION_DAYS_KEY, SessionEventSchema, parseRetentionDays, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "./profiles";
 import { SpacesStore } from "./spaces";
@@ -13,8 +13,8 @@ import { SettingsStore } from "./settings";
 import { decodePayload } from "./event-payload";
 import { clearMaintenance, writeMaintenance } from "../daemon/state";
 import {
-  EVENT_RETENTION_DAYS_KEY, EventRetention, RECLAIM_MIN_BYTES, TRIM_HEAD, TRIM_OVER, TRIM_TAIL,
-  agentsNeedTheServer, reclaimDecision, retentionDays, trimPayload, trimText,
+  EventRetention, RECLAIM_MIN_BYTES, TRIM_HEAD, TRIM_OVER, TRIM_TAIL,
+  agentsNeedTheServer, reclaimDecision, trimPayload, trimText,
 } from "./event-retention";
 
 const DAY = 86_400_000;
@@ -164,10 +164,12 @@ describe("the retention rule", () => {
   });
 
   it("is off unless the owner turns it on: an unset or unreadable setting is 0, and nothing is trimmed", async () => {
-    expect(retentionDays(null)).toBe(0);
-    expect(retentionDays(undefined)).toBe(0);
-    expect(retentionDays("7")).toBe(0);
-    expect(retentionDays(90)).toBe(90);
+    expect(parseRetentionDays(null)).toBe(0);
+    expect(parseRetentionDays(undefined)).toBe(0);
+    expect(parseRetentionDays("7")).toBe(0);
+    expect(parseRetentionDays(90)).toBe(90);
+    expect(parseRetentionDays(-1)).toBe(0);
+    expect(parseRetentionDays(Number.NaN)).toBe(0);
     const h = home({ days: null });
     expect(h.settings.has(EVENT_RETENTION_DAYS_KEY)).toBe(false);
     const r = retention(h, { now: () => NOW + 1000 * DAY });
@@ -176,6 +178,17 @@ describe("the retention rule", () => {
     expect(r.step()).toMatchObject({ trimmed: 0, finished: true });
     await r.run();
     expect(isTrimmed(h.db, old)).toBe(false);
+  });
+
+  it("applies a stored 30.5 as 30 days, the window Settings shows for it, and 45 as 45", () => {
+    const h = home({ days: 30.5 });
+    expect(retention(h).days()).toBe(30);
+    const past = h.session("past", 31);
+    const r = retention(h);
+    while (!r.step().finished) { /* every cold session */ }
+    expect(isTrimmed(h.db, past)).toBe(true);
+    h.settings.set(EVENT_RETENTION_DAYS_KEY, 45);
+    expect(retention(h).days()).toBe(45);
   });
 
   it("takes its window from the setting, and 0 keeps every payload whole, as before retention", async () => {
