@@ -65,7 +65,7 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
-import { agentHome, agentUserData, installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
+import { agentHome, agentShellOnOwnersHome, agentUserData, installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
 import { bringForward, panelIsKey, raiseBy, type RaiseBy } from "./bring-forward";
 import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
 import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
@@ -2632,6 +2632,9 @@ function startDaemonProcess(home: string): void {
  */
 async function startRealmServer(): Promise<{ port: number; home: string; token: string }> {
   const home = realmHomePath();
+  if (agentShellOnOwnersHome({ packaged: app.isPackaged, env: process.env, home, defaultHome: defaultRealmHome() })) {
+    throw new Error(`started from an agent's shell on ${home}, the owner's home; not touching the server there`);
+  }
   if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON, platform: process.platform })) {
     const handle = await ensureDaemon({
       home,
