@@ -28,8 +28,12 @@ packages:
     resolution: {integrity: sha512-x}
 `;
 
-/** A source checkout with node_modules at the root and in packages/ui, and a worktree beside it. */
-function checkouts(sourceLock: string | null, worktreeLock: string | null): { source: string; worktree: string } {
+/**
+ * A source checkout with node_modules at the root and in packages/ui, and a worktree beside it.
+ * `installedLock` is what pnpm recorded in the source's `node_modules/.pnpm/lock.yaml`; by default the
+ * source's own lockfile, as after an install.
+ */
+function checkouts(sourceLock: string | null, worktreeLock: string | null, installedLock: string | null = sourceLock): { source: string; worktree: string } {
   const source = tempDir("realm-seed-src-");
   const worktree = tempDir("realm-seed-wt-");
   mkdirSync(join(source, "node_modules", "left-pad"), { recursive: true });
@@ -37,6 +41,10 @@ function checkouts(sourceLock: string | null, worktreeLock: string | null): { so
   mkdirSync(join(worktree, "packages", "ui"), { recursive: true });
   if (sourceLock !== null) writeFileSync(join(source, "pnpm-lock.yaml"), sourceLock);
   if (worktreeLock !== null) writeFileSync(join(worktree, "pnpm-lock.yaml"), worktreeLock);
+  if (installedLock !== null) {
+    mkdirSync(join(source, "node_modules", ".pnpm"), { recursive: true });
+    writeFileSync(join(source, "node_modules", ".pnpm", "lock.yaml"), installedLock);
+  }
   return { source, worktree };
 }
 
@@ -125,6 +133,22 @@ describe("seedNodeModules", () => {
     expect(await seedNodeModules(source, worktree, { platform: "darwin", run })).toBe("lockfiles-differ");
     expect(calls).toEqual([]);
     expect(existsSync(join(worktree, "node_modules"))).toBe(false);
+  });
+
+  it("does nothing when the source's node_modules was installed from another lockfile, as after a pull with no install", async () => {
+    const pulled = LOCK.replace("version: 5.9.3", "version: 5.9.4");
+    const { source, worktree } = checkouts(pulled, pulled, LOCK);
+    const { run, calls } = recorder();
+    expect(await seedNodeModules(source, worktree, { platform: "darwin", run })).toBe("source-stale");
+    expect(calls).toEqual([]);
+    expect(existsSync(join(worktree, "node_modules"))).toBe(false);
+  });
+
+  it("does nothing when the source's node_modules has no record of the lockfile it was installed from", async () => {
+    const { source, worktree } = checkouts(LOCK, LOCK, null);
+    const { run, calls } = recorder();
+    expect(await seedNodeModules(source, worktree, { platform: "darwin", run })).toBe("source-stale");
+    expect(calls).toEqual([]);
   });
 
   it("does nothing when either side has no lockfile", async () => {

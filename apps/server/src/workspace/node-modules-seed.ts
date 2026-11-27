@@ -14,7 +14,7 @@ const run: SeedRun = (cwd, cmd, args) =>
     execFile(cmd, args, { cwd, timeout: SEED_TIMEOUT_MS }, (err) => (err ? reject(err) : resolve()));
   });
 
-export type SeedOutcome = "cloned" | "not-macos" | "nothing-to-clone" | "lockfiles-differ" | "other-volume" | "clone-failed" | "install-won";
+export type SeedOutcome = "cloned" | "not-macos" | "nothing-to-clone" | "lockfiles-differ" | "source-stale" | "other-volume" | "clone-failed" | "install-won";
 
 /** The workspace package directories a pnpm lockfile has `node_modules` for: its `importers:` keys. */
 export function lockfileImporters(lock: string): string[] {
@@ -28,8 +28,9 @@ export function lockfileImporters(lock: string): string[] {
  * package's, whose pnpm symlinks are relative and so resolve inside the worktree. No install runs,
  * so no project script runs and no pnpm can collide with one an agent starts.
  *
- * Only when the two `pnpm-lock.yaml`s are byte-identical, so the source's trees are what an install
- * would build. `cp -c` across volumes would be a full copy, so a source on another volume is skipped.
+ * Only when the two `pnpm-lock.yaml`s are byte-identical and the source's node_modules was installed
+ * from that same lockfile (pnpm keeps a copy at `node_modules/.pnpm/lock.yaml`), so the source's trees
+ * are what an install would build. A source pulled without an install is stale and is not cloned. `cp -c` across volumes would be a full copy, so a source on another volume is skipped.
  *
  * Safe to race an install: every tree is cloned under `<dir>/.realm-seed-<rand>/node_modules`
  * (ignored wherever `node_modules/` is) and renamed into place only while `<dir>/node_modules` is
@@ -44,6 +45,8 @@ export async function seedNodeModules(source: string, worktree: string, opts: { 
   if (!existsSync(sourceLock) || !existsSync(worktreeLock)) return "lockfiles-differ";
   const lock = readFileSync(sourceLock);
   if (!lock.equals(readFileSync(worktreeLock))) return "lockfiles-differ";
+  const installedLock = join(source, "node_modules", ".pnpm", "lock.yaml");
+  if (!existsSync(installedLock) || !lock.equals(readFileSync(installedLock))) return "source-stale";
   if (statSync(source).dev !== statSync(worktree).dev) return "other-volume";
 
   const dirs = lockfileImporters(lock.toString()).filter((dir) => existsSync(join(source, dir, "node_modules")));
