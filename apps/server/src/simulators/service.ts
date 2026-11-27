@@ -1,4 +1,4 @@
-import { SIMULATOR_IDLE_SHUTDOWN_DEFAULT, SIMULATOR_IDLE_SHUTDOWN_ERROR, SIMULATOR_IDLE_SHUTDOWN_KEY, newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorDevice, type SimulatorEvent, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
+import { SIMULATOR_IDLE_SHUTDOWN_DEFAULT, SIMULATOR_IDLE_SHUTDOWN_ERROR, SIMULATOR_IDLE_SHUTDOWN_KEY, newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorDevice, type SimulatorEvent, type SimulatorScreen, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ import type { PhysicalDevices } from "./physical";
 import type { VideoStop } from "./phone-video";
 import { RunnerError } from "./device-runner";
 import { RunnerUnreachable } from "./runner-client";
+import { pngSize } from "../machines/qmp-driver";
 import { sameBoot, simulatorLaunchd } from "../resources/attribute";
 import type { ProcRow } from "../resources/machine";
 
@@ -174,6 +175,10 @@ export class SimulatorService {
    *  URL — which is not in `SimulatorState` (the pane needs the stream and the socket, not the root)
    *  and must not be re-derived by string surgery on the stream URL. */
   private readonly served = new Map<string, ServeSimStream>();
+  /** Each simulator's screen in points as its last tree stated it, by udid, with what the stream's
+   *  `/config` said at the time. Only a tree states the size in points, and reading one costs
+   *  0.4–0.9 s, so a point step measures against this while `/config` still says the same. */
+  private readonly sizes = new Map<string, { points: { width: number; height: number }; frame: SimulatorScreen }>();
   private readonly cli: Simctl;
   private readonly stream: ServeSim;
   private readonly droid: Android;
@@ -549,13 +554,19 @@ export class SimulatorService {
     const up = await this.springBoardUp(row.udid);
     let tree: SimulatorAxTree | null = null;
     let timedOut = false;
+    // Asked before the tree: a turn during the read then leaves a frame that no longer matches.
+    const frame = up ? await this.stream.screen(stream, row.udid) : null;
     try {
       if (up) tree = await this.stream.ax(stream, row.udid);
     } catch (e) {
       if (!(e instanceof AxReadTimedOut)) throw e;
       timedOut = true;
     }
-    if (tree) return tree;
+    if (tree) {
+      if (frame) this.sizes.set(row.udid, { points: tree.screen, frame });
+      else this.sizes.delete(row.udid);
+      return tree;
+    }
     const fit = await this.streamFit(row.udid, stream);
     if (fit === "down") {
       this.served.delete(simulatorId);
@@ -573,6 +584,30 @@ export class SimulatorService {
     // A 503 from the daemon means the device's AX framework is still warming up after a boot, which
     // is a "not yet" rather than a "cannot" — the pane says so and offers to look again.
     throw new RpcError("UNAVAILABLE", "the device has not published its accessibility tree yet");
+  }
+
+  /**
+   * An iOS simulator's screen in points without reading its tree: the last tree's, as long as the
+   * stream's `/config` (a few ms) says what it said then. Null when that is not known — nothing read
+   * yet, the device turned, a frame of another size — and the caller reads the tree.
+   */
+  async screenSize(simulatorId: string): Promise<{ width: number; height: number } | null> {
+    const row = this.get(simulatorId);
+    const stream = this.served.get(simulatorId);
+    const known = row.udid ? this.sizes.get(row.udid) : undefined;
+    if (row.physical || row.platform !== "ios" || !row.udid || !stream || !known) return null;
+    const frame = await this.stream.screen(stream, row.udid);
+    if (frame && frame.width === known.frame.width && frame.height === known.frame.height && frame.orientation === known.frame.orientation) return known.points;
+    this.sizes.delete(row.udid);
+    return null;
+  }
+
+  /** A screenshot follows the screen as the app turned it, which `/config` does not: one of
+   *  another shape than the kept size means the kept size is wrong. */
+  private sawFrame(udid: string, png: Buffer): void {
+    const known = this.sizes.get(udid);
+    const dims = pngSize(png);
+    if (known && dims && Math.abs(dims.width / dims.height - known.points.width / known.points.height) > 0.02) this.sizes.delete(udid);
   }
 
   /** False while the device is still booting. A wait that gave up is no reason to stop reading. */
@@ -669,6 +704,7 @@ export class SimulatorService {
     }
     const r = await this.cli.screenshot(udid, absolute);
     if (!r.ok) throw new RpcError("FAILED", r.detail || "the screenshot did not happen");
+    if (this.sizes.has(udid)) this.sawFrame(udid, await readFile(absolute));
     return { path: rel, absolute };
   }
 
@@ -695,7 +731,9 @@ export class SimulatorService {
     try {
       const r = await this.cli.screenshot(udid, path);
       if (!r.ok) throw new RpcError("FAILED", r.detail || "the screenshot did not happen");
-      return await readFile(path);
+      const png = await readFile(path);
+      this.sawFrame(udid, png);
+      return png;
     } finally {
       await unlink(path).catch(() => { /* never written */ });
     }
@@ -727,6 +765,8 @@ export class SimulatorService {
     if (this.get(simulatorId).physical) return this.onDevice(() => this.real().act(this.udidOf(simulatorId), act));
     if (this.platformOf(simulatorId) === "android") return this.actAndroid(this.serialOf(simulatorId), act);
     const udid = this.udidOf(simulatorId);
+    // Another app may hold the screen the other way round.
+    if (act.kind === "launch" || act.kind === "open-url") this.sizes.delete(udid);
     switch (act.kind) {
       case "open-url": return this.cli.openUrl(udid, act.url);
       case "install": return this.cli.install(udid, act.path);
@@ -789,6 +829,8 @@ export class SimulatorService {
     if (row.platform === "android") return this.inputAndroid(this.serialOf(simulatorId), input);
     const wsUrl = this.stateOf(simulatorId).wsUrl;
     if (!wsUrl) throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
+    // The home screen of a turned iPhone stays upright while the app it left was turned.
+    if (input.kind === "press" && input.key === "home" && row.udid) this.sizes.delete(row.udid);
     return this.sendInput(wsUrl, iosSteps(input));
   }
 
@@ -1036,6 +1078,7 @@ export class SimulatorService {
     const current = () => this.token.get(simulatorId) === token;
     const fail = (error: string, detail: string) => { if (current()) this.set({ ...OFF(simulatorId, udid), status: "failed", error, detail: detail || null }); };
     try {
+      this.sizes.delete(udid);
       const booted = await this.cli.boot(udid);
       // Remembered before anything else can go wrong: the device is up whether or not its stream comes.
       if (booted.ok && booted.booted) this.noteBoot(udid, this.d.simulators.get(simulatorId)?.name ?? udid);
