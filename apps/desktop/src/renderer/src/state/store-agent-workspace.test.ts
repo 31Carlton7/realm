@@ -103,6 +103,15 @@ describe("an agent's space_switch, as the window carries it out", () => {
     expect(st.keyboardFor?.sessionId).toBe(opened[0]!.id);
   });
 
+  it("asks the window showing the space to come forward as an agent's request, which never takes the person's app away", async () => {
+    const fake = twoSpaces();
+    fake.data.spacesInOtherWindows = ["s2"];
+    const store = await withA(fake);
+    await store.getState().applySpaceSwitchRequested({ spaceId: "s2" }, false);
+    expect(fake.calls).toContain("focusSpaceWindow:s2 by agent");
+    expect(store.getState().activeSpaceId).toBe("s1");
+  });
+
   it("stays put while the user is typing", async () => {
     const store = await withA(twoSpaces());
     await store.getState().applySpaceSwitchRequested({ spaceId: "s2" }, true);

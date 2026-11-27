@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
+import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, AgentSigninsStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
 import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp, GlobalKeysEvent, GlobalKeysState, HoldKey, CommandSide, AssistantPageAction } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
@@ -491,7 +491,8 @@ contextBridge.exposeInMainWorld("realm", {
     focusProfile: (profileId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-profile", profileId),
     setProfile: (profileId: string | null): void => ipcRenderer.send("window:set-profile", profileId),
     openSpace: (spaceId: string): Promise<void> => ipcRenderer.invoke("window:open-space", spaceId),
-    focusSpace: (spaceId: string, sessionId?: string): Promise<boolean> => ipcRenderer.invoke("window:focus-space", spaceId, sessionId ?? null),
+    focusSpace: (spaceId: string, sessionId?: string, by?: "agent"): Promise<boolean> =>
+      ipcRenderer.invoke("window:focus-space", spaceId, sessionId ?? null, by ?? "person"),
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
     drawn: (): void => ipcRenderer.send("window:drawn"),
@@ -566,6 +567,10 @@ contextBridge.exposeInMainWorld("realm", {
      *  Realm can read. Never a code. */
     codesStatus: (): Promise<SecurityCodesStatus | null> => ipcRenderer.invoke("codes:status"),
     setCodes: (enabled: boolean): Promise<SecurityCodesStatus | null> => ipcRenderer.invoke("codes:set-enabled", enabled),
+    /** Settings ▸ Sign-ins ▸ Let agents finish sign-ins (main/agent-signins.ts): the switch and the
+     *  last agent fills (site, kind, time, session). Never a value. */
+    signinsStatus: (): Promise<AgentSigninsStatus | null> => ipcRenderer.invoke("signins:status"),
+    setSignins: (enabled: boolean): Promise<AgentSigninsStatus | null> => ipcRenderer.invoke("signins:set-enabled", enabled),
     neverList: (profileId: string): Promise<string[]> => ipcRenderer.invoke("credentials:never-list", profileId),
     setNever: (profileId: string, origin: string, never: boolean): Promise<string[]> => ipcRenderer.invoke("credentials:set-never", profileId, origin, never),
     fillAllows: (profileId: string): Promise<PasswordFillAllow[]> => ipcRenderer.invoke("credentials:fill-allows", profileId),

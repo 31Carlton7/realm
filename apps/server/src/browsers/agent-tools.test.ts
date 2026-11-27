@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { GENERATED_CREDENTIAL_NOTE, type Browser, type BrowserPageActivity, type BrowserSnapshotElement, type BrowserSnapshotResult } from "@realm/contracts";
+import { GENERATED_CREDENTIAL_NOTE, type Browser, type SessionEvent, type BrowserPageActivity, type BrowserSnapshotElement, type BrowserSnapshotResult } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserAgentProvider, BROWSER_PROVIDER_NAME, type BrowserAgentToolsDeps } from "./agent-tools";
 import type { GateResult } from "./permissions";
@@ -50,7 +50,7 @@ function setup(opts: {
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
   rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", favicon: "", createdAt: 1, updatedAt: 1 });
 
-  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean; preapproved?: boolean; promptUnderBypass?: boolean; onAlwaysAllow?: () => void }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
+  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean; preapproved?: boolean; promptUnderBypass?: boolean; onAlwaysAllow?: () => void }[], bridge: [] as { op: string; params: Record<string, unknown> }[], invites: [] as { toolName: string; title: string }[], notes: [] as SessionEvent[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
   const bridgeResults: Record<string, unknown> = {
     describe: { open: true, url: "https://example.com/checkout", title: "Example", element: { role: "button", name: "Submit order", tag: "button", inputType: null } },
     snapshot: { url: "https://example.com/", title: "Example", text: '[ref=11] button "Submit order"', elementCount: 1 },
@@ -61,6 +61,7 @@ function setup(opts: {
     credentials: { credentials: [{ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false }] },
     fillCredential: { ok: true, detail: "filled saved credential for https://example.com" },
     codesEnabled: { enabled: true },
+    signinsEnabled: { enabled: false },
     fillCode: { ok: true, detail: "filled the security code" },
     download: { ok: true, name: "week-3.pdf", bytes: 204_800, relPath: "downloads/week-3.pdf" },
     upload: { ok: true, method: "input", names: ["hero.png"], value: "hero.png", accept: "image/*", multiple: true },
@@ -115,7 +116,13 @@ function setup(opts: {
         });
         return opts.gate ?? { allowed: true };
       },
+      invite: (_sessionId, toolName, title) => {
+        if (calls.invites.some((i) => i.toolName === toolName)) return false;
+        calls.invites.push({ toolName, title });
+        return true;
+      },
     },
+    transcript: { note: (_sessionId, ev) => { calls.notes.push(ev); } },
     rpc: { broadcast: (event, payload) => { calls.broadcasts.push({ event, payload }); } } as BrowserAgentToolsDeps["rpc"],
   };
   const checkCalls: { tool: string; url?: string }[] = [];
@@ -282,14 +289,14 @@ describe("hard blocks", () => {
     expect(calls.opened).toEqual([]);
   });
 
-  it("the executor's password refusal surfaces as a hand-to-the-user error (mutant: password type not refused)", async () => {
+  it("the executor's password refusal surfaces as an error pointing at browser_fill_credential (mutant: password type not refused)", async () => {
     // The gate ALLOWS (bypassPermissions would too) — the refusal must come through anyway, because
     // it is the executor's, not the broker's.
     const { call } = setup({ bridgeResults: { act: { ok: false, error: "password field", refused: "password" } } });
     const r = await call("browser_act", { browserId: "b1", action: { kind: "type", ref: 11, text: "hunter2" } });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("password field");
-    expect(text(r)).toContain("let them do it in the pane");
+    expect(text(r)).toContain("fill it with browser_fill_credential");
   });
 
   it("non-http(s) URLs never navigate — no file:, data:, javascript:", async () => {
@@ -599,11 +606,26 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(text(r)).toContain("cred-1");
     expect(text(r)).toContain("https://example.com");
     expect(text(r)).toContain("ada");
-    // The 2FA limit is stated where the agent will actually read it, not only in docs.
-    expect(text(r)).toMatch(/two-factor/i);
+    // The second step is steered where the agent will actually read it, not only in docs.
+    expect(text(r)).toContain("prefer a code by text or email");
+    expect(text(r)).toContain("A push or an authenticator app is the last resort");
 
     const tool = (await provider.tools(ctx)).find((t) => t.name === "browser_fill_credential")!;
     expect(tool.description).toMatch(/never receive the value|cannot read it back/i);
+  });
+
+  it("tells the agent the second step is its own, and never to hand a code to the user", async () => {
+    const { provider, ctx } = setup();
+    const tools = await provider.tools(ctx);
+    const fillCredential = tools.find((t) => t.name === "browser_fill_credential")!.description;
+    const fillCode = tools.find((t) => t.name === "browser_fill_code")!.description;
+    // THE MUTANT: the old lines back. An agent reads "is the user's" and stops at Duo instead of
+    // picking "Text me a passcode".
+    expect(fillCredential).not.toContain("is the user's");
+    expect(fillCredential).toContain("switch method first, and stop only if none is offered");
+    expect(fillCode).not.toContain("ask them to type the code");
+    expect(fillCode).toContain("you never ask them for the code");
+    expect(fillCode).toContain("it waits for the code to arrive");
   });
 
   it("empty list says so, and is exact about which half of enrollment the agent cannot do", async () => {
@@ -635,6 +657,14 @@ describe("browser_credentials / browser_fill_credential", () => {
     const { call, calls } = setup();
     await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
     expect(calls.gates[0]!.alwaysPrompt).toBe(true);
+  });
+
+  it("cards a fill on a page of another site every time, even with agent sign-ins on", async () => {
+    // THE MUTANT: the switch lifting the anti-phishing card along with the own-site one.
+    const { call, calls } = setup({ bridgeResults: { signinsEnabled: { enabled: true }, credentials: (p: Record<string, unknown>) => (p.browserId ? { origin: "https://evil.example.net", credentials: [] } : { credentials: [{ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false }] }) } });
+    await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    expect(calls.gates[0]).toMatchObject({ toolKey: "browser_fill_credential", alwaysPrompt: true });
+    expect(calls.gates[0]!.preapproved).toBeUndefined();
   });
 
   it("a denied card means NO bridge call (mutant: the fill running before the answer)", async () => {
@@ -685,6 +715,23 @@ describe("browser_credentials / browser_fill_credential", () => {
       expect(calls.bridge.find((b) => b.op === "credentialAllow")!.params).toEqual({ profileId: expect.any(String), credentialId: "cred-1", origin: "https://login.example.com" });
     });
 
+    it("with agent sign-ins on, fills with no card, and the transcript says so", async () => {
+      const { call, calls } = setup({ bridgeResults: { ...site(), signinsEnabled: { enabled: true } } });
+      const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(r.isError).toBeFalsy();
+      expect(calls.gates[0]).toMatchObject({ preapproved: true, alwaysPrompt: false });
+      expect(calls.invites).toEqual([]);
+      expect(calls.notes).toEqual([expect.objectContaining({ type: "signin_filled", payload: { site: "https://login.example.com", kind: "password", note: "Realm filled a saved password on login.example.com" } })]);
+    });
+
+    it("with agent sign-ins off, keeps the card and asks once to turn them on", async () => {
+      const { call, calls } = setup({ bridgeResults: site() });
+      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(calls.gates.map((g) => g.preapproved)).toEqual([undefined, undefined]);
+      expect(calls.invites).toEqual([{ toolName: "agent_signins", title: "Let agents finish sign-ins? Opens Settings" }]);
+    });
+
     it("skips the card where the person already said always — and only there", async () => {
       // THE MUTANT: an allow kept but never read, or read for every site.
       const { call, calls } = setup({ bridgeResults: site(true) });
@@ -697,7 +744,7 @@ describe("browser_credentials / browser_fill_credential", () => {
     const { call, calls } = setup();
     await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
     const sent = calls.bridge.find((b) => b.op === "fillCredential")!;
-    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "profileId", "ref", "spaceId"]);
+    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "profileId", "ref", "sessionId", "spaceId"]);
   });
 
   it("names the session's space to main, so a team's sign-ins are offered in that team alone", async () => {
@@ -785,6 +832,14 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(gate.alwaysPrompt).toBe(true);
     expect(Object.keys(gate.input)).toEqual(["browserId", "ref", "origin", "username", "label", "generate", "always"]);
     expect(gate.input).toMatchObject({ origin: "https://example.com", generate: true });
+  });
+
+  it("with agent sign-ins on, a GENERATED fill needs no card, and the transcript says where the password went", async () => {
+    const { call, calls } = setup({ bridgeResults: { signinsEnabled: { enabled: true }, fillCredential: { ok: true, detail: "generated and filled a new password", credentialId: "cred-9" } } });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: { username: "ada" } });
+    expect(r.isError).toBeFalsy();
+    expect(calls.gates[0]).toMatchObject({ preapproved: true, alwaysPrompt: false });
+    expect(calls.notes).toEqual([expect.objectContaining({ type: "signin_filled", payload: { site: "https://example.com", kind: "generated", note: "Realm created a password for example.com, saved in Settings ▸ Sign-ins" } })]);
   });
 
   it("an origin the AGENT supplies is ignored — the pane decides what a new sign-in is pinned to", async () => {
@@ -1873,50 +1928,66 @@ describe("browser_do", () => {
 });
 
 describe("browser_fill_code", () => {
-  it("asks on its own card every time, then fills, and answers only \"filled\"", async () => {
-    const { call, calls } = setup();
+  const on = { signinsEnabled: { enabled: true } };
+
+  it("with agent sign-ins on, fills with no card, answers only \"filled\", and the transcript says so", async () => {
+    const { call, calls } = setup({ bridgeResults: on });
     const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBeFalsy();
     expect(text(r)).toBe("filled");
+    // Still a gate, so Plan and Ask refuse it; preapproved, so nothing else asks.
     expect(calls.gates).toEqual([expect.objectContaining({
-      toolKey: "browser_fill_code", toolName: "browser_fill_code", alwaysPrompt: true,
-      title: "Fill the security code from Messages or Mail into the page on example.com",
+      toolKey: "browser_fill_code", toolName: "browser_fill_code", alwaysPrompt: false, preapproved: true,
       input: { browserId: "b1", ref: 4, origin: "https://example.com", always: false },
     })]);
-    // The switch is asked before the card, the fill after it, and the fill names the card's origin.
-    expect(calls.bridge.map((b) => b.op)).toEqual(["describe", "codesEnabled", "fillCode"]);
-    expect(calls.bridge.at(-1)?.params).toEqual({ browserId: "b1", ref: 4, origin: "https://example.com" });
+    expect(calls.bridge.map((b) => b.op)).toEqual(["describe", "signinsEnabled", "codesEnabled", "fillCode"]);
+    expect(calls.bridge.at(-1)?.params).toEqual({ browserId: "b1", ref: 4, origin: "https://example.com", sessionId: "sess1" });
+    expect(calls.notes).toEqual([expect.objectContaining({ type: "signin_filled", payload: { site: "https://example.com", kind: "code", note: "Realm filled a security code on example.com" } })]);
   });
 
-  it("fills nothing when the card is declined, and says declined", async () => {
-    const { call, calls } = setup({ gate: { allowed: false, reason: "the user denied this action" } });
+  it("fills nothing when the gate refuses, and says declined", async () => {
+    const { call, calls } = setup({ bridgeResults: on, gate: { allowed: false, reason: "this session is in Plan (read-only) mode" } });
     const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/^declined/);
     expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
   });
 
-  it("raises no card while the switch is off, and tells the agent where it is", async () => {
-    const { call, calls } = setup({ bridgeResults: { codesEnabled: { enabled: false } } });
+  it("with agent sign-ins off, asks the person once to turn them on, and fills nothing", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
+    await call("browser_fill_code", { browserId: "b1", ref: 4 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("Realm asked the user to turn on agent sign-ins");
+    expect(text(r)).not.toMatch(/type the code/i);
+    expect(calls.invites).toEqual([{ toolName: "agent_signins", title: "Let agents finish sign-ins? Opens Settings" }]);
+    expect(calls.gates).toEqual([]);
+    expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
+  });
+
+  it("raises no card while Security codes is off, and tells the agent where it is", async () => {
+    const { call, calls } = setup({ bridgeResults: { ...on, codesEnabled: { enabled: false } } });
     const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("Settings ▸ Sign-ins ▸ Security codes");
+    expect(text(r)).not.toMatch(/type the code/i);
     expect(calls.gates).toEqual([]);
     expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
   });
 
   it("passes on why nothing was filled, and never a code", async () => {
-    const { call } = setup({ bridgeResults: { fillCode: { ok: false, error: "no security code arrived by Messages or Mail in the last 5 minutes, so nothing was filled" } } });
+    const { call, calls } = setup({ bridgeResults: { ...on, fillCode: { ok: false, error: "no security code arrived in 90 s, so nothing was filled: no text arrived in Messages" } } });
     const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("last 5 minutes");
+    expect(text(r)).toContain("no text arrived in Messages");
     expect(r.content.some((c) => c.type === "image")).toBe(false);
+    expect(calls.notes).toEqual([]);
   });
 
   it("stops main's wait for the code when the call is cancelled", async () => {
     // THE MUTANT: an interrupted turn leaves main polling Messages and Mail for the rest of the wait.
     let answer: (v: unknown) => void = () => {};
-    const { provider, ctx, calls } = setup({ bridgeResults: { fillCode: () => new Promise((resolve) => { answer = resolve; }), fillCodeCancel: { cancelled: true } } });
+    const { provider, ctx, calls } = setup({ bridgeResults: { ...on, fillCode: () => new Promise((resolve) => { answer = resolve; }), fillCodeCancel: { cancelled: true } } });
     const abort = new AbortController();
     const pending = provider.call({ ...ctx, signal: abort.signal }, "browser_fill_code", { browserId: "b1", ref: 4 });
     await vi.waitFor(() => expect(calls.bridge.map((b) => b.op)).toContain("fillCode"));

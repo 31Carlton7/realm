@@ -66,6 +66,7 @@ import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
 import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
+import { bringForward, raiseBy, type RaiseBy } from "./bring-forward";
 import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
 import { materialShapes, panelMaterial, type PageShape } from "./panel-material";
 import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelFit, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
@@ -81,6 +82,7 @@ import { registerFullScreenQuery, wireFullScreen } from "./full-screen";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
 import { SecurityCodes, SecurityCodesSetting, codeSourcesFor } from "./security-codes";
+import { AgentSignins } from "./agent-signins";
 import { registerPasswordsIpc } from "./passwords-ipc";
 import { readSecretsFile, setAsideSecretsFile, writeSecretsFile } from "./secrets-file";
 import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
@@ -1020,6 +1022,10 @@ const agentHost = new BrowserAgentHost({
     waitFor: async (origin, o) => (await codes()?.waitFor(origin, o)) ?? { found: null, cancelled: false, miss: { Messages: "missing", Mail: "missing", Notifications: "missing" } },
   },
   coverShot: coverJpeg,
+  signins: {
+    enabled: () => agentSignins()?.enabled() ?? false,
+    record: (fill) => agentSignins()?.record(fill),
+  },
 });
 
 /** The browser a download came from, in whichever window holds its view. */
@@ -1312,6 +1318,23 @@ function codes(): SecurityCodes | null {
 ipcMain.handle("codes:status", async (e) => (e.senderFrame === e.sender.mainFrame ? (await codes()?.status()) ?? null : null));
 ipcMain.handle("codes:set-enabled", async (e, on: unknown) =>
   (e.senderFrame === e.sender.mainFrame ? (await codes()?.setEnabled(on === true)) ?? null : null));
+
+/**
+ * Let agents finish sign-ins (agent-signins.ts): main's file under the home, so no agent can turn it
+ * on. Null only before realm-server has announced its home, which reads as off.
+ */
+let agentSigninsFile: AgentSignins | null = null;
+function agentSignins(): AgentSignins | null {
+  if (agentSigninsFile) return agentSigninsFile;
+  if (!realmHome) return null;
+  agentSigninsFile = new AgentSignins(join(realmHome, "agent-signins.json"));
+  return agentSigninsFile;
+}
+/** Settings ▸ Sign-ins ▸ Let agents finish sign-ins, from the window's own top frame only: the switch
+ *  and the last agent fills. */
+ipcMain.handle("signins:status", (e) => (e.senderFrame === e.sender.mainFrame ? agentSignins()?.status() ?? null : null));
+ipcMain.handle("signins:set-enabled", (e, on: unknown) =>
+  (e.senderFrame === e.sender.mainFrame ? agentSignins()?.setEnabled(on === true) ?? null : null));
 
 /**
  * The secret store, built on first use. Null only before realm-server has announced its home.
@@ -2940,7 +2963,7 @@ async function reattach(target?: { sessionId: string; spaceId: string | null } |
   let win = (target?.spaceId ? windows.windowForSpace(target.spaceId) : null)
     ?? (profileId ? windows.windowFor(profileId) : null) ?? windows.primary();
   if (win && !win.isDestroyed()) {
-    bringForward(win);
+    raiseWindow(win);
   } else if (serverInfo) {
     await restoreWindows(serverInfo);
     win = windows.windowToOpen(target?.spaceId ?? null);
@@ -2950,12 +2973,11 @@ async function reattach(target?: { sessionId: string; spaceId: string | null } |
   if (target) win?.webContents.send("sessionId" in target ? "realm:open-session" : "realm:open-document", target);
 }
 
-/** Raise a window in front of everything, the app included. */
-function bringForward(win: BrowserWindow): void {
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  if (process.platform === "darwin") app.focus({ steal: true });
+function raiseWindow(win: BrowserWindow, by: RaiseBy = "person"): void {
+  bringForward(win, by, {
+    appActive: BrowserWindow.getFocusedWindow() !== null,
+    activateApp: () => { if (process.platform === "darwin") app.focus({ steal: true }); },
+  });
 }
 
 /** Every space with its profile and name, in the person's order, asked of the server — none when it
@@ -2999,7 +3021,7 @@ ipcMain.handle("window:open-profile", async (_e, profileId: unknown): Promise<vo
   const profile = await profileDirectory.resolve(profileArg(profileId));
   if (!profile || !serverInfo) return;
   const open = windows.windowFor(profile.id);
-  if (open) { bringForward(open); return; }
+  if (open) { raiseWindow(open); return; }
   await createWindow(serverInfo, profile.id);
 });
 /** The switcher's question before it switches a window: is this profile open in ANOTHER window? If so
@@ -3008,7 +3030,7 @@ ipcMain.handle("window:focus-profile", (e, profileId: unknown): boolean => {
   const sender = BrowserWindow.fromWebContents(e.sender);
   const open = windows.windowFor(profileArg(profileId), sender ?? undefined);
   if (!open) return false;
-  bringForward(open);
+  raiseWindow(open);
   return true;
 });
 /** A window's renderer says which profile it shows now. The window is titled by it — what the Window
@@ -3030,7 +3052,7 @@ ipcMain.handle("window:open-space", async (_e, spaceId: unknown): Promise<void> 
   const id = profileArg(spaceId); // an id, shaped as a profile's is
   if (!id || !serverInfo) return;
   const open = windows.windowForSpace(id);
-  if (open) { bringForward(open); return; }
+  if (open) { raiseWindow(open); return; }
   const profileId = await profileOfSpace(id);
   if (profileId) await createWindow(serverInfo, profileId, id);
 });
@@ -3047,12 +3069,12 @@ ipcMain.handle("window:new", async (e): Promise<boolean> => {
 });
 /** A window's question before it switches space: is this space open in ANOTHER window? If so that
  *  window comes forward, and the answer is yes — the asking window stays as it is. */
-ipcMain.handle("window:focus-space", (e, spaceId: unknown, sessionId: unknown): boolean => {
+ipcMain.handle("window:focus-space", (e, spaceId: unknown, sessionId: unknown, by: unknown): boolean => {
   const id = profileArg(spaceId);
   if (!id) return false;
   const open = windows.windowForSpace(id, BrowserWindow.fromWebContents(e.sender) ?? undefined);
   if (!open) return false;
-  bringForward(open);
+  raiseWindow(open, raiseBy(by));
   // A session the asking window was opening: the window that has its space opens it instead.
   const session = profileArg(sessionId);
   if (session) open.webContents.send("realm:open-session", { sessionId: session, spaceId: id });

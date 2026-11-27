@@ -939,9 +939,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     landingSpaceId: () => data.landingSpaceId ?? null,
     openSpaceWindow: async (spaceId) => { calls.push(`openSpaceWindow:${spaceId}`); },
     /** Another window shows the space when the test says one does (`spacesInOtherWindows`). */
-    focusSpaceWindow: async (spaceId, sessionId) => {
+    focusSpaceWindow: async (spaceId, sessionId, by) => {
       const elsewhere = data.spacesInOtherWindows.includes(spaceId);
-      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}${sessionId ? `:${sessionId}` : ""}`);
+      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}${sessionId ? `:${sessionId}` : ""}${by === "agent" ? " by agent" : ""}`);
       return elsewhere;
     },
     newWindow: async () => { calls.push("newWindow"); return data.newWindowOpens; },

@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import { clampPanelShare, findLeaf, firstLeaf, minRoomOf, primaryLeaves, tabOwner, type Item, type Layout, type LayoutLeaf, type LayoutSplit, type Room } from "@realm/contracts";
+import { allItems, clampPanelShare, findLeaf, firstLeaf, minRoomOf, primaryLeaves, tabOwner, type Item, type Layout, type LayoutLeaf, type LayoutSplit, type Room } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
 import type { PanelPlace } from "../state/view-room";
 import { Icon } from "@realm/ui";
@@ -11,6 +11,7 @@ import { PaneFor } from "../panes/registry";
 import { closeIntent } from "../state/close-intent";
 import { useChord } from "./sidebar/use-sidebar-model";
 import { isRealmPaneDrag, REALM_ITEM_TYPE, REALM_NEW_SESSION_TYPE } from "./drag-types";
+import { nextWarmPanes, type WarmPanes } from "./warm-panes";
 
 export type PaneHostProps = {
   layout: Layout; items: Item[]; focusedLeafId: string | null;
@@ -206,6 +207,12 @@ export function PaneHost(p: PaneHostProps) {
   }, [onRoom]);
 
   const layout = p.layout;
+  /* The sessions each main pane keeps drawn (warm-panes.ts). Worked out during the render from what
+     the last commit kept, and committed after it, so a render React throws away keeps nothing. */
+  const warm = useRef(new Map<string, WarmPanes>());
+  const warming = new Map<string, WarmPanes>();
+  useLayoutEffect(() => { warm.current = warming; });
+  const onScreen = new Set(allItems(layout));
   const panel = rootPanelOf(layout);
   const main = panel ? (layout as LayoutSplit).children[0]! : layout;
   // A focused pane renders ALONE in its place — not a `display:none` on its siblings, which would keep
@@ -268,6 +275,15 @@ export function PaneHost(p: PaneHostProps) {
     </OwnerCueContext.Provider>
   );
 
+  /** What a main pane mounts: the item it shows, and the sessions it showed before that are still
+   *  around and on screen nowhere else. */
+  function warmSlots(leafId: string, item: Item): Item[] {
+    const keep = (id: string) => byId.get(id)?.kind === "session" && !onScreen.has(id);
+    const next = nextWarmPanes(warm.current.get(leafId), item.id, keep);
+    warming.set(leafId, next);
+    return next.order.map((id) => byId.get(id)!);
+  }
+
   /** `top`: the node's box starts at the window's top, under the frame's strip. */
   function renderNode(n: Layout, top = true): JSX.Element {
     if (n.type === "leaf") {
@@ -321,10 +337,16 @@ export function PaneHost(p: PaneHostProps) {
             {!item && <EmptyPane onNewSession={p.onNewSessionHere ? () => p.onNewSessionHere!(n.id) : undefined} />}
             {/* Keyed by item.id: openItem's primary gesture replaces a leaf's item in place, and this
                 div is otherwise the same React position across totally different sessions/terminals.
-                Keying forces a remount so component-local state (composer draft, expanded thinking
-                blocks, …) never leaks from the old item to the new one — and lets .panel-body .pane-slot's
-                rl-settle animation (styles.css) naturally replay on every swap. */}
-            {item && !tabs && <div key={item.id} className="pane-slot"><PaneFor item={item} visible focused={n.id === p.focusedLeafId} /></div>}
+                Keying gives each item its own tree, so component-local state (composer draft, expanded
+                thinking blocks, …) never leaks from the old item to the new one. The sessions it showed
+                last stay mounted behind it, hidden, so going back to one shows the tree it has rather
+                than building it again (warm-panes.ts). A slot coming out of `hidden` starts its
+                animations over, so .panel-body .pane-slot's rl-settle (styles.css) plays on every swap. */}
+            {item && !tabs && warmSlots(n.id, item).map((it) => (
+              <div key={it.id} className="pane-slot" hidden={it.id !== item.id || undefined}>
+                <PaneFor item={it} visible={it.id === item.id} focused={it.id === item.id && n.id === p.focusedLeafId} />
+              </div>
+            ))}
             {/* The panel mounts the tab showing, and every BROWSER tab behind it, hidden. A browser's
                 view exists only while a pane holds it or main retains it, and main retains three: a
                 tab never mounted is a page an agent cannot drive ("the pane is not open in the

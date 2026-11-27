@@ -115,6 +115,8 @@ a macOS dialog the user has to click, so a command may appear to hang while it w
 ## Gotchas worth knowing before you run
 
 - **`mac mail draft`, not `mac mail send`,** unless the user explicitly asked to send.
+- **Never read a sign-in code with `mac messages` or `mac mail`.** A code a site texts or emails
+  goes into the page with `browser_fill_code`, which fills it without you seeing it.
 - **`mac messages send` takes an exact handle** and does no name resolution — go through
   `mac contacts find` first. **A success is not proof of delivery**; Messages accepts sends to
   handles that were never registered. Verify with `mac messages history`.
