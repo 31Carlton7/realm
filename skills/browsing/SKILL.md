@@ -21,6 +21,9 @@ browser and brings it to the front of what they are doing.
    cut off, its last lines say how many were left out — follow them rather than concluding a
    control is missing: `offset` pages through the rest, `query: "save"` lists only elements whose
    role, name or value match, and `within: <ref>` lists one region (the note names the regions).
+   A control with no name reads as what it shows, `icon:trash` or `img:avatar`, and `in:"…"` quotes
+   the row or card around controls that would otherwise read alike. Lines carry no coordinates;
+   pass `detail: "geometry"` only when where things sit on the page matters.
 2. **Act by ref, one intent at a time.** `browser_act` clicks/types/keys/scrolls by `[ref=N]`.
    Refs are re-resolved to live geometry at act time, so a stale ref fails honestly rather than
    clicking the wrong place — but a ref from before a navigation is stale on purpose: re-snapshot.

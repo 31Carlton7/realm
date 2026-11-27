@@ -171,6 +171,7 @@ export const BrowserSnapshotScopeSchema = z.object({
   offset: z.number().int().min(0).optional(),
   query: z.string().trim().min(1).max(200).optional(),
   within: z.number().int().positive().optional(),
+  detail: z.enum(["geometry"]).optional(),
 });
 export type BrowserSnapshotScope = z.infer<typeof BrowserSnapshotScopeSchema>;
 
@@ -179,6 +180,7 @@ export const SNAPSHOT_SCOPE_PROPERTIES = {
   offset: { type: "number", description: "skip this many elements of the ranked list — the snapshot's note gives the offset of the next page when it is cut off" },
   query: { type: "string", description: "list only elements whose role, name or value contains every one of these words (case-insensitive), e.g. \"save\" or \"email address\"" },
   within: { type: "number", description: "list only elements inside the element with this ref — a region ref from the snapshot's note, or any ref" },
+  detail: { type: "string", enum: ["geometry"], description: "\"geometry\" adds each element's box, (x,y width×height) in CSS pixels of the page — only for when where things sit matters; acting by ref never needs it" },
 } as const;
 
 export type BrowserSnapshotResult = {

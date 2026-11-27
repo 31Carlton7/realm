@@ -169,7 +169,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "browser_snapshot",
-    description: "The primary way to read a page for acting on it: a fused DOM+accessibility snapshot of the visible, interactive elements — each line is one element with a stable [ref=N] to use with browser_act. Elements changed since your previous snapshot are marked [new]. A long page lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them. Read-only.",
+    description: "The primary way to read a page for acting on it: a fused DOM+accessibility snapshot of the visible, interactive elements — each line is one element with a stable [ref=N] to use with browser_act. A control with no name says what it shows instead: icon:<name> or img:<name>, and in:\"…\" quotes the row or card it sits in when two lines would otherwise read the same. Elements changed since your previous snapshot are marked [new]. A long page lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them. Read-only.",
     inputSchema: { type: "object", properties: { browserId: { type: "string" }, ...SNAPSHOT_SCOPE_PROPERTIES }, required: ["browserId"], additionalProperties: false },
   },
   {
