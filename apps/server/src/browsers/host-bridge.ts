@@ -25,9 +25,6 @@ export const BROWSER_HOST_OPS = [
   "fillCode",
   /** Stop a `fillCode` still waiting for its code, because the agent's call was cancelled. */
   "fillCodeCancel",
-  /** Whether the person let agents finish sign-ins (main's `agent-signins.ts`): no card for a code
-   *  fill or an own-site password fill. Main's file; no op writes it. */
-  "signinsEnabled",
   /**
    * Hand realm-server the `oauth` domain key from main's safeStorage-anchored keyring, so
    * `readOauthState` can stay synchronous while tokens stop being plaintext in `realm.db`.

@@ -5,7 +5,7 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential, type AgentFillKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential } from "@realm/contracts";
 import { isAbsolute } from "node:path";
 import { missedCodeError, type CodeWait } from "./security-codes";
 import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
@@ -195,20 +195,12 @@ export type BrowserAgentHostDeps = {
    * cannot. Absent is the same answer: a screenshot with a secret field in it is then not taken.
    */
   coverShot?(jpeg: string, fields: SecretFields): string | null;
-  /** Let agents finish sign-ins (`agent-signins.ts`): the switch, and the log of agent fills Settings
-   *  lists. Absent is the switch off, with nothing logged. */
-  signins?: { enabled(): boolean; record(fill: { site: string; kind: AgentFillKind; sessionId: string | null }): void };
 };
 
 /** Who a fill was for, as realm-server named it: the asking session's space. */
 type FillWho = { spaceId?: string };
 function fillWho(params: Record<string, unknown>): FillWho {
   return typeof params.spaceId === "string" && params.spaceId ? { spaceId: params.spaceId } : {};
-}
-
-/** The agent's session a fill was for, as realm-server named it, for the log Settings lists. */
-function fillSession(params: Record<string, unknown>): string | null {
-  return typeof params.sessionId === "string" && params.sessionId ? params.sessionId : null;
 }
 
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
@@ -712,8 +704,6 @@ export class BrowserAgentHost {
        *  is off without a card being raised for a fill that could not happen. Reads no message. */
       case "codesEnabled":
         return { enabled: this.d.codes?.enabled() ?? false };
-      case "signinsEnabled":
-        return { enabled: this.d.signins?.enabled() ?? false };
       /**
        * Type the security code that just arrived into the code field at `ref` — after the person
        * approved this fill on its card, which is the only way realm-server sends this op. The code is
@@ -751,7 +741,6 @@ export class BrowserAgentHost {
         if (!targets) return notCodeField;
         const result = await performCodeFill(send, targets.objectIds, { origin, code: found.code });
         if (result.ok) {
-          this.d.signins?.record({ site: origin, kind: "code", sessionId: fillSession(params) });
           this.codeFilled(browserId, targets.backendNodeIds, found.code);
           this.d.typed?.(browserId);
         }
@@ -909,10 +898,7 @@ export class BrowserAgentHost {
           return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
         this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error", who);
-        if (result.ok) {
-          this.d.typed?.(browserId);
-          this.d.signins?.record({ site: origin, kind: generate ? "generated" : "password", sessionId: fillSession(params) });
-        }
+        if (result.ok) this.d.typed?.(browserId);
         // The id travels back only for a generated fill, and only as metadata: it is how the agent
         // fills this same new password into a confirm field without ever being told what it is.
         return result.ok && generate && credentialId

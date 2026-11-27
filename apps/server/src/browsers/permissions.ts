@@ -20,9 +20,7 @@ type PendingPrompt = { sessionId: string; toolKey: string; settle: Settle; timer
   /** Full access would not have asked it: neither `alwaysPrompt` nor `promptUnderBypass`. */
   bypassable?: boolean;
   /** Set for a QUESTION (`ask`): what its answers are held to, and how the log keeps them. */
-  card?: AskCard;
-  /** Set for an `invite`: nothing waits on it, so it never holds its session waiting. */
-  invite?: boolean };
+  card?: AskCard };
 
 /**
  * How a question ended, for the caller that asked it. `refused`: Realm declined it before anyone saw
@@ -40,10 +38,9 @@ export type AskOutcome =
  * Per-call gate behaviour.
  *
  * `alwaysPrompt` makes ONE call prompt every single time: `bypassPermissions` does not skip it and
- * `allow_always` neither satisfies it nor gets recorded by it. `browser_fill_credential` sets it for a
- * fill on a page of another site, always, and for the password Realm generates unless the person let
- * agents finish sign-ins (then that and `browser_fill_code` are `preapproved` by main's switch, which
- * still leaves Plan and Ask refusing). A saved password filled on a page of its own site
+ * `allow_always` neither satisfies it nor gets recorded by it. Two tools set it: `browser_fill_code`,
+ * for every code it reads out of the person's messages, and `browser_fill_credential` — for the password
+ * Realm generates, and for a fill on a page of another site. A saved password filled on a page of its own site
  * instead takes `promptUnderBypass`, keyed to that password and that exact page: "Always allow on
  * this site" is then the person's to give, kept in Electron main, and it removes the card there and
  * nothing else — the profile's unlock (Touch ID by default) still runs on every fill.
@@ -115,8 +112,6 @@ export type GateResult = { allowed: true } | { allowed: false; reason: string };
 export class BrowserPermissionBroker {
   private readonly pending = new Map<string, PendingPrompt>();
   private readonly always = new Map<string, Set<string>>();
-  /** Sessions already shown an `invite`, by its tool name. */
-  private readonly invited = new Map<string, Set<string>>();
 
   constructor(private readonly d: {
     /** Fresh read of the session's CURRENT permission mode — a mid-session setOptions must count. */
@@ -165,7 +160,7 @@ export class BrowserPermissionBroker {
       if (decision === "allow_always") p.onAlwaysAllow?.();
     }
     this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision }));
-    if (!p.invite) this.settled(p.sessionId);
+    this.settled(p.sessionId);
     p.settle({ decision });
   }
 
@@ -173,7 +168,7 @@ export class BrowserPermissionBroker {
    *  before: a card still open beside the one just answered must keep its session waiting, or the
    *  transcript stops drawing it. */
   private settled(sessionId: string): void {
-    for (const p of this.pending.values()) if (p.sessionId === sessionId && !p.invite) return;
+    for (const p of this.pending.values()) if (p.sessionId === sessionId) return;
     this.d.emit(sessionId, sessionEvent("status", { status: "running" }));
   }
 
@@ -187,26 +182,6 @@ export class BrowserPermissionBroker {
       p.settle({ decision: "deny", cancelled: true });
     }
     this.always.delete(sessionId);
-    this.invited.delete(sessionId);
-  }
-
-  /**
-   * A card for the person that the calling tool does not wait on: the tool has already answered its
-   * agent, and whatever the person does with the card reaches the agent by no route. Raised once per
-   * session and `toolName`; false when it was raised before. Answering it only takes it down.
-   */
-  invite(sessionId: string, toolName: string, title: string, input: Record<string, unknown> = {}): boolean {
-    let shown = this.invited.get(sessionId);
-    if (!shown) { shown = new Set(); this.invited.set(sessionId, shown); }
-    if (shown.has(toolName)) return false;
-    shown.add(toolName);
-    const requestId = REQUEST_PREFIX + randomBytes(12).toString("base64url");
-    const timer = setTimeout(() => {
-      if (this.pending.delete(requestId)) this.d.emit(sessionId, sessionEvent("permission_response", { requestId, decision: "deny" }));
-    }, PROMPT_TIMEOUT_MS);
-    this.pending.set(requestId, { sessionId, toolKey: toolName, settle: () => {}, timer, alwaysPrompt: true, perSession: false, invite: true });
-    this.d.emit(sessionId, sessionEvent("permission_request", { requestId, toolName, input, title, suggestions: [] }));
-    return true;
   }
 
   /**

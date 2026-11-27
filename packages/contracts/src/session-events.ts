@@ -292,15 +292,6 @@ const P = {
     name: z.string(),
     note: z.string(),
   }),
-  /**
-   * Realm filled a sign-in for an agent (`agent-signins.ts`): the site and the kind, never the value.
-   * Written for every agent fill, carded or not. `note` is the sentence shown, built server-side.
-   */
-  signin_filled: z.object({
-    site: z.string(),
-    kind: z.enum(["password", "generated", "code"]),
-    note: z.string(),
-  }),
   context_reset: z.object({
     agent: z.string(),
     reason: z.enum(["declined", "unsupported"]),
@@ -518,7 +509,6 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("context_reset"),
   variant("access_changed"),
   variant("space_made"),
-  variant("signin_filled"),
   variant("moving"),
   variant("moved"),
   variant("move_failed"),
@@ -556,7 +546,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "access_changed", "space_made", "signin_filled", "moving", "moved", "move_failed", "summary", "prompt_hint", "turn_changes", "files_made"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "access_changed", "space_made", "moving", "moved", "move_failed", "summary", "prompt_hint", "turn_changes", "files_made"];
 
 /**
  * `text` with `delta` joined on, where the delta starts at `at` in it. A delta the text already
