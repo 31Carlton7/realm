@@ -108,10 +108,14 @@ export function quietEnv(env = process.env) {
   };
 }
 
-/** What `spawnLiveElectron` starts the app with: `quietEnv`, less quiet mode for a check that is seen. */
+/** What `spawnLiveElectron` starts the app with: `quietEnv`, less quiet mode for a check that is seen.
+ *  An agent's shell would force quiet mode too (`REALM_AGENT_SHELL`), so a seen check drops that as well. */
 export function liveEnv(env, seen) {
   const out = { ...quietEnv(env), REALM_QUIET_MAIN: quietMain };
-  if (seen) delete out.REALM_QUIET_WINDOWS;
+  if (seen) {
+    delete out.REALM_QUIET_WINDOWS;
+    delete out.REALM_AGENT_SHELL;
+  }
   return out;
 }
 
