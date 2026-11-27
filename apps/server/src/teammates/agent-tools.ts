@@ -70,9 +70,7 @@ const TOOLS: Tool[] = [
     ].join(" "),
     inputSchema: {
       type: "object",
-      properties: {
-        ...TEAMMATE_FIELDS,
-      },
+      properties: TEAMMATE_FIELDS,
       required: ["name", "brief"],
       additionalProperties: false,
     },
