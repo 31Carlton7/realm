@@ -2496,10 +2496,8 @@ export type RefBox = { n: number; ref: number; role: string; name: string; left:
 /**
  * The boxes for a snapshot's listed elements that are on screen, numbered from 1 in list order. Each
  * is placed by `DOM.getContentQuads` at this moment, as the act ring is, and never by the snapshot's
- * own rect or `offscreen` flag: the boxes are drawn in the page, so they have to be in the page's CSS
- * pixels, and the snapshot's rects are not (on a 2× display they come back in device pixels, and
- * elements on screen are flagged offscreen). An element with no quads, or none inside the viewport,
- * gets no box and no number.
+ * own rect or `offscreen` flag, so a box lands where the element is when the picture is taken. An
+ * element with no quads, or none inside the viewport, gets no box and no number.
  */
 export async function refBoxes(send: CdpSend, elements: readonly BrowserSnapshotElement[], viewport: { width: number; height: number }): Promise<RefBox[]> {
   const quads = await Promise.all(elements.map((e) =>
