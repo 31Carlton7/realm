@@ -823,9 +823,8 @@ export const PASSKEY_STORAGE_NOTE =
  * What a Realm browser tool's card or transcript row names beside the tool: the address it opens, the
  * agent's intent for a walk, or the host of the site it acts on, and never `browserId`: every call
  * carries the pane's ULID, which means nothing to a person. Null for any tool that is not Realm's
- * browser. The name arrives bare on a permission
- * card (`browser_fill_credential`) and gateway-prefixed in a transcript
- * (`mcp__realm__realm-browser__browser_snapshot`).
+ * browser. The name arrives bare on a permission card (`browser_fill_credential`) and
+ * gateway-prefixed in a transcript (`mcp__realm__realm-browser__browser_snapshot`).
  */
 export function browserToolSummary(name: string, input: Record<string, unknown>): string | null {
   const tool = bareToolName(name);

@@ -211,6 +211,11 @@ describe("a browser card beside its tool's name", () => {
     expect(root.querySelector(".permission-tool")!.textContent).toBe("browser_fill_credential");
   });
 
+  it("keeps the summary on a card that is not the browser's, even when its title contains it", () => {
+    const { root } = card({ toolName: "mcp__linear__save_issue", input: { team: "lead" }, title: "Allow mcp__linear__save_issue for the lead team?" });
+    expect(root.querySelector(".permission-tool code")?.textContent).toBe("lead");
+  });
+
   it("keeps the pane's id out of an upload's drawn card too", () => {
     const { root } = card({ toolName: "browser_upload", title: "Upload", input: { browserId: PANE, ref: 11, origin: "accounts.example.com", element: "Avatar", files: [{ name: "me.png", size: "1 KB" }] } });
     const shown = root.cloneNode(true) as HTMLElement;
