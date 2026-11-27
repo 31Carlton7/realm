@@ -463,6 +463,48 @@ describe("ImportService.apply — memory", () => {
     }
     expect(h.memory.readDoc(h.realmSpaceId).length).toBeLessThan(100_000);
   });
+
+  describe("index lines ARCHIVE.md already links", () => {
+    const facts = { "old.md": "old body", "older.md": "older body", "live.md": "live body", "ARCHIVE.md": "- [Old](old.md)\n- [Older](older.md)" };
+    const importedDoc = async (index: string, files: Record<string, string> = facts): Promise<string> => {
+      writeMemory("-proj", files, index);
+      const key = (await h.imports.scan()).memories[0]!.key;
+      h.imports.apply({ sessions: [], memories: [{ key, spaceId: h.realmSpaceId, profileId: null }], skills: [] });
+      return h.memory.readDoc(h.realmSpaceId);
+    };
+
+    it("skips a line whose every link is archived", async () => {
+      const doc = await importedDoc("- [Old](old.md) and [Older](./older.md) — both archived\n- [Live](live.md) — the hook");
+      expect(doc).not.toContain("both archived");
+      expect(doc).toContain("the hook");
+      // The file itself is still copied, and still reachable through the archive.
+      expect(existsSync(join(h.home, "memory", "imported", h.realmSpaceId, "proj", "old.md"))).toBe(true);
+    });
+
+    it("keeps a line with one link the archive does not hold", async () => {
+      const doc = await importedDoc("- [Old](old.md), see [Live](live.md) — half archived");
+      expect(doc).toContain("half archived");
+    });
+
+    it("keeps a line with no links", async () => {
+      const doc = await importedDoc("# Memory Index\n\nNotes kept by hand.\n- [Old](old.md)");
+      expect(doc).toContain("Notes kept by hand.");
+      expect(doc).not.toContain("[Old]");
+    });
+
+    it("does not fall back to listing every file when only archived lines were in the index", async () => {
+      const doc = await importedDoc("- [Old](old.md)\n- [Older](older.md)");
+      expect(doc).not.toContain("old.md");
+      expect(doc).not.toContain("older.md");
+    });
+
+    it("skips nothing when the folder has no ARCHIVE.md", async () => {
+      const { "ARCHIVE.md": _, ...noArchive } = facts;
+      const doc = await importedDoc("- [Old](old.md) — first\n- [Older](older.md) — second", noArchive);
+      expect(doc).toContain("first");
+      expect(doc).toContain("second");
+    });
+  });
 });
 
 describe("ImportService.apply — skills", () => {
