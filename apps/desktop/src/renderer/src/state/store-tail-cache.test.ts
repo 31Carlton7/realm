@@ -67,6 +67,20 @@ describe("a log end read ahead of the click", () => {
     expect(tailReads(api.calls, "se0")).toBe(2);
   });
 
+  it("is not drawn when the log has been cut back past its end since", async () => {
+    const { api, store } = seed(); await store.getState().boot();
+    store.getState().prefetchSession("se0");
+    await settle();
+    // A restore in another window rewound the log to seq 10: the session's row says so.
+    const row = store.getState().sessions.se0!;
+    store.setState({ sessions: { ...store.getState().sessions, se0: { ...row, lastEventSeq: 10 } } });
+    api.data.sessionEvents.se0!.splice(10);
+    const opening = store.getState().openSession("se0");
+    expect(store.getState().transcripts.se0).toBeUndefined();
+    await opening;
+    expect(store.getState().transcripts.se0?.lastSeq).toBe(10);
+  });
+
   it("keeps the last few only: the oldest read goes when one more comes", async () => {
     const { api, store } = seed(); await store.getState().boot();
     for (const id of IDS) { store.getState().prefetchSession(id); await settle(); }
