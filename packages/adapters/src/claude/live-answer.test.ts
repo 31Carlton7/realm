@@ -64,7 +64,7 @@ describe("ClaudeLiveAnswers", () => {
     expect(started[0]!.options.mcpServers).toEqual({});
     expect(started[0]!.options.strictMcpConfig).toBe(true);
     expect(started[0]!.options).toMatchObject({ model: "claude-haiku-5-5", tools: [], settingSources: [], effort: "low", persistSession: false, includePartialMessages: true });
-    expect(started[0]!.options.env).toMatchObject({ CLAUDE_CODE_DISABLE_THINKING: "1", PATH: process.env.PATH });
+    expect(started[0]!.options.env).toMatchObject({ CLAUDE_CODE_DISABLE_THINKING: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH });
     expect(started[0]!.prompts).toEqual(["the prompt"]);
     live.close();
   });
