@@ -12,6 +12,7 @@ import {
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
   type BrowserSnapshotElement, type BrowserSnapshotResult, type BrowserSnapshotScope, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
 } from "@realm/contracts";
+import { posix } from "node:path";
 import { credentialSiteMatch } from "./password-match";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
@@ -412,7 +413,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
       if (nodeType[child] !== 1) continue;
       const tag = tagOf(child);
       const a = attrsOf(child);
-      if (tag === "IMG" && !img) img = a.alt || basename(a.src ?? "");
+      if (tag === "IMG" && !img) img = a.alt || imageName(a.src ?? "");
       if (tag === "SVG") holdsSvg = true;
       if (!icon && (tag === "SVG" || tag === "USE" || tag === "I" || a["aria-hidden"] === "true")) {
         icon = a["aria-label"] || a["data-icon"] || iconFromClass(a.class ?? "")
@@ -555,16 +556,17 @@ const ICON_CLASS_PREFIX = /^(fa|icon|icons|bi|lucide|mdi|ti|ri|ph|glyphicon|octi
 
 /** The icon's name in a class list (`fa-solid fa-trash` → trash, `lucide lucide-heart` → heart):
  *  a prefixed word first, then any plain word. Hashed names (`css-1x2y`, `sc-abc12`) are skipped. */
-export function iconFromClass(classList: string): string {
+function iconFromClass(classList: string): string {
   const words = classList.toLowerCase().split(/\s+/).filter((w) => w && !ICON_CLASS_NOISE.has(w) && /^[a-z][a-z-]*$/.test(w) && !/^(css|sc|jsx|svelte)-/.test(w));
   const prefixed = words.find((w) => ICON_CLASS_PREFIX.test(w));
   return (prefixed ?? words[0] ?? "").replace(ICON_CLASS_PREFIX, "");
 }
 
 /** `/img/heart-outline.svg?v=2` → `heart-outline`. A data: or blob: URL has no name. */
-function basename(src: string): string {
+function imageName(src: string): string {
   if (/^(data|blob):/i.test(src)) return "";
-  return (src.split(/[?#]/)[0] ?? "").split("/").pop()!.replace(/\.[a-z0-9]+$/i, "");
+  const file = posix.basename(src.split(/[?#]/)[0] ?? "");
+  return file.slice(0, file.length - posix.extname(file).length);
 }
 
 /**
