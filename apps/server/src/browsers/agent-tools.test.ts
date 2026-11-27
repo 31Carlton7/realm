@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { GENERATED_CREDENTIAL_NOTE, type Browser, type SessionEvent, type BrowserPageActivity, type BrowserSnapshotElement, type BrowserSnapshotResult } from "@realm/contracts";
+import { BROWSER_READ_ONLY_TOOLS, browserToolSummary, GENERATED_CREDENTIAL_NOTE, type Browser, type SessionEvent, type BrowserPageActivity, type BrowserSnapshotElement, type BrowserSnapshotResult } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserAgentProvider, BROWSER_PROVIDER_NAME, type BrowserAgentToolsDeps } from "./agent-tools";
 import type { GateResult } from "./permissions";
@@ -12,6 +12,7 @@ import { BrowserHostBridge, PANE_GONE_ERROR, PANE_NOT_RESPONDING_ERROR, PANE_RES
 import type { RpcServer } from "../rpc/server";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 import type { AssistOutcome, LayaAssist } from "../laya/assist";
+import { summarize } from "../remote/rows";
 
 /**
  * The registry's own behavior with everything around it faked: gating order, hard blocks, fencing,
@@ -2201,5 +2202,73 @@ describe("browser_list on a pane with a verdict", () => {
     const bridge = new BrowserHostBridge({ rpc: { sendTo: () => true } as unknown as RpcServer });
     const { call } = setup({ bridge });
     expect(text(await call("browser_list", {}))).toContain("browserId: b1 — app not connected (last url: https://example.com/)");
+  });
+});
+
+/**
+ * What a browser card shows beside the tool's name. Every gated call carries `browserId`, the pane's
+ * id, and a summary that falls back to the input's first string showed it there
+ * ("browser_fill_credential 01M8F4C5…"). Each card is raised for real here, and its input put
+ * through the summary the desktop card draws and the one the phone draws.
+ */
+describe("what a browser card names beside the tool", () => {
+  beforeAll(() => { mkdirSync(UPLOAD_ROOT, { recursive: true }); writeFileSync(insideFile("card.png"), "x"); });
+
+  it("is the address, the intent or the site, and never the pane's id, on every gated tool", async () => {
+    const gates: { toolKey: string; toolName?: string; input: Record<string, unknown> }[] = [];
+    const raise = async (o: Parameters<typeof setup>[0], tool: string, args: Record<string, unknown>) => {
+      const s = setup(o);
+      await s.call(tool, args);
+      gates.push(...s.calls.gates);
+    };
+    const signins = { bridgeResults: { signinsEnabled: { enabled: true } } };
+    await raise({}, "browser_open", { url: "https://example.com/start" });
+    await raise({}, "browser_navigate", { browserId: "b1", url: "https://example.com/next" });
+    await raise({}, "browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    await raise({ bridgeResults: docsSite().bridgeResults }, "browser_do", { browserId: "b1", intent: "open the docs", path: ["Docs"] });
+    await raise({}, "browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    await raise(signins, "browser_fill_credential", { browserId: "b1", ref: 7, generate: { username: "ada" } });
+    await raise(signins, "browser_fill_code", { browserId: "b1", ref: 7 });
+    await raise({}, "browser_download", { browserId: "b1", ref: 11 });
+    await raise({}, "browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("card.png")] });
+    await raise({}, "browser_dismiss_dialog", { browserId: "b1" });
+    await raise({}, "browser_batch", { actions: [{ tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } }] });
+
+    const raised = new Set(gates.map((g) => g.toolName ?? g.toolKey));
+    const { provider, ctx } = setup();
+    const gated = (await provider.tools(ctx)).map((t) => t.name).filter((n) => !(BROWSER_READ_ONLY_TOOLS as readonly string[]).includes(n));
+    expect([...raised].sort()).toEqual([...gated].sort());
+
+    const shown = gates.map((g) => {
+      const name = g.toolName ?? g.toolKey;
+      return [name, browserToolSummary(name, g.input), summarize(name, g.input), summarize(`mcp__realm__realm-browser__${name}`, g.input)];
+    });
+    for (const row of shown) for (const line of row.slice(1)) expect(line, String(row[0])).not.toContain("b1");
+    expect(shown.map(([name, desktop]) => [name, desktop])).toEqual([
+      ["browser_open", "https://example.com/start"],
+      ["browser_navigate", "https://example.com/next"],
+      ["browser_act", ""],
+      ["browser_do", "open the docs"],
+      ["browser_fill_credential", "example.com"],
+      ["browser_fill_credential", "example.com"],
+      ["browser_fill_code", "example.com"],
+      ["browser_download", ""],
+      ["browser_upload", "example.com"],
+      ["browser_dismiss_dialog", ""],
+      ["browser_batch", ""],
+    ]);
+  });
+
+  it("is the site, not the pane's id, on a transcript row for a read", () => {
+    for (const tool of BROWSER_READ_ONLY_TOOLS) {
+      const name = `mcp__realm__realm-browser__${tool}`;
+      expect(browserToolSummary(name, { browserId: "01M8F4C5A1M26Z535YNGDEJ73J", kind: "text" }), tool).toBe("");
+      expect(summarize(name, { browserId: "01M8F4C5A1M26Z535YNGDEJ73J", kind: "text" }), tool).toBe(name);
+    }
+  });
+
+  it("leaves another server's browser_ tool to the ordinary summary", () => {
+    expect(browserToolSummary("mcp__playwright__browser_click", { element: "Submit" })).toBeNull();
+    expect(summarize("mcp__playwright__browser_click", { element: "Submit" })).toBe("Submit");
   });
 });
