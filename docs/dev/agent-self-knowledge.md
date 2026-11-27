@@ -74,6 +74,7 @@ These are deliberate, and `realm_capabilities` names where the user does each on
 - Reading, editing or deleting a saved sign-in.
 - Settings beyond the five in `AGENT_SETTINGS`.
 - Editing, pausing or deleting a schedule outside a turn the user started, or someone else's without their card.
-- Changing a teammate's clock from the schedule tools; the teammate's page does it.
+- Changing a teammate's clock from the schedule tools; the teammate's page or `teammate_update` does it.
+- Adding the first teammate to a space with none: the team tools are listed only where a space has teammates.
 - Team roles and policies.
 - Opening Realm's own pages (Settings, Library, Code Review).

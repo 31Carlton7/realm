@@ -6,6 +6,25 @@ import type { TeammatesStore } from "./store";
 import type { TeamManageTools } from "./manage";
 import type { TeammatesService } from "./service";
 
+/** The Add a teammate sheet's fields, as `teammate_create` and `teammate_update` take them. */
+const TEAMMATE_FIELDS = {
+  name: { type: "string", description: "its name, as the Team list shows it" },
+  brief: { type: "string", description: "what it does, in the person's words: its chat starts with it" },
+  handle: { type: "string", description: "how it is addressed, e.g. \"design-engineer\"; from the name when a new one leaves it out" },
+  icon: { type: "object", properties: { shape: { type: "string", enum: [...TEAMMATE_SHAPES] }, color: { type: "string", enum: [...TEAMMATE_COLORS] } }, required: ["shape", "color"], additionalProperties: false },
+  agentKind: { type: "string", description: "its engine: \"claude\", \"codex\", \"acp:gemini\"…; Claude when left out" },
+  model: { type: ["string", "null"], description: "a model id its engine has, or null for the engine's default" },
+  effort: { type: ["string", "null"], enum: [...EFFORT_LEVELS, null], description: "reasoning effort, or null for the default" },
+  permissionMode: { type: "string", enum: [...TEAMMATE_PERMISSION_MODES], description: "its access, never more than yours: \"default\" (Ask each time), \"acceptEdits\", \"bypassPermissions\" (Full access), \"plan\" or \"ask\"" },
+  folder: { type: ["string", "null"], description: "where it works: an absolute folder or one under ~/; null for the space's own" },
+  lead: { type: "boolean", description: "make it the space's Lead" },
+  group: { type: ["string", "null"], description: "the Team list section it sits in, or null for the top" },
+  schedule: {
+    type: ["object", "null"], description: "its clock: a cron, what it says when it fires, and whether it is on; null removes it",
+    properties: { cron: { type: "string" }, prompt: { type: "string" }, enabled: { type: "boolean" } }, additionalProperties: false,
+  },
+};
+
 const TOOLS: Tool[] = [
   {
     name: TEAM_LIST_TOOL,
@@ -52,21 +71,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "its name, as the Team list shows it" },
-        brief: { type: "string", description: "what it does, in the person's words: its chat starts with it" },
-        handle: { type: "string", description: "how it is addressed, e.g. \"design-engineer\"; from the name when left out" },
-        icon: { type: "object", properties: { shape: { type: "string", enum: [...TEAMMATE_SHAPES] }, color: { type: "string", enum: [...TEAMMATE_COLORS] } }, required: ["shape", "color"], additionalProperties: false },
-        agentKind: { type: "string", description: "its engine: \"claude\", \"codex\", \"acp:gemini\"…; Claude when left out" },
-        model: { type: ["string", "null"], description: "a model id its engine has, or null for the engine's default" },
-        effort: { type: ["string", "null"], enum: [...EFFORT_LEVELS, null], description: "reasoning effort, or null for the default" },
-        permissionMode: { type: "string", enum: [...TEAMMATE_PERMISSION_MODES], description: "its access, never more than yours: \"default\" (Ask each time), \"acceptEdits\", \"bypassPermissions\" (Full access), \"plan\" or \"ask\"" },
-        folder: { type: ["string", "null"], description: "where it works: an absolute folder or one under ~/; null for the space's own" },
-        lead: { type: "boolean", description: "make it the space's Lead" },
-        group: { type: ["string", "null"], description: "the Team list section it sits in, or null for the top" },
-        schedule: {
-          type: ["object", "null"], description: "its clock: a cron, what it says when it fires, and whether it is on; null removes it",
-          properties: { cron: { type: "string" }, prompt: { type: "string" }, enabled: { type: "boolean" } }, additionalProperties: false,
-        },
+        ...TEAMMATE_FIELDS,
       },
       required: ["name", "brief"],
       additionalProperties: false,
@@ -82,21 +87,7 @@ const TOOLS: Tool[] = [
       type: "object",
       properties: {
         to: { type: "string", description: "its handle, e.g. \"scout\", or \"lead\"" },
-        name: { type: "string", description: "its name, as the Team list shows it" },
-        brief: { type: "string", description: "what it does, in the person's words: its chat starts with it" },
-        handle: { type: "string", description: "how it is addressed, e.g. \"design-engineer\"; from the name when left out" },
-        icon: { type: "object", properties: { shape: { type: "string", enum: [...TEAMMATE_SHAPES] }, color: { type: "string", enum: [...TEAMMATE_COLORS] } }, required: ["shape", "color"], additionalProperties: false },
-        agentKind: { type: "string", description: "its engine: \"claude\", \"codex\", \"acp:gemini\"…; Claude when left out" },
-        model: { type: ["string", "null"], description: "a model id its engine has, or null for the engine's default" },
-        effort: { type: ["string", "null"], enum: [...EFFORT_LEVELS, null], description: "reasoning effort, or null for the default" },
-        permissionMode: { type: "string", enum: [...TEAMMATE_PERMISSION_MODES], description: "its access, never more than yours: \"default\" (Ask each time), \"acceptEdits\", \"bypassPermissions\" (Full access), \"plan\" or \"ask\"" },
-        folder: { type: ["string", "null"], description: "where it works: an absolute folder or one under ~/; null for the space's own" },
-        lead: { type: "boolean", description: "make it the space's Lead" },
-        group: { type: ["string", "null"], description: "the Team list section it sits in, or null for the top" },
-        schedule: {
-          type: ["object", "null"], description: "its clock: a cron, what it says when it fires, and whether it is on; null removes it",
-          properties: { cron: { type: "string" }, prompt: { type: "string" }, enabled: { type: "boolean" } }, additionalProperties: false,
-        },
+        ...TEAMMATE_FIELDS,
       },
       required: ["to"],
       additionalProperties: false,
