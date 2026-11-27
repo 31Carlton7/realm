@@ -106,7 +106,10 @@ export class WorktreeService {
     const added = await this.git(src, ["worktree", "add", "--no-track", "-b", branch, path, base]);
     if (added.code !== 0) throw new RpcError("WORKTREE_ADD_FAILED", gitReason(added));
     // Not awaited: the clone takes seconds, and the seed gives way to any install an agent starts.
-    void this.seed(src, path).catch((e: Error) => console.warn(`[worktrees] seeding ${path} failed:`, e.message));
+    void this.seed(src, path).then(
+      (outcome) => console.log(`[worktrees] node_modules seed for ${path}: ${outcome}`),
+      (e: Error) => console.warn(`[worktrees] seeding ${path} failed:`, e.message),
+    );
     return { path, branch };
   }
 

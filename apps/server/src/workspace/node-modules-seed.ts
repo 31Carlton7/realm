@@ -19,7 +19,7 @@ export type SeedOutcome = "cloned" | "not-macos" | "nothing-to-clone" | "lockfil
 /** The workspace package directories a pnpm lockfile has `node_modules` for: its `importers:` keys. */
 export function lockfileImporters(lock: string): string[] {
   const block = /^importers:\n([\s\S]*?)(?=^\S|(?![\s\S]))/m.exec(lock)?.[1] ?? "";
-  return [...block.matchAll(/^ {2}([^\s'][^:]*|'[^']+'):(?: \{\})?$/gm)].map((m) => m[1].replace(/^'|'$/g, ""));
+  return [...block.matchAll(/^ {2}([^\s'][^:]*|'[^']+'):(?: \{\})?$/gm)].map((m) => m[1]!.replace(/^'|'$/g, ""));
 }
 
 /**
