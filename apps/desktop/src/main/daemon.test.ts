@@ -293,6 +293,8 @@ describe("ensureDaemon", () => {
           probe: async (): Promise<Probe> => { const f = w.deps().readState(); if (!f) return null; return f.bootId !== "boot-a" || w.clock() >= answersAfterMs ? probe({ bootId: f.bootId }) : null; },
           readMaintenance: () => m,
           wallNow: () => WALL + w.clock(),
+          // A launch still waiting at twice the cap is one the cap never ended: fail, don't spin.
+          sleep: async (ms: number) => { if (w.clock() > 2 * MAINTENANCE_MAX_MS) throw new Error("still waiting past the cap"); await deps.sleep(ms); },
           replace: async (s: DaemonState, why: string) => { w.replaced.push(s.pid); w.handoffs.push(why); w.set(null); },
           spawn: () => { deps.spawn(); w.set(state({ bootId: "boot-b", pid: 5151 })); },
         }),
