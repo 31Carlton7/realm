@@ -443,6 +443,10 @@ describe("a session's row", () => {
     expect(store.getState().allItems.some((i) => i.id === "i-n")).toBe(true);
     await new Promise((r) => setTimeout(r, ALL_ITEMS_SETTLE_MS + 50));
     expect(reads()).toBe(before);
+    // The same rows in a new list leave every space's rows as they were, so nothing derived from them runs again.
+    const held = store.getState().allItems;
+    act(() => store.setState({ items: [...store.getState().items] }));
+    expect(store.getState().allItems).toBe(held);
     // Archived rows stay out, as `items.listAll` leaves them out.
     act(() => store.setState({ items: store.getState().items.map((i) => (i.id === "i-n" ? { ...i, archived: true } : i)) }));
     expect(store.getState().allItems.some((i) => i.id === "i-n")).toBe(false);

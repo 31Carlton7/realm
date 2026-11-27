@@ -5265,7 +5265,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ allItems: await api.listAllItems() });
       },
       putSpaceItems(spaceId, list) {
-        const next = [...get().allItems.filter((i) => i.spaceId !== spaceId), ...list.filter((i) => !i.archived)];
+        const live = list.filter((i) => !i.archived);
+        // The same rows keep the same list: a new one re-runs every derivation over every space's rows.
+        const had = new Set(get().allItems.filter((i) => i.spaceId === spaceId));
+        if (had.size === live.length && live.every((i) => had.has(i))) return;
+        const next = [...get().allItems.filter((i) => i.spaceId !== spaceId), ...live];
         set({ allItems: next.sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt) });
       },
       async refreshSpaceItems(spaceId) {
