@@ -1,4 +1,4 @@
-import { connectorById } from "@realm/contracts";
+import { browserToolSummary, connectorById } from "@realm/contracts";
 import type { IconName } from "@realm/ui";
 import { isRealmServer, mcpServerMark } from "../../components/mcp-mark";
 import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff } from "./rich/diff";
@@ -19,6 +19,8 @@ export function toolSummary(name: string, input: Record<string, unknown>): strin
   const str = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : null);
   const at = name.lastIndexOf("__");
   if (SIMULATOR_INPUT.has(at < 0 ? name : name.slice(at + 2))) return str("intent") ?? "";
+  const browser = browserToolSummary(name, input);
+  if (browser !== null) return browser;
   switch (name) {
     case "Bash": return str("command") ?? "";
     case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": return str("file_path") ?? str("notebook_path") ?? "";

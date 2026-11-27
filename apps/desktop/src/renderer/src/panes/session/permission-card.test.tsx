@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PermissionCard } from "./PermissionCard";
+import { toolSummary } from "./tool-summary";
 import type { PendingPermission } from "./transcript-model";
 
 /**
@@ -112,5 +113,64 @@ describe("what the card says, and how many times", () => {
   it("keeps the one-line summary for a tool the card has no drawing for", () => {
     render(<PermissionCard permission={{ requestId: "r2", toolName: "mcp__x__thing", input: { q: "a" }, title: "Allow thing?" }} onDecide={() => {}} />);
     expect(document.querySelector(".permission-tool")).not.toBeNull();
+  });
+});
+
+describe("a browser card beside its tool's name", () => {
+  /* Each input is the shape `apps/server/src/browsers/agent-tools.ts` gates with, pane id included.
+     The raw payload under the closed Input fold is the checking copy and keeps the id. */
+  const PANE = "01M8F4C5A1M26Z535YNGDEJ73J";
+  const site = "https://accounts.example.com";
+  const cards: [string, Record<string, unknown>, string][] = [
+    ["browser_open", { url: `${site}/login` }, `${site}/login`],
+    ["browser_navigate", { browserId: PANE, url: `${site}/login` }, `${site}/login`],
+    ["browser_act", { browserId: PANE, action: { kind: "click", ref: 11 } }, ""],
+    ["browser_do", { browserId: PANE, intent: "open the sign-in form", path: ["Sign in"] }, "open the sign-in form"],
+    ["browser_fill_credential", { browserId: PANE, ref: 7, origin: site, username: "alex@example.com", label: "Example", page: site }, "accounts.example.com"],
+    ["browser_fill_credential", { browserId: PANE, ref: 7, origin: site, username: "alex@example.com", label: "Example", generate: true, always: false }, "accounts.example.com"],
+    ["browser_fill_code", { browserId: PANE, ref: 7, origin: site, always: false }, "accounts.example.com"],
+    ["browser_download", { browserId: PANE, ref: 11 }, ""],
+    ["browser_dismiss_dialog", { browserId: PANE }, ""],
+    ["browser_batch", { actions: [{ tool: "browser_act", arguments: { browserId: PANE, action: { kind: "click", ref: 11 } } }] }, ""],
+  ];
+
+  it("names the address, the intent or the site, never the pane's id", () => {
+    for (const [toolName, input, summary] of cards) {
+      const { root } = card({ toolName, input, title: `Card for ${toolName}` });
+      const shown = root.cloneNode(true) as HTMLElement;
+      shown.querySelector(".permission-details")!.remove();
+      expect(shown.textContent, toolName).not.toContain(PANE);
+      expect(root.querySelector(".permission-tool code")?.textContent ?? "", toolName).toBe(summary);
+      cleanup();
+    }
+  });
+
+  it("names the site once, in the title, when the title already says it", () => {
+    const { root } = card({
+      toolName: "browser_fill_credential", input: cards[4]![1],
+      title: "Fill the saved sign-in for https://accounts.example.com (alex@example.com) into the page on accounts.example.com",
+    });
+    expect(root.querySelector(".permission-tool")!.textContent).toBe("browser_fill_credential");
+  });
+
+  it("keeps the summary on a card that is not the browser's, even when its title contains it", () => {
+    const { root } = card({ toolName: "mcp__linear__save_issue", input: { team: "lead" }, title: "Allow mcp__linear__save_issue for the lead team?" });
+    expect(root.querySelector(".permission-tool code")?.textContent).toBe("lead");
+  });
+
+  it("keeps the pane's id out of an upload's drawn card too", () => {
+    const { root } = card({ toolName: "browser_upload", title: "Upload", input: { browserId: PANE, ref: 11, origin: "accounts.example.com", element: "Avatar", files: [{ name: "me.png", size: "1 KB" }] } });
+    const shown = root.cloneNode(true) as HTMLElement;
+    shown.querySelector(".permission-details")!.remove();
+    expect(shown.textContent).not.toContain(PANE);
+  });
+
+  it("names no pane on a transcript row either, where the name arrives through the gateway", () => {
+    for (const tool of ["browser_snapshot", "browser_read", "browser_screenshot", "browser_credentials", "browser_act"]) {
+      expect(toolSummary(`mcp__realm__realm-browser__${tool}`, { browserId: PANE, kind: "text" }), tool).toBe("");
+    }
+    expect(toolSummary("mcp__realm__realm-browser__browser_navigate", { browserId: PANE, url: `${site}/next` })).toBe(`${site}/next`);
+    // Another server's browser_ tool is not Realm's, and keeps the ordinary summary.
+    expect(toolSummary("mcp__playwright__browser_click", { element: "Submit" })).toBe("Submit");
   });
 });
