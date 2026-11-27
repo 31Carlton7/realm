@@ -9,6 +9,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { leadsWithAgentsAtWork } from "@realm/view";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok, parseArgs } from "../mcp/tool-result";
+import { refuseUnlessPersonTurn } from "../mcp/agent-gate";
 import type { RpcServer } from "../rpc/server";
 import { modelNameOf } from "../sessions/handover";
 import type { SessionService } from "../sessions/service";
@@ -815,9 +816,8 @@ export class TeammatesService {
       const who = me ? `you are @${me.handle}${me.lead ? ", in a task session rather than your own chat" : ", not the Lead"}` : "this session is not a teammate's";
       return err(`refused: only the space's Lead, in its own chat, can set a teammate's access, and ${who}. Nothing changed.`);
     }
-    if (!this.d.sessions.personStartedTurn(caller.id)) {
-      return err(`refused: this turn was started by ${this.turnOrigin(caller.id)}, not by the person. Access changes only in a turn the person started; ask them to say it in your chat. Nothing changed.`);
-    }
+    const notTheirs = refuseUnlessPersonTurn({ sessions: this.d.sessions, turnOrigin: (id) => this.turnOrigin(id) }, caller.id, { rule: "Access changes", where: "your chat", nothing: "Nothing changed." });
+    if (notTheirs) return notTheirs;
     if (!(TEAM_ACCESS_MODES as readonly string[]).includes(mode)) {
       const why = mode === "plan" || mode === "ask" ? `"${mode}" is a read-only mode, which this tool does not set` : `"${mode}" is not a mode`;
       return err(`refused: ${why}. Use one of ${TEAM_ACCESS_MODES.map((m) => `"${m}" (${modeLabel(m)})`).join(", ")}. Nothing changed.`);

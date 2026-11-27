@@ -5,6 +5,7 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { HexColorSchema, SETTING_ACTIVE_SPACE, SPACE_ICONS, sessionEvent, type SessionEvent, type Space } from "@realm/contracts";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
+import { askCard, refuseUnlessPersonTurn } from "../mcp/agent-gate";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { RpcServer } from "../rpc/server";
 import type { WorkspaceToolGroup } from "./agent-tools";
@@ -165,9 +166,8 @@ async function create(d: SpacesDeps, ctx: ProviderCallContext, raw: unknown, mad
   const { name, folder, icon, color, switchTo: move } = args.value;
   const mine = d.spaces.get(ctx.spaceId);
   if (!mine) return err("this session's space is gone.");
-  if (!d.sessions.personStartedTurn(ctx.sessionId)) {
-    return err(`refused: this turn was started by ${d.turnOrigin(ctx.sessionId)}, not by the person. Spaces are made only in a turn the person started; ask them to say it in this chat. Nothing was made.`);
-  }
+  const notTheirs = refuseUnlessPersonTurn(d, ctx.sessionId, { rule: "Spaces are made", where: "this chat", nothing: "Nothing was made." });
+  if (notTheirs) return notTheirs;
   const turn = d.turnOf(ctx.sessionId);
   const tally = made.get(ctx.sessionId);
   const used = tally && tally.turn === turn ? tally.count : 0;
@@ -186,8 +186,8 @@ async function create(d: SpacesDeps, ctx: ProviderCallContext, raw: unknown, mad
   }
 
   const title = `Make a space "${name}"${root ? ` working in ${root}` : ""}${move ? ", and move the window there" : ""}`;
-  const gate = await d.broker.gate(ctx.sessionId, "space_create", title, { name, ...(root ? { folder: root } : {}), ...(icon ? { icon } : {}), ...(color ? { color } : {}), switchTo: move });
-  if (!gate.allowed) return err(gate.reason);
+  const denied = await askCard(d.broker, ctx.sessionId, { toolKey: "space_create", title, input: { name, ...(root ? { folder: root } : {}), ...(icon ? { icon } : {}), ...(color ? { color } : {}), switchTo: move } });
+  if (denied) return denied;
 
   const space = d.spaces.create({ profileId: mine.profileId, name, icon: icon ?? "folder", color });
   made.set(ctx.sessionId, { turn, count: used + 1 });
@@ -212,7 +212,7 @@ async function create(d: SpacesDeps, ctx: ProviderCallContext, raw: unknown, mad
  * `~` expanded, symlinks and `..` resolved — and never one of the places a space must not work in.
  * The sheet never makes the folder it is handed, so neither does this.
  */
-function pickFolder(d: SpacesDeps, raw: string): { path: string } | { error: string } {
+export function pickFolder(d: Pick<SpacesDeps, "userHome" | "realmHome">, raw: string): { path: string } | { error: string } {
   const expanded = raw === "~" ? d.userHome : raw.startsWith("~/") ? join(d.userHome, raw.slice(2)) : raw;
   if (!isAbsolute(expanded)) return { error: `"${raw}" is not an absolute path; give the whole path, or one starting with ~/.` };
   const abs = resolve(expanded);
@@ -225,7 +225,7 @@ function pickFolder(d: SpacesDeps, raw: string): { path: string } | { error: str
 }
 
 /** Why a space may not work in `real`, or null. Each root is resolved too: /var and /tmp are links on a Mac. */
-function refusedFolder(d: SpacesDeps, real: string): string | null {
+function refusedFolder(d: Pick<SpacesDeps, "userHome" | "realmHome">, real: string): string | null {
   const canon = (p: string) => { try { return realpathSync(p); } catch { return resolve(p); } };
   const within = (root: string) => { const r = relative(canon(root), real); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); };
   if (real === canon("/")) return "is the root of the disk, which is not a project.";
