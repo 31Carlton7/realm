@@ -73,10 +73,10 @@ export function useAsSubagent(session: Session | undefined, blocks: readonly Blo
   const leadId = session?.dispatchedBy?.sessionId ?? null;
   const children = useApp((s) => (leadId ? s.subagents[leadId] : undefined));
   const inFlight = useApp((s) => (leadId ? s.delegatedRuns[leadId]?.some((r) => r.sessionId === id) ?? false : false));
-  const refreshSubagents = useApp((s) => s.refreshSubagents);
+  const loadSubagents = useApp((s) => s.loadSubagents);
   const run = useApp((s) => s.run);
   const loaded = children !== undefined;
-  useEffect(() => { if (leadId && !loaded) run(() => refreshSubagents(leadId)); }, [leadId, loaded, refreshSubagents, run]);
+  useEffect(() => { if (leadId && !loaded) run(() => loadSubagents(leadId)); }, [leadId, loaded, loadSubagents, run]);
   const child = useMemo(() => (leadId && children ? findChild(children, id, leadId)?.child ?? null : null), [leadId, children, id]);
   const brief = useAskedFor(child?.goal ?? null, blocks, { beside: id, environmentId: session?.environmentId ?? "", cwd: session?.cwd ?? "" });
   const state = child ? subagentState(child, status, inFlight) : null;

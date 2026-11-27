@@ -2852,6 +2852,9 @@ export type AppState = TeammatesSlice & {
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** Re-read a lead's sub-agents into `subagents`. */
   refreshSubagents(sessionId: string): Promise<void>;
+  /** Read a lead's sub-agents on a mount: joins a read already in flight for the lead, so a lead's pane
+   *  and its Agents tab opening together read once. A change re-reads with `refreshSubagents`. */
+  loadSubagents(sessionId: string): Promise<void>;
   /** Add a sub-agent to a session from its prompter's "+". It arrives in `subagents`
    *  by the `delegation.changed` its start announces. */
   addSubAgent(input: AddTeammate): Promise<void>;
@@ -3977,6 +3980,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  waits for rather than reading the same end twice. */
     const tails = new TailCache<TailRead>(TAIL_CACHE_SIZE, TAIL_CACHE_EVENTS);
     const prefetching = new Map<string, Promise<void>>();
+    /** The read of each lead's sub-agents in flight, which `loadSubagents` joins. */
+    const readingSubagents = new Map<string, Promise<void>>();
+    const setDelegatedRuns = (sessionId: string, running: DelegatedRun[]) => {
+      const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
+      set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
+    };
     /** `also` is folded into the SAME write. A transcript move and a session's activity line are two
      *  facts about one event, and two `set` calls for them is two notifications — a render of every
      *  subscribed pane — per event, per streaming session. */
@@ -8181,18 +8190,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       applyBrowserClosed(browserId) { api.destroyBrowserView(browserId); },
       async refreshDelegatedRuns(sessionId) {
-        get().applyDelegationChanged({ sessionId, running: await api.listDelegatedRuns(sessionId) });
+        // Only the runs: what read this set — a mount, a reconnect — reads the list of sub-agents
+        // beside it (`loadSubagents`, `refreshSubagents`), and a second read here doubled every open.
+        setDelegatedRuns(sessionId, await api.listDelegatedRuns(sessionId));
       },
       applyDelegationChanged({ sessionId, running }) {
-        const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
-        set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
+        setDelegatedRuns(sessionId, running);
         // The same moment is a change in the lead's list of sub-agents — one began, settled, or was
         // collected — wherever that list is being read: its Agents tab, or its transcript's lines.
         if (get().subagents[sessionId] || get().transcripts[sessionId]) void get().run(() => get().refreshSubagents(sessionId));
       },
       async refreshSubagents(sessionId) {
-        const { children, dismissed } = await api.listDelegatedChildren(sessionId);
-        set({ subagents: { ...get().subagents, [sessionId]: children }, dismissedSubagents: { ...get().dismissedSubagents, [sessionId]: dismissed } });
+        const read = api.listDelegatedChildren(sessionId).then(({ children, dismissed }) => {
+          set({ subagents: { ...get().subagents, [sessionId]: children }, dismissedSubagents: { ...get().dismissedSubagents, [sessionId]: dismissed } });
+        });
+        readingSubagents.set(sessionId, read);
+        try { await read; } finally { if (readingSubagents.get(sessionId) === read) readingSubagents.delete(sessionId); }
+      },
+      loadSubagents(sessionId) {
+        return readingSubagents.get(sessionId) ?? get().refreshSubagents(sessionId);
       },
       async addSubAgent(input) {
         await api.addTeammate(input);

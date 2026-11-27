@@ -4,6 +4,7 @@ import { findSidePane, sessionEvent, type DelegatedChild, type SessionEvent } fr
 import { StoreContext, createAppStore, type DelegableModels } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { reduceAll } from "../session/transcript-model";
+import { SessionPane } from "../session/SessionPane";
 import { AgentsTab } from "./AgentsTab";
 import { delegationBrief } from "./brief";
 
@@ -97,6 +98,40 @@ describe("the list of a session's sub-agents", () => {
     store.getState().applyConnectionState("reconnecting");
     store.getState().applyConnectionState("connected");
     await waitFor(() => expect(api.calls.filter((c) => c === "listDelegatedChildren:se1").length).toBeGreaterThan(before));
+  });
+
+  it("a lead opened with its tab beside it reads its sub-agents once, and a change still reads again", async () => {
+    const api = fakeApi({ items: ITEMS, sessions: [LEAD, LUNA, FABLE], delegatedChildren: { se1: CHILDREN },
+      delegatedRuns: { se1: [{ sessionId: "se2", startedAt: 0, detached: true, owned: true }] } });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, sessionStatus: { se1: "idle", se2: "running", se3: "idle" } });
+    const reads = () => api.calls.filter((c) => c === "listDelegatedChildren:se1").length;
+    render(<StoreContext.Provider value={store}>
+      <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Parent" })} visible />
+      <AgentsTab item={TAB} visible />
+    </StoreContext.Provider>);
+    await card(/^Write the tests\./);
+    await screen.findByRole("group", { name: "Agents in this session" });
+    // Mutant: the tab's mount reads with `refreshSubagents` again — two reads for one open, the pane's
+    // and the tab's, on every cold switch to a lead.
+    expect(reads()).toBe(1);
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [] });
+    // Mutant: a change joins the read in flight, or reads nothing once the list is held.
+    await waitFor(() => expect(reads()).toBe(2));
+  });
+
+  it("a change while an open's read is in flight reads again, after the change", async () => {
+    const api = fakeApi({ items: ITEMS, sessions: [LEAD, LUNA, FABLE], delegatedChildren: { se1: CHILDREN } });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    const reads = () => api.calls.filter((c) => c === "listDelegatedChildren:se1").length;
+    const opening = store.getState().loadSubagents("se1");
+    const joined = store.getState().loadSubagents("se1");
+    expect(reads()).toBe(1);
+    // Mutant: a change joins the open's read, which may have been answered before the change.
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [] });
+    expect(reads()).toBe(2);
+    await Promise.all([opening, joined]);
   });
 
   it("says plainly when there are none yet, and where to start — one composition, not a header over nothing", async () => {
