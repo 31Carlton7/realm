@@ -14,6 +14,7 @@ import { SidebarResizer } from "./SidebarResizer";
 import { SpaceSections } from "./SpaceSections";
 import { SpaceTitle } from "./SpaceTitle";
 import { pinnedItems } from "./model";
+import { usePrefetchNeighbours } from "./prefetch";
 import { useAllItemsFresh, useOpenAnywhere, useProfileRows, useSidebarState } from "./use-sidebar-model";
 
 /**
@@ -48,6 +49,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const refresh = useAllItemsFresh();
   const scroller = useRef<HTMLDivElement>(null);
   useDissolve(scroller);
+  usePrefetchNeighbours(scroller);
   return (
     <aside id="app-sidebar" className="sidebar" data-collapsed={collapsed || undefined} inert={collapsed || undefined}
       data-page-nav={page !== null || undefined}>

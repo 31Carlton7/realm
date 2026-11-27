@@ -50,7 +50,8 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, lastUserMessage, prependTranscript, reduceTranscript, type Earlier, type Rating, type Transcript } from "../panes/session/transcript-model";
-import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, TAIL_EVENTS, readBack } from "./transcript-paging";
+import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, FIRST_EVENTS, FIRST_PAGE, TAIL_EVENTS, readBack } from "./transcript-paging";
+import { TailCache } from "./tail-cache";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { rankTabs, type SpaceTab } from "../panes/session/mention-sources";
@@ -1007,6 +1008,12 @@ export function parseAgentsShown(raw: unknown): Record<string, string> {
   return out;
 }
 export const EVENTS_PAGE = 1000;
+/** How many log ends read ahead of a click are kept (`prefetchSession`), and the longest one kept. A
+ *  row's two neighbours and the last few rows hovered; at a few hundred KB each, a few MB in all. */
+export const TAIL_CACHE_SIZE = 8;
+export const TAIL_CACHE_EVENTS = 2000;
+/** A first open's read of a log's end (`readTail`), or a catch-up's read on from what is held. */
+type TailRead = { events: StoredSessionEvent[]; earlier: Earlier | null; carried: StoredSessionEvent[] };
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
 export const MCP_CALLS_PAGE = 50;
@@ -2274,9 +2281,14 @@ export type AppState = TeammatesSlice & {
    *  window to that profile first. False when its space holds no item for that session, so a caller
    *  with a fallback can take it. */
   revealSession(sessionId: string, spaceId: string | null): Promise<boolean>;
-  /** Load (or catch up) a session's transcript. A first open reads from the end (`transcript-paging.ts`);
-   *  after that, events after the last known seq are fetched and reduced. */
+  /** Load (or catch up) a session's transcript. A first open reads from the end (`transcript-paging.ts`):
+   *  the last screenful first, drawn as soon as it lands, then the rest of the tail in front of it,
+   *  which is when the promise settles. After that, events after the last known seq are fetched and
+   *  reduced. */
   openSession(id: string): Promise<void>;
+  /** Read the end of a session's log ahead of its open (`tail-cache.ts`), so a click on its row paints
+   *  without waiting on the server. Nothing for a session already held, already read or running. */
+  prefetchSession(id: string): void;
   /** Read the stretch of an opened transcript before what it holds, and put it in front. Nothing when it
    *  already starts at the log's start. */
   loadEarlierEvents(id: string): Promise<void>;
@@ -3961,12 +3973,85 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const loading = new Map<string, StoredSessionEvent[]>();
     /** The earlier-stretch read in flight per session, so a second ask joins it rather than reading twice. */
     const loadingEarlier = new Map<string, Promise<void>>();
+    /** Log ends read ahead of an open (`prefetchSession`), and the reads still in flight, which an open
+     *  waits for rather than reading the same end twice. */
+    const tails = new TailCache<TailRead>(TAIL_CACHE_SIZE, TAIL_CACHE_EVENTS);
+    const prefetching = new Map<string, Promise<void>>();
     /** `also` is folded into the SAME write. A transcript move and a session's activity line are two
      *  facts about one event, and two `set` calls for them is two notifications — a render of every
      *  subscribed pane — per event, per streaming session. */
     const setTranscript = (id: string, entry: TranscriptEntry, also?: Partial<AppState>) =>
       set({ ...also, transcripts: { ...get().transcripts, [id]: entry } });
-    const dropTranscript = (id: string) => { pendingDeltas.delete(id); const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
+    const dropTranscript = (id: string) => { pendingDeltas.delete(id); tails.delete(id); const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
+    /**
+     * The end of a log as a first open draws it: the last screenful or so, starting on a prompt,
+     * reaching back to the reader's mark when it is in reach, and the log's last word on what the
+     * prompter reads from wherever it was said. Small, so it lands in a frame or two even when every
+     * event in it is a long tool result.
+     */
+    const readTail = async (id: string): Promise<TailRead> => {
+      const markAt = (get().sessions[id] ?? get().allSessions[id])?.seenSeq ?? 0;
+      const [tail, carried] = await Promise.all([
+        readBack((before, limit) => api.sessionEventsBefore(id, before, limit), Number.MAX_SAFE_INTEGER, FIRST_EVENTS, markAt > 0 ? markAt : null, FIRST_PAGE),
+        api.sessionEventsBefore(id, Number.MAX_SAFE_INTEGER, CARRIED_LIMIT, CARRIED_TYPES),
+      ]);
+      return { events: tail.events, earlier: tail.earlier, carried };
+    };
+    /**
+     * Reduce a read onto the session's transcript and draw it. `markFrom` is where the stretch drawn
+     * starts, for the "new since you were here" rule: a mark before it is out of reach.
+     */
+    const foldRead = (id: string, read: TailRead, streamed: readonly StoredSessionEvent[], markFrom: Earlier | null) => {
+      // The rule's position, read from the mark as it was BEFORE this open, and only when there
+      // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
+      // missed nothing, and one already caught up has nothing to divide.
+      const row = get().sessions[id];
+      // A mark before the stretch read is out of reach: the rule would land on its first event.
+      const seenSeq = row && row.seenSeq > 0 && (markFrom === null || row.seenSeq >= markFrom.from) ? row.seenSeq : null;
+      let { lastSeq, t } = get().transcripts[id] ?? { lastSeq: 0, t: emptyTranscript() };
+      const { earlier } = read;
+      if (earlier !== null && !get().transcripts[id]) {
+        // What the log last said before the stretch read, about what outlives it — see `CARRIED_TYPES`.
+        for (const e of read.carried) if (e.seq < earlier.from) t = reduceTranscript(t, e.event, false, e.seq);
+        t = { ...t, earlier };
+      }
+      let marked = get().newSinceSeq[id] !== undefined;
+      for (const e of [...read.events, ...streamed]) {
+        if (e.seq < 0) { t = reduceTranscript(t, e.event); continue; }
+        if (e.seq <= lastSeq) continue;
+        // The FIRST event past the mark carries it. `reduceTranscript` refuses a second one, so
+        // re-entering this loop on a later page cannot draw two rules.
+        const mark = seenSeq !== null && !marked && e.seq > seenSeq;
+        if (mark) marked = true;
+        t = reduceTranscript(t, e.event, mark, e.seq);
+        lastSeq = e.seq;
+      }
+      setTranscript(id, { lastSeq, t });
+      if (marked && get().newSinceSeq[id] === undefined && seenSeq !== null) {
+        set({ newSinceSeq: { ...get().newSinceSeq, [id]: seenSeq } });
+      }
+    };
+    /** Read at least `want` events of the stretch before what the transcript holds, and put it in front. */
+    const readEarlier = (id: string, want: number): Promise<void> => {
+      const from = get().transcripts[id]?.t.earlier?.from;
+      if (from === undefined) return Promise.resolve();
+      const inFlight = loadingEarlier.get(id);
+      if (inFlight) return inFlight;
+      const load = (async () => {
+        try {
+          const read = await readBack((before, limit) => api.sessionEventsBefore(id, before, limit), from, want);
+          // Closed, reopened from scratch or already extended while this read: what it read is not
+          // the stretch in front of what is held now.
+          const cur = get().transcripts[id];
+          if (!cur || cur.t.earlier?.from !== from) return;
+          let older = emptyTranscript();
+          for (const e of read.events) older = reduceTranscript(older, e.event, false, e.seq);
+          setTranscript(id, { ...cur, t: prependTranscript(older, cur.t, read.earlier ?? undefined) });
+        } finally { loadingEarlier.delete(id); }
+      })();
+      loadingEarlier.set(id, load);
+      return load;
+    };
 
     /**
      * Ephemeral `assistant_delta` text that has arrived but not yet been written to the store, per
@@ -6419,13 +6504,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         return get().revealSession(sid, spaceOf(sid));
       },
       async openSession(id) {
+        // A read of this log's end already on its way is waited for rather than made twice.
+        const ahead = prefetching.get(id);
+        if (ahead) await ahead;
         if (loading.has(id)) return;
         loading.set(id, []);
         // Buffered deltas are discarded rather than replayed onto the transcript this rebuilds: the
         // fetch re-derives it from persisted events and the reply streaming now, which is the same
         // text those deltas were spelling out.
         pendingDeltas.delete(id);
+        // How much of the tail is still to read in front of what the first paint drew.
+        let fill = 0;
         try {
+          /* A log end read ahead of the click is drawn now, before anything is asked of the server,
+             unless the log has since been cut back past it. The read below then goes on from where
+             it stops, as a catch-up does. */
+          const row0 = get().sessions[id] ?? get().allSessions[id];
+          const cached = get().transcripts[id] ? undefined : tails.take(id);
+          const early = cached && (!row0 || (cached.events.at(-1)?.seq ?? 0) <= row0.lastEventSeq) ? cached : undefined;
+          if (early) foldRead(id, early, [], early.earlier);
           const held = get().transcripts[id];
           const prev = held ?? { lastSeq: 0, t: emptyTranscript() };
           const fetchAll = async () => {
@@ -6437,20 +6534,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
               after = page.at(-1)!.seq;
             }
           };
-          /* A first open reads from the END: the newest turns, back to the reader's mark when it is in
-             reach, and the last word on what the prompter reads from wherever it was said. A catch-up
-             (a reconnect, a reopen) reads forward from what is already held. */
-          const markAt = (get().sessions[id] ?? get().allSessions[id])?.seenSeq ?? 0;
-          const fetchTail = async (): Promise<{ events: StoredSessionEvent[]; earlier: Earlier | null; carried: StoredSessionEvent[] }> => {
-            const [tail, carried] = await Promise.all([
-              readBack((before, limit) => api.sessionEventsBefore(id, before, limit), Number.MAX_SAFE_INTEGER, TAIL_EVENTS, markAt > 0 ? markAt : null),
-              api.sessionEventsBefore(id, Number.MAX_SAFE_INTEGER, CARRIED_LIMIT, CARRIED_TYPES),
-            ]);
-            return { events: tail.events, earlier: tail.earlier, carried };
-          };
+          /* A first open reads from the END (`readTail`). A catch-up (a reconnect, a reopen, an open
+             drawn from a read ahead) reads forward from what is already held. */
           const [session, read] = await Promise.all([get().sessions[id] ? null : api.getSession(id),
-            held ? fetchAll().then((events) => ({ events, earlier: null, carried: [] })) : fetchTail()]);
-          const events = read.events;
+            held ? fetchAll().then((events): TailRead => ({ events, earlier: null, carried: [] })) : readTail(id)]);
           // After the log, so the text a reply has streamed so far — in no stored event yet — picks
           // up where the log stops. Without it a window reloaded mid-turn starts the reply mid-sentence.
           // A session at rest is streaming nothing, and asking would cost a second round trip after
@@ -6469,56 +6556,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
            same for every agent kind — there is no injection the agent has to support. */
         if (opened) get().run(() => get().refreshCommands(id));
         if (opened) get().run(() => get().refreshScripts(opened.spaceId));
-          // The rule's position, read from the mark as it was BEFORE this open, and only when there
-          // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
-          // missed nothing, and one already caught up has nothing to divide.
-          const row = get().sessions[id];
-          // A mark before the stretch read is out of reach: the rule would land on its first event.
-          const { earlier } = read;
-          const seenSeq = row && row.seenSeq > 0 && (earlier === null || row.seenSeq >= earlier.from) ? row.seenSeq : null;
-          let { lastSeq, t } = get().transcripts[id] ?? prev;
-          if (earlier !== null && !get().transcripts[id]) {
-            // What the log last said before the stretch read, about what outlives it — see `CARRIED_TYPES`.
-            for (const e of read.carried) if (e.seq < earlier.from) t = reduceTranscript(t, e.event, false, e.seq);
-            t = { ...t, earlier };
-          }
-          let marked = get().newSinceSeq[id] !== undefined;
-          for (const e of [...events, ...withStreamed(id, loading.get(id) ?? [], streaming)]) {
-            if (e.seq < 0) { t = reduceTranscript(t, e.event); continue; }
-            if (e.seq <= lastSeq) continue;
-            // The FIRST event past the mark carries it. `reduceTranscript` refuses a second one, so
-            // re-entering this loop on a later page cannot draw two rules.
-            const mark = seenSeq !== null && !marked && e.seq > seenSeq;
-            if (mark) marked = true;
-            t = reduceTranscript(t, e.event, mark, e.seq);
-            lastSeq = e.seq;
-          }
-          setTranscript(id, { lastSeq, t });
-          if (marked && get().newSinceSeq[id] === undefined && seenSeq !== null) {
-            set({ newSinceSeq: { ...get().newSinceSeq, [id]: seenSeq } });
-          }
+          foldRead(id, read, withStreamed(id, loading.get(id) ?? [], streaming), early ? early.earlier : read.earlier);
+          if (early || !held) fill = TAIL_EVENTS - (early ?? read).events.length;
         } finally { loading.delete(id); }
+        // The rest of the tail, read in front of the end already on screen.
+        if (fill > 0) await readEarlier(id, fill);
       },
-      loadEarlierEvents(id) {
-        const from = get().transcripts[id]?.t.earlier?.from;
-        if (from === undefined) return Promise.resolve();
-        const inFlight = loadingEarlier.get(id);
-        if (inFlight) return inFlight;
-        const load = (async () => {
-          try {
-            const read = await readBack((before, limit) => api.sessionEventsBefore(id, before, limit), from, EARLIER_EVENTS);
-            // Closed, reopened from scratch or already extended while this read: what it read is not
-            // the stretch in front of what is held now.
-            const cur = get().transcripts[id];
-            if (!cur || cur.t.earlier?.from !== from) return;
-            let older = emptyTranscript();
-            for (const e of read.events) older = reduceTranscript(older, e.event, false, e.seq);
-            setTranscript(id, { ...cur, t: prependTranscript(older, cur.t, read.earlier ?? undefined) });
-          } finally { loadingEarlier.delete(id); }
-        })();
-        loadingEarlier.set(id, load);
-        return load;
+      prefetchSession(id) {
+        if (get().transcripts[id] || loading.has(id) || prefetching.has(id) || tails.has(id)) return;
+        // A running log outgrows its read before the click: there is nothing to gain from one.
+        const status = get().sessionStatus[id] ?? get().sessions[id]?.status;
+        if (status === "running" || status === "waiting_permission") return;
+        const read = readTail(id)
+          .then((tail) => { if (!get().transcripts[id] && !loading.has(id)) tails.put(id, tail); }, () => {})
+          .finally(() => prefetching.delete(id));
+        prefetching.set(id, read);
       },
+      loadEarlierEvents(id) { return readEarlier(id, EARLIER_EVENTS); },
       async loadEventsThrough(id, seq) {
         for (;;) {
           const from = get().transcripts[id]?.t.earlier?.from;
@@ -6579,7 +6633,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const buf = loading.get(ev.sessionId);
         if (buf) { lineOnly(); buf.push(ev); return; } // deltas too: `withStreamed` decides which the read already holds
         const cur = get().transcripts[ev.sessionId];
-        if (!cur) { lineOnly(); return; } // not opened yet: openSession fetches everything later
+        // Not opened yet: openSession fetches everything later, and a log end read ahead of it is
+        // behind now.
+        if (!cur) { lineOnly(); if (!ev.ephemeral) tails.delete(ev.sessionId); return; }
         // Deltas are buffered and land a frame later; see `pendingDeltas`.
         if (ev.ephemeral) { lineOnly(); if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.payload.at, ev.event.ts); return; }
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
@@ -9044,6 +9100,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
            restore did not work. Clearing it first makes the reopen re-derive from seq 0. */
         const rewound = checkpointSession ?? sessionId;
         if (result.conversationRewound && rewound) {
+          tails.delete(rewound);
           const { [rewound]: _dropped, ...rest } = get().transcripts;
           const { [rewound]: _mark, ...marks } = get().newSinceSeq;
           set({ transcripts: rest, newSinceSeq: marks });

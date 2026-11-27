@@ -9,6 +9,7 @@ import { useTeammateMenu } from "../../panes/teammate/TeammateHead";
 import { Menu, type MenuItem } from "../Menu";
 import { SignalTrail } from "./SessionRows";
 import { TeamAccessRow } from "./TeamAccess";
+import { usePrefetchOnHover } from "./prefetch";
 import { useNow } from "./use-sidebar-model";
 
 const TEAMMATE_DRAG_TYPE = "application/x-realm-teammate";
@@ -149,18 +150,19 @@ function TeammateRow({ teammate: t, drag }: { teammate: Teammate; drag: Drag }) 
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const pin = usePinTeammate(t);
   const menu = useTeammateMenu(t);
+  const prefetch = usePrefetchOnHover(t.homeSessionId);
   const signal = rowSignal(t.state, t.unread);
   const said = [`${t.name}${t.lead ? ", the Lead" : ""}`, signal.words, t.liveTask ? `on ${t.liveTask}` : ""].filter(Boolean).join(" — ");
   const onContextMenu = (e: MouseEvent) => { e.preventDefault(); setMenuAt({ x: e.clientX, y: e.clientY }); };
   return (
-    <div className="item sb-row sb-teammate" data-active={focused || undefined} data-unread={signal.unread || undefined}
+    <div className="item sb-row sb-teammate" data-session={t.homeSessionId ?? undefined} data-active={focused || undefined} data-unread={signal.unread || undefined}
       data-actions="0" data-dragging={drag.dragging === t.id || undefined} data-drag-over={over || undefined} draggable
       onDragStart={(e: DragEvent) => { e.dataTransfer.setData(TEAMMATE_DRAG_TYPE, t.id); e.dataTransfer.effectAllowed = "move"; drag.start(t.id); }}
       onDragEnd={() => drag.start(null)}
       onDragOver={(e) => { if (drag.dragging && drag.dragging !== t.id) { e.preventDefault(); setOver(true); } }}
       onDragLeave={() => setOver(false)} onDrop={(e) => { e.preventDefault(); setOver(false); drag.drop({ before: t.id }); }}
       onContextMenu={onContextMenu}>
-      <button type="button" className="item-row" aria-label={said} data-tip="clipped" onClick={() => run(() => openTeammate(t.id))}>
+      <button type="button" className="item-row" aria-label={said} data-tip="clipped" {...prefetch} onClick={() => run(() => openTeammate(t.id))}>
         <span className="sb-gutter"><TeammateIcon icon={t.icon} size={16} lead={t.lead} /></span>
         <span className="item-title" data-tip-text>{t.name}</span>
         <span className="item-trail"><SignalTrail signal={signal} at={lastMoved} now={now} /></span>

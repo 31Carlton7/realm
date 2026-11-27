@@ -13,6 +13,10 @@ import type { Earlier } from "../panes/session/transcript-model";
 export const TAIL_EVENTS = 300;
 export const EARLIER_EVENTS = 1000;
 export const PAGE_BACK = 1000;
+/** What an open paints first: the last screenful or so, from a page small enough to come back in a
+ *  frame or two. The rest of the tail, up to `TAIL_EVENTS`, is read in front of it straight after. */
+export const FIRST_EVENTS = 60;
+export const FIRST_PAGE = 150;
 /** How far an open will read back to put the "new since you were here" rule where it belongs. A
  *  reader gone for longer than this starts at the end, with no rule. */
 export const MARK_REACH = 5000;
@@ -27,15 +31,16 @@ export type ReadBefore = (beforeSeq: number, limit: number) => Promise<StoredSes
 /**
  * Events before `beforeSeq`, read a page at a time back from there, until there are at least `want`
  * of them and the first is a prompt — or until the log's start (`earlier` null). With `reach`, the
- * first must also be at or before that seq, for as long as `MARK_REACH` allows.
+ * first must also be at or before that seq, for as long as `MARK_REACH` allows. `firstPage` sizes the
+ * first read only; any read after it is a `PAGE_BACK`.
  */
-export async function readBack(read: ReadBefore, beforeSeq: number, want: number, reach: number | null = null): Promise<{ events: StoredSessionEvent[]; earlier: Earlier | null }> {
+export async function readBack(read: ReadBefore, beforeSeq: number, want: number, reach: number | null = null, firstPage = PAGE_BACK): Promise<{ events: StoredSessionEvent[]; earlier: Earlier | null }> {
   let events: StoredSessionEvent[] = [];
   let before = beforeSeq;
-  for (;;) {
-    const page = await read(before, PAGE_BACK);
+  for (let size = firstPage; ; size = PAGE_BACK) {
+    const page = await read(before, size);
     events = [...page, ...events];
-    if (page.length < PAGE_BACK) return { events, earlier: null };
+    if (page.length < size) return { events, earlier: null };
     before = page[0]!.seq;
     const reached = (seq: number) => reach === null || seq <= reach || events.length >= MARK_REACH;
     for (let i = events.length - want; i >= 0; i--) {

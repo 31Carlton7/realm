@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DOMPurify from "dompurify";
-import { Transcript, WINDOW_BLOCKS, EARLIER_BLOCKS, windowStart } from "./Transcript";
+import { Transcript, WINDOW_BLOCKS, EARLIER_BLOCKS, FIRST_BLOCKS, FILL_BLOCKS, windowStart } from "./Transcript";
 import { Markdown } from "./Markdown";
 import { createEnterTracker } from "./transcript-enter";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
@@ -136,6 +136,65 @@ describe("a session read from its end", () => {
     const onEarlier = vi.fn(async () => {});
     render(<Transcript transcript={tail} sessionStatus="idle" onDecide={() => {}} onEarlier={onEarlier} track reveal={{ seq: 3, n: 1 }} />);
     expect(onEarlier).toHaveBeenCalledWith(3);
+  });
+});
+
+describe("a pane switched to draws its end first", () => {
+  const rows = () => document.querySelectorAll(".msg-user-row").length;
+  /** Let the frames after the first one paint, each in an act of its own: a step of the fill is a
+   *  transition, which act commits as it ends, and only then is the next step asked for. */
+  const frames = async (n: number) => { for (let i = 0; i < n; i++) await act(() => new Promise((r) => setTimeout(r, 20))); };
+
+  it("draws a screenful in the first frame, then the rest of its window above it, a step a frame", async () => {
+    const blocks = session(200, 10);
+    render(<Transcript transcript={model(blocks)} sessionStatus="idle" onDecide={() => {}} stage />);
+    // The last FIRST_BLOCKS blocks: three whole turns.
+    expect(rows()).toBe(FIRST_BLOCKS / 10);
+    const newest = screen.getByText("prompt 199").closest(".msg-user-row");
+    await frames(1);
+    expect(rows()).toBe((FIRST_BLOCKS + FILL_BLOCKS) / 10);
+    await frames(8);
+    expect(rows()).toBe(WINDOW_BLOCKS / 10);
+    // Grown above the rows already drawn, which stay mounted, and as history rather than news.
+    expect(screen.getByText("prompt 199").closest(".msg-user-row")).toBe(newest);
+    expect(screen.getByText("prompt 165").closest(".msg-user-row")!.hasAttribute("data-enter")).toBe(false);
+  });
+
+  it("opens on the prompt before its first screenful when one is that close, not inside its run", () => {
+    // Turns of 25 blocks: the cut 30 from the end falls five blocks into a turn.
+    render(<Transcript transcript={model(session(200, 25))} sessionStatus="idle" onDecide={() => {}} stage />);
+    expect(rows()).toBe(2);
+    expect(document.querySelector(".msg-user-row")!.textContent).toContain("prompt 198");
+  });
+
+  it("draws an earlier stretch read in front of it by the same steps, not in one frame", async () => {
+    const all = session(200, 10);
+    const tail: TranscriptModel = { ...model(all.slice(1980)), earlier: { from: 198, settledAt: null } };
+    const { rerender } = render(<Transcript transcript={tail} sessionStatus="idle" onDecide={() => {}} onEarlier={async () => {}} stage />);
+    expect(rows()).toBe(2);
+    await frames(2);
+    rerender(<Transcript transcript={{ ...model(all), base: -1980 }} sessionStatus="idle" onDecide={() => {}} onEarlier={async () => {}} stage />);
+    expect(rows()).toBe(2);
+    await frames(1);
+    expect(rows()).toBe(2 + FILL_BLOCKS / 10);
+    await frames(8);
+    expect(rows()).toBe(WINDOW_BLOCKS / 10);
+  });
+
+  it("stops filling while the reader reads further up, holding what they are reading still", async () => {
+    render(<Transcript transcript={model(session(200, 10))} sessionStatus="idle" onDecide={() => {}} stage />);
+    const el = document.querySelector(".transcript") as HTMLElement;
+    Object.defineProperty(el, "scrollHeight", { configurable: true, value: 10_000 });
+    Object.defineProperty(el, "clientHeight", { configurable: true, value: 500 });
+    el.scrollTop = 1000;
+    fireEvent.scroll(el);
+    await frames(6);
+    expect(rows()).toBe(FIRST_BLOCKS / 10);
+  });
+
+  it("is drawn whole for a pane that does not ask for it", () => {
+    render(<Transcript transcript={model(session(200, 10))} sessionStatus="idle" onDecide={() => {}} />);
+    expect(rows()).toBe(WINDOW_BLOCKS / 10);
   });
 });
 
