@@ -147,11 +147,14 @@ describe("WorktreeService.create", () => {
     expect(git(repo, "worktree", "list")).toContain(second.path);
   });
 
-  it("seeds node_modules from the source into the checked-out worktree", async () => {
+  it("starts seeding node_modules into the checked-out worktree and returns without waiting for it", async () => {
     const repo = makeRepo();
     const seeded: string[][] = [];
     const wt = await new WorktreeService(home, {
-      seed: async (source, worktree) => { seeded.push([source, worktree, String(existsSync(join(worktree, "a.txt")))]); },
+      seed: (source, worktree) => {
+        seeded.push([source, worktree, String(existsSync(join(worktree, "a.txt")))]);
+        return new Promise(() => {});
+      },
     }).create({ spaceId: SPACE, sourcePath: repo, title: "seeded" });
     expect(seeded).toEqual([[repo, wt.path, "true"]]);
   });
