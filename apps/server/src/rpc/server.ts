@@ -65,6 +65,11 @@ const sameSecret = (a: string, b: string): boolean => {
   return x.length === y.length && timingSafeEqual(x, y);
 };
 
+/** A browser's handshake from a page outside `allowed` is refused; a client sending no Origin (Node's
+ *  `ws`) is left to the token. */
+export const originAllowed = (origin: string | undefined, allowed: readonly string[] | undefined): boolean =>
+  origin === undefined || (allowed ?? []).includes(origin);
+
 /** The handshake decision, pure over the two headers it reads so every branch is testable without a
  *  socket: who the dial is and the protocol to echo back, or null to refuse it. Offered protocols are
  *  compared constant-time; length alone leaks nothing useful here. */
@@ -72,7 +77,7 @@ export function handshakePrincipal(
   offer: { origin?: string; protocols: readonly string[] },
   opts: ListenOptions,
 ): { principal: "local" | "cli"; protocol: string | null } | null {
-  if (offer.origin !== undefined && !(opts.allowedOrigins ?? []).includes(offer.origin)) return null;
+  if (!originAllowed(offer.origin, opts.allowedOrigins)) return null;
   if (opts.token === undefined) return { principal: "local", protocol: null };
   const app = tokenProtocol(opts.token);
   if (offer.protocols.some((p) => sameSecret(p, app))) return { principal: "local", protocol: app };
