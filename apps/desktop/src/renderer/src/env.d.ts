@@ -52,7 +52,7 @@ interface Window {
       focusProfile(profileId: string): Promise<boolean>;
       setProfile(profileId: string | null): void;
       openSpace(spaceId: string): Promise<void>;
-      focusSpace(spaceId: string, sessionId?: string): Promise<boolean>;
+      focusSpace(spaceId: string, sessionId?: string, by?: "agent"): Promise<boolean>;
       setSpace(spaceId: string | null): void;
       newWindow(): Promise<boolean>;
       /** Once booted, at the next frame: the quick chat panel made ahead waits for it. */
@@ -356,6 +356,8 @@ interface Window {
       keychainList?(): Promise<import("@realm/contracts").BrowserCredential[]>;
       codesStatus?(): Promise<import("@realm/contracts").SecurityCodesStatus | null>;
       setCodes?(enabled: boolean): Promise<import("@realm/contracts").SecurityCodesStatus | null>;
+      signinsStatus?(): Promise<import("@realm/contracts").AgentSigninsStatus | null>;
+      setSignins?(enabled: boolean): Promise<import("@realm/contracts").AgentSigninsStatus | null>;
       neverList?(profileId: string): Promise<string[]>;
       setNever?(profileId: string, origin: string, never: boolean): Promise<string[]>;
       fillAllows?(profileId: string): Promise<import("@realm/contracts").PasswordFillAllow[]>;

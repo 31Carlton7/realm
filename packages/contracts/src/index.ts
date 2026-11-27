@@ -75,6 +75,7 @@ export * from "./power";
 export * from "./meetings";
 export * from "./global-keys";
 export * from "./security-codes";
+export * from "./agent-signins";
 export * from "./editors";
 export * from "./link-open";
 export * from "./realm-repo";
