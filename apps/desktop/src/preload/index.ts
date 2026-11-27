@@ -28,8 +28,9 @@ contextBridge.exposeInMainWorld("realm", {
   /** The space this window was opened for (Open in new window, File ▸ New Window), or undefined. */
   spaceId: arg("realm-space") || undefined,
   /** The space a window brought back after a relaunch lands on: the one it showed, which can differ
-   *  from the one it was opened for. Undefined for a window opened now. */
-  landSpaceId: arg("realm-land") || undefined,
+   *  from the one it was opened for. Undefined for a window opened now. A window main unloaded while
+   *  nobody looked at it lands, loaded again, on the space it showed when it went (`window:land`). */
+  landSpaceId: (ipcRenderer.sendSync("window:land") as string | null) || arg("realm-land") || undefined,
   /** "quick-chat" in the quick chat panel's page, which draws the Quick Chat and nothing else
    *  (main/quick-chat-panel.ts); undefined in a Realm window. */
   surface: arg("realm-surface") || undefined,
@@ -489,6 +490,11 @@ contextBridge.exposeInMainWorld("realm", {
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
     drawn: (): void => ipcRenderer.send("window:drawn"),
+    onUnload: (save: () => Promise<void>): (() => void) => {
+      const handler = () => { void save().finally(() => ipcRenderer.send("window:unload-ready")); };
+      ipcRenderer.on("window:unload", handler);
+      return () => ipcRenderer.removeListener("window:unload", handler);
+    },
   },
   /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
    *  page rather than to the menu (main/app-menu.ts). */

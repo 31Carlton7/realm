@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LAYA_PRESSURE_IDLE_MINUTES, PRESSURE_IDLE_MINUTES, adaptIdleMinutes } from "./resources";
+import { LAYA_PRESSURE_IDLE_MINUTES, PRESSURE_IDLE_MINUTES, WINDOW_IDLE_MINUTES_DEFAULT, WINDOW_PRESSURE_IDLE_MINUTES, adaptIdleMinutes } from "./resources";
 
 describe("an idle window under memory pressure", () => {
   it("shrinks to ten minutes when memory is short and five when it is critical, and never grows", () => {
@@ -27,9 +27,20 @@ describe("Laya's idle window under memory pressure", () => {
   });
 });
 
+describe("a Realm window's idle window under memory pressure", () => {
+  it("is four hours as set, half an hour when memory is short and ten minutes when it is critical", () => {
+    expect(WINDOW_IDLE_MINUTES_DEFAULT).toBe(240);
+    expect(adaptIdleMinutes(WINDOW_IDLE_MINUTES_DEFAULT, "normal", true, WINDOW_PRESSURE_IDLE_MINUTES)).toBe(240);
+    expect(adaptIdleMinutes(WINDOW_IDLE_MINUTES_DEFAULT, "warn", true, WINDOW_PRESSURE_IDLE_MINUTES)).toBe(30);
+    expect(adaptIdleMinutes(WINDOW_IDLE_MINUTES_DEFAULT, "critical", true, WINDOW_PRESSURE_IDLE_MINUTES)).toBe(10);
+    expect(adaptIdleMinutes(WINDOW_IDLE_MINUTES_DEFAULT, "critical", false, WINDOW_PRESSURE_IDLE_MINUTES)).toBe(240);
+  });
+});
+
 describe("the windows under memory pressure", () => {
   it("are never longer when memory is critical than when it is short", () => {
     expect(PRESSURE_IDLE_MINUTES.critical).toBeLessThanOrEqual(PRESSURE_IDLE_MINUTES.warn);
     expect(LAYA_PRESSURE_IDLE_MINUTES.critical).toBeLessThanOrEqual(LAYA_PRESSURE_IDLE_MINUTES.warn);
+    expect(WINDOW_PRESSURE_IDLE_MINUTES.critical).toBeLessThanOrEqual(WINDOW_PRESSURE_IDLE_MINUTES.warn);
   });
 });

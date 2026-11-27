@@ -23,5 +23,8 @@ describe("liveScratch", () => {
     expect(liveScratch({ packaged: false, env: harness })?.hiddenKeepMs).toBeNull();
     expect(liveScratch({ packaged: false, env: { ...harness, REALM_LIVE_HIDDEN_KEEP_MS: "5000" } })?.hiddenKeepMs).toBe(5000);
     expect(liveScratch({ packaged: false, env: { ...harness, REALM_LIVE_HIDDEN_KEEP_MS: "soon" } })?.hiddenKeepMs).toBeNull();
+    expect(liveScratch({ packaged: false, env: { ...harness, REALM_LIVE_WINDOW_IDLE_MS: "3000" } })?.windowIdleMs).toBe(3000);
+    expect(liveScratch({ packaged: false, env: harness })?.windowIdleMs).toBeNull();
+    expect(liveScratch({ packaged: true, env: { ...harness, REALM_LIVE_WINDOW_IDLE_MS: "3000" } })).toBeNull();
   });
 });

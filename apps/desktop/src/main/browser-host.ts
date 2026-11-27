@@ -1424,6 +1424,19 @@ export class BrowserPaneHost {
     if (this.retained.has(id)) this.retained.set(id, this.pool.nextStamp());
   }
 
+  /** When an agent's op last reached any of these views; 0 when none ever has. */
+  lastAgentAt(): number {
+    let at = 0;
+    for (const v of this.views.values()) at = Math.max(at, v.agentAt);
+    return at;
+  }
+
+  /** The window's page is going away with its panes still mounted (main's `WindowIdle`): every view
+   *  on screen is retained, as a pane unmounting would, until the page loads again and shows it. */
+  retainShown(): void {
+    for (const [id, v] of this.views) if (v.shown || v.visible) this.retain(id);
+  }
+
   /** Final: the user closed the pane or deleted the item. Only these destroy a view — a pane merely
    *  unmounting `retain`s instead, or a space switch would throw the page away. */
   destroy(id: string): void {

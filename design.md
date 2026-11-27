@@ -1092,6 +1092,12 @@ Every window comes back where it was left — on its space, with its view, at it
 maximised or full screen — unless the display it was on is gone, in which case its size comes back
 centred on the main display. A window closed while others stay open is forgotten; the last one closed
 is kept, so reopening Realm lands where you were. A window whose space was deleted does not come back.
+Coming back is not the same as being loaded. A window's page costs its renderer whether or not anyone
+looks at its space, so with Unload idle windows on (Settings ▸ RAM, the default) only the three windows
+used last open at launch, and the rest open, exactly as they were, the moment their space is asked for.
+A window nobody has focused for four hours (sooner when memory is short) gives up its page and stays a
+window; focused again, it loads on the space, panes, page and scroll it had, never a fresh boot. The one
+in front, one an agent drives, one whose space has work under way and one with live audio stay loaded.
 
 ## Motion
 
@@ -1210,9 +1216,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   the play mark in its tile's corner, on the disc an attached picture's remove sits on, and its name
   says "moves" to VoiceOver, so a moving picture is known before it is picked. It stops, for the still,
   under the Motion switch, Reduce motion, Low power, the Mac's Low Power Mode, and a window that is
-  hidden, minimised or covered. Covered is asked of macOS, not of the page: main keeps an occluded
-  window compositing for the browser agent, so to Chromium a covered window is visible and goes on
-  drawing frames, at full rate (measured). A helper reads the window list once a second while a loop
+  hidden, minimised or covered. Covered is asked of macOS, not of the page: a window an agent is
+  driving, or with live audio, keeps compositing while occluded, as every window did when main kept
+  them all awake, so to Chromium a covered window may be visible and go on drawing frames at full
+  rate (measured then). A helper reads the window list once a second while a loop
   plays, and a window off screen, or under ordinary windows at every point, lets its decoder go.
 
 ## Spaces, panes, and navigation

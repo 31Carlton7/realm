@@ -96,6 +96,30 @@ export function forgetScroll(key: string): void {
   carets.delete(key);
 }
 
+/** Where the marks wait while a window nobody was looking at gives up its renderer (main's
+ *  `WindowIdle`). `sessionStorage` is the window's own and outlives its renderer; nothing else here
+ *  does. The one exception to "not persisted": coming back to an unloaded window is the same sitting. */
+const RELOAD_KEY = "realm.scrollMarks";
+
+/** Keep every mark for the page that loads next in this window. CodeMirror's snapshot is a live
+ *  object, so it stays behind and the offset carries the place. */
+export function keepScrollForReload(storage: Storage): void {
+  const kept = [...marks].map(([key, { snapshot: _live, ...mark }]) => [key, mark]);
+  try { storage.setItem(RELOAD_KEY, JSON.stringify({ marks: kept, carets: [...carets] })); } catch { /* full or gone: the page opens at its defaults */ }
+}
+
+/** Take the marks a window kept before it unloaded, once. */
+export function takeScrollAfterReload(storage: Storage): void {
+  const raw = storage.getItem(RELOAD_KEY);
+  if (raw === null) return;
+  storage.removeItem(RELOAD_KEY);
+  try {
+    const kept = JSON.parse(raw) as { marks?: [string, ScrollMark][]; carets?: [string, CaretMark][] };
+    for (const [key, mark] of kept.marks ?? []) marks.set(key, mark);
+    for (const [key, caret] of kept.carets ?? []) carets.set(key, caret);
+  } catch { /* edited by hand: nothing to put back */ }
+}
+
 /** Test seam only: the marks are process-wide, so a suite that did not clear them would let one
  *  test's scroll position decide another test's first paint. */
 export function forgetAllScroll(): void {

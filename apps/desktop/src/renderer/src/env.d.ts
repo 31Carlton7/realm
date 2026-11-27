@@ -57,6 +57,8 @@ interface Window {
       newWindow(): Promise<boolean>;
       /** Once booted, at the next frame: the quick chat panel made ahead waits for it. */
       drawn(): void;
+      /** Main is unloading this window for having gone unlooked-at: `save` runs before it goes. */
+      onUnload?(save: () => Promise<void>): () => void;
     };
     /** The window's page zoom, 1 at 100% (`webFrame.getZoomFactor`). Optional like every other
      *  bridge: jsdom has none, and a renderer without it reads as 100%, which is what the app

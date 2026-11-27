@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { describe, expect, it } from "vitest";
-import { CASCADE_OFFSET, WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
+import { WINDOWS_OPENED_AT_LAUNCH } from "@realm/contracts";
+import { CASCADE_OFFSET, WindowRegistry, cascadeFrom, readSavedWindows, splitLaunch, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
 
 const win = (id: number) => {
   const w = { id, destroyed: false, isDestroyed: () => w.destroyed };
@@ -221,5 +222,46 @@ describe("where a toast opens", () => {
     reg.focused(w1);
     expect(reg.windowToOpen("sGeneral")).toBe(w1);
     expect(reg.windowToOpen(null)).toBe(w1);
+  });
+});
+
+describe("only the windows used last open at launch", () => {
+  const spaces = ["s1", "s2", "s3", "s4", "s5", "s6"].map((id) => ({ id, profileId: "pWork" }));
+  const six = windowsToRestore(spaces.map((sp) => ({ profileId: "pWork", spaceId: sp.id, showing: sp.id })), spaces);
+
+  it("opens the three used last, the one used last still in front, and holds the rest", () => {
+    expect(WINDOWS_OPENED_AT_LAUNCH).toBe(3);
+    const { open, held } = splitLaunch(six, WINDOWS_OPENED_AT_LAUNCH);
+    expect(open.map((w) => w.land)).toEqual(["s4", "s5", "s6"]);
+    expect(held.map((w) => w.land)).toEqual(["s1", "s2", "s3"]);
+    expect(splitLaunch(six, Number.POSITIVE_INFINITY).open).toHaveLength(6);
+  });
+
+  it("keeps a held window in what is saved, so the next launch still knows it", () => {
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    const { open, held } = splitLaunch(six, 3);
+    reg.hold(held);
+    open.forEach((w, i) => { const opened = win(i + 1); reg.add(opened, w.profileId, w.spaceId); reg.setSpace(opened, w.land); });
+    expect(reg.saved().map((w) => w.showing)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6"]);
+    expect(windowsToRestore(reg.saved(), spaces)).toEqual(six);
+  });
+
+  it("opens a held window exactly as it was when its space is asked for, and holds it no longer", () => {
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    reg.hold(splitLaunch(six, 3).held);
+    expect(reg.heldFor("s2")).toEqual({ profileId: "pWork", spaceId: "s2", land: "s2" });
+    expect(reg.heldFor("s6")).toBeNull();
+    reg.release(reg.heldFor("s2")!);
+    expect(reg.heldFor("s2")).toBeNull();
+    expect(reg.saved().map((w) => w.showing)).toEqual(["s1", "s3"]);
+  });
+
+  it("drops a held window once an open window has moved onto its space", () => {
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    reg.hold(splitLaunch(six, 3).held);
+    const w = win(9);
+    reg.add(w, "pWork", "s6"); reg.setSpace(w, "s1");
+    expect(reg.heldFor("s1")).toBeNull();
+    expect(reg.saved().map((x) => x.showing)).toEqual(["s2", "s3", "s1"]);
   });
 });

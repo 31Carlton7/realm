@@ -231,6 +231,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     available: () => capabilities().simulators },
   { id: "ram-browser-idle", tab: "ram", section: "Let go of idle work", label: "Discard a hidden browser pane after", terms: "memory tabs timeout" },
   { id: "ram-browser-keep", tab: "ram", section: "Let go of idle work", label: "Hidden browser panes kept loaded", terms: "memory tabs recent" },
+  { id: "ram-window-idle", tab: "ram", section: "Let go of idle work", label: "Unload a window not focused for", terms: "memory windows idle renderer" },
+  { id: "ram-window-unload", tab: "ram", section: "Let go of idle work", label: "Unload idle windows", terms: "memory windows launch restore renderer background" },
   { id: "ram-adaptive", tab: "ram", section: "Let go of idle work", label: "Sooner when memory is short", terms: "memory pressure swap adaptive" },
 
   // Sign-ins

@@ -50,6 +50,7 @@ import { installRubberBand } from "./rubber-band";
 import { installPressTracking } from "./press-tracking";
 import { installTooltips } from "./tooltips";
 import { installCaret } from "./caret";
+import { keepScrollForReload } from "./panes/scroll-memory";
 import "./panes";
 import { GlassRoot } from "./glass/GlassDefs";
 
@@ -906,6 +907,12 @@ export function App() {
     // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
     window.addEventListener("pagehide", onPageHide);
+    // Main is about to unload this window for having gone unlooked-at (main/window-idle.ts): what it
+    // shows is written down first, so its next load puts back the same view and the same places.
+    const offUnload = window.realm?.windows?.onUnload?.(async () => {
+      await store.getState().flushPersist().catch(() => {});
+      keepScrollForReload(sessionStorage);
+    });
     // A file dropped anywhere OUTSIDE the prompter would otherwise be navigated to — in a packaged
     // build the app itself is a file:// document, so main's will-navigate guard reads that as in-app
     // and lets it through, replacing Realm with the dropped file. The prompter's own handlers call
@@ -916,6 +923,7 @@ export function App() {
     return () => {
       offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offTeamAccess(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offMT(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
+      offUnload?.();
       window.removeEventListener("dragover", swallowDrop);
       offEggs();
       window.removeEventListener("drop", swallowDrop);

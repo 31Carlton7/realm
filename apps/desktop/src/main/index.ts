@@ -22,7 +22,7 @@ import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
-import { BROWSER_KEEP_HIDDEN_DEFAULT, COMMAND_SIDE_DEFAULT, isCommandSide, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, WINDOW_UNLOAD_IDLE_DEFAULT, WINDOW_UNLOAD_IDLE_KEY, WINDOWS_OPENED_AT_LAUNCH, COMMAND_SIDE_DEFAULT, isCommandSide, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
@@ -43,7 +43,7 @@ import { refuseCapture } from "./capture-guard";
 import { TranscriptHelper, VoiceHelper, voiceHelperPath } from "./voice-helper";
 import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
-import { HiddenViews, nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
+import { AGENT_GRACE_MS, HiddenViews, nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
 import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { AppDriveHost } from "./app-drive";
@@ -89,7 +89,9 @@ import { attachTextContextMenu } from "./text-context-menu";
 import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
-import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
+import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
+import { WindowIdle, backgroundThrottled, type IdleKeep } from "./window-idle";
+import { endRenderer } from "./pane-health";
 import { registerFileActions } from "./file-actions";
 import { registerPdfExport } from "./print-pdf";
 import { AppIconStore, registerAppIcon } from "./app-icon";
@@ -459,6 +461,95 @@ async function sweepBrowsers(params: unknown): Promise<{ discarded: string[]; ke
   return hiddenViews.sweep({ hiddenMs, keepHidden });
 }
 
+/**
+ * Settings ▸ RAM's window policy as the server's clock last sent it: whether Unload idle windows is on,
+ * and the spaces with a session working or waiting, whose windows stay loaded. Until the first tick,
+ * the default and none.
+ */
+let windowPolicy = { unloadIdle: WINDOW_UNLOAD_IDLE_DEFAULT, busySpaces: new Set<string>() };
+const liveWindowIdleMs = liveScratch({ packaged: app.isPackaged, env: process.env })?.windowIdleMs ?? null;
+/** How long a window's page may take to write down its view before it is unloaded anyway. */
+const UNLOAD_SAVE_MS = 3_000;
+/** The space each unloaded window showed, by its webContents, for its page to land on when it loads
+ *  again (`window:land`). */
+const unloadedLand = new Map<number, string>();
+
+/** An agent's op reached one of this window's browser panes within the grace the hidden-pane sweep
+ *  gives one (`AGENT_GRACE_MS`). */
+function agentDriving(win: BrowserWindow): boolean {
+  const at = windowPanes.get(win.id)?.pane.host.lastAgentAt() ?? 0;
+  return at > 0 && Date.now() - at < AGENT_GRACE_MS;
+}
+const audible = (win: BrowserWindow): boolean => win.webContents.isCurrentlyAudible() || (windowPanes.get(win.id)?.pane.audible() ?? false);
+const listening = (win: BrowserWindow): boolean => voice.holds(win.webContents) || transcript.holds(win.webContents);
+
+/** Why a window past its idle window must stay loaded, or null when it may unload. */
+function idleKeep(win: BrowserWindow): IdleKeep | null {
+  if (win.isFocused()) return "focused";
+  if (win === windows.primary() && win.isVisible() && !win.isMinimized()) return "front";
+  if (agentDriving(win) || computerDriving.showing) return "agent";
+  const space = windows.spaceOf(win);
+  if (space && windowPolicy.busySpaces.has(space)) return "working";
+  if (audible(win)) return "audio";
+  if (listening(win)) return "listening";
+  return null;
+}
+
+/** Unload a window's page: it writes down its view and each reader's place, the views on screen are
+ *  retained as a pane unmounting would, and its renderer process ends. The window stays. */
+async function unloadWindow(win: BrowserWindow): Promise<void> {
+  const wc = win.webContents;
+  const space = windows.spaceOf(win);
+  if (space) unloadedLand.set(wc.id, space);
+  await new Promise<void>((resolve) => {
+    const done = () => { clearTimeout(timer); ipcMain.off("window:unload-ready", ready); resolve(); };
+    const ready = (e: Electron.IpcMainEvent) => { if (e.sender === wc) done(); };
+    const timer = setTimeout(done, UNLOAD_SAVE_MS);
+    ipcMain.on("window:unload-ready", ready);
+    wc.send("window:unload");
+  });
+  if (win.isDestroyed() || !windowIdle.isUnloaded(win)) return;
+  windowPanes.get(win.id)?.pane.host.retainShown();
+  if (appDriveWindow === win.id) { appDriveHost.forget(); appDriveWindow = null; }
+  await endRenderer(wc);
+}
+
+/** Realm windows nobody has focused in hours (window-idle.ts). */
+const windowIdle = new WindowIdle<BrowserWindow>({
+  now: () => Date.now(),
+  keep: idleKeep,
+  unload: unloadWindow,
+  load: (win) => {
+    // Main's own replay to a new window (`createWindow`): the page that loads has heard nothing yet.
+    win.webContents.once("did-finish-load", () => { if (lastDaemonState && !win.isDestroyed()) win.webContents.send("daemon:state", lastDaemonState); });
+    win.webContents.reload();
+  },
+});
+
+/** Each window's background throttling as last set, so a sweep that changes nothing sets nothing. */
+const throttledNow = new Map<number, boolean>();
+/** Throttle a window in the background, or not, as `backgroundThrottled` says. A live check's quiet
+ *  window keeps the unthrottled renderer it was built with. */
+function throttleWindow(win: BrowserWindow): void {
+  if (quiet || win.isDestroyed()) return;
+  const throttled = backgroundThrottled({ unloadIdle: windowPolicy.unloadIdle, agent: agentDriving(win), audio: audible(win), listening: listening(win) });
+  if (throttledNow.get(win.id) === throttled) return;
+  throttledNow.set(win.id, throttled);
+  win.webContents.setBackgroundThrottling(throttled);
+}
+
+/** realm-server's clock: unload every window not focused for `idleMs` that has no reason to stay, and
+ *  set each window's throttling again. A live check's window stands in for the four hours. */
+async function sweepWindows(params: unknown): Promise<{ unloaded: number[]; kept: { id: number; reason: IdleKeep }[] }> {
+  const p = (params ?? {}) as { idleMs?: unknown; unloadIdle?: unknown; busySpaces?: unknown };
+  if (typeof p.unloadIdle === "boolean") windowPolicy.unloadIdle = p.unloadIdle;
+  if (Array.isArray(p.busySpaces)) windowPolicy.busySpaces = new Set(p.busySpaces.filter((x): x is string => typeof x === "string"));
+  for (const win of windows.all()) throttleWindow(win);
+  const idleMs = typeof p.idleMs === "number" && p.idleMs >= 0 ? p.idleMs : null;
+  return windowIdle.sweep(windowPolicy.unloadIdle ? liveWindowIdleMs ?? idleMs : null);
+}
+if (liveWindowIdleMs !== null) setInterval(() => { void sweepWindows({}); }, 1_000).unref();
+
 /** Every Electron process, named (app-metrics.ts): realm-server's resource report sizes them itself. */
 function appProcesses(): AppProcessLabel[] {
   const views = new Map<number, { browserId: string; title: string; hiddenSince: number | null }>();
@@ -592,14 +683,13 @@ function installMenu() {
 // Dev affordance: REALM_DEVTOOLS_PORT=9223 exposes the Chrome DevTools protocol for tooling.
 if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugging-port", process.env.REALM_DEVTOOLS_PORT);
 
-// Load-bearing for the browser agent (Plan 11 W3), found empirically and held by the live check:
-// when macOS marks the window occluded, Chromium backgrounds its renderers, and a backgrounded
-// WebContentsView that goes through a cross-process navigation never produces a compositor frame —
-// after which BOTH synthetic input paths (CDP Input.dispatchMouseEvent and wc.sendInputEvent) are
-// silently dropped until a fresh frame exists (a reload or a real resize revives it; nothing cheaper
-// does). With this switch, occluded windows keep compositing and agent input works no matter what is
-// stacked over Realm. Cost: some battery while occluded — a workstation-app tradeoff made knowingly.
-app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+// Occluded windows background as Chromium means them to. A window an agent is driving, or one with
+// live audio, opts out on its own webContents while it is (`throttleWindow`, window-idle.ts
+// `backgroundThrottled`): when macOS marks a window occluded, Chromium backgrounds its renderers, and
+// a backgrounded WebContentsView that goes through a cross-process navigation never produces a
+// compositor frame, after which BOTH synthetic input paths (CDP Input.dispatchMouseEvent and
+// wc.sendInputEvent) are silently dropped until a fresh frame exists (Plan 11 W3). Browser panes'
+// own views run unthrottled already (browser-pane.ts).
 
 // A ceiling on every session's HTTP cache, each browser profile's partition included: Chromium's
 // default grows with free disk, and one profile's partition had reached 1.1 GB of cached pages.
@@ -639,8 +729,10 @@ async function createWindow(info: { port: number; home: string; token: string },
       additionalArguments: windowArguments({ ...info, profileId, spaceId, land }) },
   });
   windows.add(win, profileId, spaceId);
+  windowIdle.opened(win);
   presence.check();
-  win.on("focus", () => { windows.focused(win); saveWindows(); });
+  win.on("focus", () => { windows.focused(win); void windowIdle.focused(win); saveWindows(); });
+  win.webContents.on("audio-state-changed", () => throttleWindow(win));
   // Shown now, as a window constructed visible would be — only never in front, and all but transparent.
   if (quiet) win.show();
   // The title is the space's name — what the Window menu, Mission Control and the Dock list the
@@ -693,6 +785,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
   wireFullScreen(win);
+  throttleWindow(win);
   attachTextContextMenu(win.webContents, { realmBrowser: () => ({ open: openInRealm, linksOpenIn }) });
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
@@ -706,6 +799,9 @@ async function createWindow(info: { port: number; home: string; token: string },
   win.on("closed", () => {
     appPicks.set(pickKey, false);
     phases.stop();
+    windowIdle.closed(win);
+    throttledNow.delete(id);
+    unloadedLand.delete(pickKey);
     windows.remove(win);
     saveWindows();
     presence.check();
@@ -984,7 +1080,11 @@ const agentHost = new BrowserAgentHost({
   hasView: (id) => paneFor(id) !== null,
   health: async (id) => (await paneFor(id)?.health(id)) ?? "gone",
   endRenderer: async (id) => { await paneFor(id)?.endRenderer(id); },
-  touch: (id) => paneFor(id)?.host.touch(id),
+  touch: (id) => {
+    const holder = holderOf(id);
+    holder?.pane.host.touch(id);
+    if (holder) throttleWindow(holder.win);
+  },
   navigate: (id, url) => paneFor(id)?.host.navigate(id, url) ?? null,
   pageState: (id) => paneFor(id)?.pageState(id) ?? null,
   takeOpenedTabs: async (id, waitMs) => (await paneFor(id)?.host.takeOpenedTabs(id, waitMs)) ?? [],
@@ -1694,11 +1794,13 @@ ipcMain.handle("voice:microphone", async (): Promise<string> => {
 const voiceWindows = new WeakSet<WebContents>();
 ipcMain.handle("voice:start", (e) => {
   if (!voiceWindows.has(e.sender)) { voiceWindows.add(e.sender); e.sender.once("destroyed", () => voice.stop(e.sender)); }
-  return voice.start(e.sender);
+  const started = voice.start(e.sender);
+  throttleSender(e.sender);
+  return started;
 });
 ipcMain.on("voice:command", (e, command: unknown) => voice.command(e.sender, command));
 ipcMain.on("voice:audio", (e, pcm: unknown) => { if (pcm instanceof Uint8Array) voice.audio(e.sender, pcm); });
-ipcMain.on("voice:stop", (e) => voice.stop(e.sender));
+ipcMain.on("voice:stop", (e) => { voice.stop(e.sender); throttleSender(e.sender); });
 app.on("will-quit", () => voice.stop());
 
 // ── Meetings ─────────────────────────────────────────────────────────────────────────────────────
@@ -1766,12 +1868,19 @@ const transcript = new TranscriptHelper(() => voiceHelperPath(app.getAppPath(), 
 const transcriptWindows = new WeakSet<WebContents>();
 ipcMain.handle("transcript:start", (e) => {
   if (!transcriptWindows.has(e.sender)) { transcriptWindows.add(e.sender); e.sender.once("destroyed", () => transcript.stop(e.sender)); }
-  return transcript.start(e.sender);
+  const started = transcript.start(e.sender);
+  throttleSender(e.sender);
+  return started;
 });
 ipcMain.on("transcript:command", (e, command: unknown) => transcript.command(e.sender, command));
 ipcMain.on("transcript:audio", (e, source: unknown, pcm: unknown) => { if (pcm instanceof Uint8Array) transcript.sourceAudio(e.sender, source, pcm); });
 ipcMain.on("transcript:system-audio", (e) => void transcript.systemAudio(e.sender));
-ipcMain.on("transcript:stop", (e) => transcript.stop(e.sender));
+ipcMain.on("transcript:stop", (e) => { transcript.stop(e.sender); throttleSender(e.sender); });
+/** Dictation or a transcript started or stopped in this page: its window's throttling follows. */
+function throttleSender(sender: WebContents): void {
+  const win = BrowserWindow.fromWebContents(sender);
+  if (win && windows.all().includes(win)) throttleWindow(win);
+}
 app.on("will-quit", () => transcript.stop());
 
 /** A real iPhone's picture, live. macOS reaches a connected iPhone's screen as a camera, so this raises
@@ -2812,6 +2921,7 @@ app.whenReady().then(async () => {
         // The resource report's question about the app's own processes: no window needed either.
         if (op === "appMetrics") return Promise.resolve(appProcesses());
         if (op === "browserSweep") return sweepBrowsers(params);
+        if (op === "windowSweep") return sweepWindows(params);
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.
@@ -2955,10 +3065,10 @@ async function reattach(target?: { sessionId: string; spaceId: string | null } |
   if (relaunchIfBundleReplaced()) return;
   if (process.platform === "darwin") app.dock?.show();
   const profileId = target?.spaceId ? await profileOfSpace(target.spaceId) : null;
-  let win = (target?.spaceId ? windows.windowForSpace(target.spaceId) : null)
+  let win = (target?.spaceId ? windows.windowForSpace(target.spaceId) ?? await openHeld(target.spaceId) : null)
     ?? (profileId ? windows.windowFor(profileId) : null) ?? windows.primary();
   if (win && !win.isDestroyed()) {
-    raiseWindow(win);
+    await raiseAwake(win);
   } else if (serverInfo) {
     await restoreWindows(serverInfo);
     win = windows.windowToOpen(target?.spaceId ?? null);
@@ -2969,12 +3079,32 @@ async function reattach(target?: { sessionId: string; spaceId: string | null } |
 }
 
 function raiseWindow(win: BrowserWindow, by: RaiseBy = "person"): void {
+  // Brought forward is looked at: an unloaded window loads now, whether or not macOS gives it focus.
+  void windowIdle.focused(win);
   const focused = BrowserWindow.getFocusedWindow();
   bringForward(win, by, {
     appActive: focused !== null,
     panelKey: panelIsKey(focused, quickChatPanel.window()),
     activateApp: () => { if (process.platform === "darwin") app.focus({ steal: true }); },
   });
+}
+
+/** Bring a window forward, and when it was unloaded, wait for its page to load again: what is sent to
+ *  it next would otherwise reach no page. */
+async function raiseAwake(win: BrowserWindow, by: RaiseBy = "person"): Promise<void> {
+  const loaded = windowIdle.isUnloaded(win) ? new Promise<void>((resolve) => win.webContents.once("did-finish-load", () => resolve())) : null;
+  raiseWindow(win, by);
+  await loaded;
+}
+
+/** Open the window held at launch for this space (`splitLaunch`), as it was saved, or null when none
+ *  is held for it. */
+async function openHeld(spaceId: string): Promise<BrowserWindow | null> {
+  const held = windows.heldFor(spaceId);
+  if (!held || !serverInfo) return null;
+  windows.release(held);
+  await createWindow(serverInfo, held.profileId, held.spaceId, held.land);
+  return windows.windowForSpace(spaceId) ?? windows.primary();
 }
 
 /** Every space with its profile and name, in the person's order, asked of the server — none when it
@@ -2997,11 +3127,24 @@ function saveWindows(): void {
   writeSavedWindows(savedWindowsFile(), windows.saved());
 }
 
-/** Open the windows that were open at quit, each on its space, the one used last in front. */
+/** Open the windows that were open at quit, each on its space, the one used last in front. With
+ *  Unload idle windows on, only the `WINDOWS_OPENED_AT_LAUNCH` used last; the rest are held, and each opens
+ *  when its space is asked for. */
 async function restoreWindows(info: { port: number; home: string; token: string }): Promise<void> {
   closingAll = false;
   const restore = windowsToRestore(readSavedWindows(savedWindowsFile()), await listSpaces());
-  for (const w of restore) await createWindow(info, w.profileId, w.spaceId, w.land);
+  windowPolicy.unloadIdle = await readUnloadIdle();
+  const { open, held } = splitLaunch(restore, windowPolicy.unloadIdle ? WINDOWS_OPENED_AT_LAUNCH : Number.POSITIVE_INFINITY);
+  windows.hold(held);
+  for (const w of open) await createWindow(info, w.profileId, w.spaceId, w.land);
+}
+
+/** Settings ▸ RAM's Unload idle windows, asked of the server; the default when it cannot say. */
+async function readUnloadIdle(): Promise<boolean> {
+  try {
+    const stored = ((await askServer("settings.get", { key: WINDOW_UNLOAD_IDLE_KEY })) as { value?: unknown } | null)?.value;
+    return typeof stored === "boolean" ? stored : WINDOW_UNLOAD_IDLE_DEFAULT;
+  } catch { return WINDOW_UNLOAD_IDLE_DEFAULT; }
 }
 
 /** A space's profile, asked of the server — null when it cannot say. */
@@ -3050,6 +3193,7 @@ ipcMain.handle("window:open-space", async (_e, spaceId: unknown): Promise<void> 
   if (!id || !serverInfo) return;
   const open = windows.windowForSpace(id);
   if (open) { raiseWindow(open); return; }
+  if (await openHeld(id)) return;
   const profileId = await profileOfSpace(id);
   if (profileId) await createWindow(serverInfo, profileId, id);
 });
@@ -3061,21 +3205,27 @@ ipcMain.handle("window:new", async (e): Promise<boolean> => {
   const pick = spaceForNewWindow(await listSpaces(),
     front ? { profileId: windows.showing(front), spaceId: windows.spaceOf(front) } : null, windows.openSpaces());
   if (!pick) return false;
-  await createWindow(serverInfo, pick.profileId, pick.id);
+  if (!(await openHeld(pick.id))) await createWindow(serverInfo, pick.profileId, pick.id);
   return true;
 });
 /** A window's question before it switches space: is this space open in ANOTHER window? If so that
  *  window comes forward, and the answer is yes — the asking window stays as it is. */
-ipcMain.handle("window:focus-space", (e, spaceId: unknown, sessionId: unknown, by: unknown): boolean => {
+ipcMain.handle("window:focus-space", async (e, spaceId: unknown, sessionId: unknown, by: unknown): Promise<boolean> => {
   const id = profileArg(spaceId);
   if (!id) return false;
-  const open = windows.windowForSpace(id, BrowserWindow.fromWebContents(e.sender) ?? undefined);
+  const open = windows.windowForSpace(id, BrowserWindow.fromWebContents(e.sender) ?? undefined) ?? await openHeld(id);
   if (!open) return false;
-  raiseWindow(open, raiseBy(by));
+  await raiseAwake(open, raiseBy(by));
   // A session the asking window was opening: the window that has its space opens it instead.
   const session = profileArg(sessionId);
   if (session) open.webContents.send("realm:open-session", { sessionId: session, spaceId: id });
   return true;
+});
+/** The space a page loading again after an unload lands on (preload's `landSpaceId`): the one its
+ *  window showed when it went. Null for every other load, which lands as its command line says. */
+ipcMain.on("window:land", (e) => {
+  e.returnValue = unloadedLand.get(e.sender.id) ?? null;
+  unloadedLand.delete(e.sender.id);
 });
 /** A Realm window's page has booted and drawn its first frame: the panel made ahead waits for it. */
 ipcMain.on("window:drawn", () => quickChatPanel.windowDrawn());

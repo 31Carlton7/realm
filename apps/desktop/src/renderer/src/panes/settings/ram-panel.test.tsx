@@ -83,7 +83,7 @@ describe("Settings ▸ RAM", () => {
   });
 
   it("shows each window as set, and the shorter one in force while memory is short", async () => {
-    const { api } = await mount({ resourcePolicies: { ...defaultResourcePolicies(), effective: { engines: 10, mcp: 10, laya: 10, simulators: 10, browsers: 10 } } });
+    const { api } = await mount({ resourcePolicies: { ...defaultResourcePolicies(), effective: { engines: 10, mcp: 10, laya: 10, simulators: 10, browsers: 10, windows: 30 } } });
     const engine = row("ram-engine-idle");
     expect(within(engine).getByRole("combobox", { name: "Stop an idle engine after" })).toHaveValue("30");
     expect(within(engine).getByText("10 minutes while memory is short")).toBeInTheDocument();
@@ -94,6 +94,19 @@ describe("Settings ▸ RAM", () => {
     expect(within(engine).getByRole("combobox")).toHaveValue("0");
     fireEvent.click(within(row("ram-adaptive")).getByRole("switch", { name: "Sooner when memory is short" }));
     await waitFor(() => expect(api.calls).toContain("resourcesSetPolicy:resources.adaptive:false"));
+  });
+
+  it("unloads idle windows after four hours, sooner when memory is short, and keeps the old way a switch away", async () => {
+    const { api } = await mount({ resourcePolicies: { ...defaultResourcePolicies(), effective: { ...defaultResourcePolicies().effective, windows: 30 } } });
+    const idle = row("ram-window-idle");
+    expect(within(idle).getByRole("combobox", { name: "Unload a window not focused for" })).toHaveValue("240");
+    expect(within(idle).getByText("30 minutes while memory is short")).toBeInTheDocument();
+    const toggle = within(row("ram-window-unload")).getByRole("switch", { name: "Unload idle windows" });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(api.calls).toContain("resourcesSetPolicy:windows.unloadIdle:false"));
+    // Off, the window it would wait for no longer applies.
+    await waitFor(() => expect(within(row("ram-window-idle")).getByRole("combobox")).toBeDisabled());
   });
 
   it("says hidden panes are kept loaded for two hours at most, not forever", async () => {

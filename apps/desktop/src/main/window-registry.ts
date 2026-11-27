@@ -39,6 +39,9 @@ type Entry<W> = {
 export class WindowRegistry<W extends RegisteredWindow> {
   private entries = new Map<number, Entry<W>>();
   private clock = 0;
+  /** Windows saved at quit and not opened at launch (`splitLaunch`), the one used longest ago first.
+   *  Each opens as it was when its space is asked for, and is saved again until then. */
+  private held: RestoredWindow[] = [];
 
   get size(): number { return this.live().length; }
 
@@ -103,11 +106,26 @@ export class WindowRegistry<W extends RegisteredWindow> {
 
   all(): W[] { return this.live().map((e) => e.win); }
 
+  /** Keep these windows for later, in place of any held before. */
+  hold(windows: readonly RestoredWindow[]): void { this.held = [...windows]; }
+
+  /** The held window that lands on this space, unless an open window has moved onto it since. */
+  heldFor(spaceId: string): RestoredWindow | null {
+    if (this.windowForSpace(spaceId)) return null;
+    return this.held.find((w) => w.land === spaceId) ?? null;
+  }
+
+  /** A held window is opening: it is an open window from here on. */
+  release(w: RestoredWindow): void { this.held = this.held.filter((h) => h !== w); }
+
   /** Every window as it would come back after a relaunch, the one used longest ago first, so opening
-   *  them in this order leaves the one used last in front. */
+   *  them in this order leaves the one used last in front. Held windows count as used longest ago. */
   saved(): SavedWindow[] {
-    return this.live().sort((a, b) => a.focusedAt - b.focusedAt)
-      .map((e) => ({ profileId: e.bound, spaceId: e.boundSpace, showing: e.space }));
+    const open = this.openSpaces();
+    const held = this.held.filter((w) => w.land === null || !open.has(w.land))
+      .map((w) => ({ profileId: w.profileId, spaceId: w.spaceId, showing: w.land }));
+    return [...held, ...this.live().sort((a, b) => a.focusedAt - b.focusedAt)
+      .map((e) => ({ profileId: e.bound, spaceId: e.boundSpace, showing: e.space }))];
   }
 
   private live(): Entry<W>[] {
@@ -143,6 +161,13 @@ export function windowsToRestore(saved: readonly SavedWindow[], spaces: readonly
     out.push({ profileId: land !== null && w.profileId !== null ? profileOf.get(land)! : null, spaceId: exists(w.spaceId) ? w.spaceId : null, land });
   }
   return out.length > 0 ? out : [{ profileId: null, spaceId: null, land: null }];
+}
+
+/** The windows to open now, the last `count` of `windowsToRestore` (the one used last still opening
+ *  last, in front), and the ones to hold until their space is asked for. */
+export function splitLaunch(restore: readonly RestoredWindow[], count: number): { open: RestoredWindow[]; held: RestoredWindow[] } {
+  const at = Math.max(0, restore.length - count);
+  return { open: restore.slice(at), held: restore.slice(0, at) };
 }
 
 export function readSavedWindows(

@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import {
-  RESOURCE_CATEGORY_LABEL,
+  RESOURCE_CATEGORY_LABEL, WINDOWS_OPENED_AT_LAUNCH,
   type FreeAction, type MemoryPressure, type ResourceCategory, type ResourcePart, type ResourcePolicies, type ResourcePolicyKey, type ResourceReport,
 } from "@realm/contracts";
 import { useCallback, useEffect, useState } from "react";
@@ -54,6 +54,8 @@ type WindowRow = {
   value: (p: ResourcePolicies) => number; effective: (p: ResourcePolicies) => number; choices: number[];
   /** Whether this OS has the thing at all (Laya and the simulators are the Mac's). */
   available?: () => boolean;
+  /** Whether the window applies as things are set; a window that does not is shown, and cannot be changed. */
+  applies?: (p: ResourcePolicies) => boolean;
 };
 
 const WINDOWS: WindowRow[] = [
@@ -69,6 +71,9 @@ const WINDOWS: WindowRow[] = [
     available: () => capabilities().simulators },
   { id: "ram-browser-idle", key: "browser.discardHiddenMinutes", label: "Discard a hidden browser pane after", value: (p) => p.browserHiddenMinutes, effective: (p) => p.effective.browsers, choices: [5, 10, 20, 30, 60, 0],
     title: "Counted while its pane is not the one showing — a page like this one open over it does not count. The page and where it was scrolled are kept, and it loads again when the pane is shown. Never one an agent drove within the window, or one playing media, typed into since it loaded, holding text you have not sent or a session of its own, or showing a sign-in window. One still loading is kept for up to 2 hours." },
+  { id: "ram-window-idle", key: "windows.idleUnloadMinutes", label: "Unload a window not focused for", value: (p) => p.windowIdleMinutes, effective: (p) => p.effective.windows, choices: [30, 60, 120, 240, 480, 0],
+    title: "The window stays open and gives up its page. Focused again, it loads on the space, panes and place you left. Never the window in front, one an agent is driving, one whose space has a session working or waiting on you, or one playing audio or taking dictation.",
+    applies: (p) => p.unloadIdleWindows },
 ];
 
 const FREE_ROWS: { id: string; action: FreeAction; label: string; verb: string; noun: [string, string]; none: string; available?: () => boolean }[] = [
@@ -202,7 +207,7 @@ export function RamPanel() {
                 {/* Said only when the two differ: the window in force is shorter while memory is short. */}
                 {now !== value && <span className="settings-row-detail">{windowLabel(now)} while memory is short</span>}
               </div>
-              <select aria-label={w.label} value={value} onChange={(e) => run(() => setPolicy(w.key, Number(e.target.value)))}>
+              <select aria-label={w.label} value={value} disabled={w.applies?.(policies) === false} onChange={(e) => run(() => setPolicy(w.key, Number(e.target.value)))}>
                 {[...new Set([...w.choices, value])].sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b)).map((v) => <option key={v} value={v}>{windowLabel(v)}</option>)}
               </select>
             </li>
@@ -214,6 +219,14 @@ export function RamPanel() {
             onChange={(e) => run(() => setPolicy("browser.keepHidden", Number(e.target.value)))}>
             {[...new Set([0, 1, 2, 3, 5, 8, policies.browserKeepHidden])].sort((a, b) => a - b).map((v) => <option key={v} value={v}>{v === 0 ? "None" : String(v)}</option>)}
           </select>
+        </li>
+        <li className="settings-row" data-setting="ram-window-unload" title="Off, every window stays loaded, every window open at quit opens at launch, and none is slowed in the background.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Unload idle windows</span>
+            <span className="settings-row-detail">{`Only the ${WINDOWS_OPENED_AT_LAUNCH} windows used last open at launch; the rest open when you go to their space`}</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Unload idle windows"
+            checked={policies.unloadIdleWindows} onChange={(e) => run(() => setPolicy("windows.unloadIdle", e.target.checked))} />
         </li>
         {!unread && (
           <li className="settings-row" data-setting="ram-adaptive" title={`Only the waiting shrinks. Nothing mid-turn, waiting on you, or holding background work is stopped, however short of memory the ${machine} is.`}>

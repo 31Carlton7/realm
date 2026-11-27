@@ -1,6 +1,7 @@
 import {
   BROWSER_DISCARD_HIDDEN_DEFAULT, BROWSER_KEEP_HIDDEN_DEFAULT, ENGINE_IDLE_MINUTES_DEFAULT, LAYA_IDLE_STOP_DEFAULT, LAYA_PRESSURE_IDLE_MINUTES, MCP_IDLE_STOP_DEFAULT,
-  RESOURCES_ADAPTIVE_DEFAULT, SIMULATOR_IDLE_SHUTDOWN_DEFAULT,
+  RESOURCES_ADAPTIVE_DEFAULT, SIMULATOR_IDLE_SHUTDOWN_DEFAULT, WINDOW_IDLE_MINUTES_DEFAULT, WINDOW_IDLE_MINUTES_KEY, WINDOW_PRESSURE_IDLE_MINUTES,
+  WINDOW_UNLOAD_IDLE_DEFAULT, WINDOW_UNLOAD_IDLE_KEY,
   type FreeAction, type Freeable, type PressureIdleMinutes, type ResourcePolicies, type ResourcePolicyKey, type ResourceReport,
 } from "@realm/contracts";
 import { RpcError } from "../store/rows";
@@ -21,8 +22,8 @@ export class ResourceControls {
     laya: { stoppable(): boolean; stopIdle(): Promise<boolean>; idleChanged(): void };
     /** main's sweep; null when no app is attached. */
     browsers: () => { call(op: "browserSweep", params: { hiddenMs: number | null; keepHidden: number }): Promise<unknown> } | null;
-    /** A browser window or the adaptive switch changed: the policies look again now, so main's budget
-     *  for unmounted panes keeps to the new settings before the clock's next tick. */
+    /** A browser window, the windows' policy or the adaptive switch changed: the policies look again
+     *  now, so main's budget for unmounted panes keeps to the new settings before the clock's next tick. */
     browserPolicyChanged?: () => void;
   }) {}
 
@@ -55,15 +56,22 @@ export class ResourceControls {
     const browserKeepHidden = minutesSetting(s.get("browser.keepHidden"), BROWSER_KEEP_HIDDEN_DEFAULT);
     const adaptiveRaw = s.get("resources.adaptive");
     const adaptive = typeof adaptiveRaw === "boolean" ? adaptiveRaw : RESOURCES_ADAPTIVE_DEFAULT;
+    const windowIdleMinutes = minutesSetting(s.get(WINDOW_IDLE_MINUTES_KEY), WINDOW_IDLE_MINUTES_DEFAULT);
+    const unloadRaw = s.get(WINDOW_UNLOAD_IDLE_KEY);
+    const unloadIdleWindows = typeof unloadRaw === "boolean" ? unloadRaw : WINDOW_UNLOAD_IDLE_DEFAULT;
     const a = this.d.adapt;
     return {
       engineIdleMinutes, mcpIdleMinutes, layaIdleMinutes, simulatorIdleMinutes, browserHiddenMinutes, browserKeepHidden, adaptive,
-      effective: { engines: a(engineIdleMinutes), mcp: a(mcpIdleMinutes), laya: a(layaIdleMinutes, LAYA_PRESSURE_IDLE_MINUTES), simulators: a(simulatorIdleMinutes), browsers: a(browserHiddenMinutes) },
+      windowIdleMinutes, unloadIdleWindows,
+      effective: {
+        engines: a(engineIdleMinutes), mcp: a(mcpIdleMinutes), laya: a(layaIdleMinutes, LAYA_PRESSURE_IDLE_MINUTES), simulators: a(simulatorIdleMinutes), browsers: a(browserHiddenMinutes),
+        windows: a(windowIdleMinutes, WINDOW_PRESSURE_IDLE_MINUTES),
+      },
     };
   }
 
   setPolicy(key: ResourcePolicyKey, value: number | boolean): ResourcePolicies {
-    if (key === "resources.adaptive") {
+    if (key === "resources.adaptive" || key === WINDOW_UNLOAD_IDLE_KEY) {
       if (typeof value !== "boolean") throw new RpcError("INVALID_ARGUMENT", "the adaptive switch is on or off");
     } else if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
       throw new RpcError("INVALID_ARGUMENT", `${key} takes a whole number of minutes, 0 for never`);
@@ -71,7 +79,8 @@ export class ResourceControls {
     this.d.settings.set(key, value);
     // Laya's window is a timer of its own, armed from the last step: measured again now.
     if (key === "laya.idleStopMinutes" || key === "resources.adaptive") this.d.laya.idleChanged();
-    if (key === "browser.discardHiddenMinutes" || key === "browser.keepHidden" || key === "resources.adaptive") this.d.browserPolicyChanged?.();
+    if (key === "browser.discardHiddenMinutes" || key === "browser.keepHidden" || key === "resources.adaptive"
+      || key === WINDOW_IDLE_MINUTES_KEY || key === WINDOW_UNLOAD_IDLE_KEY) this.d.browserPolicyChanged?.();
     return this.policies();
   }
 
