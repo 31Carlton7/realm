@@ -9,8 +9,9 @@ import { ViewerService } from "./service";
 
 /** A stand-in for a quiet Realm's `--remote-debugging-port`: the window's page W and the child pages
  *  C1 and C2, each on its own socket. W answers `Runtime.evaluate` with the child list main left in
- *  the page, and `children()` changes it the way main does, through the binding. */
-async function fakeRealm() {
+ *  the page, and `children()` changes it the way main does, through the binding. `slowStop` leaves
+ *  `Page.stopScreencast` unanswered, as a busy page can, so a socket stays open past it. */
+async function fakeRealm(opts: { slowStop?: boolean } = {}) {
   const calls: { page: string; method: string; params: Record<string, unknown> }[] = [];
   const sockets = new Map<string, WebSocket[]>();
   let children: ViewerChildView[] = [];
@@ -28,6 +29,7 @@ async function fakeRealm() {
     ws.on("message", (raw) => {
       const m = JSON.parse(String(raw)) as { id: number; method: string; params?: Record<string, unknown> };
       calls.push({ page, method: m.method, params: m.params ?? {} });
+      if (opts.slowStop && m.method === "Page.stopScreencast") return;
       const result = m.method === "Runtime.evaluate" && page === "W" ? { result: { type: "string", value: JSON.stringify(children) } } : {};
       ws.send(JSON.stringify({ id: m.id, result }));
     });
@@ -111,8 +113,8 @@ const C2: ViewerChildView = { targetId: "C2", x: 250, y: 50, width: 300, height:
 let cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const c of cleanup.reverse()) await c(); cleanup = []; });
 
-async function setup(seed: ViewerChildView[] = []) {
-  const app = await fakeRealm();
+async function setup(seed: ViewerChildView[] = [], opts: { slowStop?: boolean } = {}) {
+  const app = await fakeRealm(opts);
   app.seed(seed);
   const apps = new HiddenApps();
   const record = apps.record({ cdpPort: app.port, pid: 1 });
@@ -190,11 +192,13 @@ describe("viewer layers: frames", () => {
   });
 
   it("drops a frame from a view that has gone", async () => {
-    const { app, viewer } = await setup([C1]);
+    const { app, viewer } = await setup([C1], { slowStop: true });
     const client = await layers(viewer.layersUrl);
     await until(() => app.on("C1", "Page.startScreencast").length >= 1, "C1's screencast");
     app.children([]);
-    await until(() => client.layouts.length >= 2, "the layout without C1");
+    await until(() => client.layouts.length >= 2 && app.on("C1", "Page.stopScreencast").length >= 1, "the layout without C1");
+    // A frame Chromium had in flight, on a socket still waiting for its stop to be answered.
+    expect(app.live("C1")).toHaveLength(1);
     app.frame("C1", JPEG_C1, 400, 200);
     await settle();
     expect(client.frames.filter((f) => f.layer === "C1")).toEqual([]);
