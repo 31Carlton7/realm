@@ -256,6 +256,34 @@ describe("only the windows used last open at launch", () => {
     expect(reg.saved().map((w) => w.showing)).toEqual(["s1", "s3"]);
   });
 
+  it("opens a held window once, however many ask for its space while it is opening", async () => {
+    // THE MUTANT: the entry released and the window not yet known by its space, so a second ask opens
+    // a second window on the same space.
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    reg.hold(splitLaunch(six, 3).held);
+    const opened: string[] = [];
+    let finish!: () => void;
+    const open = (held: { land: string | null }) => new Promise<ReturnType<typeof win>>((resolve) => {
+      opened.push(held.land!);
+      finish = () => { const w = win(7); reg.add(w, "pWork", "s2"); reg.setSpace(w, held.land); resolve(w); };
+    });
+    const first = reg.openHeld("s2", open);
+    const second = reg.openHeld("s2", open);
+    finish();
+    const [a, b] = await Promise.all([first, second]);
+    expect(opened).toEqual(["s2"]);
+    expect(a).toBe(b);
+    expect(await reg.openHeld("s2", open)).toBeNull();
+    expect(await reg.openHeld("s6", open)).toBeNull();
+  });
+
+  it("saves no held window that has no space to land on", () => {
+    // THE MUTANT: a held window whose space is gone saved again at every quit, forever.
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    reg.hold([{ profileId: "pWork", spaceId: null, land: null }, ...splitLaunch(six, 5).held]);
+    expect(reg.saved().map((w) => w.showing)).toEqual(["s1"]);
+  });
+
   it("drops a held window once an open window has moved onto its space", () => {
     const reg = new WindowRegistry<ReturnType<typeof win>>();
     reg.hold(splitLaunch(six, 3).held);

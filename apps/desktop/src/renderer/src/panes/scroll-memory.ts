@@ -41,8 +41,10 @@ export type ScrollMark = { top: number; atEnd: boolean;
    *  it, which it puts back once its lines are measured. An offset cannot be put back before then —
    *  CodeMirror guesses a line's height until it has drawn one, and the real heights carry an offset
    *  written into the guess down the file. Good only for the text it was taken in, which `length`
-   *  stands for. Absent for every other scroller. */
-  snapshot?: { effect: unknown; length: number } };
+   *  stands for. Absent for every other scroller. Across a window's unload (`keepScrollForReload`) the
+   *  live effect cannot go, so it is written down as the position at the top (`at`) and how far that
+   *  line starts above the editor's top (`margin`). */
+  snapshot?: { effect: unknown; length: number } | { at: number; margin: number; length: number } };
 
 /** How long a restore keeps trying to land before it gives up. A scroller can exist before its
  *  content does, and one assignment to an empty box is silently clamped to 0 — so the offset is
@@ -102,10 +104,23 @@ export function forgetScroll(key: string): void {
 const RELOAD_KEY = "realm.scrollMarks";
 
 /** Keep every mark for the page that loads next in this window. CodeMirror's snapshot is a live
- *  object, so it stays behind and the offset carries the place. */
+ *  object (`scrollIntoView.of` a ScrollTarget), so what it holds is written down instead. */
 export function keepScrollForReload(storage: Storage): void {
-  const kept = [...marks].map(([key, { snapshot: _live, ...mark }]) => [key, mark]);
+  const kept = [...marks].map(([key, { snapshot, ...mark }]) => [key, snapshot ? { ...mark, snapshot: writtenSnapshot(snapshot) } : mark]);
   try { storage.setItem(RELOAD_KEY, JSON.stringify({ marks: kept, carets: [...carets] })); } catch { /* full or gone: the page opens at its defaults */ }
+}
+
+function writtenSnapshot(s: NonNullable<ScrollMark["snapshot"]>): { at: number; margin: number; length: number } | undefined {
+  if (!("effect" in s)) return s;
+  const target = (s.effect as { value?: { range?: { head?: unknown }; yMargin?: unknown } }).value;
+  const at = target?.range?.head;
+  const margin = target?.yMargin;
+  return typeof at === "number" && typeof margin === "number" ? { at, margin, length: s.length } : undefined;
+}
+
+/** The unload was called off and this page stays: nothing is kept for a load that is not coming. */
+export function dropScrollForReload(storage: Storage): void {
+  try { storage.removeItem(RELOAD_KEY); } catch { /* gone: nothing to drop */ }
 }
 
 /** Take the marks a window kept before it unloaded, once. */

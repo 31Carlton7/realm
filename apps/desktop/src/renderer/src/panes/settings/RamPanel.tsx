@@ -72,7 +72,7 @@ const WINDOWS: WindowRow[] = [
   { id: "ram-browser-idle", key: "browser.discardHiddenMinutes", label: "Discard a hidden browser pane after", value: (p) => p.browserHiddenMinutes, effective: (p) => p.effective.browsers, choices: [5, 10, 20, 30, 60, 0],
     title: "Counted while its pane is not the one showing — a page like this one open over it does not count. The page and where it was scrolled are kept, and it loads again when the pane is shown. Never one an agent drove within the window, or one playing media, typed into since it loaded, holding text you have not sent or a session of its own, or showing a sign-in window. One still loading is kept for up to 2 hours." },
   { id: "ram-window-idle", key: "windows.idleUnloadMinutes", label: "Unload a window not focused for", value: (p) => p.windowIdleMinutes, effective: (p) => p.effective.windows, choices: [30, 60, 120, 240, 480, 0],
-    title: "The window stays open and gives up its page. Focused again, it loads on the space, panes and place you left. Never the window in front, one an agent is driving, one whose space has a session working or waiting on you, or one playing audio or taking dictation.",
+    title: "The window stays open and gives up its page. Focused again, it loads on the space, panes and place you left. Never the window in front or the one used last, one on another display, one an agent is driving, one whose space has a session working or waiting on you, one playing audio or taking dictation, or one holding a prompt, commit message, review or edit you have not sent or saved, or an open sheet.",
     applies: (p) => p.unloadIdleWindows },
 ];
 
@@ -220,7 +220,7 @@ export function RamPanel() {
             {[...new Set([0, 1, 2, 3, 5, 8, policies.browserKeepHidden])].sort((a, b) => a - b).map((v) => <option key={v} value={v}>{v === 0 ? "None" : String(v)}</option>)}
           </select>
         </li>
-        <li className="settings-row" data-setting="ram-window-unload" title="Off, every window stays loaded, every window open at quit opens at launch, and none is slowed in the background.">
+        <li className="settings-row" data-setting="ram-window-unload" title="Off, every window stays loaded and every window open at quit opens at launch.">
           <div className="settings-row-main">
             <span className="settings-row-name">Unload idle windows</span>
             <span className="settings-row-detail">{`Only the ${WINDOWS_OPENED_AT_LAUNCH} windows used last open at launch; the rest open when you go to their space`}</span>

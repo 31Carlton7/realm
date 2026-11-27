@@ -89,8 +89,8 @@ export class ResourcePolicies {
       // Sent with the window at Never too (`hiddenMs: null`): main's budget for unmounted panes keeps to
       // the same two settings, and learns them from here.
       if (app) await app.call("browserSweep", { hiddenMs: minutes > 0 ? minutes * 60_000 : null, keepHidden: this.browserKeep(), policy: true }).catch(() => {});
-      // Sent with the window at Never and the switch off too: main throttles windows and opens them at
-      // launch by the same switch, and learns it from here.
+      // Sent with the window at Never and the switch off too: main opens windows at launch by the same
+      // switch, and learns it from here.
       const windows = this.windowMinutes();
       if (app) {
         await app.call("windowSweep", { idleMs: windows > 0 ? windows * 60_000 : null, unloadIdle: this.unloadIdleWindows(), busySpaces: this.d.busySpaces?.() ?? [] }).catch(() => {});

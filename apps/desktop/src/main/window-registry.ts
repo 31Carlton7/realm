@@ -42,6 +42,8 @@ export class WindowRegistry<W extends RegisteredWindow> {
   /** Windows saved at quit and not opened at launch (`splitLaunch`), the one used longest ago first.
    *  Each opens as it was when its space is asked for, and is saved again until then. */
   private held: RestoredWindow[] = [];
+  /** Held windows opening now, by the space they land on, until they are open. */
+  private opening = new Map<string, Promise<W | null>>();
 
   get size(): number { return this.live().length; }
 
@@ -118,11 +120,24 @@ export class WindowRegistry<W extends RegisteredWindow> {
   /** A held window is opening: it is an open window from here on. */
   release(w: RestoredWindow): void { this.held = this.held.filter((h) => h !== w); }
 
+  /** Open the window held for this space with `open`, once: an ask while it is opening waits for the
+   *  same window. Null when none is held for it. */
+  openHeld(spaceId: string, open: (held: RestoredWindow) => Promise<W | null>): Promise<W | null> {
+    const opening = this.opening.get(spaceId);
+    if (opening) return opening;
+    const held = this.heldFor(spaceId);
+    if (!held) return Promise.resolve(null);
+    this.release(held);
+    const opened = open(held).finally(() => this.opening.delete(spaceId));
+    this.opening.set(spaceId, opened);
+    return opened;
+  }
+
   /** Every window as it would come back after a relaunch, the one used longest ago first, so opening
    *  them in this order leaves the one used last in front. Held windows count as used longest ago. */
   saved(): SavedWindow[] {
     const open = this.openSpaces();
-    const held = this.held.filter((w) => w.land === null || !open.has(w.land))
+    const held = this.held.filter((w) => w.land !== null && !open.has(w.land))
       .map((w) => ({ profileId: w.profileId, spaceId: w.spaceId, showing: w.land }));
     return [...held, ...this.live().sort((a, b) => a.focusedAt - b.focusedAt)
       .map((e) => ({ profileId: e.bound, spaceId: e.boundSpace, showing: e.space }))];

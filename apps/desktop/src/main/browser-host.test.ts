@@ -1842,6 +1842,26 @@ describe("HiddenViews — every window's hidden panes, with an age limit", () =>
     expect(HIDDEN_KEEP_MAX_MS).toBe(2 * 60 * MIN);
   });
 
+  it("keeps an unloaded window's panes out of the budget for unmounted ones, so they take no other window's", async () => {
+    // THE MUTANT: the views on screen in a window that unloads retained, five past a budget of three,
+    // and the other window's background pages discarded for them.
+    const { pool, open, at } = windows();
+    const one = open(), two = open();
+    for (const id of ["a1", "a2", "a3"]) { one.page(id); one.host.retain(id); }
+    for (const id of ["b1", "b2"]) two.page(id);
+    at(60 * MIN);
+    two.host.parkShown();
+    await pool.settled();
+    for (const id of ["a1", "a2", "a3"]) expect(alive(one.views.get(id)!)).toBe(true);
+    for (const id of ["b1", "b2"]) {
+      expect(alive(two.views.get(id)!)).toBe(true);
+      expect(two.views.get(id)!.calls.at(-1)).toBe("visible:false");
+    }
+    // Its page back, its panes adopt the same views.
+    two.host.create("b1", "https://b1.example", null, P);
+    expect(alive(two.views.get("b1")!)).toBe(true);
+  });
+
   it("counts the most recently hidden across every window, not in each", async () => {
     // THE MUTANT: each window's sweep keeping its own three.
     const { pool, open, at } = windows();

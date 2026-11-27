@@ -169,10 +169,9 @@ export const ENGINE_IDLE_MINUTES_DEFAULT = 30;
 /**
  * Unload idle windows: a Realm window nobody has focused for `WINDOW_IDLE_MINUTES_KEY` gives up its
  * renderer, and comes back on the view it had when it is focused again. A window in front, one an
- * agent is driving, one with work under way in its space and one with live audio or dictation are
- * never unloaded. With it on, only the windows used last open at launch, and a window in the
- * background is throttled unless an agent drives it or it plays audio. Off, every window stays
- * loaded, all of them open at launch and none is ever throttled, as Realm ran before.
+ * agent is driving, one with work under way in its space, one with live audio or dictation and one
+ * holding work not sent or saved are never unloaded. With it on, only the windows used last open at
+ * launch. Off, every window stays loaded and all of them open at launch, as Realm ran before.
  */
 export const WINDOW_UNLOAD_IDLE_KEY = "windows.unloadIdle";
 export const WINDOW_UNLOAD_IDLE_DEFAULT = true;

@@ -1098,6 +1098,11 @@ used last open at launch, and the rest open, exactly as they were, the moment th
 A window nobody has focused for four hours (sooner when memory is short) gives up its page and stays a
 window; focused again, it loads on the space, panes, page and scroll it had, never a fresh boot. The one
 in front, one an agent drives, one whose space has work under way and one with live audio stay loaded.
+So do the window used last, minimised or hidden, since its page is what still posts "needs you" and
+"done"; one on another display, which someone may be looking at; and one holding anything kept only in
+its page: a prompt or attachment not sent, a commit message, a review being written, a file edit not
+on disk, an open sheet. Unloading never costs work, only a reload. A window whose space starts work
+while it is unloaded loads at once, so the agent finds its panes there.
 
 ## Motion
 
@@ -1220,10 +1225,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   the play mark in its tile's corner, on the disc an attached picture's remove sits on, and its name
   says "moves" to VoiceOver, so a moving picture is known before it is picked. It stops, for the still,
   under the Motion switch, Reduce motion, Low power, the Mac's Low Power Mode, and a window that is
-  hidden, minimised or covered. Covered is asked of macOS, not of the page: a window an agent is
-  driving, or with live audio, keeps compositing while occluded, as every window did when main kept
-  them all awake, so to Chromium a covered window may be visible and go on drawing frames at full
-  rate (measured then). A helper reads the window list once a second while a loop
+  hidden, minimised or covered. Covered is asked of macOS, not of the page: main keeps an occluded
+  window compositing for the browser agent, so to Chromium a covered window is visible and goes on
+  drawing frames, at full rate (measured). A helper reads the window list once a second while a loop
   plays, and a window off screen, or under ordinary windows at every point, lets its decoder go.
 
 ## Spaces, panes, and navigation

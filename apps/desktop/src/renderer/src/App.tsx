@@ -50,7 +50,8 @@ import { installRubberBand } from "./rubber-band";
 import { installPressTracking } from "./press-tracking";
 import { installTooltips } from "./tooltips";
 import { installCaret } from "./caret";
-import { keepScrollForReload } from "./panes/scroll-memory";
+import { dropScrollForReload, keepScrollForReload } from "./panes/scroll-memory";
+import { unloadRefusal } from "./unload-guard";
 import "./panes";
 import { GlassRoot } from "./glass/GlassDefs";
 
@@ -908,11 +909,15 @@ export function App() {
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
     window.addEventListener("pagehide", onPageHide);
     // Main is about to unload this window for having gone unlooked-at (main/window-idle.ts): what it
-    // shows is written down first, so its next load puts back the same view and the same places.
+    // shows is written down first, so its next load puts back the same view and the same places. Work
+    // held nowhere but this page keeps it loaded instead (unload-guard.ts).
     const offUnload = window.realm?.windows?.onUnload?.(async () => {
+      const keep = unloadRefusal(store.getState(), document);
+      if (keep) return keep;
       await store.getState().flushPersist().catch(() => {});
       keepScrollForReload(sessionStorage);
-    });
+      return null;
+    }, () => dropScrollForReload(sessionStorage));
     // A file dropped anywhere OUTSIDE the prompter would otherwise be navigated to — in a packaged
     // build the app itself is a file:// document, so main's will-navigate guard reads that as in-app
     // and lets it through, replacing Realm with the dropped file. The prompter's own handlers call

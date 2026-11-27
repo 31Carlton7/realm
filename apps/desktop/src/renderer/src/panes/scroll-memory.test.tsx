@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
-import { forgetAllScroll, keepScrollForReload, recallCaret, recallScroll, rememberCaret, rememberScroll, takeScrollAfterReload, useScrollMemory } from "./scroll-memory";
+import { dropScrollForReload, forgetAllScroll, keepScrollForReload, recallCaret, recallScroll, rememberCaret, rememberScroll, takeScrollAfterReload, useScrollMemory } from "./scroll-memory";
 
 /**
  * A scroller whose content arrives LATE — the rich editor's case, and the one no pane test can
@@ -134,15 +134,27 @@ describe("a window unloaded while idle", () => {
 
   it("finds every reader's place again after its page is loaded afresh, once", () => {
     rememberScroll("session:s1", { top: 840, atEnd: false, from: 120 });
-    rememberScroll("doc:d1:source:a.ts", { top: 300, atEnd: false, snapshot: { effect: {}, length: 10 } });
+    // CodeMirror's snapshot: a StateEffect holding where the line at the top starts and how far above it is.
+    rememberScroll("doc:d1:source:a.ts", { top: 300, atEnd: false, snapshot: { effect: { value: { range: { head: 42 }, yMargin: -7 } }, length: 10 } });
     rememberCaret("doc:d1:source:a.ts", { anchor: 4, head: 9 });
     keepScrollForReload(sessionStorage);
     forgetAllScroll(); // the page is gone, and its module state with it
     takeScrollAfterReload(sessionStorage);
     expect(recallScroll("session:s1")).toEqual({ top: 840, atEnd: false, from: 120 });
-    // CodeMirror's own record holds live objects that do not survive the trip; the offset does.
-    expect(recallScroll("doc:d1:source:a.ts")).toEqual({ top: 300, atEnd: false });
+    // THE MUTANT: the snapshot dropped, so a long file comes back at an offset into CodeMirror's guessed
+    // line heights. Its live object does not survive the trip; the line and the distance do.
+    expect(recallScroll("doc:d1:source:a.ts")).toEqual({ top: 300, atEnd: false, snapshot: { at: 42, margin: -7, length: 10 } });
     expect(recallCaret("doc:d1:source:a.ts")).toEqual({ anchor: 4, head: 9 });
+    forgetAllScroll();
+    takeScrollAfterReload(sessionStorage);
+    expect(recallScroll("session:s1")).toBeNull();
+  });
+
+  it("leaves nothing for a later load when the unload is called off", () => {
+    // THE MUTANT: marks kept for an unload that never came put back on some reload hours later.
+    rememberScroll("session:s1", { top: 840, atEnd: false });
+    keepScrollForReload(sessionStorage);
+    dropScrollForReload(sessionStorage);
     forgetAllScroll();
     takeScrollAfterReload(sessionStorage);
     expect(recallScroll("session:s1")).toBeNull();

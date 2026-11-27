@@ -490,10 +490,14 @@ contextBridge.exposeInMainWorld("realm", {
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
     drawn: (): void => ipcRenderer.send("window:drawn"),
-    onUnload: (save: () => Promise<void>): (() => void) => {
-      const handler = () => { void save().finally(() => ipcRenderer.send("window:unload-ready")); };
+    /** Main is about to unload this window (main/window-idle.ts). `save` writes its view down, or
+     *  answers why the page must stay ("unsaved"); `abort` hears that main called the unload off. */
+    onUnload: (save: () => Promise<string | null>, abort: () => void): (() => void) => {
+      const handler = () => { void save().catch(() => null).then((keep) => ipcRenderer.send("window:unload-ready", keep)); };
+      const aborted = () => abort();
       ipcRenderer.on("window:unload", handler);
-      return () => ipcRenderer.removeListener("window:unload", handler);
+      ipcRenderer.on("window:unload-abort", aborted);
+      return () => { ipcRenderer.removeListener("window:unload", handler); ipcRenderer.removeListener("window:unload-abort", aborted); };
     },
   },
   /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
