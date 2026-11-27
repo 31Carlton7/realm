@@ -1023,7 +1023,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the real one. */
   const machineProbe = opts.resources?.probe ?? quietMachineProbe();
   // This process's own memory over time, for server.log and `machine_status` (`resources/server-memory.ts`).
-  const serverMemory = new ServerMemory({ log: (line) => console.error(line), snapshotDir: join(opts.home, "logs") });
+  /* Whether a session has a turn running, and the free space under the home: what the work that can
+     wait (Laya's auto-install, the heap snapshot) asks before it starts. `sessions` is built further down. */
+  const agentsWorking = (): boolean => sessions.statusCounts().working > 0;
+  const homeFreeBytes = (): number | null => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } };
+  const serverMemory = new ServerMemory({ log: (line) => console.error(line), snapshotDir: join(opts.home, "logs"), busy: agentsWorking, freeBytes: homeFreeBytes });
   /* The resource service, built further down once every service it asks exists; the idle windows read
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
@@ -1320,8 +1324,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ...(opts.layaAutoInstall ? {
       autoInstall: {
         onboarded: () => spaces.listAll().length > 0,
-        busy: () => sessions.statusCounts().working > 0,
-        freeBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+        busy: agentsWorking,
+        freeBytes: homeFreeBytes,
       },
     } : {}),
     ...(layaRuntime && layaResources

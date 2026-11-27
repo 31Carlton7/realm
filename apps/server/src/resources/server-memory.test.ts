@@ -2,24 +2,32 @@ import { mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { LAYA_AUTO_INSTALL_MIN_FREE } from "../laya/service";
 import { RISE_LOG_BYTES, SAMPLES_KEPT, SAMPLE_EVERY_MS, SNAPSHOT_EVERY_MS, SNAPSHOT_RSS_BYTES, ServerMemory, growth, type MemorySample } from "./server-memory";
 
 const MB = 1024 ** 2, GB = 1024 ** 3;
 const usage = (rss: number, heapUsed = 50 * MB): NodeJS.MemoryUsage => ({ rss, heapUsed, heapTotal: 80 * MB, external: 4 * MB, arrayBuffers: 2 * MB });
 
 /** A server whose clock and memory the test moves by hand. */
-function rig(o: { snapshotDir?: string } = {}) {
+function rig(o: { snapshotDir?: string; writeMs?: number } = {}) {
   let now = 1_000_000;
   let rss = 200 * MB;
+  let busy = false;
+  let free: number | null = 50 * GB;
   const lines: string[] = [];
   const written: string[] = [];
   const m = new ServerMemory({
     now: () => now, usage: () => usage(rss), log: (l) => lines.push(l),
-    snapshotDir: o.snapshotDir, writeSnapshot: (path) => { written.push(path); writeFileSync(path, "{}"); utimesSync(path, now / 1000, now / 1000); },
+    busy: () => busy, freeBytes: () => free,
+    snapshotDir: o.snapshotDir,
+    writeSnapshot: (path) => { written.push(path); writeFileSync(path, "x".repeat(3 * MB)); utimesSync(path, now / 1000, now / 1000); now += o.writeMs ?? 0; },
   });
   return {
     m, lines, written,
     set: (bytes: number) => { rss = bytes; },
+    setBusy: (b: boolean) => { busy = b; },
+    setFree: (bytes: number | null) => { free = bytes; },
+    skips: () => lines.filter((l) => l.includes("heap snapshot skipped")),
     tick: (bytes?: number) => { now += SAMPLE_EVERY_MS; if (bytes !== undefined) rss = bytes; return m.sample(); },
     advance: (ms: number) => { now += ms; },
     rises: () => lines.filter((l) => l.includes("rose")),
@@ -119,7 +127,6 @@ describe("the heap snapshot", () => {
     expect(r.written).toEqual([]);
     r.tick(SNAPSHOT_RSS_BYTES);
     expect(r.written).toHaveLength(1);
-    expect(r.lines.some((l) => l.startsWith("[server-memory] heap snapshot written to ") && l.includes(r.written[0]!))).toBe(true);
     r.tick(2 * GB);
     expect(r.written).toHaveLength(1);
     r.advance(SNAPSHOT_EVERY_MS);
@@ -143,5 +150,59 @@ describe("the heap snapshot", () => {
     const r = rig();
     r.tick(4 * GB);
     expect(r.written).toEqual([]);
+  });
+
+  it("says how big the snapshot is and how long writing it blocked, by the injected clock", () => {
+    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    const r = rig({ snapshotDir: dir, writeMs: 1_850 });
+    r.tick(2 * GB);
+    expect(r.lines.at(-1)).toBe(`[server-memory] heap snapshot written to ${r.written[0]} (3 MB) in 1850 ms`);
+  });
+
+  it("waits while a session has a turn running, and says so once", () => {
+    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    const r = rig({ snapshotDir: dir });
+    r.setBusy(true);
+    for (let i = 0; i < 4; i++) r.tick(2 * GB);
+    expect(r.written).toEqual([]);
+    expect(readdirSync(dir)).toEqual([]);
+    expect(r.skips()).toEqual(["[server-memory] heap snapshot skipped: busy"]);
+  });
+
+  it(`waits while the disk has under ${LAYA_AUTO_INSTALL_MIN_FREE / GB} GB free, and says so once`, () => {
+    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    const r = rig({ snapshotDir: dir });
+    r.setFree(4.2 * GB);
+    r.tick(2 * GB);
+    r.setFree(LAYA_AUTO_INSTALL_MIN_FREE - 1);
+    r.tick(2 * GB);
+    expect(r.written).toEqual([]);
+    expect(r.skips()).toEqual(["[server-memory] heap snapshot skipped: low disk, 4.2 GB free"]);
+    r.setFree(LAYA_AUTO_INSTALL_MIN_FREE);
+    r.tick(2 * GB);
+    expect(r.written).toHaveLength(1);
+  });
+
+  it("takes the snapshot at the first idle sample after a busy one, without spending the day's allowance on the wait", () => {
+    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    const r = rig({ snapshotDir: dir });
+    r.setBusy(true);
+    r.tick(2 * GB);
+    r.tick(2 * GB);
+    expect(r.written).toEqual([]);
+    r.setBusy(false);
+    const idle = r.tick(2 * GB);
+    expect(r.written).toHaveLength(1);
+    expect(r.written[0]).toContain(new Date(idle.at).toISOString().replace(/[:.]/g, "-"));
+  });
+
+  it("says it is waiting again after rss falls below the line and crosses it once more", () => {
+    dir = mkdtempSync(join(tmpdir(), "realm-heap-"));
+    const r = rig({ snapshotDir: dir });
+    r.setBusy(true);
+    r.tick(2 * GB);
+    r.tick(200 * MB);
+    r.tick(2 * GB);
+    expect(r.skips()).toHaveLength(2);
   });
 });
