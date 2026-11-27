@@ -131,11 +131,14 @@ async function launch(warm, renderer) {
   page.on("Runtime.consoleAPICalled", (e) => console_.push({ where: "window", text: e.args.map((a) => a.value ?? a.description ?? "").join(" ") }));
   page.on("Log.entryAdded", (e) => console_.push({ where: "window", text: e.entry.text }));
   await page.send("Log.enable");
+  // Main's own load must be done first: a reload over it aborts main's loadURL, which stops the app.
+  await until(() => page.eval(`document.readyState === "complete" && !!document.querySelector("#root > *")`), 60_000, "the first load");
   await page.send("Page.addScriptToEvaluateOnNewDocument", { source: COUNT_GL });
   if (warm !== null) await page.eval(`localStorage.setItem("realm.warmSessions", ${JSON.stringify(String(warm))}); true`);
   else await page.eval(`localStorage.removeItem("realm.warmSessions"); true`);
   await page.send("Page.reload");
   await sleep(1500);
+  console.log(`launched, warm cap ${warm ?? "default"}`);
   await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await app.main.eval(`(() => { const w = require("electron").BrowserWindow.getAllWindows().find((x) => x.isResizable()); w.setContentSize(2200, 1100); return true; })()`);
   await until(() => page.eval(`!!document.querySelector('.onboarding input:not([type=radio])') || !!document.querySelector('.composer')`), 60_000, "onboarding or a composer");
@@ -165,8 +168,6 @@ async function fill(run, panes, from = 0) {
   const { app, api } = run;
   const page = app.page;
   const space = (await api.call("spaces.list", {}))[0];
-  await api.call("settings.set", { key: "ui.background", value: LOOK });
-  await api.call("settings.set", { key: "ui.backgroundMotion", value: true });
   const made = [];
   for (let p = 0; p < panes; p++) {
     const four = [];
@@ -174,6 +175,7 @@ async function fill(run, panes, from = 0) {
     made.push(four);
   }
   const S = (expr) => page.eval(`(async () => { const s = __live.st(); ${expr}; return true; })()`);
+  await S(`await s.setBackground(${JSON.stringify(LOOK)}); await s.setBackgroundMotion(true)`);
   await S(`await s.refreshItems(${JSON.stringify(space.id)}); await s.refreshSessions(${JSON.stringify(space.id)})`);
   await sleep(500);
   const leaves = [];
@@ -243,7 +245,7 @@ async function memory(run) {
   const heap = await app.page.send("Runtime.getHeapUsage");
   let footprintMB = null;
   try {
-    const out = execFileSync("footprint", ["-p", String(m.pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const out = execFileSync("footprint", ["-p", String(m.pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 30_000 });
     const hit = /Footprint:\s*([\d.]+)\s*(KB|MB|GB)/i.exec(out) ?? /phys_footprint:\s*([\d.]+)\s*(KB|MB|GB)/i.exec(out);
     if (hit) footprintMB = Number(hit[1]) * { KB: 1 / 1024, MB: 1, GB: 1024 }[hit[2].toUpperCase()];
   } catch { /* no footprint tool */ }
@@ -300,7 +302,9 @@ try {
 
     // Contexts.
     results.contexts3 = { window: summarize(after), made: await page.eval(`__gl.made`), panel: await panelContexts(run) };
+    console.log("memory, default cap");
     results.memory4 = await memory(run);
+    console.log("two more panes");
 
     // Two more panes of four: twenty sessions mounted.
     await fill(run, 2, 3).catch((err) => { results.morePanes = String(err.message); });
@@ -318,6 +322,7 @@ try {
   /* ── Nothing kept: the same panes with the cap at one ─────────────────────────────────── */
   const one = await launch(1, renderer);
   try {
+    console.log("cap 1");
     await fill(one, 3);
     check((await one.app.page.eval(`document.querySelectorAll('.session-pane').length`)) === 3, "with realm.warmSessions=1 each pane mounts only its own session");
     results.memory1 = await memory(one);
