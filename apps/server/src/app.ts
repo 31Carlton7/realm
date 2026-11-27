@@ -75,6 +75,7 @@ import { machineState, readEval, trainCheckpoint } from "./laya/training";
 import { LayaRecorder } from "./laya/recorder";
 import type { LayaRuntime } from "./laya/runtime";
 import { ResourceService } from "./resources/service";
+import { ServerMemory } from "./resources/server-memory";
 import { ResourcePolicies } from "./resources/policies";
 import { ResourceControls } from "./resources/controls";
 import { createMachineStatusTools } from "./resources/agent-tools";
@@ -1022,6 +1023,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the simulator sweep before it shuts anything down. A quiet, empty machine unless `main.ts` passed
      the real one. */
   const machineProbe = opts.resources?.probe ?? quietMachineProbe();
+  // This process's own memory over time, for server.log and `machine_status` (`resources/server-memory.ts`).
+  /* Whether a session has a turn running, and the free space under the home: what the work that can
+     wait (Laya's auto-install, the heap snapshot) asks before it starts. `sessions` is built further down. */
+  const agentsWorking = (): boolean => sessions.statusCounts().working > 0;
+  const homeFreeBytes = (): number | null => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } };
+  const serverMemory = new ServerMemory({ log: (line) => console.error(line), snapshotDir: join(opts.home, "logs"), busy: agentsWorking, freeBytes: homeFreeBytes });
   /* The resource service, built further down once every service it asks exists; the idle windows read
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
@@ -1328,8 +1335,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ...(opts.layaAutoInstall ? {
       autoInstall: {
         onboarded: () => spaces.listAll().length > 0,
-        busy: () => sessions.statusCounts().working > 0,
-        freeBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+        busy: agentsWorking,
+        freeBytes: homeFreeBytes,
       },
     } : {}),
     ...(layaRuntime && layaResources
@@ -1714,6 +1721,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         return resourcesLate.snapshot();
       },
       processes: () => machineProbe.processes(),
+      server: () => serverMemory.status(),
       inSpace: (part, spaceId) => {
         if (!part.ownerId) return false;
         switch (part.category) {
@@ -2021,6 +2029,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   laya.boot();
   // Memory pressure, read every half minute from here on.
   resources.start();
+  // …and this process's own memory, every five minutes into server.log.
+  serverMemory.start();
   // …and the simulators Realm booted, looked over once a minute for one nobody is using.
   simulators.startIdleSweep();
   // …and the browser panes that have been off screen long enough to give their memory back.
@@ -2079,6 +2089,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     memoryLearner?.close(); // likewise a session's quiet timer
     memoryTidier?.close(); // and the tidy pass's clock
     resources.close();
+    serverMemory.close();
     resourcePolicies.close();
     terminals.closeAll();
     cliInstaller.disposeAll();

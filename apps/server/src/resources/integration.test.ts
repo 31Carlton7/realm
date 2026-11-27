@@ -140,6 +140,8 @@ describe("resources.snapshot through the app", () => {
     const out = r.content.map((x) => (x as { text: string }).text).join("");
     expect(out).toContain("Memory pressure: warn — macOS reports memory pressure");
     expect(out).toContain("- vitest: 1 process");
+    // This process's own memory, read by the sampler the app started at boot.
+    expect(out).toMatch(/## Realm's server\n- rss [\d.]+ [MG]B · heap [\d.]+ [MG]B of [\d.]+ [MG]B/);
     await mcp.close();
     c.close();
   });

@@ -9,6 +9,12 @@ export function durationWords(ms: number): string {
   return h < 48 ? `${h} h` : `${Math.round(h / 24)} days`;
 }
 
+/** "1.2 GB", "300 MB". */
+export const gb = (bytes: number): string => {
+  const g = bytes / 1024 ** 3;
+  return g >= 1 ? `${g >= 10 ? Math.round(g) : (Math.round(g * 10) / 10).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
+};
+
 /** What an engine is doing, as its row says it: working, waiting on you, or idle since its last event. */
 export function engineDetail(e: { status: Session["status"]; lastActiveAt: number }, now: number): string {
   if (e.status === "running") return "Working";

@@ -4,6 +4,8 @@ import { RESOURCE_CATEGORY_LABEL, platformCapabilities, type MachineMemory, type
 import { ok, parseArgs } from "../mcp/tool-result";
 import type { WorkspaceToolGroup } from "../workspace/agent-tools";
 import { AVAILABLE_WARN_PERCENT, type ProcRow } from "./machine";
+import { SAMPLE_EVERY_MS, describeSample, type ServerMemoryStatus } from "./server-memory";
+import { durationWords, gb } from "./words";
 
 /**
  * `machine_status`: how much this Mac has to spare, what of Realm's is heavy, and what to do about it —
@@ -50,10 +52,6 @@ export function testWorkers(m: MachineMemory): number {
   return Math.max(2, Math.floor(m.cpus / 2));
 }
 
-const gb = (bytes: number): string => {
-  const g = bytes / 1024 ** 3;
-  return g >= 1 ? `${g >= 10 ? Math.round(g) : (Math.round(g * 10) / 10).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
-};
 const size = (s: { footprintBytes: number | null; residentBytes: number }) => s.footprintBytes ?? s.residentBytes;
 
 /** What to do, in the order it matters. Pure, so each sentence is a decision a test can hold. */
@@ -82,10 +80,17 @@ export function advice(o: { machine: MachineMemory; heavy: { name: string; proce
   return out;
 }
 
+function serverLines({ now, growth: g }: ServerMemoryStatus): string[] {
+  const moved = g
+    ? `${g.changeBytes < 0 ? "Down" : "Up"} ${gb(Math.abs(g.changeBytes))} in ${durationWords(g.overMs)}, from ${gb(g.fromBytes)} (peak ${gb(g.peakBytes)})`
+    : `No earlier sample yet: it is read every ${durationWords(SAMPLE_EVERY_MS)}.`;
+  return [`- ${describeSample(now)}`, `- ${moved}`];
+}
+
 const TOOLS: Tool[] = [{
   name: "machine_status",
   description:
-    "How much memory, swap and CPU this Mac has to spare right now, what of Realm's is using it (engines, simulators, browser panes, Laya, terminals), what heavy work is already running, and what to do about it. Call it before a build, a full test suite or booting a simulator, and follow its advice: when memory is short it says how many test workers to use and to run one suite at a time. Read-only.",
+    "How much memory, swap and CPU this Mac has to spare right now, what of Realm's is using it (engines, simulators, browser panes, Laya, terminals), what heavy work is already running, realm-server's own memory and how it has grown, and what to do about it. Call it before a build, a full test suite or booting a simulator, and follow its advice: when memory is short it says how many test workers to use and to run one suite at a time. Read-only.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 }];
 
@@ -99,6 +104,8 @@ export function createMachineStatusTools(d: {
   /** Whether a part belongs to this space: a session's engine, a terminal, a browser pane or a
    *  simulator of its own. Absent, nothing is named. */
   inSpace?: (part: ResourcePart, spaceId: string) => boolean;
+  /** realm-server's own memory and how it moved (`ServerMemory.status`). */
+  server?: () => ServerMemoryStatus;
 }): WorkspaceToolGroup {
   const machine = d.machine ?? platformCapabilities(process.platform).machine;
   return {
@@ -138,6 +145,7 @@ export function createMachineStatusTools(d: {
               ...[...rest].sort((a, b) => b[1].bytes - a[1].bytes).map(([c, r]) => `- ${gb(r.bytes)} — ${RESOURCE_CATEGORY_LABEL[c]}: ${r.count}`));
           }
         }
+        if (d.server) lines.push("", "## Realm's server", ...serverLines(d.server()));
         const heavy = heavyWork(table);
         if (heavy.length > 0) lines.push("", "## Heavy work running on this Mac (anyone's)", ...heavy.map((h) => `- ${h.name}: ${h.processes} process${h.processes === 1 ? "" : "es"}`));
         if (report.others.length > 0) {
