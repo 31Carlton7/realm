@@ -267,9 +267,11 @@ async function main() {
   fs.writeFileSync(agent, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "fake-acp 0.0.0"; exit 0; fi\nexec "${process.execPath}" "${path.join(repoRoot, "packages/adapters/src/acp/fixtures/fake-acp-agent.mjs")}" "$@"\n`);
   fs.chmodSync(agent, 0o755);
 
-  app = await launchLiveApp({ name: "browser-bench", args: UNTHROTTLED, env: { REALM_GEMINI_BIN: agent } });
+  app = await launchLiveApp({ name: "browser-bench", inspect: true, args: UNTHROTTLED, env: { REALM_GEMINI_BIN: agent } });
   const { page } = app;
-  await page.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
+  // Sized from main, not emulated in the renderer: main sizes the pane's view from the renderer's
+  // devicePixelRatio over the display's scaleFactor, so an emulated ratio of 1 on a 2× display halves it.
+  await app.main.eval(`require("electron").BrowserWindow.getAllWindows().find((w) => w.isResizable()).setContentSize(${VIEWPORT.width}, ${VIEWPORT.height})`);
 
   // Onboarding makes the space. Its first session runs a real engine, so nothing is typed there.
   await until(() => page.eval(`!!document.querySelector('.onboarding input:not([type=radio])')`), 30_000, "onboarding");
@@ -411,12 +413,19 @@ async function main() {
 
   // Read once the tasks are done: a pane just opened has not been laid out, and reads 0×0.
   const paneViewport = await pane(`({ width: innerWidth, height: innerHeight })`);
+  const { display, paneView } = await app.main.eval(`(() => {
+    const { BrowserWindow, WebContentsView, screen } = require("electron");
+    const win = BrowserWindow.getAllWindows().find((w) => w.isResizable());
+    const { id, label, scaleFactor } = screen.getDisplayMatching(win.getBounds());
+    const view = win.contentView.children.find((v) => v instanceof WebContentsView && v.webContents.getURL().startsWith(${JSON.stringify(SITE)}));
+    return { display: { id, label, scaleFactor }, paneView: view?.getBounds() ?? null };
+  })()`);
   const report = {
     commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim(),
     ranAt: new Date().toISOString(),
     runs: RUNS,
     tokenEstimate: "ceil(chars / 4)",
-    viewport: { window: VIEWPORT, pane: paneViewport },
+    viewport: { window: VIEWPORT, pane: paneViewport, paneView, display },
     toolsList: { browser: browserTools, gateway: gatewayTools },
     tasks: results,
   };
@@ -447,7 +456,9 @@ function printTable(report, base) {
   }
   const { browser, gateway } = report.toolsList;
   const b = base?.toolsList.browser;
-  console.log(`\nrealm-browser tools/list: ${browser.tools} tools, ${cell(browser.bytes, b?.bytes)} bytes, ~${cell(browser.tokens, b?.tokens)} tokens (whole gateway: ${gateway.tools} tools, ${gateway.bytes} bytes)`);
+  const { display, paneView } = report.viewport;
+  console.log(`\nran on ${display.label} (scaleFactor ${display.scaleFactor}); pane view ${paneView ? `${paneView.width}×${paneView.height}` : "not found"}`);
+  console.log(`realm-browser tools/list: ${browser.tools} tools, ${cell(browser.bytes, b?.bytes)} bytes, ~${cell(browser.tokens, b?.tokens)} tokens (whole gateway: ${gateway.tools} tools, ${gateway.bytes} bytes)`);
 }
 
 async function teardown() {
