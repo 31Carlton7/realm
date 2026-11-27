@@ -244,7 +244,7 @@ const TOOLS: Tool[] = [
   {
     name: "browser_fill_credential",
     description:
-      "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
+      "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings ▸ Passwords, and fill it). " +
       "Both work the same way: Realm checks the pane's current origin, refuses if it is not the site the sign-in belongs to, asks the user to approve this specific fill (they may answer Always allow on this site), and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
       "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). For a second step, prefer a code by text or email (choose it under 'Other options' / 'Try another way'), then browser_fill_code. A push (Duo, Okta) or an authenticator app is the last resort: switch method first, and stop only if none is offered.",
     inputSchema: {
@@ -274,7 +274,7 @@ const TOOLS: Tool[] = [
     description:
       "Fill the one-time security code a site just sent by text or email into its code field, without ever seeing the code. Give the [ref=N] of the code field (or the first of its single-digit boxes). " +
       "Realm asks the user to approve this fill every time, then reads the newest code that arrived in their Messages or Mail in the last 5 minutes, on this Mac only, and types it. You are never told the code and the field's value stays out of your snapshots: the answer is only filled, declined, or why nothing was filled. " +
-      "Works only while the user has Settings ▸ Sign-ins ▸ Security codes on; when it is off, Realm asks the user to turn on agent sign-ins, and you never ask them for the code. Call it once, after the page says it sent the code; it waits for the code to arrive.",
+      "Works only while the user has Settings ▸ Passwords ▸ Security codes on; when it is off, Realm asks the user to turn on agent sign-ins, and you never ask them for the code. Call it once, after the page says it sent the code; it waits for the code to arrive.",
     inputSchema: {
       type: "object",
       properties: {
@@ -640,7 +640,7 @@ const HANDLERS: Record<string, Handler> = {
         return ok(
           `${result.detail}${result.credentialId ? `, as credentialId ${result.credentialId}` : ""}. `
           + "Use that id to fill the same password again — a confirm-password field takes the same call. "
-          + "You cannot read the value and neither can the user, so do not offer to tell them what it is: it is in Realm's Settings → Sign-ins, and the site's own reset is the way back if they ever need it elsewhere.",
+          + "You cannot read the value and neither can the user, so do not offer to tell them what it is: it is in Realm's Settings ▸ Passwords, and the site's own reset is the way back if they ever need it elsewhere.",
         );
       });
     }
@@ -721,7 +721,7 @@ const HANDLERS: Record<string, Handler> = {
     if (!(await signinsOn(d, ctx))) return err(AGENT_SIGNINS_OFF);
     const switched = (await d.bridge.call("codesEnabled", {}).catch(() => null)) as { enabled?: boolean } | null;
     if (switched?.enabled !== true) {
-      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Sign-ins ▸ Security codes. Nothing was filled.");
+      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Passwords ▸ Security codes. Nothing was filled.");
     }
     const title = `Fill the security code from Messages or Mail into the page on ${hostOf(live?.url)}`;
     // Preapproved by the switch, and still a gate: Plan and Ask refuse it there.

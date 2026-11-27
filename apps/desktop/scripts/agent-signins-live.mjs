@@ -266,7 +266,7 @@ async function main() {
   const newRef = await refOf(/\[ref=(\d+)\] textbox "New password"/);
   const generated = await agent("Fill", { browserId, ref: newRef, generate: { username: "ada@example.com", label: "Fixture sign-up" } });
   check("ON generate: a new password is made and filled with no card", generated.cards.length === 0 && !generated.isError && (await valueLength("#pw")) > 0, { cards: generated.cards, text: generated.text });
-  check("ON generate: the transcript says Realm created it and where it is kept", generated.notes[0]?.note === `Realm created a password for 127.0.0.1:${SITE_PORT}, saved in Settings ▸ Sign-ins`, generated.notes);
+  check("ON generate: the transcript says Realm created it and where it is kept", generated.notes[0]?.note === `Realm created a password for 127.0.0.1:${SITE_PORT}, saved in Settings ▸ Passwords`, generated.notes);
 
   await go("/verify");
   const code = String(randomInt(100_000, 1_000_000));

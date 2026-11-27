@@ -12,5 +12,6 @@ describe("what Settings says about an agent filling a code", () => {
   it("says the same in the two-factor limits", () => {
     expect(CREDENTIAL_2FA_LIMITS_NOTE).not.toMatch(/approve/);
     expect(CREDENTIAL_2FA_LIMITS_NOTE).toMatch(/for an agent, only while Let agents finish sign-ins is on\./);
+    expect(CREDENTIAL_2FA_LIMITS_NOTE).toContain("with Settings ▸ Passwords ▸ Security codes on");
   });
 });

@@ -35,10 +35,10 @@ export const AGENT_SIGNINS_OFFER = "offersSignins";
 
 /** What an agent is told when it reached for a fill while this is off. */
 export const AGENT_SIGNINS_OFF =
-  "Realm asked the user to turn on agent sign-ins (Settings ▸ Sign-ins ▸ Let agents finish sign-ins). Nothing was filled.";
+  "Realm asked the user to turn on agent sign-ins (Settings ▸ Passwords ▸ Let agents finish sign-ins). Nothing was filled.";
 
 /** The transcript's line for one agent fill: the site and the kind, never the value. */
 export function agentFillNote(kind: AgentFillKind, site: string): string {
-  if (kind === "generated") return `Realm created a password for ${site}, saved in Settings ▸ Sign-ins`;
+  if (kind === "generated") return `Realm created a password for ${site}, saved in Settings ▸ Passwords`;
   return kind === "code" ? `Realm filled a security code on ${site}` : `Realm filled a saved password on ${site}`;
 }

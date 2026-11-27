@@ -19,7 +19,7 @@ describe("the line an agent's sign-in fill leaves in its chat", () => {
     render(<StoreContext.Provider value={store}>
       <Transcript transcript={reduceAll(events)} sessionStatus="idle" onDecide={() => {}} sessionId={ME} />
     </StoreContext.Provider>);
-    expect(screen.getByRole("note").textContent).toBe("Realm created a password for example.com, saved in Settings ▸ Sign-ins");
+    expect(screen.getByRole("note").textContent).toBe("Realm created a password for example.com, saved in Settings ▸ Passwords");
   });
 
   it("is in an exported transcript too", () => {

@@ -651,9 +651,11 @@ describe("browser_credentials / browser_fill_credential", () => {
     // picking "Text me a passcode".
     expect(fillCredential).not.toContain("is the user's");
     expect(fillCredential).toContain("switch method first, and stop only if none is offered");
+    expect(fillCredential).toContain("save it under Settings ▸ Passwords");
     expect(fillCode).not.toContain("ask them to type the code");
     expect(fillCode).toContain("you never ask them for the code");
     expect(fillCode).toContain("it waits for the code to arrive");
+    expect(fillCode).toContain("Settings ▸ Passwords ▸ Security codes");
   });
 
   it("empty list says so, and is exact about which half of enrollment the agent cannot do", async () => {
@@ -878,7 +880,7 @@ describe("browser_credentials / browser_fill_credential", () => {
     const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: { username: "ada" } });
     expect(r.isError).toBeFalsy();
     expect(calls.gates[0]).toMatchObject({ preapproved: true, alwaysPrompt: false });
-    expect(calls.notes).toEqual([expect.objectContaining({ type: "signin_filled", payload: { site: "https://example.com", kind: "generated", note: "Realm created a password for example.com, saved in Settings ▸ Sign-ins" } })]);
+    expect(calls.notes).toEqual([expect.objectContaining({ type: "signin_filled", payload: { site: "https://example.com", kind: "generated", note: "Realm created a password for example.com, saved in Settings ▸ Passwords" } })]);
   });
 
   it("an origin the AGENT supplies is ignored — the pane decides what a new sign-in is pinned to", async () => {
@@ -918,6 +920,7 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(text(r)).toContain("credentialId cred-9");
     expect(text(r)).toMatch(/confirm-password/);
     expect(text(r)).toMatch(/do not offer to tell them what it is/);
+    expect(text(r)).toContain("it is in Realm's Settings ▸ Passwords");
   });
 
   it("a refused generated fill says nothing was generated either, and attaches no screenshot", async () => {
@@ -1998,6 +2001,7 @@ describe("browser_fill_code", () => {
     await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("Realm asked the user to turn on agent sign-ins");
+    expect(text(r)).toContain("Settings ▸ Passwords ▸ Let agents finish sign-ins");
     expect(text(r)).not.toMatch(/type the code/i);
     expect(calls.invites).toEqual([{ toolName: "agent_signins", title: "Let agents finish sign-ins? Opens Settings" }]);
     expect(calls.gates).toEqual([]);
@@ -2008,7 +2012,7 @@ describe("browser_fill_code", () => {
     const { call, calls } = setup({ bridgeResults: { ...on, codesEnabled: { enabled: false } } });
     const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("Settings ▸ Sign-ins ▸ Security codes");
+    expect(text(r)).toContain("Settings ▸ Passwords ▸ Security codes");
     expect(text(r)).not.toMatch(/type the code/i);
     expect(calls.gates).toEqual([]);
     expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
