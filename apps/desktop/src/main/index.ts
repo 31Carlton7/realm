@@ -66,7 +66,7 @@ import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
 import { agentHome, agentUserData, installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
-import { bringForward, raiseBy, type RaiseBy } from "./bring-forward";
+import { bringForward, panelIsKey, raiseBy, type RaiseBy } from "./bring-forward";
 import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
 import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
@@ -2966,8 +2966,10 @@ async function reattach(target?: { sessionId: string; spaceId: string | null } |
 }
 
 function raiseWindow(win: BrowserWindow, by: RaiseBy = "person"): void {
+  const focused = BrowserWindow.getFocusedWindow();
   bringForward(win, by, {
-    appActive: BrowserWindow.getFocusedWindow() !== null,
+    appActive: focused !== null,
+    panelKey: panelIsKey(focused, quickChatPanel.window()),
     activateApp: () => { if (process.platform === "darwin") app.focus({ steal: true }); },
   });
 }
