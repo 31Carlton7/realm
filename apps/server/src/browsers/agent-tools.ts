@@ -169,7 +169,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "browser_snapshot",
-    description: "The primary way to read a page for acting on it: a fused DOM+accessibility snapshot of the visible, interactive elements — each line is one element with a stable [ref=N] to use with browser_act. A control with no name says what it shows instead: icon:<name> or img:<name>, and in:\"…\" quotes the row or card it sits in when two lines would otherwise read the same. Elements changed since your previous snapshot are marked [new]. A long page lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them. Read-only.",
+    description: "The primary way to read a page for acting on it: a fused DOM+accessibility snapshot of the visible, interactive elements — each line is one element with a stable [ref=N] to use with browser_act. A control with no name says what it shows instead: icon:<name> or img:<name>, and in:\"…\" quotes the row or card it sits in when two lines would otherwise read the same. Elements changed since your previous snapshot are marked [new], and diff: true lists only those, plus what went away. A run of offscreen elements shares one line, flagged {offscreen} once and separated by \" · \". A long page lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them. Read-only.",
     inputSchema: { type: "object", properties: { browserId: { type: "string" }, ...SNAPSHOT_SCOPE_PROPERTIES }, required: ["browserId"], additionalProperties: false },
   },
   {
@@ -470,7 +470,7 @@ const HANDLERS: Record<string, Handler> = {
     // What the agent is shown is what its next act chooses from, and the page its last act left.
     if (d.observe) d.reads.remember(ctx.sessionId, row.value.id, (snap.elements ?? []).map((e) => observedOf(walkElementOf(e))));
     if (snap.loadError) return ok(loadErrorReport(snap.loadError, snap.page?.loading === true));
-    const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; changed-since-last-snapshot lines end with [new].`;
+    const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; ${scope.diff ? "only what changed since your last snapshot is listed" : "changed-since-last-snapshot lines end with [new]"}.`;
     return ok(`${head}\n${fenceUntrusted(`title: ${snap.title}\n${snap.text}`)}`);
   },
 

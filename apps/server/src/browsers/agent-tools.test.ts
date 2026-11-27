@@ -311,12 +311,14 @@ describe("hard blocks", () => {
 });
 
 describe("results and scoping", () => {
-  it("snapshot forwards offset, query, within and detail to the executor, and refuses a malformed one", async () => {
+  it("snapshot forwards offset, query, within, detail and diff to the executor, and refuses a malformed one", async () => {
     const { call, calls } = setup();
-    await call("browser_snapshot", { browserId: "b1", offset: 400, query: "save", within: 88, detail: "geometry" });
-    expect(calls.bridge.find((b) => b.op === "snapshot")?.params).toEqual({ browserId: "b1", scope: { offset: 400, query: "save", within: 88, detail: "geometry" } });
+    const r = await call("browser_snapshot", { browserId: "b1", offset: 400, query: "save", within: 88, detail: "geometry", diff: true });
+    expect(calls.bridge.find((b) => b.op === "snapshot")?.params).toEqual({ browserId: "b1", scope: { offset: 400, query: "save", within: 88, detail: "geometry", diff: true } });
+    expect(text(r)).toContain("only what changed since your last snapshot is listed");
     expect((await call("browser_snapshot", { browserId: "b1", offset: -1 })).isError).toBe(true);
     expect((await call("browser_snapshot", { browserId: "b1", detail: "boxes" })).isError).toBe(true);
+    expect((await call("browser_snapshot", { browserId: "b1", diff: "yes" })).isError).toBe(true);
   });
 
   it("snapshot output is fenced as untrusted page content", async () => {
