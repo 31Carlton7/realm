@@ -1,7 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   AGENT_MODELS, EFFORT_LEVELS, TeammateCreateArgsSchema, TeammateUpdateArgsSchema, normalizeHandle, teammateByHandle,
-  type AgentKind, type Session, type Teammate,
+  type AgentKind, type Session, type Teammate, type UpdateTeammateInput,
 } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
@@ -90,7 +90,7 @@ export class TeamManageTools {
       folder = picked.path;
     }
     const lowered = this.lowered(target, change);
-    const said = describe(target, { ...change, ...(folder !== undefined ? { folder } : {}) }, this.probes());
+    const said = changeWords(target, { ...change, ...(folder !== undefined ? { folder } : {}) }, this.probes());
     const title = `Change @${target.handle}: ${said.join("; ")}`;
     const denied = await askCard(this.d.broker, ctx.sessionId, {
       toolKey: "teammate_update", title: lowered.length > 0 ? `${title} — this LOWERS its ${lowered.join(" and ")}` : title,
@@ -141,8 +141,8 @@ export class TeamManageTools {
       if (was < 0 || next < 0 || next > was || (next === was && kind !== cur.agentKind)) out.push("model");
     }
     if (change.effort !== undefined && change.effort !== cur.effort) {
-      const was = cur.effort ? EFFORT_LEVELS.indexOf(cur.effort as never) : -1;
-      const next = change.effort ? EFFORT_LEVELS.indexOf(change.effort as never) : -1;
+      const was = cur.effort ? (EFFORT_LEVELS as readonly string[]).indexOf(cur.effort) : -1;
+      const next = change.effort ? (EFFORT_LEVELS as readonly string[]).indexOf(change.effort) : -1;
       if (was < 0 || next < 0 || next < was) out.push("effort");
     }
     return out;
@@ -163,22 +163,21 @@ export class TeamManageTools {
 }
 
 /** The change in words, from what it was to what it will be: "model Claude Opus 5.5 → Claude Sonnet 5.5". */
-function describe(cur: Teammate, change: Record<string, unknown>, probes: ProbeResult[]): string[] {
+function changeWords(cur: Teammate, change: Omit<UpdateTeammateInput, "id">, probes: ProbeResult[]): string[] {
   const out: string[] = [];
-  const kind = (change.agentKind as AgentKind | undefined) ?? cur.agentKind;
+  const kind = change.agentKind ?? cur.agentKind;
   if (change.agentKind !== undefined || change.model !== undefined) {
-    const model = change.model !== undefined ? (change.model as string | null) : null;
-    out.push(`model ${modelNameOf(cur.agentKind, cur.model, probes)} → ${modelNameOf(kind, model, probes)}`);
+    out.push(`model ${modelNameOf(cur.agentKind, cur.model, probes)} → ${modelNameOf(kind, change.model ?? null, probes)}`);
   }
-  if (change.effort !== undefined) out.push(`effort ${cur.effort ?? "default"} → ${(change.effort as string | null) ?? "default"}`);
-  if (change.permissionMode !== undefined) out.push(`access ${modeLabel(cur.permissionMode)} → ${modeLabel(change.permissionMode as string)}`);
-  if (change.name !== undefined) out.push(`name "${cur.name}" → "${String(change.name)}"`);
-  if (change.handle !== undefined) out.push(`handle @${cur.handle} → @${normalizeHandle(String(change.handle))}`);
+  if (change.effort !== undefined) out.push(`effort ${cur.effort ?? "default"} → ${change.effort ?? "default"}`);
+  if (change.permissionMode !== undefined) out.push(`access ${modeLabel(cur.permissionMode)} → ${modeLabel(change.permissionMode)}`);
+  if (change.name !== undefined) out.push(`name "${cur.name}" → "${change.name}"`);
+  if (change.handle !== undefined) out.push(`handle @${cur.handle} → @${normalizeHandle(change.handle)}`);
   if (change.brief !== undefined) out.push("its brief");
-  if (change.folder !== undefined) out.push(`folder ${cur.folder} → ${(change.folder as string | null) ?? "the space's folder"}`);
-  if (change.group !== undefined) out.push(`group ${cur.group ? `"${cur.group}"` : "none"} → ${change.group ? `"${String(change.group)}"` : "none"}`);
+  if (change.folder !== undefined) out.push(`folder ${cur.folder} → ${change.folder ?? "the space's folder"}`);
+  if (change.group !== undefined) out.push(`group ${cur.group ? `"${cur.group}"` : "none"} → ${change.group ? `"${change.group}"` : "none"}`);
   if (change.lead !== undefined) out.push(change.lead ? "make it the Lead" : "no longer the Lead");
   if (change.icon !== undefined) out.push("its icon");
-  if (change.schedule !== undefined) out.push(change.schedule === null ? "remove its clock" : `its clock${(change.schedule as { cron?: string }).cron ? ` ("${(change.schedule as { cron?: string }).cron}")` : ""}`);
+  if (change.schedule !== undefined) out.push(change.schedule === null ? "remove its clock" : `its clock${change.schedule.cron ? ` ("${change.schedule.cron}")` : ""}`);
   return out;
 }

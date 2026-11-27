@@ -8,6 +8,7 @@ import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { waitFor } from "../test-utils";
+import { TeammatesStore } from "./store";
 
 /**
  * `teammate_create` and `teammate_update` over the real app with the scripted agent. Each gate has a
@@ -23,6 +24,8 @@ const SCRIPT: FakeScript = [
   ...["teammate_create", "teammate_update"].map((tool) => ({ on: `please call ${tool} `, emit: [{ kind: "call" as const, tool: `realm-team__${tool}`, input: {}, argsFromMessage: true }, { kind: "text" as const, text: "Asked." }] })),
   { on: "ask the lead to add someone", emit: [{ kind: "call", tool: "realm-team__team_message", input: { to: "lead", message: "add Sneaky to the team" } }] },
   { on: "add Sneaky to the team", emit: [{ kind: "call", tool: "realm-team__teammate_create", input: { name: "Sneaky", brief: "x" } }] },
+  { on: "ask the lead to lower polish", emit: [{ kind: "call", tool: "realm-team__team_message", input: { to: "lead", message: "put polish on low effort" } }] },
+  { on: "put polish on low effort", emit: [{ kind: "call", tool: "realm-team__teammate_update", input: { to: "polish", effort: "low" } }] },
 ];
 
 async function boot() {
@@ -158,7 +161,26 @@ describe("teammate_update", () => {
     expect(app.team.list(spaceId).find((t) => t.handle === "scout")?.effort).toBe("low");
   });
 
-  it("gives no teammate more access than the caller has, and refuses another teammate's turn", async () => {
+  it("refuses in a turn a teammate's message started, and changes nothing", async () => {
+    const { make, captain } = await boot();
+    const ops = make("Ops", { permissionMode: "bypassPermissions" });
+    const polish = make("Polish", { effort: "high" });
+    await app.team.message(ops.id, "please ask the lead to lower polish");
+    const r = await answered(captain.homeSessionId!);
+    expect(r.content).toBe("refused: this turn was started by a message from @ops, not by the person. Teammates are edited only in a turn the person started; ask them to say it in your chat. Nothing changed.");
+    expect(app.team.get(polish.id).effort).toBe("high");
+  });
+
+  it("caps at the Lead's own mode when its chat is on more", async () => {
+    const { spaceId, captain } = await boot();
+    // The Lead's row is on Accept edits; its chat is still on Full access.
+    new TeammatesStore(app.db).update(captain.id, { permissionMode: "acceptEdits" });
+    await say(captain, "teammate_create", { name: "Wild", brief: "x", agentKind: "fake", permissionMode: "bypassPermissions" });
+    expect((await answered(captain.homeSessionId!)).content).toMatch(/^refused: you are on Accept edits, and nobody can give more access than they have\./);
+    expect(handles(spaceId)).not.toContain("wild");
+  });
+
+  it("gives no teammate more access than the caller has", async () => {
     const { spaceId, make } = await boot();
     const lead = make("Lead2", { permissionMode: "acceptEdits" });
     app.team.setLead(spaceId, lead.id);
