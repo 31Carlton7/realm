@@ -1,7 +1,7 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   SPACE_TEAMS_TOOL, SpaceTeamsArgsSchema, TeamListArgsSchema, TeamMessageArgsSchema, normalizeHandle, teammateByHandle,
-  type Session, type Space, type Teammate,
+  type Session, type Space,
 } from "@realm/contracts";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import { askCard, refuseUnlessPersonTurn } from "../mcp/agent-gate";
@@ -32,8 +32,8 @@ export type CrossSpaceDeps = {
   broker: Pick<BrowserPermissionBroker, "gate">;
 };
 
-/** Who is reaching past its space: the calling session, its Lead, and the space it is in. */
-type Reach = { session: Session; lead: Teammate; mine: Space };
+/** Who is reaching past its space: the calling session and the space it is in. */
+type Reach = { session: Session; mine: Space };
 
 /**
  * A Lead's reach across the spaces of its profile: `space_teams`, and `team_list` and `team_message`
@@ -110,7 +110,7 @@ export class CrossSpaceTeamTools {
     if (!mine) return { error: err(`this session's space is gone.${nothing}`) };
     const all = this.d.spaces.list(mine.profileId);
     const name = asked.trim().toLowerCase();
-    const found = all.find((s) => s.id === asked) ?? all.find((s) => s.name === asked) ?? all.find((s) => s.name.trim().toLowerCase() === name);
+    const found = all.find((s) => s.id === asked) ?? all.find((s) => s.name.trim().toLowerCase() === name);
     if (found) return found;
     return { error: err(`there is no space "${asked}" in this profile. Spaces here: ${all.map((s) => `"${s.name}"`).join(", ")} (space_teams lists each one's team).${nothing}`) };
   }
@@ -122,7 +122,7 @@ export class CrossSpaceTeamTools {
     const mine = this.d.spaces.get(session.spaceId);
     if (!mine) return { error: err(`this session's space is gone.${nothing}`) };
     const me = this.d.team.teammateOf(session.id);
-    if (me && !me.archived && me.lead && me.homeSessionId === session.id && me.spaceId === session.spaceId) return { session, lead: me, mine };
+    if (me && !me.archived && me.lead && me.homeSessionId === session.id && me.spaceId === session.spaceId) return { session, mine };
     const who = !me ? `this session is not a teammate's`
       : me.lead ? `you are @${me.handle}, in a task session rather than your own chat`
       : `you are @${me.handle}, not the Lead of "${mine.name}"`;
