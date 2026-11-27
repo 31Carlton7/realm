@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  BROWSER_READ_ONLY_TOOLS, BrowserGeneratedCredentialSchema, CREDENTIAL_PRESENCE_TTLS,
+  BROWSER_READ_ONLY_TOOLS, BrowserGeneratedCredentialSchema, CREDENTIAL_2FA_LIMITS_NOTE, CREDENTIAL_PRESENCE_TTLS,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
   normalizeOrigin, parseUnlockPolicy, passkeyRpIdForPageUrl, unlockPolicyRank, unlockScopeKey,
 } from "./browser-agent";
@@ -62,6 +62,12 @@ describe("BROWSER_READ_ONLY_TOOLS", () => {
     ]) {
       expect(BROWSER_READ_ONLY_TOOLS).not.toContain(mutating);
     }
+  });
+});
+
+describe("CREDENTIAL_2FA_LIMITS_NOTE", () => {
+  it("names the Security codes switch where Settings shows it", () => {
+    expect(CREDENTIAL_2FA_LIMITS_NOTE).toContain("with Settings ▸ Passwords ▸ Security codes on");
   });
 });
 

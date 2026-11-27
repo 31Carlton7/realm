@@ -616,8 +616,11 @@ describe("browser_credentials / browser_fill_credential", () => {
     // picking "Text me a passcode".
     expect(fillCredential).not.toContain("is the user's");
     expect(fillCredential).toContain("switch method first, and stop only if none is offered");
-    expect(fillCode).not.toContain("ask them to type the code");
-    expect(fillCode).toContain("you never ask them for the code");
+    expect(fillCredential).toContain("save it under Settings ▸ Passwords");
+    // This line has no agent sign-ins switch to send the user to, so the code is still theirs to
+    // type while Security codes is off.
+    expect(fillCode).toContain("Settings ▸ Passwords ▸ Security codes on; if it is off, ask them to type the code or turn it on.");
+    expect(fillCode).not.toContain("agent sign-ins");
     expect(fillCode).toContain("it waits for the code to arrive");
   });
 
@@ -839,6 +842,7 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(text(r)).toContain("credentialId cred-9");
     expect(text(r)).toMatch(/confirm-password/);
     expect(text(r)).toMatch(/do not offer to tell them what it is/);
+    expect(text(r)).toContain("it is in Realm's Settings ▸ Passwords");
   });
 
   it("a refused generated fill says nothing was generated either, and attaches no screenshot", async () => {
@@ -1915,7 +1919,7 @@ describe("browser_fill_code", () => {
     const { call, calls } = setup({ bridgeResults: { codesEnabled: { enabled: false } } });
     const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("Settings ▸ Sign-ins ▸ Security codes");
+    expect(text(r)).toContain("until the user turns on Settings ▸ Passwords ▸ Security codes. Ask them to type the code into the pane, or to turn that on.");
     expect(calls.gates).toEqual([]);
     expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
   });

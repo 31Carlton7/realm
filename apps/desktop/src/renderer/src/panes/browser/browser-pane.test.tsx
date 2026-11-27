@@ -800,6 +800,7 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
 
     await act(async () => { f.refusePasskey({ refused: "unavailable", rpId: "github.com" }); });
     expect(screen.getByRole("status")).toHaveTextContent("no Touch ID sensor");
+    expect(screen.getByRole("status")).toHaveTextContent("Settings ▸ Passwords can unlock this profile");
   });
 
   it("ignores a passkey refusal belonging to ANOTHER pane", async () => {

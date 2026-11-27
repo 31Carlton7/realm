@@ -856,6 +856,15 @@ describe("performFillCredential", () => {
     expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent")).toHaveLength(0);
   });
 
+  it("an id the store does not hold says where the user adds one", async () => {
+    const { send } = fakeSend({ history: { url: "https://example.com/login" } });
+    const store = fakeStore({ refused: "no_credential" });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
+
+    expect(!result.ok && result.refused).toBe("no_credential");
+    expect(!result.ok && result.error).toContain("in Realm's Settings, under Passwords");
+  });
+
   it("REFUSES a ref inside an iframe from another origin of the same site, and never asks for presence (mutant: only the top frame checked)", async () => {
     // A same-site iframe is in the page's process, so its fields are in the snapshot and `DOM.focus`
     // reaches them; the top frame's origin says nothing about who reads what is typed there.

@@ -90,6 +90,7 @@ describe("the capability map cannot drift from the tools", () => {
     const missing = tools.filter((t) => !catalog.includes(`- ${t.name.split("__")[1]} — `)).map((t) => t.name);
     expect(missing).toEqual([]);
     expect(catalog).toContain("## In Realm, with no tool");
+    expect(catalog).toContain("- Settings ▸ Passwords: saved passwords and passkeys.");
     await client.close();
     c.close();
   });
