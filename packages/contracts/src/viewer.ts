@@ -80,8 +80,8 @@ export const ViewerInputSchema = z.discriminatedUnion("type", [
 export type ViewerInput = z.input<typeof ViewerInputSchema>;
 
 /**
- * A child view drawn over a window's own page: a browser pane or an MCP app view, which the window's
- * screencast cannot see. A quiet Realm's main keeps the list for each window in that window's page,
+ * A child view drawn over a window's own page, such as a browser pane, which the window's screencast
+ * cannot see. A quiet Realm's main keeps the list for each window in that window's page,
  * in `CHILD_VIEWS_GLOBAL`, and calls `CHILD_VIEWS_BINDING` with it whenever it changes, so a relay on
  * the window's DevTools socket can draw each one over the window's frame. The rect is in the window
  * page's CSS pixels; `targetId` is the child's own DevTools target.

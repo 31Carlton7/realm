@@ -212,6 +212,24 @@ describe("ViewerService compositing child views", () => {
     expect(app.on("C1", "Input.insertText")).toEqual([]);
   });
 
+  it("folds child frames that come faster than one per 50 ms into the next draw", async () => {
+    const { app, client } = await setup([PANE]);
+    await until(() => app.on("C1", "Page.startScreencast").length > 0, "the child's screencast");
+    app.frame("W", await solid(800, 600, RED), 800, 600);
+    const blue = await solid(200, 100, BLUE), green = await solid(200, 100, GREEN);
+    await until(() => client.parts.length > 0, "the first frame");
+    const before = client.parts.length;
+    // 30 frames over about 300 ms, the last one green.
+    for (let i = 0; i < 30; i++) {
+      app.frame("C1", i === 29 || i % 2 ? green : blue, 200, 100);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    await frameWith(client, [[200, 100]], ["green"]);
+    // The still re-send repeats a frame; only a new picture is a draw.
+    const drawn = client.parts.slice(before).filter((p, i, all) => !p.equals(all[i - 1] ?? client.parts[before - 1]!));
+    expect(drawn.length).toBeLessThanOrEqual(10);
+  });
+
   it("passes a window with no child views through untouched, byte for byte", async () => {
     const { app, client } = await setup();
     // Listening for child views, with none there.

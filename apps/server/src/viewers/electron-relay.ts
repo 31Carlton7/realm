@@ -14,7 +14,7 @@ import { CHILD_VIEWS_BINDING, CHILD_VIEWS_GLOBAL, ViewerChildViewSchema, ViewerI
  * never activates the app.
  *
  * The screencast is this one page's DOM, as `capturePage()` is, so child WebContentsViews (a quiet
- * Realm's browser panes and MCP app views) are not in it. When the page lists child views in
+ * Realm's browser panes) are not in it. When the page lists child views in
  * `CHILD_VIEWS_GLOBAL` (see `ViewerChildViewSchema`), each gets a screencast of its own, drawn at its
  * rect over the window's frame, and a point inside its rect goes to it. A page with no child views
  * is passed through as it comes, and sharp is never loaded.
@@ -26,6 +26,9 @@ const JPEG_QUALITY = 70;
 const STILL_MS = 1000;
 /** How long close waits for `Page.stopScreencast` before dropping the socket anyway. */
 const STOP_WAIT_MS = 500;
+/** The least time between composited frames. Chromium paints moving content at the display's rate
+ *  (about 95 fps measured), and drawing each of those cost two cores at 1400x900. */
+const COMPOSITE_MS = 50;
 
 type Size = { width: number; height: number };
 
@@ -44,6 +47,7 @@ export function toPage(p: { x: number; y: number } & Size, page: Size): { x: num
 
 type CdpEvent = { method: string; params: Record<string, unknown> };
 type CdpMessage = { id?: number; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { message: string } };
+type Raw = { width: number; height: number; channels: 3 | 4 };
 type ScreencastFrame = { data: string; sessionId: number; metadata: { deviceWidth: number; deviceHeight: number } };
 
 /** One page target's DevTools socket: commands answered by id, and its events. */
@@ -107,7 +111,7 @@ class CdpPage {
 
 /** A child view's picture, and the rect main says it covers. `layer` is that picture resized to the
  *  rect in frame pixels, kept until either changes. */
-type Child = { rect: ViewerChildView; cdp: CdpPage; jpeg: Buffer | null; page: Size | null; layer: { key: string; input: Buffer; raw: { width: number; height: number; channels: 3 | 4 } } | null };
+type Child = { rect: ViewerChildView; cdp: CdpPage; jpeg: Buffer | null; page: Size | null; layer: { key: string; input: Buffer; raw: Raw } | null };
 
 export class ElectronRelay {
   private readonly cdp: CdpPage;
@@ -123,6 +127,11 @@ export class ElectronRelay {
   private children = new Map<string, Child>();
   private compositing = false;
   private compositeAgain = false;
+  private compositeTimer: NodeJS.Timeout | null = null;
+  private lastComposite = 0;
+  /** The window's latest frame decoded, while it is the latest: a child that changes alone is drawn
+   *  over it without decoding the window again. */
+  private base: { jpeg: Buffer; data: Buffer; raw: Raw } | null = null;
   /** Keys go where the last press went: the window's page, or a child's. */
   private keyTarget: CdpPage | null = null;
 
@@ -136,8 +145,8 @@ export class ElectronRelay {
   async start(): Promise<void> {
     await this.cdp.open(this.wsUrl);
     await this.screencast(this.cdp);
-    await this.send("Runtime.addBinding", { name: CHILD_VIEWS_BINDING });
-    const seeded = await this.send("Runtime.evaluate", { expression: `JSON.stringify(globalThis.${CHILD_VIEWS_GLOBAL} ?? [])`, returnByValue: true }) as { result?: { value?: unknown } } | undefined;
+    await this.cdp.send("Runtime.addBinding", { name: CHILD_VIEWS_BINDING });
+    const seeded = await this.cdp.send("Runtime.evaluate", { expression: `JSON.stringify(globalThis.${CHILD_VIEWS_GLOBAL} ?? [])`, returnByValue: true }) as { result?: { value?: unknown } } | undefined;
     this.setChildren(seeded?.result?.value);
   }
 
@@ -150,15 +159,11 @@ export class ElectronRelay {
     });
   }
 
-  private send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    return this.cdp.send(method, params);
-  }
-
   private receive({ method, params }: CdpEvent): void {
     if (method === "Runtime.bindingCalled" && params.name === CHILD_VIEWS_BINDING) { this.setChildren(params.payload); return; }
     if (method !== "Page.screencastFrame") return;
     const { data, sessionId, metadata } = params as ScreencastFrame;
-    void this.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
+    void this.cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
     const frame = Buffer.from(data, "base64");
     this.page = { width: metadata.deviceWidth, height: metadata.deviceHeight };
     this.windowFrame = frame;
@@ -219,11 +224,18 @@ export class ElectronRelay {
     void child.cdp.stop();
   }
 
-  /** Draws the child views over the window's latest frame. One at a time: frames that arrive while
-   *  one is being drawn are folded into the next. */
+  /** Draws the child views over the window's latest frame. One at a time and at most one per
+   *  `COMPOSITE_MS`: frames that arrive in between are folded into the next. */
   private composite(): void {
-    if (this.compositing) { this.compositeAgain = true; return; }
+    if (this.compositing || this.compositeTimer) { this.compositeAgain = true; return; }
+    const wait = this.lastComposite + COMPOSITE_MS - Date.now();
+    if (wait > 0) {
+      this.compositeTimer = setTimeout(() => { this.compositeTimer = null; this.composite(); }, wait);
+      return;
+    }
     this.compositing = true;
+    this.compositeAgain = false;
+    this.lastComposite = Date.now();
     void this.draw()
       .then((jpeg) => {
         if (!jpeg || this.ended || this.children.size === 0) return;
@@ -233,7 +245,7 @@ export class ElectronRelay {
       .catch(() => {})
       .finally(() => {
         this.compositing = false;
-        if (this.compositeAgain) { this.compositeAgain = false; this.composite(); }
+        if (this.compositeAgain && !this.ended) this.composite();
       });
   }
 
@@ -241,10 +253,14 @@ export class ElectronRelay {
     const base = this.windowFrame, page = this.page;
     if (!base || !page) return null;
     const { default: sharp } = await import("sharp");
-    const { width = 0, height = 0 } = await sharp(base).metadata();
+    if (this.base?.jpeg !== base) {
+      const { data, info } = await sharp(base).raw().toBuffer({ resolveWithObject: true });
+      this.base = { jpeg: base, data, raw: { width: info.width, height: info.height, channels: info.channels as 3 | 4 } };
+    }
+    const { data, raw } = this.base, { width, height } = raw;
     // The rects are in the page's CSS pixels; the frame may be smaller (maxWidth) or larger (a 2x display).
     const sx = width / page.width, sy = height / page.height;
-    const layers: { input: Buffer; raw: { width: number; height: number; channels: 3 | 4 }; left: number; top: number }[] = [];
+    const layers: { input: Buffer; raw: Raw; left: number; top: number }[] = [];
     for (const child of this.children.values()) {
       if (!child.jpeg) continue;
       const { rect } = child;
@@ -264,7 +280,7 @@ export class ElectronRelay {
       }
       layers.push({ input: child.layer.input, raw: child.layer.raw, left: x0, top: y0 });
     }
-    return sharp(base).composite(layers).jpeg({ quality: JPEG_QUALITY }).toBuffer();
+    return sharp(data, { raw }).composite(layers).jpeg({ quality: JPEG_QUALITY }).toBuffer();
   }
 
   private broadcast(): void {
@@ -347,6 +363,8 @@ export class ElectronRelay {
     this.ended = true;
     if (this.stillTimer) clearTimeout(this.stillTimer);
     this.stillTimer = null;
+    if (this.compositeTimer) clearTimeout(this.compositeTimer);
+    this.compositeTimer = null;
     for (const res of this.clients) res.end();
     this.clients.clear();
     for (const child of this.children.values()) child.cdp.close();
@@ -355,6 +373,7 @@ export class ElectronRelay {
     this.cdp.close();
     this.frame = null;
     this.windowFrame = null;
+    this.base = null;
     if (exited) this.opts.onExit();
   }
 }

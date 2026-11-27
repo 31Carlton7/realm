@@ -4,13 +4,11 @@ import { CHILD_VIEWS_BINDING, CHILD_VIEWS_GLOBAL, type ViewerChildView } from "@
 /**
  * Each quiet window's child views, left in the window's own page for a viewer relay to find.
  *
- * A screencast of a window's page is that page's DOM only: the browser panes main lays over it as
- * `WebContentsView`s are not in it. Main is what knows where they are, so after anything adds,
- * removes, moves, shows or hides a view, it writes the window's visible child views, with each one's
- * DevTools target id and its rect in the page's CSS pixels, to `CHILD_VIEWS_GLOBAL` in that page,
- * and calls `CHILD_VIEWS_BINDING` if a relay has added it. The relay is on that page's DevTools
- * socket already, so it needs no other way in. Installed by `installQuietWindows` only: an app
- * someone uses has no relay to tell.
+ * A screencast of a window's page has none of the `WebContentsView`s main lays over it. After any
+ * view is added, removed, moved, shown or hidden, main writes the window's visible ones (DevTools
+ * target id, rect in page CSS pixels) to `CHILD_VIEWS_GLOBAL` in that page and calls
+ * `CHILD_VIEWS_BINDING` if a relay added it: the relay is on that page's socket already. Quiet mode
+ * only (`installQuietWindows`): an app someone uses has no relay to tell.
  */
 
 type ViewLike = { getVisible(): boolean; getBounds(): { x: number; y: number; width: number; height: number }; webContents?: WebContents };
