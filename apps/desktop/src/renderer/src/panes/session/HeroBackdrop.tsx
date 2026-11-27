@@ -345,6 +345,16 @@ function chatInks(pane: Element): { inks: Rgb[]; links: Rgb[] } {
   return out;
 }
 
+/** A transcript's picture, finished, by the backdrop and its draw key: each session pane draws its
+ *  own, and a switch to another at the same size and face puts these back rather than hushing again. */
+const hushedPixels = new Map<string, ImageData>();
+export const HUSHED_KEPT = 4;
+function keepHushed(key: string, pixels: ImageData) {
+  hushedPixels.delete(key);
+  hushedPixels.set(key, pixels);
+  if (hushedPixels.size > HUSHED_KEPT) hushedPixels.delete(hushedPixels.keys().next().value!);
+}
+
 /**
  * The picture behind a transcript (chat-backdrop.ts): drawn once, blurred by the edge blur's deeper
  * radius (`--fade-blur-far`) so it stops competing with the words, and each pixel brought toward black
@@ -393,17 +403,23 @@ function ChatBackdrop({ backdrop, settle, onSettled, underLoop }: { backdrop: Ba
       const track = trackOf(pane, box, 1 / SCALE);
       const key = JSON.stringify([w, h, dpr, pal, blur, inks, links, track]);
       if (key === drawn) return;
-      const pic = await pictureFor(backdrop, pal.dark);
-      if (!pic || stale()) return;
-      const print = await printed(backdrop.effect, pic, pal, w, h, dpr);
-      if (stale()) return;
-      const [aw, ah] = [Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE)];
-      const art = soften(print, pal.ground, aw, ah, blur / SCALE);
-      const sharp = soften(print, pal.ground, aw, ah, 0).getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, aw, ah);
-      const pixels = art.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, art.width, art.height);
-      const range = readableRange(pal.ground, inks, links);
-      hushTrack(pixels.data, sharp.data, aw, hushToward(pal, range), range, track);
-      if (canvas.width !== art.width || canvas.height !== art.height) { canvas.width = art.width; canvas.height = art.height; }
+      let pixels = hushedPixels.get(`${backdrop.key}|${key}`);
+      if (!pixels) {
+        const pic = await pictureFor(backdrop, pal.dark);
+        if (!pic || stale()) return;
+        const print = await printed(backdrop.effect, pic, pal, w, h, dpr);
+        // The hush below holds the main thread ~100 ms: let the frame this pane opened in paint first.
+        await new Promise((r) => setTimeout(r, 0));
+        if (stale()) return;
+        const [aw, ah] = [Math.ceil(box.width / SCALE), Math.ceil(box.height / SCALE)];
+        const art = soften(print, pal.ground, aw, ah, blur / SCALE);
+        const sharp = soften(print, pal.ground, aw, ah, 0).getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, aw, ah);
+        pixels = art.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, art.width, art.height);
+        const range = readableRange(pal.ground, inks, links);
+        hushTrack(pixels.data, sharp.data, aw, hushToward(pal, range), range, track);
+        keepHushed(`${backdrop.key}|${key}`, pixels);
+      }
+      if (canvas.width !== pixels.width || canvas.height !== pixels.height) { canvas.width = pixels.width; canvas.height = pixels.height; }
       canvas.getContext("2d")!.putImageData(pixels, 0, 0);
       drawn = key;
       setGlassDim(pane, canvas, pal.ground, resolveColor);
