@@ -175,10 +175,8 @@ describe("what the card says, and how many times", () => {
 });
 
 describe("a browser card beside its tool's name", () => {
-  /* Each input is the shape `apps/server/src/browsers/agent-tools.ts` gates with. The pane's id rode
-     along in every one, and the summary fell back to the first string, so the card read
-     "browser_fill_credential 01M8F4C5…": an id nobody can read, under a title that already named the
-     site. The raw payload under the closed Input fold is the checking copy and keeps it. */
+  /* Each input is the shape `apps/server/src/browsers/agent-tools.ts` gates with, pane id included.
+     The raw payload under the closed Input fold is the checking copy and keeps the id. */
   const PANE = "01M8F4C5A1M26Z535YNGDEJ73J";
   const site = "https://accounts.example.com";
   const cards: [string, Record<string, unknown>, string][] = [

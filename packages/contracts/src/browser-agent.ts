@@ -821,9 +821,9 @@ export const PASSKEY_STORAGE_NOTE =
 
 /**
  * What a Realm browser tool's card or transcript row names beside the tool: the address it opens, the
- * agent's intent for a walk, or the host of the site it acts on. Every call also carries `browserId`,
- * the pane's ULID, which means nothing to a person, so this never picks it; a "first string field"
- * summary does. Null for any tool that is not Realm's browser. The name arrives bare on a permission
+ * agent's intent for a walk, or the host of the site it acts on, and never `browserId`: every call
+ * carries the pane's ULID, which means nothing to a person. Null for any tool that is not Realm's
+ * browser. The name arrives bare on a permission
  * card (`browser_fill_credential`) and gateway-prefixed in a transcript
  * (`mcp__realm__realm-browser__browser_snapshot`).
  */
@@ -831,8 +831,9 @@ export function browserToolSummary(name: string, input: Record<string, unknown>)
   const tool = bareToolName(name);
   if (!tool.startsWith("browser_") || (tool !== name && !name.endsWith(`realm-browser__${tool}`))) return null;
   const str = (k: string) => { const v = input[k]; return typeof v === "string" && v.trim() ? v : null; };
-  const site = str("page") ?? str("origin");
   const text = str("url") ?? str("intent");
-  if (text || !site) return text ?? "";
+  if (text) return text;
+  const site = str("page") ?? str("origin");
+  if (!site) return "";
   try { return new URL(site).host; } catch { return site; }
 }

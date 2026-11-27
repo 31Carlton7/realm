@@ -2207,9 +2207,8 @@ describe("browser_list on a pane with a verdict", () => {
 
 /**
  * What a browser card shows beside the tool's name. Every gated call carries `browserId`, the pane's
- * id, and a summary that falls back to the input's first string showed it there
- * ("browser_fill_credential 01M8F4C5…"). Each card is raised for real here, and its input put
- * through the summary the desktop card draws and the one the phone draws.
+ * id, and no summary may show it. Each card is raised for real here, and its input put through the
+ * summary the desktop card draws and the one the phone draws.
  */
 describe("what a browser card names beside the tool", () => {
   beforeAll(() => { mkdirSync(UPLOAD_ROOT, { recursive: true }); writeFileSync(insideFile("card.png"), "x"); });
