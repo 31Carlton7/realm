@@ -301,8 +301,6 @@ export class SessionService {
      *  the frontier model and saved under Realm's home. Optional — without it a switch still happens,
      *  carrying the conversation verbatim, and writes no file. */
     handoffNotes?: { write(session: Session, sides: { from: string; to: string }, how?: "switched" | "moved"): Promise<{ path: string; notes: string }> };
-    /** `REALM_AGENT_SHELL=1` and the PATH with the Electron wrappers first (`agent-shell.ts`). */
-    agentShellEnv?: Record<string, string>;
     /** The accounts an agent runs on (`accounts/service.ts`): the folder variable a session's engine
      *  starts under, and carrying a conversation between two accounts' folders. Optional — without it
      *  every session runs on its CLI's own folder. */
@@ -2433,10 +2431,11 @@ export class SessionService {
       // A teammate's home chat is compacted well short of a 1M window; its task sessions are not.
       ...(compactWindow ? { autoCompactWindow: compactWindow, afterCompaction: () => this.d.teammateHome?.afterCompaction?.(id) } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
-      // under, for a log line or a bug report to read. Nothing reads them back. Then what keeps a dev
-      // Realm the agent starts off the screen, and the folder of the account the session runs on,
+      // under, for a log line or a bug report to read. Nothing reads them back. Then
+      // `REALM_AGENT_SHELL`, which keeps a dev Realm the agent starts off the screen
+      // (apps/desktop/src/main/quiet-windows.ts), and the folder of the account the session runs on,
       // which is what the CLI signs in with.
-      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), ...this.d.agentShellEnv, ...this.d.accounts?.envFor(s.agentKind, s.accountId) },
+      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), REALM_AGENT_SHELL: "1", ...this.d.accounts?.envFor(s.agentKind, s.accountId) },
       ...(wrap ? { wrap } : {}),
       ...(fork ? { resumeAt: fork.at, resumeDropsTurn: fork.dropsTurn } : {}),
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`),
