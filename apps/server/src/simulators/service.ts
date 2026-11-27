@@ -593,9 +593,10 @@ export class SimulatorService {
    */
   async screenSize(simulatorId: string): Promise<{ width: number; height: number } | null> {
     const row = this.get(simulatorId);
+    if (row.physical || row.platform !== "ios" || !row.udid) return null;
     const stream = this.served.get(simulatorId);
-    const known = row.udid ? this.sizes.get(row.udid) : undefined;
-    if (row.physical || row.platform !== "ios" || !row.udid || !stream || !known) return null;
+    const known = this.sizes.get(row.udid);
+    if (!stream || !known) return null;
     const frame = await this.stream.screen(stream, row.udid);
     if (frame && frame.width === known.frame.width && frame.height === known.frame.height && frame.orientation === known.frame.orientation) return known.points;
     this.sizes.delete(row.udid);
