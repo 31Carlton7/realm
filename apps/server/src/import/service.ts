@@ -40,6 +40,10 @@ import { defaultRoots, isScratchPath, type ImportRoots } from "./sources";
  */
 const IMPORTED_KEYS = "import.sources";
 
+/** A Markdown link to a file in the same folder, `[Title](fact.md)` or `(./fact.md)`; group 1 is the file. */
+const SIBLING_LINK = /\]\(\.?\/?([A-Za-z0-9._-]+\.md)\)/g;
+const siblingLinks = (text: string): string[] => [...text.matchAll(SIBLING_LINK)].map((m) => m[1]!);
+
 /** What `apply` was asked to bring in. Every entry is a `key` from a scan plus, for the two kinds
  *  that live in a space, the space the user settled on — so a preview the user re-targeted is
  *  honoured, and `apply` never re-runs the matcher behind their back. */
@@ -396,11 +400,18 @@ export class ImportService {
       const index = readText(join(dir, "MEMORY.md"));
       const files = readdirSync(dir).filter((f) => f.endsWith(".md") && f !== "MEMORY.md").sort();
       if (files.length === 0) continue;
+      // An index line whose every link ARCHIVE.md also links was archived once and left behind in the
+      // index. The archive's own line still leads to it, so the copy stays out of context.
+      const archived = new Set(siblingLinks(readText(join(dir, "ARCHIVE.md")) ?? ""));
+      const unarchived = (line: string): boolean => {
+        const links = siblingLinks(line);
+        return links.length === 0 || !links.every((f) => archived.has(f));
+      };
       // Relative markdown links in the source index (`[Title](fact.md)`) are rewritten to absolute
       // paths of the copies. Without that the agent reads a link it cannot open — the file it names
       // is in the CLI's folder, which is exactly the place this import does not want anyone reaching.
       const body = index
-        ? index.replace(/\]\(\.?\/?([A-Za-z0-9._-]+\.md)\)/g, (m, f: string) => (files.includes(f) ? `](${join(dir, f)})` : m))
+        ? index.split("\n").filter(unarchived).join("\n").replace(SIBLING_LINK, (m, f: string) => (files.includes(f) ? `](${join(dir, f)})` : m))
         : files.map((f) => `- [${f.replace(/\.md$/, "")}](${join(dir, f)})`).join("\n");
       parts.push(`### ${p}\n\n${body.trim()}`);
     }
