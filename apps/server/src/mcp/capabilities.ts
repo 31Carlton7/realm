@@ -107,7 +107,10 @@ const BLOCKS: Record<string, string> = {
     "or `lead`): to ask it something, or to hand it work that is its to do. Add `wait: true` only when you cannot go on " +
     "without its answer; otherwise carry on, and it answers in its own chat. `team_set_access` sets a teammate's access " +
     "when the person asks: only the Lead, in its own chat, in a turn the person started (never one a teammate's message, " +
-    "a schedule or another session started), never above the Lead's own mode, and with a line in both chats the person can Undo.",
+    "a schedule or another session started), never above the Lead's own mode, and with a line in both chats the person can Undo. " +
+    "`teammate_create` adds a teammate and `teammate_update` changes one (brief, model, effort, access, folder, group, Lead, clock) " +
+    "when the person asks: the Lead in its own chat or one of the person's sessions, in a turn the person started, never above your " +
+    "own access, on a card unless you are on Full access; lowering a model or effort always asks.",
 
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane, `terminal_write` types into it, " +

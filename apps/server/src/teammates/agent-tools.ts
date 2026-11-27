@@ -1,8 +1,9 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { TEAM_LIST_TOOL, TEAM_MESSAGE_TOOL, TEAM_SET_ACCESS_TOOL, TEAMMATE_GET_TOOL, TEAMMATE_SESSIONS_TOOL, TEAMMATES_PROVIDER_NAME } from "@realm/contracts";
+import { EFFORT_LEVELS, TEAMMATE_COLORS, TEAMMATE_PERMISSION_MODES, TEAMMATE_SHAPES, TEAM_LIST_TOOL, TEAM_MESSAGE_TOOL, TEAM_SET_ACCESS_TOOL, TEAMMATE_CREATE_TOOL, TEAMMATE_GET_TOOL, TEAMMATE_SESSIONS_TOOL, TEAMMATE_UPDATE_TOOL, TEAMMATES_PROVIDER_NAME } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err } from "../mcp/tool-result";
 import type { TeammatesStore } from "./store";
+import type { TeamManageTools } from "./manage";
 import type { TeammatesService } from "./service";
 
 const TOOLS: Tool[] = [
@@ -36,6 +37,66 @@ const TOOLS: Tool[] = [
       properties: {
         to: { type: "string", description: "its handle, e.g. \"cto\", or \"lead\"" },
         limit: { type: "number", description: "how many, newest first (default 20)" },
+      },
+      required: ["to"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: TEAMMATE_CREATE_TOOL,
+    description: [
+      "Add a teammate to this space when the person asks: its name and brief, and any of its engine, model, effort, access, folder, group, Lead and clock.",
+      "Only the space's Lead in its own chat, or one of the person's own sessions, and only in a turn the person started. You cannot give it more access than you have.",
+      "The person approves it on a card unless you are on Full access. Answers with its id, handle, folder and chat.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "its name, as the Team list shows it" },
+        brief: { type: "string", description: "what it does, in the person's words: its chat starts with it" },
+        handle: { type: "string", description: "how it is addressed, e.g. \"design-engineer\"; from the name when left out" },
+        icon: { type: "object", properties: { shape: { type: "string", enum: [...TEAMMATE_SHAPES] }, color: { type: "string", enum: [...TEAMMATE_COLORS] } }, required: ["shape", "color"], additionalProperties: false },
+        agentKind: { type: "string", description: "its engine: \"claude\", \"codex\", \"acp:gemini\"…; Claude when left out" },
+        model: { type: ["string", "null"], description: "a model id its engine has, or null for the engine's default" },
+        effort: { type: ["string", "null"], enum: [...EFFORT_LEVELS, null], description: "reasoning effort, or null for the default" },
+        permissionMode: { type: "string", enum: [...TEAMMATE_PERMISSION_MODES], description: "its access, never more than yours: \"default\" (Ask each time), \"acceptEdits\", \"bypassPermissions\" (Full access), \"plan\" or \"ask\"" },
+        folder: { type: ["string", "null"], description: "where it works: an absolute folder or one under ~/; null for the space's own" },
+        lead: { type: "boolean", description: "make it the space's Lead" },
+        group: { type: ["string", "null"], description: "the Team list section it sits in, or null for the top" },
+        schedule: {
+          type: ["object", "null"], description: "its clock: a cron, what it says when it fires, and whether it is on; null removes it",
+          properties: { cron: { type: "string" }, prompt: { type: "string" }, enabled: { type: "boolean" } }, additionalProperties: false,
+        },
+      },
+      required: ["name", "brief"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: TEAMMATE_UPDATE_TOOL,
+    description: [
+      "Change a teammate when the person asks: any of its name, handle, brief, icon, engine, model, effort, access, folder, group, Lead and clock. Fields left out keep their value.",
+      "The same rules as teammate_create. A change that lowers its model or effort always asks the person on a card, even on Full access, saying from what to what.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "its handle, e.g. \"scout\", or \"lead\"" },
+        name: { type: "string", description: "its name, as the Team list shows it" },
+        brief: { type: "string", description: "what it does, in the person's words: its chat starts with it" },
+        handle: { type: "string", description: "how it is addressed, e.g. \"design-engineer\"; from the name when left out" },
+        icon: { type: "object", properties: { shape: { type: "string", enum: [...TEAMMATE_SHAPES] }, color: { type: "string", enum: [...TEAMMATE_COLORS] } }, required: ["shape", "color"], additionalProperties: false },
+        agentKind: { type: "string", description: "its engine: \"claude\", \"codex\", \"acp:gemini\"…; Claude when left out" },
+        model: { type: ["string", "null"], description: "a model id its engine has, or null for the engine's default" },
+        effort: { type: ["string", "null"], enum: [...EFFORT_LEVELS, null], description: "reasoning effort, or null for the default" },
+        permissionMode: { type: "string", enum: [...TEAMMATE_PERMISSION_MODES], description: "its access, never more than yours: \"default\" (Ask each time), \"acceptEdits\", \"bypassPermissions\" (Full access), \"plan\" or \"ask\"" },
+        folder: { type: ["string", "null"], description: "where it works: an absolute folder or one under ~/; null for the space's own" },
+        lead: { type: "boolean", description: "make it the space's Lead" },
+        group: { type: ["string", "null"], description: "the Team list section it sits in, or null for the top" },
+        schedule: {
+          type: ["object", "null"], description: "its clock: a cron, what it says when it fires, and whether it is on; null removes it",
+          properties: { cron: { type: "string" }, prompt: { type: "string" }, enabled: { type: "boolean" } }, additionalProperties: false,
+        },
       },
       required: ["to"],
       additionalProperties: false,
@@ -79,13 +140,14 @@ const TOOLS: Tool[] = [
 ];
 
 /**
- * The `realm-team` provider: `team_list`, `teammate_get`, `teammate_sessions`, `team_message` and `team_set_access`, in every session of a
+ * The `realm-team` provider: `team_list`, `teammate_get`, `teammate_sessions`, `teammate_create`, `teammate_update`, `team_message` and `team_set_access`, in every session of a
  * space that has teammates — theirs and the person's own, so "ask @cto" works from anywhere in the
  * space. `team_set_access` refuses every caller but the Lead in a turn the person started.
  */
 export function createTeammatesProvider(d: {
   store: Pick<TeammatesStore, "hasAny">;
   teammates: Pick<TeammatesService, "teamList" | "teammateGet" | "teammateSessions" | "teamMessage" | "teamSetAccess">;
+  manage: Pick<TeamManageTools, "create" | "update">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
 }): RealmToolProvider {
   return {
@@ -102,6 +164,8 @@ export function createTeammatesProvider(d: {
           case TEAM_LIST_TOOL: return d.teammates.teamList(ctx, args);
           case TEAMMATE_GET_TOOL: return d.teammates.teammateGet(ctx, args);
           case TEAMMATE_SESSIONS_TOOL: return d.teammates.teammateSessions(ctx, args);
+          case TEAMMATE_CREATE_TOOL: return await d.manage.create(ctx, args);
+          case TEAMMATE_UPDATE_TOOL: return await d.manage.update(ctx, args);
           case TEAM_MESSAGE_TOOL: return await d.teammates.teamMessage(ctx, args);
           case TEAM_SET_ACCESS_TOOL: return await d.teammates.teamSetAccess(ctx, args);
           default: return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
