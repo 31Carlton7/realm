@@ -247,7 +247,9 @@ function ChatWindow({ sessionId, assistant, onNewChat }: { sessionId: string; as
       {/* The bar is the handle. There is no title to speak of — the chat has no name until it has a
           conversation — so what it carries is the agent it will ask and the way out. */}
       <header className="quick-chat-bar" data-dragging={drag.dragging || undefined} onPointerDown={drag.onPointerDown}>
-        <Icon name={AGENT_META[kind].icon} size={14} colored className="quick-chat-mark" />
+        {/* The agent's mark says who a question goes to. Under the assistant the head names the
+            assistant, and at the panel's width its title needs the room. */}
+        {!showing && <Icon name={AGENT_META[kind].icon} size={14} colored className="quick-chat-mark" />}
         {/* "Quick chat" until it is saved, and then the name it has in that space. The session's own
             title is "New session" until the agent writes one, and a window whose bar says "New
             session" is a window telling you the one thing you already knew. The name the first
