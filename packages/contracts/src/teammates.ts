@@ -278,7 +278,7 @@ export const TeammateSetLeadArgsSchema = z.object({ to: z.string().trim().min(1)
 
 /** `teammate_reorder`'s arguments: every teammate on the Team list by handle, top to bottom, with its section. */
 export const TeammateReorderArgsSchema = z.object({
-  order: z.array(z.object({ handle: z.string().trim().min(1).max(60), group: z.string().trim().min(1).max(60).nullable().optional() })).min(1).max(500),
+  order: z.array(z.object({ handle: z.string().trim().min(1).max(60), group: z.string().trim().min(1).max(60).nullable().optional() })),
 });
 
 /** `teammate_sessions`'s arguments: newest first, `limit` of them. */
