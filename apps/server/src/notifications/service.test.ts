@@ -359,7 +359,9 @@ describe("NotificationsService — when the work is done", () => {
     expect(done()[0]).toMatchObject({ sessionId: LEAD, body: "Failed" });
     store.markRead(done().map((n) => n.id));
     settle(lead("running"), "ended");
-    expect(done()[0]).toMatchObject({ sessionId: LEAD, body: "Ended" });
+    // The one unread row, not done()[0]: both rows share a millisecond, and the feed breaks that tie
+    // by a random ULID.
+    expect(done().filter((n) => n.readAt === null)).toMatchObject([{ sessionId: LEAD, body: "Ended" }]);
     settings.set(NOTIFICATIONS_SESSION_DONE_KEY, "turn");
     store.markRead(done().map((n) => n.id));
     settle(lead("running"), "error");
