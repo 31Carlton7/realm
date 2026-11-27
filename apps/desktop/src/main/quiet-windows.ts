@@ -39,7 +39,7 @@ import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, 
  * `REALM_QUIET_WINDOWS` from the environment its server inherits.
  */
 export const QUIET_WINDOWS_ENV = "REALM_QUIET_WINDOWS";
-/** Set in every agent's environment by realm-server (apps/server/src/sessions/agent-shell.ts). */
+/** Set in every agent's environment by realm-server (apps/server/src/sessions/service.ts). */
 export const AGENT_SHELL_ENV = "REALM_AGENT_SHELL";
 
 export function quietWindowsOn(d: { packaged: boolean; env: Record<string, string | undefined> }): boolean {
