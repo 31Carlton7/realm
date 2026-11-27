@@ -72,6 +72,7 @@ const ELSEWHERE = [
   "Memory page: the space's and profile's memory documents, which reach you as instructions, and the memory repo.",
   "Code Review, Library, search, checkpoints and history: the user's pages. Your own git and shell tools reach the same repository.",
   "Files: `browser_download` saves into downloads/ of the space's project (or its folder); anything you write into the space folder opens in the Documents pane.",
+  "The system's folder panel: the user's hand. `ui_choose_folder` opens it for them and tells you only the folder they chose.",
   "This Mac's own apps (Calendar, Reminders, Contacts, Mail, Messages, Notes): the `mac` command-line tool, when `which mac` finds it, with the `mac` skill.",
 ];
 

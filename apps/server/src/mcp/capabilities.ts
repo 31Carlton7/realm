@@ -58,7 +58,9 @@ const BLOCKS: Record<string, string> = {
     "this Mac can run, a file here, a branch, a date. Use it for a decision that is genuinely the user's and that " +
     "nothing here can settle, and ask everything at once. A `model` question with a row per plan step lets the " +
     "user say who builds each; each answer is an id `agent_start` takes as `constraints.model`. A field marked " +
-    "`secret` is the only way to ask for a password or a token, and keeps it out of Realm's records.",
+    "`secret` is the only way to ask for a password or a token, and keeps it out of Realm's records. When a folder " +
+    "is needed and the user has not named one, `ui_choose_folder` opens the system's folder panel for them and " +
+    "hands back only the path they chose; never guess a path or browse the disk to find one.",
 
   "realm-browser":
     "- **The browser.** `browser_open` opens a real browser pane in this space (`browser_list` names its panes, " +

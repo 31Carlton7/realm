@@ -15,6 +15,7 @@ The audit was taken on `integration/v2.3` (Realm 2.2.0) by listing every tool th
 | Sub-agents | agent_start/wait/run/review | covered | covered |
 | | agent_status, agent_peers, agent_ask, agent_answer, browser_agent_run | **not named** | named |
 | Asking the user | ui_ask | covered | covered |
+| | ui_choose_folder (added later) | n/a | named |
 | Browser | browser_open/snapshot/act/do | covered | covered |
 | | browser_list, browser_navigate, browser_read, browser_screenshot, browser_batch | **not named** | named |
 | Sign-ins | browser_credentials, browser_fill_credential (saved or **generated** password), browser_fill_code (a texted or emailed code) | **not named**. Agents asked the user to type passwords that Realm could fill. | named, and in "Finishing" |
@@ -75,3 +76,4 @@ These are deliberate, and `realm_capabilities` names where the user does each on
 - Editing or deleting a schedule.
 - Team roles and policies.
 - Opening Realm's own pages (Settings, Library, Code Review).
+- Browsing the disk through the folder panel. `ui_choose_folder` shows it to the user and returns only the folder they chose, never one that holds keys, credentials or an agent's settings.

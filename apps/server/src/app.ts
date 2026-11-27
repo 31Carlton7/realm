@@ -34,7 +34,7 @@ import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
 import { createWorkspaceProvider } from "./workspace/agent-tools";
 import { createSessionOpenTools } from "./workspace/session-open";
-import { createSpacesTools } from "./workspace/spaces";
+import { createSpacesTools, pickFolder } from "./workspace/spaces";
 import { createSettingsTools } from "./workspace/settings";
 import { createCatalogTools } from "./workspace/catalog";
 import { harnessFakeScript } from "./harness-fake-script";
@@ -1604,6 +1604,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const agentRunsForUi = agentRuns;
   mcpGateway.registerProvider(createUiAgentProvider({
     mcp, broker: browserBroker, session: (id) => sessions.get(id), models: (id) => agentRunsForUi.catalogFor(id), branches: listBranches,
+    folder: (path) => pickFolder({ userHome, realmHome: opts.home }, path),
   }));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, grants: computerGrants, observe: layaShadow.observe, assist: layaAssist }));
