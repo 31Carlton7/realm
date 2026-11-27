@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { CHILD_VIEWS_BINDING, decodeViewerFrame, type ViewerChildView, type ViewerLayout } from "@realm/contracts";
 import { HiddenApps } from "./hidden-apps";
 import { ViewerService } from "./service";
+import { LAYER_BUFFER_CAP } from "./electron-relay";
 
 /** A stand-in for a quiet Realm's `--remote-debugging-port`: the window's page W and the child pages
  *  C1 and C2, each on its own socket. W answers `Runtime.evaluate` with the child list main left in
@@ -335,6 +336,50 @@ describe("viewer layers: screencast lifetime", () => {
     await until(() => client.ws.readyState === WebSocket.CLOSED, "the layers socket to close");
     await until(() => app.live("C1").length === 0 && app.live("W").length === 0, "the CDP sockets to close");
   });
+});
+
+describe("viewer layers: a client that stops reading", () => {
+  /** A frame big enough that a few of them fill the loopback's own buffers. */
+  const BIG = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(1024 * 1024, 7), Buffer.from([0xff, 0xd9])]);
+  const FRAMES = 24;
+
+  it("is skipped while its socket holds more than the cap, while the other client gets every frame of every layer", async () => {
+    const { app, viewers, viewer } = await setup([C1]);
+    const stalled = await layers(viewer.layersUrl);
+    stalled.ws.pause();
+    const reading = await layers(viewer.layersUrl);
+    await until(() => app.on("C1", "Page.startScreencast").length >= 1 && app.on("W", "Page.startScreencast").length >= 1, "both screencasts");
+    // At the pace of the client that reads, as Chromium paints at its own rate rather than in a burst.
+    for (let i = 1; i <= FRAMES; i++) {
+      app.frame("W", BIG, 800, 600);
+      app.frame("C1", BIG, 400, 200);
+      await until(() => reading.frames.length >= 2 * i, () => `frame ${i}, got ${reading.frames.length}`, 5000);
+    }
+    expect(reading.frames.filter((f) => f.layer === "window")).toHaveLength(FRAMES);
+    expect(reading.frames.filter((f) => f.layer === "C1")).toHaveLength(FRAMES);
+    const buffered = [...viewers["wss"]!.clients].map((ws) => ws.bufferedAmount);
+    expect(Math.max(...buffered)).toBeGreaterThan(0);
+    expect(Math.max(...buffered)).toBeLessThanOrEqual(LAYER_BUFFER_CAP + BIG.length + 64);
+  }, 30_000);
+
+  it("on the MJPEG stream is skipped until it drains, while the other client gets every frame", async () => {
+    const { app, viewers, viewer } = await setup();
+    let stalledRes: import("node:http").IncomingMessage | null = null;
+    const stalledReq = get(viewer.streamUrl, (r) => { stalledRes = r; r.socket.pause(); });
+    stalledReq.on("error", () => {});
+    cleanup.push(async () => { stalledReq.destroy(); });
+    const reading = watch(viewer.streamUrl);
+    await until(() => stalledRes !== null && app.on("W", "Page.startScreencast").length >= 1, "the screencast");
+    await settle();
+    for (let i = 1; i <= FRAMES; i++) {
+      app.frame("W", BIG, 800, 600);
+      await until(() => reading.parts.length >= i, () => `frame ${i}, got ${reading.parts.length}`, 5000);
+    }
+    const { relay } = viewers["viewers"].get(viewer.id)!;
+    const queued = [...relay["clients"]].map((res) => res.writableLength);
+    expect(Math.max(...queued)).toBeGreaterThan(0);
+    expect(Math.max(...queued)).toBeLessThanOrEqual(BIG.length + 16 * 1024 + 256);
+  }, 30_000);
 });
 
 describe("viewer layers: secret and origin", () => {

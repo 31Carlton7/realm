@@ -27,6 +27,9 @@ const BOUNDARY = "realmframe";
 const JPEG_QUALITY = 70;
 /** How long a page may sit still before its last frame is sent again. */
 const STILL_MS = 1000;
+/** Past this much unsent on a layers socket, the client is not keeping up: its frames are skipped until
+ *  it drains, which costs it nothing, as each frame is a whole picture. About two full-size frames. */
+export const LAYER_BUFFER_CAP = 4 * 1024 * 1024;
 /** How long close waits for `Page.stopScreencast` before dropping the socket anyway. */
 const STOP_WAIT_MS = 500;
 /** How long the socket may take to open, and a command to be answered, before the app counts as hung. */
@@ -299,6 +302,7 @@ export class ElectronRelay {
   private sendFrame(layer: string, jpeg: Buffer, to: Iterable<WebSocket> = this.layerClients): void {
     let message: Uint8Array | null = null;
     for (const ws of to) {
+      if (ws.bufferedAmount > LAYER_BUFFER_CAP) continue;
       message ??= encodeViewerFrame(layer, jpeg);
       ws.send(message);
     }
@@ -312,8 +316,9 @@ export class ElectronRelay {
     this.stillTimer = setTimeout(() => this.broadcast(), this.opts.stillMs ?? STILL_MS);
   }
 
+  /** A client still holding an unsent frame is skipped: it takes the next one once it has drained. */
   private write(res: ServerResponse): void {
-    if (!this.frame) return;
+    if (!this.frame || res.writableNeedDrain) return;
     res.write(`--${BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${this.frame.length}\r\n\r\n`);
     res.write(this.frame);
     res.write("\r\n");
