@@ -21,6 +21,8 @@ export const TEAM_MESSAGE_TOOL = "team_message";
 export const TEAM_SET_ACCESS_TOOL = "team_set_access";
 export const TEAMMATE_GET_TOOL = "teammate_get";
 export const TEAMMATE_SESSIONS_TOOL = "teammate_sessions";
+export const TEAMMATE_CREATE_TOOL = "teammate_create";
+export const TEAMMATE_UPDATE_TOOL = "teammate_update";
 
 /** The eight shapes and twelve colours an icon is made of: one flat shape, two eye strokes. */
 export const TEAMMATE_SHAPES = ["circle", "flower", "squircle", "pill", "triangle", "hexagon", "cloud", "drop"] as const;
@@ -232,6 +234,12 @@ export type CreateTeammateInput = z.infer<typeof CreateTeammateSchema>;
 
 export const UpdateTeammateSchema = TeammateFieldsSchema.partial().extend({ id: IdSchema });
 export type UpdateTeammateInput = z.infer<typeof UpdateTeammateSchema>;
+
+/** `teammate_create`'s arguments: the Add a teammate sheet's fields, in the caller's space. */
+export const TeammateCreateArgsSchema = TeammateFieldsSchema.omit({ compactWindow: true });
+
+/** `teammate_update`'s arguments: who (`to`, a handle or `lead`) and any of the sheet's fields. */
+export const TeammateUpdateArgsSchema = TeammateFieldsSchema.omit({ compactWindow: true }).partial().extend({ to: z.string().trim().min(1).max(60) });
 
 /** The Team list's order: every teammate in the space, top to bottom, with the section it sits in. */
 export const ReorderTeammatesSchema = z.object({

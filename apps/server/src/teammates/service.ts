@@ -944,6 +944,12 @@ export class TeammatesService {
     return "Realm or the agent itself";
   }
 
+  /** The teammate whose session this is (its chat or a task it started), as its page shows it; null for anyone else's. */
+  teammateOf(sessionId: string): Teammate | null {
+    const row = this.sessionTeammate(sessionId);
+    return row ? this.get(row.id) : null;
+  }
+
   /** The teammate whose session this is — its home, or one it started. */
   private sessionTeammate(sessionId: string): TeammateRow | null {
     let s: Session;
