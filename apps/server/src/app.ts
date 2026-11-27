@@ -16,7 +16,7 @@ import { SettingsStore } from "./store/settings";
 import { ArtifactsStore } from "./store/artifacts";
 import { PayloadCompactor } from "./store/payload-compaction";
 import { EventRetention, agentsNeedTheServer } from "./store/event-retention";
-import { BOOT_ID, clearMaintenance, writeMaintenance } from "./daemon/state";
+import { maintenanceWindow } from "./daemon/state";
 import { TerminalHistoryStore, TerminalsStore } from "./store/terminals";
 import { Drain } from "./daemon/drain";
 
@@ -1030,7 +1030,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      wait (Laya's auto-install, the heap snapshot) asks before it starts. `sessions` is built further down. */
   const agentsWorking = (): boolean => sessions.statusCounts().working > 0;
   const homeFreeBytes = (): number | null => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } };
-  const serverMemory = new ServerMemory({ log: (line) => console.error(line), snapshotDir: join(opts.home, "logs"), busy: agentsWorking, freeBytes: homeFreeBytes });
+  const serverMemory = new ServerMemory({ log: (line) => console.error(line), snapshotDir: join(opts.home, "logs"), busy: agentsWorking, freeBytes: homeFreeBytes,
+    maintenance: maintenanceWindow(opts.home, "heap-snapshot"),
+  });
   /* The resource service, built further down once every service it asks exists; the idle windows read
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
@@ -2026,10 +2028,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     db, dbPath: dbPath(opts.home), settings,
     busy: () => agentsNeedTheServer(sessions.statusCounts()),
     freeDiskBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
-    maintenance: {
-      begin: () => writeMaintenance(opts.home, { pid: process.pid, bootId: BOOT_ID, what: "vacuum", startedAt: Date.now() }),
-      end: () => clearMaintenance(opts.home),
-    },
+    maintenance: maintenanceWindow(opts.home, "vacuum"),
   });
   eventRetention.start(10 * 60_000, 6 * 60 * 60_000);
   // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in

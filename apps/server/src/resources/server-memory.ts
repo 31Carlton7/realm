@@ -61,6 +61,9 @@ export class ServerMemory {
     usage?: () => NodeJS.MemoryUsage;
     now?: () => number;
     writeSnapshot?: (path: string) => void;
+    /** Around the write, which blocks the event loop: tells a launcher not to read the silence as a
+     *  hung server (`MaintenanceMarker`). `end` runs however the write went. */
+    maintenance?: { begin(): void; end(): void };
   }) {}
 
   start(): void {
@@ -120,7 +123,12 @@ export class ServerMemory {
       const path = join(dir, `server-${new Date(at).toISOString().replace(/[:.]/g, "-")}${SNAPSHOT_SUFFIX}`);
       const clock = this.d.now ?? Date.now;
       const started = clock();
-      (this.d.writeSnapshot ?? writeHeapSnapshot)(path);
+      this.d.maintenance?.begin();
+      try {
+        (this.d.writeSnapshot ?? writeHeapSnapshot)(path);
+      } finally {
+        this.d.maintenance?.end();
+      }
       this.skipLogged = false;
       this.d.log(`[server-memory] heap snapshot written to ${path} (${gb(statSync(path).size)}) in ${clock() - started} ms`);
     } catch (e) {
