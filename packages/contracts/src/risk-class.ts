@@ -128,6 +128,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-agent__agent_answer": internal,
 
   "realm-ui__ui_ask": internal,
+  "realm-ui__ui_choose_folder": internal,
 
   "realm-computer__computer_list_apps": readAsking(SHOWS_ELSEWHERE),
   "realm-computer__computer_snapshot": readAsking(SHOWS_ELSEWHERE),
