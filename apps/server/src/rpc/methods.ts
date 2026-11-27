@@ -49,6 +49,7 @@ import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
 import type { MachineService } from "../machines/service";
 import type { SimulatorService } from "../simulators/service";
+import type { ViewerService } from "../viewers/service";
 import type { GoalService } from "../goals/service";
 import type { EggService } from "../eggs/service";
 import { eggSecretBox } from "../eggs/service";
@@ -108,7 +109,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; quickChats: QuickChatEngines; liveAnswers: LiveAnswers; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; tabContext: TabContextReader; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; meetingNotes: MeetingNotesService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService; dictation: DictationCleaner;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; viewers: ViewerService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; quickChats: QuickChatEngines; liveAnswers: LiveAnswers; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; tabContext: TabContextReader; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; meetingNotes: MeetingNotesService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService; dictation: DictationCleaner;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -939,6 +940,9 @@ export function registerMethods(d: Deps): void {
   reg("simulators.stop", async (p) => ({ state: await d.simulators.stop(p.simulatorId) }));
   reg("simulators.close", (p) => { d.simulators.close(p.simulatorId); return { ok: true as const }; });
   reg("simulators.seen", (p) => { d.simulators.seen(p.simulatorId); return { ok: true as const }; });
+  reg("viewers.open", async (p) => ({ viewer: await d.viewers.open(p) }));
+  reg("viewers.list", () => ({ viewers: d.viewers.list() }));
+  reg("viewers.close", async (p) => { await d.viewers.close(p.viewerId); return { ok: true as const }; });
   reg("simulators.ui", async (p) => ({ ui: await d.simulators.ui(p.simulatorId) }));
   reg("simulators.setUi", (p) => d.simulators.setUi(p.simulatorId, p.option, p.value));
   reg("simulators.poke", (p) => d.simulators.poke(p.simulatorId, p.poke));

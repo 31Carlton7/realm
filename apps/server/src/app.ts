@@ -29,6 +29,7 @@ import { DocumentService } from "./documents/service";
 import { DocumentPreviewServer } from "./documents/preview";
 import { MachineService } from "./machines/service";
 import { SimulatorService } from "./simulators/service";
+import { ViewerService } from "./viewers/service";
 import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
@@ -1026,6 +1027,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const adaptIdle = (minutes: number, windows?: PressureIdleMinutes): number => resourcesLate?.adapt(minutes, windows) ?? minutes;
   const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), frontApp: async () => (await machineProbe.frontApp?.()) ?? null, home: opts.home, adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
+  const viewers = new ViewerService();
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id), readsOutside: (id, abs) => documents.readsOutside(id, abs) });
@@ -1926,7 +1928,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   }) });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, liveAnswers, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, meetingNotes, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, viewers, goals, eggs, browserBridge, documents, sessions, quickChats, liveAnswers, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, meetingNotes, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
@@ -2094,6 +2096,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     await simulators.closeAll();
     await preview.close();
     await appViewServer.close();
+    await viewers.closeAll();
     await mcpGateway.close();
     await mcpHub.close();
     // Before the socket closes and the database with it: a held push must not fire into either, and
