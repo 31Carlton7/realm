@@ -94,7 +94,7 @@ describe("teammate_sessions", () => {
     await waitFor(() => {
       const [task] = app.team.sessions(captain.id);
       return task?.state === "idle" && task.outcome?.kind === "pr";
-    }, 10_000);
+    }, { timeout: 10_000 });
     const [task] = app.team.sessions(captain.id);
     const listed = text(app.team.teammateSessions({ sessionId: captain.homeSessionId!, spaceId }, { to: "lead" }));
     expect(listed).toContain(`@captain's task sessions (1), newest first.`);
