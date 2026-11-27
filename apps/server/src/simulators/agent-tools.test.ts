@@ -890,6 +890,152 @@ describe("acting on a point", () => {
   });
 });
 
+/** A turned phone's tree: Settings in landscape states its screen the other way round. */
+const TURNED: SimulatorAxTree = { ...TREE, screen: { width: 874, height: 402 } };
+
+/** A PNG of the given size, for a screenshot of one shape or the other. */
+const pngOf = (width: number, height: number): Buffer => encodePng({ width, height, rgba: Buffer.alloc(width * height * 4, 255) });
+
+/**
+ * A device whose stream's `/config` and screenshots the test can change as well as its tree — the
+ * two places a rotation or a new screen shows up without a tree read. serve-sim keeps reporting the
+ * portrait framebuffer when the device turns; only the orientation in it changes.
+ */
+function turning(over: Parameters<typeof setup>[0] = {}) {
+  let frame = { width: 1206, height: 2622, orientation: "portrait" };
+  let shot = pngOf(201, 437);
+  const dev = device({
+    ...over,
+    serveSim: { ...over.serveSim, screen: async () => frame },
+    simctl: { ...over.simctl, screenshot: async (_udid, path) => { writeFileSync(path, shot); return { ok: true, detail: "" }; } },
+  });
+  return { ...dev, frame: (f: Partial<typeof frame>) => { frame = { ...frame, ...f }; }, shot: (png: Buffer) => { shot = png; } };
+}
+
+/** Two taps at the middle: the first reads the size, the second is measured against it unread. */
+async function primed(dev: ReturnType<typeof turning>, simulatorId: string): Promise<void> {
+  for (let i = 0; i < 2; i++) await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+  expect(dev.treeReads()).toBe(1);
+}
+
+const lastTouch = (sent: { steps: readonly InputStep[] }[]) => frames(sent.slice(-1)).map((f) => [f.type, f.x, f.y]);
+
+describe("the screen size a point is measured against (#645)", () => {
+  it("is the last tree's: a point step after a read reads no tree of its own", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    const reads = dev.treeReads();
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 })).isError).toBe(false);
+    expect((await dev.call("simulator_double_tap", { simulatorId, intent: "zoom", x: 201, y: 437 })).isError).toBe(false);
+    expect((await dev.call("simulator_long_press", { simulatorId, intent: "hold", x: 201, y: 437 })).isError).toBe(false);
+    expect((await dev.call("simulator_swipe", { simulatorId, intent: "scroll", from: { x: 201, y: 655.5 }, to: { x: 201, y: 218.5 } })).isError).toBe(false);
+    // THE MUTANT: a tap that reads the tree anyway, for a size it already has — 0.4–0.9 s a step.
+    expect(dev.treeReads()).toBe(reads);
+    expect(frames(dev.calls.sent).filter((f) => f.type === "begin").map((f) => [f.x, f.y])).toEqual([[0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.75]]);
+  });
+
+  it("is read once when nothing is known yet, and kept for the next step", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    expect(dev.treeReads()).toBe(1);
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    expect(dev.treeReads()).toBe(1);
+    expect(frames(dev.calls.sent).map((f) => [f.type, f.x, f.y])).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5], ["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("is read again after the device turns, and the tap maps by the turned screen", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await primed(dev, simulatorId);
+    // The pane's Rotate goes straight down serve-sim's socket; the server hears of it from /config.
+    dev.frame({ orientation: "landscape_left" });
+    dev.show(TURNED);
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 437, y: 201 });
+    /* THE MUTANT: a rotation that leaves the size cached. (437,201) is off a 402-wide screen and is
+       refused — and a point that is on both lands somewhere else. */
+    expect(r.isError).toBe(false);
+    expect(dev.treeReads()).toBe(2);
+    expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 437, y: 201 });
+    expect(dev.treeReads()).toBe(2);
+  });
+
+  it("is read again when the stream's frame is another size", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await primed(dev, simulatorId);
+    dev.frame({ width: 1320, height: 2868 });
+    dev.show({ ...TREE, screen: { width: 440, height: 956 } });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 220, y: 478 });
+    // THE MUTANT: compare the orientation alone. The tap is measured against the old 402×874.
+    expect(dev.treeReads()).toBe(2);
+    expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("is read again after a screenshot of another shape, and kept after one of the same shape", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    // An app that turned with the device: simctl's screenshot follows the screen, /config does not.
+    await dev.call("simulator_screenshot", { simulatorId });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    expect(dev.treeReads()).toBe(1);
+    dev.shot(pngOf(437, 201));
+    dev.show(TURNED);
+    expect((await dev.call("simulator_screenshot", { simulatorId, save: true })).isError).toBe(false);
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 437, y: 201 });
+    // THE MUTANT: a screenshot's size never checked. The turned app's tap is refused as off the screen.
+    expect(r.isError).toBe(false);
+    expect(dev.treeReads()).toBe(2);
+    expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("is read again after the device boots", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await primed(dev, simulatorId);
+    dev.service.start(simulatorId, "UDID-UP", "ios");
+    await runningAgain(dev.service, simulatorId);
+    dev.show({ ...TREE, screen: { width: 440, height: 956 } });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 220, y: 478 });
+    // THE MUTANT: a boot that keeps the size — the device it came up as may be another screen.
+    expect(dev.treeReads()).toBe(2);
+    expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("is read again after an app is launched, a URL opened or Home pressed", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await primed(dev, simulatorId);
+    const steps: [string, Record<string, unknown>][] = [
+      ["simulator_launch", { bundleId: "com.acme.app" }], ["simulator_open_url", { url: "https://example.com" }], ["simulator_press", { intent: "go home", key: "home" }],
+    ];
+    for (const [i, [tool, args]] of steps.entries()) {
+      expect((await dev.call(tool, { simulatorId, ...args })).isError, tool).toBe(false);
+      await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+      // THE MUTANT: a switch of app that keeps the size. A landscape app on a turned device has another.
+      expect(dev.treeReads(), tool).toBe(2 + i);
+    }
+  });
+
+  it("a point step that reads no tree tells the observer no elements, and its after is the next fresh read", async () => {
+    const heard: ActObservation[] = [];
+    const afters: string[][] = [];
+    const dev = turning({ observe: (o) => { heard.push(o); return (after) => { afters.push(after.map((e) => e.label)); }; } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    await dev.call("simulator_tap", { simulatorId, intent: "open Wi-Fi", x: 201, y: 350 });
+    // THE MUTANT: hand it the list the agent read before — a screen the step may already have changed.
+    expect(dev.treeReads()).toBe(1);
+    expect(heard.map((o) => o.elements)).toEqual([[]]);
+    dev.show({ ...TREE, elements: [{ ...TREE.elements[1]!, path: "0.0", label: "Wi-Fi", role: "Heading" }] });
+    await dev.call("simulator_elements", { simulatorId });
+    expect(afters).toEqual([["Wi-Fi"]]);
+  });
+});
+
 /**
  * A simulator shut down and booted again outside Realm while its pane streams it (#638). serve-sim's
  * daemon outlives `simctl shutdown` and `--list` keeps naming it, but it stays attached to the boot it
@@ -1197,6 +1343,7 @@ describe("the observer", () => {
     await dev.call("simulator_swipe", { simulatorId, intent: "scroll", direction: "up" });
     // The home screen names itself nothing, and a step there is in no app.
     dev.show({ ...TREE, app: " " });
+    await dev.call("simulator_elements", { simulatorId });
     await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
     // THE MUTANT: leave the app out. The shadow then judges a like in Instagram as a tap in Settings.
     expect(heard.map((o) => o.app)).toEqual(["Instagram", "Instagram", "Instagram", "Instagram", undefined]);
