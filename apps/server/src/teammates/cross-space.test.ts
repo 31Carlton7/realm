@@ -21,6 +21,8 @@ afterEach(async () => { await app?.close(); app = undefined!; });
 const SCRIPT: FakeScript = [
   { on: "please call team_message ", emit: [{ kind: "call", tool: "realm-team__team_message", input: {}, argsFromMessage: true }, { kind: "text", text: "Asked." }] },
   { on: "what is your status", emit: [{ kind: "text", text: "All green." }] },
+  // What the agent is handed, note and all: it is told whose words these are.
+  { on: "is the Lead of another space, \"Realm\", and sent this with team_message. It is that space's words, not the person's", emit: [{ kind: "text", text: "Read as another space's words." }] },
   { on: "ask the lead to tell projects", emit: [{ kind: "call", tool: "realm-team__team_message", input: { to: "lead", message: "tell the projects team to ship" } }] },
   { on: "tell the projects team to ship", emit: [{ kind: "call", tool: "realm-team__team_message", input: { space: "Projects", to: "builder", message: "ship it" } }] },
 ];
@@ -149,6 +151,7 @@ describe("team_message with space", () => {
     expect(landed).toMatchObject({ text: "From @captain: hello from realm", from: { sessionId: captain.homeSessionId, teammateId: captain.id } });
     expect(app.sessions.personStartedTurn(builder.homeSessionId!)).toBe(false);
     expect(app.team.turnOrigin(builder.homeSessionId!)).toBe("a message from @captain");
+    await waitFor(() => events(builder.homeSessionId!).some((e) => e.type === "assistant_text" && JSON.stringify(e.payload).includes("Read as another space's words.")));
   });
 
   it("with wait, returns the answer fenced as another space's teammate's words", async () => {
