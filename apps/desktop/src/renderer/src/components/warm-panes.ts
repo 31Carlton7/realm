@@ -8,8 +8,9 @@
  */
 export type WarmPanes = { order: readonly string[]; recent: readonly string[] };
 
-/** The one showing and the three before it. */
-export const WARM_SESSIONS = 4;
+/** The one showing and the three before it. A live check sets `realm.warmSessions` (read at launch)
+ *  to measure against fewer. */
+export const WARM_SESSIONS = Number(globalThis.localStorage?.getItem("realm.warmSessions")) || 4;
 
 /** What a pane keeps once it shows `showing`. `keep` says whether an item it kept may stay: one that
  *  is gone, or is not a session, or is now on screen in another pane, may not. */
