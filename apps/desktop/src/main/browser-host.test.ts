@@ -1848,13 +1848,15 @@ describe("HiddenViews — every window's hidden panes, with an age limit", () =>
     const one = open(), two = open();
     for (const id of ["a1", "a2", "a3", "a4"]) one.page(id);
     for (const id of ["b1", "b2", "b3", "b4"]) two.page(id);
-    for (const [i, [w, id]] of ([[one, "a1"], [two, "b1"], [one, "a2"], [two, "b2"], [one, "a3"], [two, "b3"], [one, "a4"], [two, "b4"]] as const).entries()) {
+    // The second window's panes were all hidden after the first's: counted per window, b4, b3 and b2
+    // would stay as well.
+    for (const [i, [w, id]] of ([[one, "a1"], [one, "a2"], [one, "a3"], [one, "a4"], [two, "b1"], [two, "b2"], [two, "b3"], [two, "b4"]] as const).entries()) {
       at(i * MIN); w.hide(id);
     }
     at(30 * MIN);
     const r = await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 3 });
-    expect(r.kept).toEqual([{ id: "b4", reason: "recent" }, { id: "a4", reason: "recent" }, { id: "b3", reason: "recent" }]);
-    expect(r.discarded.sort()).toEqual(["a1", "a2", "a3", "b1", "b2"]);
+    expect(r.kept).toEqual([{ id: "b4", reason: "recent" }, { id: "b3", reason: "recent" }, { id: "b2", reason: "recent" }]);
+    expect(r.discarded.sort()).toEqual(["a1", "a2", "a3", "a4", "b1"]);
   });
 
   it("holds the off-screen budget across every window, oldest first", async () => {
