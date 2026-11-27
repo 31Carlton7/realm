@@ -71,9 +71,11 @@ const ELSEWHERE = [
   "Schedules page: every schedule in the space, with its history. The `schedule_*` tools change one only in a turn the user started, and ask them first before touching one this session did not make. A teammate's clock is changed on the teammate's page, or with `teammate_update`; `teammate_run_clock` runs it now.",
   "The Team itself in a turn the user did not start: adding, editing, archiving, reordering, choosing the Lead or running a clock is refused when a teammate's message, a schedule or another session started the turn. The user says it in the Lead's chat or their own.",
   "The first teammate in a space with none: the team tools are listed only where a space has teammates, so the user adds it from ••• → Add a teammate….",
+  "Other spaces: a Lead sees every team in its profile and can message a teammate there (`space_teams`, and `team_list` or `team_message` with `space`). That space's sessions and schedules, and changing its teammates, are done from inside it; another profile is out of reach.",
   "Memory page: the space's and profile's memory documents, which reach you as instructions, and the memory repo.",
   "Code Review, Library, search, checkpoints and history: the user's pages. Your own git and shell tools reach the same repository.",
   "Files: `browser_download` saves into downloads/ of the space's project (or its folder); anything you write into the space folder opens in the Documents pane.",
+  "The system's folder panel: only the user works it. `ui_choose_folder` opens it for them and tells you only the folder they chose.",
   "This Mac's own apps (Calendar, Reminders, Contacts, Mail, Messages, Notes): the `mac` command-line tool, when `which mac` finds it, with the `mac` skill.",
 ];
 

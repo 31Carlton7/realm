@@ -27,6 +27,7 @@ export const TEAMMATE_ARCHIVE_TOOL = "teammate_archive";
 export const TEAMMATE_SET_LEAD_TOOL = "teammate_set_lead";
 export const TEAMMATE_REORDER_TOOL = "teammate_reorder";
 export const TEAMMATE_RUN_CLOCK_TOOL = "teammate_run_clock";
+export const SPACE_TEAMS_TOOL = "space_teams";
 
 /** The eight shapes and twelve colours an icon is made of: one flat shape, two eye strokes. */
 export const TEAMMATE_SHAPES = ["circle", "flower", "squircle", "pill", "triangle", "hexagon", "cloud", "drop"] as const;
@@ -258,11 +259,17 @@ export const TeamMessageArgsSchema = z.object({
   message: z.string().trim().min(1).max(20_000),
   /** Wait for the reply: the target's next turn's final text. */
   wait: z.boolean().optional(),
+  /** Another space of the profile, by id or name: the Lead's reach across its spaces. */
+  space: z.string().trim().min(1).max(200).optional(),
 });
 export type TeamMessageArgs = z.infer<typeof TeamMessageArgsSchema>;
 
-/** `team_list`'s arguments: `archived` lists the archived teammates instead. */
-export const TeamListArgsSchema = z.object({ archived: z.boolean().optional() });
+/** `team_list`'s arguments: `archived` lists the archived teammates instead; `space` (an id or a
+ *  name) another space's, for the Lead. */
+export const TeamListArgsSchema = z.object({ archived: z.boolean().optional(), space: z.string().trim().min(1).max(200).optional() });
+
+/** `space_teams` takes nothing: every space of the profile and who is on its team. */
+export const SpaceTeamsArgsSchema = z.object({});
 
 /** `teammate_get`'s arguments. `to` is a handle, `@handle`, or `lead`; an archived teammate is found too. */
 export const TeammateGetArgsSchema = z.object({ to: z.string().trim().min(1).max(60) });

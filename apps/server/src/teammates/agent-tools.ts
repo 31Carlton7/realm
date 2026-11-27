@@ -1,9 +1,10 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { EFFORT_LEVELS, TEAMMATE_COLORS, TEAMMATE_PERMISSION_MODES, TEAMMATE_SHAPES, TEAM_LIST_TOOL, TEAM_MESSAGE_TOOL, TEAM_SET_ACCESS_TOOL, TEAMMATE_ARCHIVE_TOOL, TEAMMATE_CREATE_TOOL, TEAMMATE_GET_TOOL, TEAMMATE_REORDER_TOOL, TEAMMATE_RUN_CLOCK_TOOL, TEAMMATE_SET_LEAD_TOOL, TEAMMATE_SESSIONS_TOOL, TEAMMATE_UPDATE_TOOL, TEAMMATES_PROVIDER_NAME } from "@realm/contracts";
+import { EFFORT_LEVELS, TEAMMATE_COLORS, TEAMMATE_PERMISSION_MODES, TEAMMATE_SHAPES, TEAM_LIST_TOOL, TEAM_MESSAGE_TOOL, TEAM_SET_ACCESS_TOOL, TEAMMATE_ARCHIVE_TOOL, TEAMMATE_CREATE_TOOL, TEAMMATE_GET_TOOL, TEAMMATE_REORDER_TOOL, TEAMMATE_RUN_CLOCK_TOOL, TEAMMATE_SET_LEAD_TOOL, TEAMMATE_SESSIONS_TOOL, TEAMMATE_UPDATE_TOOL, TEAMMATES_PROVIDER_NAME, SPACE_TEAMS_TOOL } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err } from "../mcp/tool-result";
 import type { TeammatesStore } from "./store";
 import type { TeamManageTools } from "./manage";
+import { SPACE_ARG, SPACE_TEAMS, type CrossSpaceTeamTools } from "./cross-space";
 import type { TeammatesService } from "./service";
 
 /** The Add a teammate sheet's fields, as `teammate_create` and `teammate_update` take them. */
@@ -31,10 +32,11 @@ const TOOLS: Tool[] = [
     description: [
       "The teammates in this space: each one's handle, what it does, whether it is the Lead, whether it is idle, working or needs the person, the task it is on, and its model. Read-only.",
       "Under each, how it is set up: its id, engine and model id, effort, access, folder, group, clock (cron, next run or paused), and its chat's session id. `archived: true` lists the archived teammates instead.",
+      "`space` (an id or name) lists another space's team instead: only the Lead, in its own chat.",
     ].join(" "),
     inputSchema: {
       type: "object",
-      properties: { archived: { type: "boolean", description: "list the archived teammates instead of the current ones" } },
+      properties: { archived: { type: "boolean", description: "list the archived teammates instead of the current ones" }, space: SPACE_ARG },
       additionalProperties: false,
     },
   },
@@ -161,6 +163,7 @@ const TOOLS: Tool[] = [
       "Message a teammate: your message becomes a turn in its own chat, marked as from you, after the turn it is on. Use it to ask a teammate something or to hand it work that is its to do.",
       "`to` is its handle (\"cto\" or \"@cto\"), or \"lead\" for the space's Lead. Without `wait` you go on at once, and it answers in its own chat (or messages you back).",
       "With `wait: true` this call holds until it has answered and returns its reply — only when you cannot go on without it. Waiting on yourself, or on a teammate that is waiting on you, is refused.",
+      "`space` reaches a teammate in another space of this profile: only the Lead, in its own chat, in a turn the person started.",
     ].join(" "),
     inputSchema: {
       type: "object",
@@ -168,6 +171,7 @@ const TOOLS: Tool[] = [
         to: { type: "string", description: "a teammate's handle, e.g. \"cto\", or \"lead\"" },
         message: { type: "string", description: "what you want, in plain words, with what it needs to know" },
         wait: { type: "boolean", description: "hold until it answers, and return the answer" },
+        space: { ...SPACE_ARG, description: `${SPACE_ARG.description}; only in a turn the person started, on a card unless you are on Full access` },
       },
       required: ["to", "message"],
       additionalProperties: false,
@@ -190,11 +194,12 @@ const TOOLS: Tool[] = [
       additionalProperties: false,
     },
   },
+  SPACE_TEAMS,
 ];
 
 /**
  * The `realm-team` provider: `team_list`, `teammate_get`, `teammate_sessions`, `teammate_create`, `teammate_update`,
- * `teammate_archive`, `teammate_set_lead`, `teammate_reorder`, `teammate_run_clock`, `team_message` and `team_set_access`, in every session of a
+ * `teammate_archive`, `teammate_set_lead`, `teammate_reorder`, `teammate_run_clock`, `team_message`, `team_set_access` and `space_teams`, in every session of a
  * space that has teammates — theirs and the person's own, so "ask @cto" works from anywhere in the
  * space. `team_set_access` refuses every caller but the Lead in a turn the person started.
  */
@@ -202,6 +207,7 @@ export function createTeammatesProvider(d: {
   store: Pick<TeammatesStore, "hasAny">;
   teammates: Pick<TeammatesService, "teamList" | "teammateGet" | "teammateSessions" | "teamMessage" | "teamSetAccess">;
   manage: Pick<TeamManageTools, "create" | "update" | "archive" | "setLead" | "reorder" | "runClock">;
+  across: Pick<CrossSpaceTeamTools, "teamList" | "teamMessage" | "spaceTeams">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
 }): RealmToolProvider {
   return {
@@ -215,7 +221,7 @@ export function createTeammatesProvider(d: {
         return err(`the ${TEAMMATES_PROVIDER_NAME} tools are off for this space — mcp.setProviderEnabled turns them back on.`);
       try {
         switch (tool) {
-          case TEAM_LIST_TOOL: return d.teammates.teamList(ctx, args);
+          case TEAM_LIST_TOOL: return d.across.teamList(ctx, args);
           case TEAMMATE_GET_TOOL: return d.teammates.teammateGet(ctx, args);
           case TEAMMATE_SESSIONS_TOOL: return d.teammates.teammateSessions(ctx, args);
           case TEAMMATE_CREATE_TOOL: return await d.manage.create(ctx, args);
@@ -224,8 +230,9 @@ export function createTeammatesProvider(d: {
           case TEAMMATE_SET_LEAD_TOOL: return await d.manage.setLead(ctx, args);
           case TEAMMATE_REORDER_TOOL: return await d.manage.reorder(ctx, args);
           case TEAMMATE_RUN_CLOCK_TOOL: return await d.manage.runClock(ctx, args);
-          case TEAM_MESSAGE_TOOL: return await d.teammates.teamMessage(ctx, args);
+          case TEAM_MESSAGE_TOOL: return await d.across.teamMessage(ctx, args);
           case TEAM_SET_ACCESS_TOOL: return await d.teammates.teamSetAccess(ctx, args);
+          case SPACE_TEAMS_TOOL: return d.across.spaceTeams(ctx, args);
           default: return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
         }
       } catch (e) {

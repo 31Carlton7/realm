@@ -87,6 +87,7 @@ describe("the card names who is asking", () => {
     ["model", { kind: "model", options: [{ value: "m", label: "M", agent: "claude", own: true }], rows: [{ id: "1", label: "Step" }] }],
     ["branch", { kind: "branch", options: [{ value: "main", label: "main" }] }],
     ["link", { kind: "link", url: "https://example.com/x" }],
+    ["folder", { kind: "folder" }],
   ] as const)("puts every control of a %s question under the no-agent claim", (_kind, q) => {
     // THE MUTANT: a body that renders a control outside the card's root — a portal, a sibling — and
     // an agent could press it. app-drive refuses an act by `closest("[data-no-agent]")`, so that is
@@ -306,6 +307,36 @@ describe("a file", () => {
     expect(row.querySelector("mark")).toHaveTextContent("app");
     fireEvent.click(row);
     expect(onAnswer).toHaveBeenCalledWith({ f: "src/app.ts" });
+  });
+});
+
+describe("a folder", () => {
+  const mountFolder = (picks: (string | null)[]) => {
+    const api = fakeApi();
+    const pickFolder = vi.fn(async () => picks.shift() ?? null);
+    api.pickFolder = pickFolder;
+    const onAnswer = vi.fn();
+    const card = cardOf([{ id: "folder", prompt: "Which folder should this space work in?", kind: "folder" }]);
+    render(<StoreContext.Provider value={createAppStore(api)}><QuestionCard card={card} onAnswer={onAnswer} onSkip={vi.fn()} /></StoreContext.Provider>);
+    return { pickFolder, onAnswer, choose: () => fireEvent.click(screen.getByRole("button", { name: /Choose/ })) };
+  };
+
+  it("opens the folder panel only on Choose…, and answers with the folder picked there", async () => {
+    const { pickFolder, onAnswer, choose } = mountFolder(["/Users/me/Projects/app"]);
+    expect(pickFolder).not.toHaveBeenCalled();
+    choose();
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith({ folder: "/Users/me/Projects/app" }));
+    expect(pickFolder).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays up when the panel is cancelled, so the person can choose again", async () => {
+    const { pickFolder, onAnswer, choose } = mountFolder([null, "/Users/me/elsewhere"]);
+    choose();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Choose/ })).toBeEnabled());
+    expect(onAnswer).not.toHaveBeenCalled();
+    choose();
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith({ folder: "/Users/me/elsewhere" }));
+    expect(pickFolder).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -34,7 +34,7 @@ import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
 import { createWorkspaceProvider } from "./workspace/agent-tools";
 import { createSessionOpenTools } from "./workspace/session-open";
-import { createSpacesTools } from "./workspace/spaces";
+import { createSpacesTools, pickFolder } from "./workspace/spaces";
 import { createSettingsTools } from "./workspace/settings";
 import { createCatalogTools } from "./workspace/catalog";
 import { harnessFakeScript } from "./harness-fake-script";
@@ -187,6 +187,7 @@ import { TeammatesService } from "./teammates/service";
 import { TeammatesStore } from "./teammates/store";
 import { createTeammatesProvider } from "./teammates/agent-tools";
 import { TeamManageTools } from "./teammates/manage";
+import { CrossSpaceTeamTools } from "./teammates/cross-space";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
@@ -1605,6 +1606,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const agentRunsForUi = agentRuns;
   mcpGateway.registerProvider(createUiAgentProvider({
     mcp, broker: browserBroker, session: (id) => sessions.get(id), models: (id) => agentRunsForUi.catalogFor(id), branches: listBranches,
+    folder: (path) => pickFolder({ userHome, realmHome: opts.home }, path),
   }));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, grants: computerGrants, observe: layaShadow.observe, assist: layaAssist }));
@@ -1771,6 +1773,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       team, schedules, sessions, broker: browserBroker, userHome, realmHome: opts.home,
       defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
     }),
+    across: new CrossSpaceTeamTools({ team, spaces, sessions, broker: browserBroker }),
   }));
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — which every profile has unless its repo was detached. Every engine saves and searches
