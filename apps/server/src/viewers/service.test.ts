@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createServer, get, type IncomingMessage, type Server } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { toPage } from "./electron-relay";
@@ -86,6 +86,8 @@ async function input(url: string, ...msgs: unknown[]) {
   return ws;
 }
 
+/** An interval no other timer in this file uses, so the relay's own can be told apart. */
+const STILL = 37;
 const JPEG_A = Buffer.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]);
 const JPEG_B = Buffer.from([0xff, 0xd8, 4, 5, 6, 7, 0xff, 0xd9]);
 
@@ -203,13 +205,14 @@ describe("ViewerService (electron)", () => {
   });
 
   it("close stops the screencast, releases the CDP socket and ends the stream", async () => {
-    const { cdp, viewer, viewers } = await setup({ stillMs: 20 });
+    const { cdp, viewer, viewers } = await setup({ stillMs: STILL });
     await cdp.waitFor("Page.startScreencast");
     cdp.frame(JPEG_A);
     const client = watch(viewer.streamUrl);
     await until(() => client.parts.length >= 1, "a frame");
     const ws = await input(viewer.inputUrl);
     const socket = cdp.sockets[0]!;
+    const timeouts = vi.spyOn(globalThis, "setTimeout");
     await viewers.close(viewer.id);
     await cdp.waitFor("Page.stopScreencast");
     await until(() => socket.readyState === WebSocket.CLOSED, "the CDP socket to close");
@@ -218,24 +221,30 @@ describe("ViewerService (electron)", () => {
     expect(viewers.list()).toEqual([]);
     const seen = client.parts.length;
     await new Promise((r) => setTimeout(r, 80));
-    expect(client.parts.length).toBe(seen); // no still re-sends left running
+    expect(client.parts.length).toBe(seen);
+    // A still re-send timer left behind re-arms itself forever; none may be scheduled after close.
+    expect(timeouts.mock.calls.filter(([, ms]) => ms === STILL)).toEqual([]);
+    timeouts.mockRestore();
     const after = watch(viewer.streamUrl);
     await until(() => after.res !== null || after.ended, "a reply");
     expect(after.res?.statusCode).toBe(404);
   });
 
   it("when the app exits, marks the viewer exited and tears its stream down", async () => {
-    const { cdp, viewer, viewers } = await setup({ stillMs: 20 });
+    const { cdp, viewer, viewers } = await setup({ stillMs: STILL });
     await cdp.waitFor("Page.startScreencast");
     cdp.frame(JPEG_A);
     const client = watch(viewer.streamUrl);
     await until(() => client.parts.length >= 1, "a frame");
+    const timeouts = vi.spyOn(globalThis, "setTimeout");
     cdp.sockets[0]!.terminate();
     await until(() => viewers.list()[0]?.status === "exited", "status exited");
     await until(() => client.ended, "the stream to end");
     const seen = client.parts.length;
     await new Promise((r) => setTimeout(r, 80));
     expect(client.parts.length).toBe(seen);
+    expect(timeouts.mock.calls.filter(([, ms]) => ms === STILL)).toEqual([]);
+    timeouts.mockRestore();
   });
 
   it("refuses a port with no page target", async () => {
