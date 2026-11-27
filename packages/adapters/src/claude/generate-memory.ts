@@ -1,5 +1,6 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { BACKGROUND_MODEL } from "./background-model";
+import { noMcpServers } from "./no-mcp";
 
 type QueryFn = typeof sdkQuery;
 
@@ -126,7 +127,7 @@ export async function generateMemoryTidyPlan(input: MemoryTidyInput, deps: { que
 
 /** The text of a one-shot `query()`'s result. */
 async function oneShot(query: QueryFn, o: { prompt: string; model: string; systemPrompt: string; what: string }): Promise<string> {
-  const q = query({ prompt: o.prompt, options: { maxTurns: 1, allowedTools: [], model: o.model, systemPrompt: o.systemPrompt } });
+  const q = query({ prompt: o.prompt, options: { maxTurns: 1, allowedTools: [], ...noMcpServers(), model: o.model, systemPrompt: o.systemPrompt } });
   let result = "";
   for await (const msg of q) {
     if (msg.type === "result") {

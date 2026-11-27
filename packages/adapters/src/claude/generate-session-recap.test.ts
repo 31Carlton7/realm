@@ -142,6 +142,19 @@ describe("generateSessionRecap", () => {
     expect(seen.env?.PATH).toBe(process.env.PATH);
   });
 
+  /* `tools: []` takes the CLI's ToolSearch away too, so any MCP server that loads is inlined whole:
+     about 240 claude.ai connector schemas, ~230k tokens, on every recap from Nov 16. */
+  it("loads no MCP servers and no claude.ai connectors", async () => {
+    let seen: Record<string, unknown> = {};
+    const query = ((args: { options: Record<string, unknown> }) => {
+      seen = args.options;
+      return (async function* () { yield { type: "result", subtype: "success", result: "SUMMARY: a. b.\nHINT: NONE" }; })();
+    }) as never;
+    await generateSessionRecap(INPUT, { query });
+    expect(seen).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
+    expect((seen.env as Record<string, string>).DISABLE_PROMPT_CACHING).toBe("1");
+  });
+
   it("caps the transcript at its last RECAP_TRANSCRIPT_MAX characters", () => {
     const transcript = `${"§".repeat(5_000)}${"b".repeat(RECAP_TRANSCRIPT_MAX)}`;
     const prompt = recapPrompt({ ...INPUT, transcript });

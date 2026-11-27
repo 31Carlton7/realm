@@ -61,6 +61,7 @@ describe("cleanDictation", () => {
     expect(calls).toHaveLength(1);
     expect(DICTATION_MODEL).toBe("claude-haiku-5-5");
     expect(calls[0]!.options).toMatchObject({ model: "claude-haiku-5-5", maxTurns: 1, tools: [], allowedTools: [], settingSources: [], thinking: { type: "disabled" }, persistSession: false });
+    expect(calls[0]!.options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
   });
 
   it("throws on a failed result, so the caller keeps the raw words", async () => {

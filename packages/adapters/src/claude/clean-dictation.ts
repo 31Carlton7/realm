@@ -1,5 +1,6 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { fenceUntrusted } from "@realm/contracts";
+import { noMcpServers } from "./no-mcp";
 
 type QueryFn = typeof sdkQuery;
 
@@ -81,6 +82,7 @@ export async function cleanDictation(raw: string, deps: { query?: QueryFn } = {}
       tools: [],
       allowedTools: [],
       settingSources: [],
+      ...noMcpServers(),
       thinking: { type: "disabled" },
       model: DICTATION_MODEL,
       persistSession: false,
