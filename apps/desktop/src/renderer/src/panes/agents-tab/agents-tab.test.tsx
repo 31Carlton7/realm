@@ -131,7 +131,7 @@ describe("the list of a session's sub-agents", () => {
     held.se1 = [{ ...CHILDREN[0]!, settledAt: NOW, outcome: "done", report: "All green" }, CHILDREN[1]!];
     store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "se2" });
     await waitFor(() => expect(store.getState().subagents.se1?.[0]?.outcome).toBe("done"));
-    // Mutant: ignore `childId` — a lead with 170 runs re-reads all of them on every begin and settle.
+    // Mutant: ignore `childId`, and a lead with 170 runs re-reads all of them on every begin and settle.
     expect(reads()).toBe(1);
     expect(api.calls).toContain("getDelegatedChild:se1:se2");
     // The rows that did not move are the same rows, so nothing else on screen draws again.
@@ -168,7 +168,7 @@ describe("the list of a session's sub-agents", () => {
     await store.getState().loadSubagents("se1");
     const reads = () => api.calls.filter((c) => c === "listDelegatedChildren:se1").length;
     const reading = store.getState().refreshSubagents("se1");
-    // Mutant: patch the row anyway — the read in flight lands after it, from before the change.
+    // Mutant: patch the row anyway, and the read in flight lands after it, from before the change.
     store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "se2" });
     expect(reads()).toBe(3);
     await reading;

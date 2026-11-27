@@ -830,7 +830,7 @@ export type Api = TeammatesApi & {
   /** `delegation.children` — every session this one delegated to, settled ones included, and the
    *  sub-agents the person took off its prompter's row. */
   listDelegatedChildren(sessionId: string): Promise<{ children: DelegatedChild[]; dismissed: string[] }>;
-  /** `delegation.child` — one of them, as the list has it; null when it is not this session's. */
+  /** `delegation.child`: one of them, as the list has it; null when it is not this session's. */
   getDelegatedChild(sessionId: string, childId: string): Promise<DelegatedChild | null>;
   /** `delegation.addTeammate` — an agent added from the prompter's "+", as the session's sub-agent. */
   addTeammate(input: AddTeammate): Promise<{ childId: string }>;

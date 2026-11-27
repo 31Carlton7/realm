@@ -378,7 +378,7 @@ describe("the lead's list of its sub-agents", () => {
   });
 
   it("delegation.changed names the sub-agent that moved, so a window reads that one row rather than the list", async () => {
-    // THE MUTANT: announce the lead alone — every begin and settle re-reads every child it ever had.
+    // THE MUTANT: announce the lead alone, and every begin and settle re-reads every child it ever had.
     const { ctx } = await boot();
     const c = await client(app.port);
     await app.agentRuns.start(ctx, { goal: "go" });
