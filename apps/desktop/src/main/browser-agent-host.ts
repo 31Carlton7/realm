@@ -729,7 +729,7 @@ export class BrowserAgentHost {
         const ref = Number(params.ref);
         const origin = normalizeOrigin(String(params.origin ?? ""));
         const codes = this.d.codes;
-        if (!codes?.enabled()) return { ok: false, error: "security codes are off in Realm's Settings ▸ Sign-ins, so nothing was read or filled" } satisfies BrowserActResult;
+        if (!codes?.enabled()) return { ok: false, error: "security codes are off in Realm's Settings ▸ Passwords ▸ Security codes, so nothing was read or filled" } satisfies BrowserActResult;
         if (!origin) return { ok: false, refused: "origin_mismatch", error: "this pane is not on an http(s) page, so nothing was filled" } satisfies BrowserActResult;
         const entry = this.ensure(browserId);
         const send = entry.binding.send;
@@ -874,7 +874,7 @@ export class BrowserAgentHost {
           const credential = found && (found.spaceId === undefined || found.spaceId === spaceId) ? found : null;
           if (!store || !credential) {
             this.auditFill(id, "", "no_credential", who);
-            return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
+            return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Passwords" } satisfies BrowserActResult;
           }
           credentialId = credential.id;
           origin = credential.origin;

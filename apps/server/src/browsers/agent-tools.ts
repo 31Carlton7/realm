@@ -244,7 +244,7 @@ const TOOLS: Tool[] = [
   {
     name: "browser_fill_credential",
     description:
-      "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
+      "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings ▸ Passwords, and fill it). " +
       "Both work the same way: Realm checks the pane's current origin, refuses if it is not the site the sign-in belongs to, asks the user to approve this specific fill (they may answer Always allow on this site), and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
       "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). For a second step, prefer a code by text or email (choose it under 'Other options' / 'Try another way'), then browser_fill_code. A push (Duo, Okta) or an authenticator app is the last resort: switch method first, and stop only if none is offered.",
     inputSchema: {
@@ -640,7 +640,7 @@ const HANDLERS: Record<string, Handler> = {
         return ok(
           `${result.detail}${result.credentialId ? `, as credentialId ${result.credentialId}` : ""}. `
           + "Use that id to fill the same password again — a confirm-password field takes the same call. "
-          + "You cannot read the value and neither can the user, so do not offer to tell them what it is: it is in Realm's Settings → Sign-ins, and the site's own reset is the way back if they ever need it elsewhere.",
+          + "You cannot read the value and neither can the user, so do not offer to tell them what it is: it is in Realm's Settings ▸ Passwords, and the site's own reset is the way back if they ever need it elsewhere.",
         );
       });
     }

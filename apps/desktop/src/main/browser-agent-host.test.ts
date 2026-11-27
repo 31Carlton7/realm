@@ -674,6 +674,7 @@ describe("BrowserAgentHost — fillCredential", () => {
     const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "ghost", profileId: "pWork" }) as { ok: boolean; refused?: string };
 
     expect(result.refused).toBe("no_credential");
+    expect((result as { error?: string }).error).toContain("in Realm's Settings, under Passwords");
     expect(audit[0]).toMatchObject({ outcome: "no_credential", credentialId: "ghost" });
     expect(calls.some((c) => c.method === "Page.getNavigationHistory")).toBe(false);
   });
@@ -1548,7 +1549,7 @@ describe("BrowserAgentHost — fillCode", () => {
     expect(await p.host.handleOp("codesEnabled", {})).toEqual({ enabled: false });
     const r = await fill(p.host);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/off/);
+    expect(r.error).toContain("security codes are off in Realm's Settings ▸ Passwords ▸ Security codes");
     expect(p.reads).toEqual([]);
     expect(p.keys()).toBe("");
   });

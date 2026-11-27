@@ -39,6 +39,6 @@ export const AGENT_SIGNINS_OFF =
 
 /** The transcript's line for one agent fill: the site and the kind, never the value. */
 export function agentFillNote(kind: AgentFillKind, site: string): string {
-  if (kind === "generated") return `Realm created a password for ${site}, saved in Settings ▸ Sign-ins`;
+  if (kind === "generated") return `Realm created a password for ${site}, saved in Settings ▸ Passwords`;
   return kind === "code" ? `Realm filled a security code on ${site}` : `Realm filled a saved password on ${site}`;
 }
