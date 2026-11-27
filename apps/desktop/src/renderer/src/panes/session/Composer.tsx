@@ -419,7 +419,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueTurn = null, queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, goalActive = false, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, bare = false, placeholder = "Ask anything", dictation = null }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueTurn = null, queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, goalActive = false, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, bare = false, placeholder = "Ask anything", dictation = null, accessory = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -465,6 +465,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
   /** Dictation into this draft, where this prompter offers it (`voice/use-dictation.ts`). */
   dictation?: DictationPort | null;
+  /** A control of the host's, set in the row beside send (the quick chat panel's meeting assistant). */
+  accessory?: ReactNode;
   /** The other sessions this draft points at, and the two ways they change. */
   sessionRefs?: readonly SessionRef[]; onRemoveSessionRef?: (sessionId: string) => void;
   /** One of Realm's own sidebar items was dropped on the prompter. The pane decides what it means. */
@@ -1589,6 +1591,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
                 </span>
               </button>
             )}
+            {accessory}
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

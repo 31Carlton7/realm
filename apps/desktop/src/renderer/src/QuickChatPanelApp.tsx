@@ -1,7 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { CaretBridge, PressTrackingBridge, RubberBandBridge, ScrollbarStyleBridge, ThemeBridge, TooltipBridge, subscribeSessionEvents } from "./App";
 import { dismissBootSplash } from "./boot-splash";
 import { QuickChat } from "./components/QuickChat";
+import { panelCameIn, putPanelAway } from "./components/quick-chat-panel-frame";
 import { Toasts } from "./components/Toasts";
 import { desktopMeetingAssistant } from "./meeting/desktop";
 import { useAssistantPage } from "./meeting/MeetingAssistantView";
@@ -28,6 +29,7 @@ export function QuickChatPanelApp() {
      panel away, leaves a run listening, and the menu bar's mark says so. */
   const assistant = useMemo(() => desktopMeetingAssistant(() => store.getState().activeSpaceId), [store]);
   useAssistantPage(assistant);
+  const newChat = useRef<() => void>(() => {});
   useEffect(() => {
     document.documentElement.dataset.surface = QUICK_CHAT_SURFACE;
     const panel = window.realm?.quickChatPanel;
@@ -48,10 +50,25 @@ export function QuickChatPanelApp() {
       });
       return steps;
     };
+    /* With an answer up there is no bar to type in, and main's focus has already handed the keyboard
+       to the page's first control, the answer pill, which then wears the focus ring and its tooltip.
+       A key typed there is caught by the window, so nothing needs to hold the focus. */
+    const focusBar = () => {
+      const input = document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input");
+      if (input) input.focus();
+      else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    };
     const show = () => step(() => store.getState().showQuickChatPanel()).then(() => {
       dismissBootSplash();
-      document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input")?.focus();
+      panelCameIn();
+      focusBar();
     });
+    /* New chat, from the toolbar under an answer: this chat goes (kept in its space if it was saved)
+       and an empty bar takes its place, in one step so the panel is not put away in between. */
+    newChat.current = () => void step(async () => {
+      await store.getState().closeQuickChat();
+      await store.getState().showQuickChatPanel();
+    }).then(() => requestAnimationFrame(focusBar));
     /* Main's first "shown" can arrive before this listens, so a page loaded to be opened shows at
        once. One made ahead of the first press waits for it: showing would start a chat nobody asked for. */
     void (panel?.opening() ?? Promise.resolve(true)).then((opening) => { if (opening) void show(); });
@@ -73,7 +90,7 @@ export function QuickChatPanelApp() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.stopImmediatePropagation();
-      if (!e.defaultPrevented) panel?.hide();
+      if (!e.defaultPrevented && panel) putPanelAway(() => panel.hide());
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -89,7 +106,7 @@ export function QuickChatPanelApp() {
       <PressTrackingBridge />
       <TooltipBridge />
       <CaretBridge />
-      <QuickChat assistant={assistant} />
+      <QuickChat assistant={assistant} onNewChat={() => newChat.current()} />
       <NoSpace />
       <Toasts />
     </StoreContext.Provider>

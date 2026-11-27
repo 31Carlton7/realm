@@ -372,11 +372,24 @@ Rules:
 - The quick chat panel is the one window of Realm's that opens over another app, so it behaves as a
   guest there. It takes the keyboard without becoming the front app and gives it back when it goes,
   it comes with no Realm window behind it, and Escape puts it away and deletes nothing: a key
-  pressed to get out of the way never costs a conversation. It is the quick chat's card with the
-  window as its edge, so in Plain it is the card's surface, and in Glass its ground thins over the
-  window's own material, which is macOS's and not a fill of ours. It thins only to the panes'
-  reading point, because the app behind it is a desktop nobody chose, and a white one took the
-  dark face's hints to nothing at the thinner ground it first had. Until it is saved its bar says
+  pressed to get out of the way never costs a conversation. It is laid out after ChatGPT's companion
+  bar (the owner, 11-25: "mimic it as much as possible"): it opens as one capsule 40 pt tall in the
+  display's bottom-right corner, with everything it offers inside that capsule, the assistant's mic
+  beside send rather than a round button of its own. Once a question is answered the answer stands
+  over it as a pill (how the turn stands, the question as its title, two lines of the reply) and the
+  capsule turns into a toolbar of new chat, the assistant and expand; a key typed there starts the
+  next question. Expanded, a card grows up out of the bar with the whole chat and its Save row, as
+  tall as what it holds, and a question the agent is waiting on opens it, because a pill cannot hold
+  the card that answers it. The bottom edge is held still throughout. The empty bar goes when the
+  keyboard leaves it; one holding anything does not. Its shapes narrow into their right end on the
+  way out, as they widened out of it on the way in. Each shape stands on macOS's own frosted
+  material, cut to its outline by main, so the desktop's colour comes through it and the window
+  round the shapes stays clear (the release captain, 11-25: the first pass's flat ground did not
+  read as ChatGPT's). A CSS animation cannot move a native view, so the page drives the way in and
+  out a frame at a time and the material is sent the same numbers. Over the material Plain lays the
+  card's surface at the panes' reading point, because the app behind it is a desktop nobody chose,
+  and Glass lays nothing but its rim of light; where the material cannot be cut, Glass keeps Plain's
+  ground, and Reduce Transparency makes it solid. Until it is saved its card says
   Quick chat, never a session's placeholder; saved, it says the name it has in that space. What
   Settings says about hiding it from screen sharing is what was measured and no more: left out of
   screenshots and screen recordings on this Mac, still listed without a name, and a call seen from

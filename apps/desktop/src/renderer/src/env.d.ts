@@ -22,6 +22,8 @@ interface Window {
     landSpaceId?: string;
     /** "quick-chat" in the quick chat panel's page; undefined in a Realm window. */
     surface?: string;
+    /** In the quick chat panel's page: whether main cuts macOS's material to the panel's shapes. */
+    panelMaterial?: boolean;
     /** The quick chat panel's meeting assistant: the menu bar's red mark while it listens, and the
      *  mark's Stop. Answered for the panel's own page only. */
     meetingAssistant?: {
@@ -36,6 +38,8 @@ interface Window {
      *  every bridge: jsdom has none. */
     quickChatPanel?: {
       hide(): void;
+      fit(height: number): void;
+      shapes(payload: { shapes: { x: number; y: number; width: number; height: number; radius: number; squircle?: boolean; alpha?: number }[]; width: number; height: number }): void;
       opening(): Promise<boolean>;
       onShown(cb: () => void): () => void;
       shortcut(): Promise<import("@realm/contracts").QuickChatShortcutState>;

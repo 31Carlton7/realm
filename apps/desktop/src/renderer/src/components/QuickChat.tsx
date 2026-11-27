@@ -14,8 +14,11 @@ import { complementOf } from "../state/no-overlay";
 import { MediaSessionContext } from "./viewer/open";
 import type { MeetingAssistant } from "../meeting/assistant";
 import {
-  ASSISTANT_PLACEHOLDER, AssistantBody, AssistantStrip, AutoAnswersSwitch, ListeningMark, useAssistantState, type AssistantTarget,
+  ASSISTANT_PLACEHOLDER, AssistantBody, AssistantStrip, AutoAnswersSwitch, ListeningMark, isListening, useAssistantState, type AssistantTarget,
 } from "../meeting/MeetingAssistantView";
+import { PANEL_ROOMY, isPanel, putPanelAway, usePanelFit } from "./quick-chat-panel-frame";
+import { answerPill } from "./quick-chat-answer";
+import { Spinner } from "./Spinner";
 
 /** The window's size. Fixed rather than resizable: it is a corner of the screen you ask something
  *  in, and a chat you want to size is a chat that wanted a pane. */
@@ -41,9 +44,11 @@ const SAVE_CHIPS = 3;
  * fact about a workspace and this is a question in a corner. The model picker stays, and files still
  * drop onto the card, because those change what the next send IS.
  */
-export function QuickChat({ assistant = null }: {
+export function QuickChat({ assistant = null, onNewChat }: {
   /** The meeting assistant, which only the quick chat panel carries (QuickChatPanelApp.tsx). */
   assistant?: MeetingAssistant | null;
+  /** The panel's new chat: this one closed (deleted unless saved) and an empty one opened. */
+  onNewChat?: () => void;
 } = {}) {
   const chat = useApp((s) => s.quickChat);
   /* Whichever space is active, and across relaunches. It belongs to the app, not to a space's list
@@ -51,12 +56,12 @@ export function QuickChat({ assistant = null }: {
      The session's own row still names a space, because an agent needs a working directory to run
      commands in; that is where its work lands, not where the window lives. */
   if (!chat) return null;
-  return <ChatWindow key={chat.sessionId} sessionId={chat.sessionId} assistant={assistant} />;
+  return <ChatWindow key={chat.sessionId} sessionId={chat.sessionId} assistant={assistant} onNewChat={onNewChat} />;
 }
 
 /** Split out so every hook below belongs to one live chat and is discarded with it — a closed chat
  *  must not leave a drag listener or a transcript subscription behind. */
-function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: MeetingAssistant | null }) {
+function ChatWindow({ sessionId, assistant, onNewChat }: { sessionId: string; assistant: MeetingAssistant | null; onNewChat?: () => void }) {
   const session = useApp((s) => s.sessions[sessionId]);
   const status = useApp((s) => s.sessionStatus[sessionId] ?? s.sessions[sessionId]?.status ?? "idle");
   const entry = useApp((s) => s.transcripts[sessionId]);
@@ -100,6 +105,8 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
   const drag = useDrag({ pos, onMove: setQuickChatPos });
   const said = transcript.blocks.length > 0;
   const [confirming, setConfirming] = useState(false);
+  /* New chat's own confirm, in the toolbar: the card's head has one for its trash. */
+  const [renewing, setRenewing] = useState(false);
   /* The assistant is the same window's other view: the chat stays as it was under it, and a run that
      is listening goes on while the chat is shown. Which one is up is the assistant's, so a key
      pressed in another app can turn it to the assistant before this chat has mounted. */
@@ -108,6 +115,20 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
   const [target, setTarget] = useState<AssistantTarget>("ask");
   const [assistantDraft, setAssistantDraft] = useState("");
   const showing = assistant && view === "assistant" ? assistant : null;
+  const listening = assistantState ? isListening(assistantState) : false;
+  /* In the panel the window is the bar alone until there is a conversation, or the assistant, to
+     show above it (quick-chat-panel-frame.ts). */
+  const grown = said || showing !== null || listening;
+  /* In the panel a conversation is first the answer over a toolbar, as ChatGPT's companion shows it,
+     and the whole of it, with the prompter and the Save row, is one click up (expand). A question the
+     agent is waiting on you for opens it, since a pill cannot hold the card that answers it. */
+  const inPanel = isPanel();
+  const [expanded, setExpanded] = useState(false);
+  const waiting = status === "waiting_permission";
+  const cardShown = !inPanel || showing !== null || (said && (expanded || waiting));
+  const pill = inPanel && said && !cardShown ? answerPill(transcript.blocks, status === "running" || status === "waiting_permission") : null;
+  const frame = useRef<HTMLElement>(null);
+  usePanelFit(frame);
   /* Fn T: the prompter takes the keyboard, and what it sends is a question. */
   const typeKeyPresses = assistantState?.typeKeyPresses ?? 0;
   useEffect(() => {
@@ -115,6 +136,30 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
     setTarget("ask");
     document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input")?.focus();
   }, [typeKeyPresses]);
+  /* A key typed over the answer is the start of the next question: the card opens with it in the
+     prompter. */
+  const typed = useRef(false);
+  useEffect(() => {
+    if (!pill) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      if ((e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) return;
+      e.preventDefault();
+      setDraft(sessionId, draft + e.key);
+      typed.current = true;
+      setExpanded(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pill, draft, sessionId, setDraft]);
+  useEffect(() => {
+    if (!expanded || !typed.current) return;
+    typed.current = false;
+    const input = document.querySelector<HTMLTextAreaElement>(".quick-chat .composer-input");
+    input?.focus();
+    input?.setSelectionRange(input.value.length, input.value.length);
+  }, [expanded]);
+
   /* Saving is offered once there is an answer to keep, and from then on: a second question does not
      take the row away while it runs. */
   const answered = transcript.blocks.some((b) => b.kind === "assistant" && !b.streaming);
@@ -163,18 +208,48 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
     return () => window.removeEventListener("keydown", onKey);
   }, [said, closeQuickChat, run]);
 
+  /* The panel's empty bar goes when the keyboard leaves it, as ChatGPT's does. Anything that would be
+     lost or interrupted keeps it: a conversation, the assistant, something typed or attached, an open
+     menu, or the file picker, which takes the keyboard while it is up. */
+  const picking = useRef(false);
+  const empty = !grown && draft.trim() === "" && attachments.length === 0;
+  useEffect(() => {
+    const panel = window.realm?.quickChatPanel;
+    if (!panel || !empty || !isPanel()) return;
+    const onBlur = () => {
+      if (picking.current || document.querySelector(PANEL_ROOMY)) return;
+      putPanelAway(() => panel.hide());
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [empty]);
+
   if (!session) return null;
   const kind = session.agentKind;
+  /* The assistant is one control in the panel's one capsule, as ChatGPT's voice button is in its: in
+     the bar beside send, or in the toolbar under an answer. A red dot while it listens. */
+  const mic = assistant && (
+    <button type="button" className="icon-btn quick-chat-mic" aria-label="Meeting assistant" aria-pressed={view === "assistant"}
+      title={view === "assistant" ? "Back to the chat" : "Meeting assistant"} data-listening={listening || undefined}
+      onMouseDown={(e) => e.preventDefault() /* the prompter keeps its caret */}
+      onClick={() => assistant.show(view !== "assistant")}>
+      <Icon name="mic" size={16} />
+    </button>
+  );
 
   return createPortal(
     <MediaSessionContext.Provider value={sessionId}>
-    <section className="quick-chat" style={{ left: drag.x, top: drag.y, width: W, height: H }}
-      role="dialog" aria-label="Quick chat"
+    <section ref={frame} className="quick-chat" style={{ left: drag.x, top: drag.y, width: W, height: H }}
+      role="dialog" aria-label="Quick chat" data-grown={grown || undefined} data-roomy={showing ? "" : undefined}
+      data-expanded={inPanel && cardShown && grown ? "" : undefined}
       data-dropping={fileDrop.dropping || undefined} {...(showing ? {} : fileDrop.handlers)}>
+      <div className="quick-chat-card">
       {/* The bar is the handle. There is no title to speak of — the chat has no name until it has a
           conversation — so what it carries is the agent it will ask and the way out. */}
       <header className="quick-chat-bar" data-dragging={drag.dragging || undefined} onPointerDown={drag.onPointerDown}>
-        <Icon name={AGENT_META[kind].icon} size={14} colored className="quick-chat-mark" />
+        {/* The agent's mark says who a question goes to. Under the assistant the head names the
+            assistant, and at the panel's width its title needs the room. */}
+        {!showing && <Icon name={AGENT_META[kind].icon} size={14} colored className="quick-chat-mark" />}
         {/* "Quick chat" until it is saved, and then the name it has in that space. The session's own
             title is "New session" until the agent writes one, and a window whose bar says "New
             session" is a window telling you the one thing you already knew. The name the first
@@ -183,11 +258,10 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
         <span className="quick-chat-title">{showing ? "Meeting assistant" : keptIn ? session.title : "Quick chat"}</span>
         {assistant && <ListeningMark assistant={assistant} />}
         {showing && <AutoAnswersSwitch assistant={showing} />}
-        {assistant && (
-          <button type="button" className="icon-btn" aria-label="Meeting assistant" aria-pressed={view === "assistant"}
-            title={view === "assistant" ? "Back to the chat" : "Meeting assistant"}
-            onClick={() => assistant.show(view !== "assistant")}>
-            <Icon name="mic" size={14} />
+        {inPanel && !showing && said && (
+          <button type="button" className="icon-btn" aria-label="Show the answer only" title="Show the answer only"
+            onClick={() => setExpanded(false)}>
+            <Icon name="chevronDown" size={14} />
           </button>
         )}
         {/* The trash, not a ×. Closing DELETES — this window is the only place the conversation was
@@ -258,6 +332,52 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
         )}
       </div>
       {showing && <AssistantStrip assistant={showing} target={target} onTarget={setTarget} draft={assistantDraft} />}
+      {!showing && answered && firstSpace && (
+        <SaveRow spaces={spaces} saveSpaces={saveSpaces} keptIn={keptIn} ranIn={ranIn}
+          onKeep={(spaceId) => run(() => keepQuickChat(spaceId))} onOpen={() => run(() => openKeptQuickChat())} />
+      )}
+      </div>
+      {pill && (
+        <button type="button" className="quick-chat-answer" data-state={pill.state} title="Show the whole chat"
+          onClick={() => setExpanded(true)}>
+          {pill.state === "done" ? <Icon name="checkCircle" size={14} className="quick-chat-answer-mark" />
+            : pill.state === "failed" ? <Icon name="errorCircle" size={14} className="quick-chat-answer-mark" />
+            : <Spinner size={14} className="quick-chat-answer-mark" />}
+          <span className="quick-chat-answer-title">{pill.title}</span>
+          {pill.answer && <span className="quick-chat-answer-text">{pill.answer}</span>}
+        </button>
+      )}
+      <div className="quick-chat-foot">
+      {pill ? (
+        <div className="quick-chat-tools" role="toolbar" aria-label="Quick chat">
+          {renewing && answered && firstSpace ? (
+            <span className="quick-chat-closing" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setRenewing(false); }}>
+              <button type="button" className="btn-quiet" autoFocus
+                onClick={() => run(async () => { await keepQuickChat(firstSpace.id); onNewChat?.(); })}>
+                Save to {firstSpace.name}
+              </button>
+              <button type="button" className="btn-quiet quick-chat-confirm" onClick={() => onNewChat?.()}>Delete chat</button>
+            </span>
+          ) : renewing ? (
+            <button type="button" className="btn-quiet quick-chat-confirm" autoFocus
+              onClick={() => onNewChat?.()} onBlur={() => setRenewing(false)}>
+              Delete this chat?
+            </button>
+          ) : (
+            <button type="button" className="icon-btn" aria-label="New chat"
+              title={keptIn ? "New chat" : "New chat (this one is deleted unless you save it)"}
+              onClick={() => (keptIn ? onNewChat?.() : setRenewing(true))}>
+              <Icon name="edit" size={16} />
+            </button>
+          )}
+          {mic}
+          <button type="button" className="icon-btn" aria-label="Show the whole chat" title="Show the whole chat"
+            onClick={() => setExpanded(true)}>
+            <Icon name="chevronUp" size={16} />
+          </button>
+        </div>
+      ) : (
+      <>
       {/* The pane's own prompter, in compact: no plan strip, no branch, no permission or mode chips,
           no under-strip. One card, the model, and send. Under the assistant it sends to the
           assistant, a question or something to keep in mind, with no files and no model. */}
@@ -265,7 +385,7 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
         <Composer compact session={session} status="idle" gitInfo={null} hero={false} spaceName="" bare
           onOpenDiff={NOOP} draft={assistantDraft} onDraftChange={setAssistantDraft} placeholder={ASSISTANT_PLACEHOLDER[target]}
           attachments={NO_ATTACHMENTS} onAttachPick={NOOP} onAttachFiles={NOOP} onRemoveAttachment={NOOP}
-          onSend={(text) => (target === "ask" ? showing.ask(text) : showing.addContext(text))}
+          onSend={(text) => (target === "ask" ? showing.ask(text) : showing.addContext(text))} accessory={mic}
           onStop={NOOP} onOptions={NOOP} onPickModel={NOOP} onMode={NOOP} planReturn={null} canSwitchAgent={false}
           agentProbe={agentProbe} modelFavorites={modelFavorites} modelInfo={modelInfo} onToggleModelFavorite={NOOP}
           submitKey={submitKey} />
@@ -273,7 +393,10 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
       <Composer compact session={session} status={status} gitInfo={null} hero={false} spaceName=""
         onOpenDiff={NOOP} draft={draft} onDraftChange={(t) => setDraft(sessionId, t)}
         attachments={attachments}
-        onAttachPick={() => run(() => attachFromPicker(sessionId))}
+        onAttachPick={() => {
+          picking.current = true;
+          run(async () => { try { await attachFromPicker(sessionId); } finally { picking.current = false; } });
+        }}
         onAttachFiles={(files) => run(() => attachFiles(sessionId, files))}
         onRemoveAttachment={(path) => removeAttachment(sessionId, path)}
         onSend={(text) => { setSends((n) => n + 1); run(() => sendMessage(sessionId, text)); }}
@@ -290,12 +413,11 @@ function ChatWindow({ sessionId, assistant }: { sessionId: string; assistant: Me
         agentProbe={agentProbe} modelFavorites={modelFavorites} modelInfo={modelInfo}
         onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
         sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
-        submitKey={submitKey} />
+        submitKey={submitKey} accessory={mic} />
       )}
-      {!showing && answered && firstSpace && (
-        <SaveRow spaces={spaces} saveSpaces={saveSpaces} keptIn={keptIn} ranIn={ranIn}
-          onKeep={(spaceId) => run(() => keepQuickChat(spaceId))} onOpen={() => run(() => openKeptQuickChat())} />
+      </>
       )}
+      </div>
     </section>
     </MediaSessionContext.Provider>,
     document.body,

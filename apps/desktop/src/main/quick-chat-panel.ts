@@ -16,19 +16,38 @@ import { restoredBounds, type SavedWindow } from "./window-state";
  * Electron-free, so the rules below are held by a unit test rather than by a live run.
  */
 
-/** The in-window card's size (QuickChat.tsx), so the same chat reads the same in both places. */
-export const QUICK_CHAT_PANEL_SIZE = { width: 380, height: 520 } as const;
+/**
+ * The bar the panel opens as, and the most its shapes grow to. The bar is ChatGPT's companion bar as
+ * measured on 2026-11-25 (330 × 40 pt, a capsule); the ceiling is the card the panel used to be.
+ */
+export const QUICK_CHAT_BAR = { width: 330, height: 40 } as const;
+export const QUICK_CHAT_PANEL_MAX_HEIGHT = 520;
+
+/** The clear margin round the shapes, which holds their shadow. The window is transparent there. */
+export const QUICK_CHAT_PANEL_INSET = 16;
+
+/** How far the bar sits from the display's right and bottom edges when it has not been dragged. */
+const EDGE = 16;
+
+/** The window at its smallest: the bar and its margin. */
+export const QUICK_CHAT_PANEL_SIZE = {
+  width: QUICK_CHAT_BAR.width + 2 * QUICK_CHAT_PANEL_INSET,
+  height: QUICK_CHAT_BAR.height + 2 * QUICK_CHAT_PANEL_INSET,
+} as const;
 
 /** What the panel's renderer is told it is (`window.realm.surface`). */
 export const QUICK_CHAT_SURFACE = "quick-chat";
 
 /**
  * The options that gave a panel which takes typing without changing the front app. The title is
- * empty because a window kept out of a capture is still listed by name to the app capturing.
+ * empty because a window kept out of a capture is still listed by name to the app capturing. It is
+ * transparent and draws no shadow of its own: the page draws the bar and the card, with their
+ * shadow, and the corners around them are clear.
  */
 export const QUICK_CHAT_PANEL_OPTIONS = {
   frame: false, show: false, focusable: true, skipTaskbar: true, title: "",
   resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
+  transparent: true, hasShadow: false, roundedCorners: false, backgroundColor: "#00000000",
   ...QUICK_CHAT_PANEL_SIZE,
 } as const;
 
@@ -36,17 +55,32 @@ type Rect = { x: number; y: number; width: number; height: number };
 
 /**
  * Where the panel opens: where it was dragged to while enough of that is still on a display,
- * otherwise centred a fifth of the way down the display the pointer is on, which is the one the
- * person is working on.
+ * otherwise in the bottom-right corner of the display the pointer is on, which is the one the person
+ * is working on. A saved place is kept by its bottom edge, since the window grows upward from the bar
+ * and was saved at whatever height it had then.
  */
 export function quickChatPanelPlace(saved: SavedWindow | null, displays: Rect[], current: Rect): { x: number; y: number } {
-  const kept = restoredBounds(saved && { ...saved, ...QUICK_CHAT_PANEL_SIZE }, displays,
+  const bar = saved && { ...saved, ...QUICK_CHAT_PANEL_SIZE, y: saved.y + saved.height - QUICK_CHAT_PANEL_SIZE.height };
+  const kept = restoredBounds(bar, displays,
     { ...QUICK_CHAT_PANEL_SIZE, minWidth: QUICK_CHAT_PANEL_SIZE.width, minHeight: QUICK_CHAT_PANEL_SIZE.height });
   if (!kept.center) return { x: kept.x, y: kept.y };
+  const margin = EDGE - QUICK_CHAT_PANEL_INSET;
   return {
-    x: Math.round(current.x + (current.width - QUICK_CHAT_PANEL_SIZE.width) / 2),
-    y: Math.round(current.y + Math.max(0, current.height - QUICK_CHAT_PANEL_SIZE.height) / 5),
+    x: current.x + current.width - QUICK_CHAT_PANEL_SIZE.width - margin,
+    y: current.y + current.height - QUICK_CHAT_PANEL_SIZE.height - margin,
   };
+}
+
+/**
+ * The window's bounds for shapes `height` tall: the bar alone, or the bar with the conversation above
+ * it. The bottom edge stays where it is, so the bar does not move and the card grows up out of it,
+ * and the top never rises past the display's work area.
+ */
+export function quickChatPanelFit(bounds: Rect, height: number, area: Rect): Rect {
+  const shapes = Math.min(QUICK_CHAT_PANEL_MAX_HEIGHT, Math.max(QUICK_CHAT_BAR.height, Math.round(height || 0)));
+  const bottom = bounds.y + bounds.height;
+  const tall = Math.max(QUICK_CHAT_PANEL_SIZE.height, Math.min(shapes + 2 * QUICK_CHAT_PANEL_INSET, bottom - area.y));
+  return { x: bounds.x, y: bottom - tall, width: QUICK_CHAT_PANEL_SIZE.width, height: tall };
 }
 
 /**

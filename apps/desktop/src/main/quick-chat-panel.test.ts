@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_PANEL_SIZE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw, type PanelWindow } from "./quick-chat-panel";
+import {
+  QUICK_CHAT_BAR, QUICK_CHAT_PANEL_INSET, QUICK_CHAT_PANEL_MAX_HEIGHT, QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_PANEL_SIZE, QuickChatPanel, QuickChatShortcut,
+  quickChatPanelFit, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw, type PanelWindow,
+} from "./quick-chat-panel";
 
 const DISPLAY = { x: 0, y: 25, width: 1440, height: 875 };
 
@@ -30,12 +33,25 @@ describe("the panel window's options", () => {
   it("is a frameless window that starts hidden and can take the keyboard", () => {
     expect(QUICK_CHAT_PANEL_OPTIONS).toMatchObject({ frame: false, show: false, focusable: true, skipTaskbar: true });
   });
+
+  it("is transparent and casts no shadow of its own, so the page's capsule is the only shape", () => {
+    expect(QUICK_CHAT_PANEL_OPTIONS).toMatchObject({ transparent: true, hasShadow: false, roundedCorners: false });
+  });
+
+  it("opens as ChatGPT's companion bar, 330 by 40, inside a margin that holds its shadow", () => {
+    expect(QUICK_CHAT_BAR).toEqual({ width: 330, height: 40 });
+    expect(QUICK_CHAT_PANEL_OPTIONS).toMatchObject({ width: 330 + 2 * QUICK_CHAT_PANEL_INSET, height: 40 + 2 * QUICK_CHAT_PANEL_INSET });
+  });
 });
 
 describe("quickChatPanelPlace", () => {
-  it("opens centred near the top of the display the pointer is on", () => {
+  const { width, height } = QUICK_CHAT_PANEL_SIZE;
+
+  it("opens in the bottom-right corner of the display the pointer is on, the bar 16 points in", () => {
     const second = { x: 1440, y: 0, width: 1920, height: 1080 };
-    expect(quickChatPanelPlace(null, [DISPLAY, second], second)).toEqual({ x: 1440 + (1920 - 380) / 2, y: 112 });
+    const at = quickChatPanelPlace(null, [DISPLAY, second], second);
+    expect(at).toEqual({ x: 1440 + 1920 - width - (16 - QUICK_CHAT_PANEL_INSET), y: 1080 - height - (16 - QUICK_CHAT_PANEL_INSET) });
+    expect(1440 + 1920 - (at.x + QUICK_CHAT_PANEL_INSET + QUICK_CHAT_BAR.width)).toBe(16);
   });
 
   it("opens where it was dragged to", () => {
@@ -43,9 +59,38 @@ describe("quickChatPanelPlace", () => {
     expect(quickChatPanelPlace(saved, [DISPLAY], DISPLAY)).toEqual({ x: 900, y: 300 });
   });
 
+  it("keeps a place saved while it was grown by its bottom edge, where the bar was", () => {
+    const saved = { x: 900, y: 300, width, height: 400, maximized: false, fullScreen: false };
+    expect(quickChatPanelPlace(saved, [DISPLAY], DISPLAY)).toEqual({ x: 900, y: 300 + 400 - height });
+  });
+
   it("forgets a place on a display that has gone", () => {
     const saved = { x: 4000, y: 300, ...QUICK_CHAT_PANEL_SIZE, maximized: false, fullScreen: false };
-    expect(quickChatPanelPlace(saved, [DISPLAY], DISPLAY)).toEqual({ x: 530, y: 96 });
+    expect(quickChatPanelPlace(saved, [DISPLAY], DISPLAY)).toEqual({ x: 1440 - width, y: 25 + 875 - height });
+  });
+});
+
+describe("quickChatPanelFit", () => {
+  const bar = { x: 1000, y: 800, ...QUICK_CHAT_PANEL_SIZE };
+  const bottom = bar.y + bar.height;
+
+  it("grows the window up out of the bar: the bottom edge and the left stay where they are", () => {
+    const grown = quickChatPanelFit(bar, 300, DISPLAY);
+    expect(grown).toEqual({ x: 1000, y: bottom - 300 - 2 * QUICK_CHAT_PANEL_INSET, width: bar.width, height: 300 + 2 * QUICK_CHAT_PANEL_INSET });
+    expect(quickChatPanelFit(grown, QUICK_CHAT_BAR.height, DISPLAY)).toEqual(bar);
+  });
+
+  it("never shrinks below the bar, nor grows past the ceiling", () => {
+    expect(quickChatPanelFit(bar, 0, DISPLAY)).toEqual(bar);
+    expect(quickChatPanelFit(bar, Number.NaN, DISPLAY)).toEqual(bar);
+    expect(quickChatPanelFit(bar, 5000, DISPLAY).height).toBe(QUICK_CHAT_PANEL_MAX_HEIGHT + 2 * QUICK_CHAT_PANEL_INSET);
+  });
+
+  it("stops at the top of the work area rather than leaving the display", () => {
+    const high = { ...bar, y: 200 };
+    const grown = quickChatPanelFit(high, QUICK_CHAT_PANEL_MAX_HEIGHT, DISPLAY);
+    expect(grown.y).toBe(DISPLAY.y);
+    expect(grown.y + grown.height).toBe(high.y + high.height);
   });
 });
 
