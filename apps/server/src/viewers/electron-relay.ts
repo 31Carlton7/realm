@@ -17,7 +17,6 @@ import { ViewerInputSchema, type ViewerInput } from "@realm/contracts";
 
 export const BOUNDARY = "realmframe";
 const JPEG_QUALITY = 70;
-const EVERY_NTH_FRAME = 1;
 /** How long a page may sit still before its last frame is sent again. */
 export const STILL_MS = 1000;
 /** How long close waits for `Page.stopScreencast` before dropping the socket anyway. */
@@ -53,7 +52,7 @@ export class ElectronRelay {
 
   constructor(
     private readonly wsUrl: string,
-    private readonly opts: { maxWidth?: number; maxHeight?: number; stillMs?: number; onExit: () => void },
+    private readonly opts: { maxWidth?: number; maxHeight?: number; everyNthFrame?: number; stillMs?: number; onExit: () => void },
   ) {}
 
   async start(): Promise<void> {
@@ -68,7 +67,7 @@ export class ElectronRelay {
     ws.on("error", () => {});
     await this.send("Page.enable");
     await this.send("Page.startScreencast", {
-      format: "jpeg", quality: JPEG_QUALITY, everyNthFrame: EVERY_NTH_FRAME,
+      format: "jpeg", quality: JPEG_QUALITY, everyNthFrame: this.opts.everyNthFrame ?? 1,
       ...(this.opts.maxWidth ? { maxWidth: this.opts.maxWidth } : {}),
       ...(this.opts.maxHeight ? { maxHeight: this.opts.maxHeight } : {}),
     });

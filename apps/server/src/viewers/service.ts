@@ -62,9 +62,9 @@ export class ViewerService {
   async open(input: ViewerOpen): Promise<Viewer> {
     const params = ViewerOpenSchema.parse(input);
     const targets = await fetch(`http://127.0.0.1:${params.cdpPort}/json/list`)
-      .then((r) => r.json() as Promise<{ type: string; url: string; title?: string; webSocketDebuggerUrl?: string }[]>)
+      .then((r) => r.json() as Promise<{ id: string; type: string; url: string; title?: string; webSocketDebuggerUrl?: string }[]>)
       .catch(() => { throw new RpcError("UNAVAILABLE", `Nothing is answering DevTools on port ${params.cdpPort}.`); });
-    const target = targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl && (!params.targetUrl || t.url.startsWith(params.targetUrl)));
+    const target = targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl && (params.targetId ? t.id === params.targetId : !params.targetUrl || t.url.startsWith(params.targetUrl)));
     if (!target) throw new RpcError("NOT_FOUND", `The app on port ${params.cdpPort} has no page to show.`);
 
     await this.listen();
@@ -77,7 +77,7 @@ export class ViewerService {
     };
     const inputs = new Set<WebSocket>();
     const relay = new ElectronRelay(target.webSocketDebuggerUrl!, {
-      maxWidth: params.maxWidth, maxHeight: params.maxHeight, stillMs: this.opts.stillMs,
+      maxWidth: params.maxWidth, maxHeight: params.maxHeight, everyNthFrame: params.everyNthFrame, stillMs: this.opts.stillMs,
       onExit: () => { viewer.status = "exited"; for (const ws of inputs) ws.close(); },
     });
     this.viewers.set(id, { viewer, relay, inputs });

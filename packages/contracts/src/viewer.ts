@@ -29,7 +29,10 @@ export const ViewerOpenSchema = z.object({
   kind: z.literal("electron"),
   /** The app's `--remote-debugging-port`, on 127.0.0.1. */
   cdpPort: z.number().int().min(1).max(65535),
-  /** Which page to show when the app has several: the first page target whose URL starts with this. */
+  /** Which page to show when the app has several: the DevTools target id (`/json/list`'s `id`)… */
+  targetId: z.string().max(128).optional(),
+  /** …or else the first page target whose URL starts with this. Two windows of one app often share a
+   *  URL (Realm's main window and its quick chat panel do), so an id is the reliable choice. */
   targetUrl: z.string().optional(),
   title: z.string().max(200).optional(),
   pid: z.number().int().nullable().default(null),
@@ -37,6 +40,8 @@ export const ViewerOpenSchema = z.object({
    *  at the page's own size. */
   maxWidth: z.number().int().positive().optional(),
   maxHeight: z.number().int().positive().optional(),
+  /** Keep one painted frame in this many. Moving content at 1 streams every frame Chromium paints. */
+  everyNthFrame: z.number().int().positive().default(1),
 });
 export type ViewerOpen = z.input<typeof ViewerOpenSchema>;
 

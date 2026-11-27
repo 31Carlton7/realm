@@ -13,13 +13,16 @@ async function fakeCdp() {
     if (req.url !== "/json/list") { res.writeHead(404).end(); return; }
     const { port } = server.address() as { port: number };
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify([
-      { type: "service_worker", url: "chrome://x", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/SW` },
-      { type: "page", url: "file:///app/index.html", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/P1` },
+      { id: "SW", type: "service_worker", url: "chrome://x", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/SW` },
+      { id: "P1", type: "page", url: "file:///app/index.html", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/P1` },
+      { id: "P2", type: "page", url: "file:///app/index.html", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/P2` },
     ]));
   });
   const wss = new WebSocketServer({ server });
-  wss.on("connection", (ws) => {
+  const paths: string[] = [];
+  wss.on("connection", (ws, req) => {
     sockets.push(ws);
+    paths.push(req.url ?? "");
     ws.on("message", (raw) => {
       const m = JSON.parse(String(raw)) as { id: number; method: string; params?: Record<string, unknown> };
       calls.push({ method: m.method, params: m.params ?? {} });
@@ -30,7 +33,7 @@ async function fakeCdp() {
   const port = (server.address() as { port: number }).port;
   let session = 0;
   return {
-    port, calls, sockets,
+    port, calls, sockets, paths,
     /** One `Page.screencastFrame`, as Chromium sends it. */
     frame(jpeg: Buffer, deviceWidth = 800, deviceHeight = 600) {
       const sessionId = ++session;
@@ -128,6 +131,16 @@ describe("ViewerService (electron)", () => {
     const [start] = await cdp.waitFor("Page.startScreencast");
     expect(start!.params).toMatchObject({ format: "jpeg", maxWidth: 1280, maxHeight: 720, everyNthFrame: 1 });
     expect(viewers.list()).toEqual([viewer]);
+  });
+
+  it("attaches to the page target named by id, or else the first page, at the frame rate asked for", async () => {
+    const { cdp } = await setup();
+    const viewers = new ViewerService();
+    cleanup.push(() => viewers.closeAll());
+    await viewers.open({ kind: "electron", cdpPort: cdp.port, targetId: "P2", everyNthFrame: 3 });
+    expect(cdp.paths).toEqual(["/devtools/page/P1", "/devtools/page/P2"]);
+    const starts = await cdp.waitFor("Page.startScreencast", 2);
+    expect(starts[1]!.params).toMatchObject({ everyNthFrame: 3 });
   });
 
   it("relays each screencast frame to the MJPEG stream", async () => {
