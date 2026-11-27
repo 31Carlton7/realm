@@ -75,6 +75,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *   - `team_list`, `teammate_get` — the space's teammates, what each does, what it is working on and
  *     how it is set up, as its page shows it;
  *   - `teammate_sessions` — a teammate's task sessions by title and state, and the PR or release each made;
+ *   - `space_teams` — every space of the profile and who is on its team, as the sidebar shows them; a Lead's only;
  *   - `memory_index`, `memory_read`, `memory_search` — the memory repo, which refuses a secret's shape
  *     on every write;
  *   - `goal_status` — the session's goal, turns and budget.
@@ -103,6 +104,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-team__team_list": read,
   "realm-team__teammate_get": read,
   "realm-team__teammate_sessions": read,
+  "realm-team__space_teams": read,
   "realm-memory__memory_index": read,
   "realm-memory__memory_read": read,
   "realm-memory__memory_search": read,
