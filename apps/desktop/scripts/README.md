@@ -49,8 +49,10 @@ How quiet mode works, and what it records instead of showing (`quietWindowsLog`)
 
 ## The checks that are seen
 
-Some evidence only exists on the real screen. These opt out with `visible: "<why>"`, which prints
-the reason when they run. Run them when nobody is using the Mac.
+Some evidence only exists on the real screen. These opt out with `visible: "<why>"` (or
+`frontApp: "<why>"`), which prints the reason when they run. They refuse to start until nobody has
+touched the Mac for 5 minutes (`HIDIdleTime` from `ioreg`). `REALM_LIVE_SEEN_OK="<why it may>"` runs
+one anyway, for a run the person asked to see.
 
 | Check | Why |
 | --- | --- |
