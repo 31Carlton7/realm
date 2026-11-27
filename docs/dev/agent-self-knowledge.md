@@ -15,6 +15,7 @@ The audit was taken on `integration/v2.3` (Realm 2.2.0) by listing every tool th
 | Sub-agents | agent_start/wait/run/review | covered | covered |
 | | agent_status, agent_peers, agent_ask, agent_answer, browser_agent_run | **not named** | named |
 | Asking the user | ui_ask | covered | covered |
+| | ui_choose_folder (added later) | n/a | named |
 | Browser | browser_open/snapshot/act/do | covered | covered |
 | | browser_list, browser_navigate, browser_read, browser_screenshot, browser_batch | **not named** | named |
 | Sign-ins | browser_credentials, browser_fill_credential (saved or **generated** password), browser_fill_code (a texted or emailed code) | **not named**. Agents asked the user to type passwords that Realm could fill. | named, and in "Finishing" |
@@ -74,7 +75,10 @@ These are deliberate, and `realm_capabilities` names where the user does each on
 - Reading, editing or deleting a saved sign-in.
 - Settings beyond the five in `AGENT_SETTINGS`.
 - Editing, pausing or deleting a schedule outside a turn the user started, or someone else's without their card.
-- Changing a teammate's clock from the schedule tools; the teammate's page does it.
+- Changing a teammate's clock from the schedule tools; the teammate's page or `teammate_update` does it.
+- Adding the first teammate to a space with none: the team tools are listed only where a space has teammates.
 - Linking or unlinking a project outside a turn the user started, or in another profile's space; renaming a project or setting its default branch.
 - Team roles and policies.
+- Another space's sessions and schedules, and changing its teammates; a Lead only reads its team and messages them. Any other profile.
 - Opening Realm's own pages (Settings, Library, Code Review).
+- Browsing the disk through the folder panel. `ui_choose_folder` shows it to the user and returns only the folder they chose, never one that holds keys, credentials or an agent's settings.

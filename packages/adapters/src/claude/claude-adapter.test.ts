@@ -1489,6 +1489,7 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
       "mcp__realm__realm-docs__docs_read",
       "mcp__realm__realm-docs__docs_state",
       "mcp__realm__realm-team__team_list", "mcp__realm__realm-team__teammate_get", "mcp__realm__realm-team__teammate_sessions",
+      "mcp__realm__realm-team__space_teams",
       "mcp__realm__realm-memory__memory_index",
       "mcp__realm__realm-memory__memory_read",
       "mcp__realm__realm-memory__memory_search",

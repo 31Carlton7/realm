@@ -46,6 +46,7 @@ export function askCardFor(p: Pick<PendingPermission, "toolName" | "input" | "as
  *  - **model** — a row per step, each wearing Realm's model chip, defaulted to the session's model.
  *  - **file** — the workspace, searched as ⌘P searches it.
  *  - **link** — the page's whole address, its host set apart, opened by the system browser on a click.
+ *  - **folder** — a Choose… button that opens the system's folder panel; the folder picked is the answer.
  *
  * Esc skips the whole request (declines a form): the asker asked and got no answer, which is different
  * from any answer it offered. `ownsEscape` false hands Escape to the surface instead.
@@ -156,6 +157,7 @@ function QuestionBody(p: BodyProps) {
     case "model": return <ModelBody {...p} />;
     case "file": return <FileBody {...p} />;
     case "link": return <LinkBody {...p} />;
+    case "folder": return <FolderBody {...p} />;
   }
 }
 
@@ -547,6 +549,33 @@ function FileBody(p: BodyProps) {
   );
 }
 
+/** The folder panel is main's, opened only by this click. Cancelling it leaves the card up, so the
+ *  person can choose again or skip. */
+function FolderBody(p: BodyProps) {
+  const store = useAppStoreMaybe();
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (p.focus) button.current?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- on mount only
+  const choose = async () => {
+    if (!store || open) return;
+    setOpen(true);
+    try {
+      const path = await store.getState().pickFolder();
+      if (path) p.commit(path);
+    } finally { setOpen(false); }
+  };
+  return (
+    <div className="question-body">
+      <p className="question-note">Opens the folder panel on this Mac. {p.card.asker.name} gets only the folder you choose.</p>
+      <Footer keys={[["↵", "Choose"]]} dismiss={p.dismiss} ownsEscape={p.ownsEscape} skip={p.skip}>
+        <button ref={button} type="button" className="btn primary question-continue" disabled={!store || open} onClick={() => void choose()}>
+          Choose… <kbd>↩</kbd>
+        </button>
+      </Footer>
+    </div>
+  );
+}
+
 function LinkBody(p: BodyProps) {
   const url = useMemo(() => { try { return new URL(p.q.url ?? ""); } catch { return null; } }, [p.q.url]);
   const open = useRef<HTMLButtonElement>(null);
@@ -646,7 +675,7 @@ function AnswerValue({ q, value }: { q: AskQuestion; value: string | string[] })
         </ol>
       );
     }
-    case "file": case "branch": return <span className="question-answered-path">{values.join(", ")}</span>;
+    case "file": case "branch": case "folder": return <span className="question-answered-path">{values.join(", ")}</span>;
     case "time": return <span>{values[0] ? whenOf(values[0], q.format === "date") : ""}</span>;
     case "link": return <span>Opened {hostOf(q.url)}</span>;
     case "choice": case "multi": case "confirm": {

@@ -76,6 +76,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *   - `team_list`, `teammate_get` — the space's teammates, what each does, what it is working on and
  *     how it is set up, as its page shows it;
  *   - `teammate_sessions` — a teammate's task sessions by title and state, and the PR or release each made;
+ *   - `space_teams` — every space of the profile and who is on its team, as the sidebar shows them; a Lead's only;
  *   - `memory_index`, `memory_read`, `memory_search` — the memory repo, which refuses a secret's shape
  *     on every write;
  *   - `goal_status` — the session's goal, turns and budget.
@@ -83,7 +84,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  * NEVER class `read` (without `asksFirst`) a tool that changes state, sends something, moves the
  * user's screen or reveals a secret value: such a name runs with no prompt from either engine. Classed
  * otherwise on purpose: `docs_open`, `docs_reveal`, `pane_show`, `session_open`, `space_switch`, `space_create` (each changes what is
- * on screen); `team_message` (puts a turn in a teammate's chat); `team_set_access` (changes a teammate's mode).
+ * on screen); `team_message` (puts a turn in a teammate's chat); `team_set_access` (changes a teammate's mode); `teammate_create`, `teammate_update` (add or change a teammate).
  */
 export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   // Promptless reads first, in the order `REALM_READ_ONLY_TOOLS` has always listed them.
@@ -105,6 +106,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-team__team_list": read,
   "realm-team__teammate_get": read,
   "realm-team__teammate_sessions": read,
+  "realm-team__space_teams": read,
   "realm-memory__memory_index": read,
   "realm-memory__memory_read": read,
   "realm-memory__memory_search": read,
@@ -130,6 +132,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-agent__agent_answer": internal,
 
   "realm-ui__ui_ask": internal,
+  "realm-ui__ui_choose_folder": internal,
 
   "realm-computer__computer_list_apps": readAsking(SHOWS_ELSEWHERE),
   "realm-computer__computer_snapshot": readAsking(SHOWS_ELSEWHERE),
@@ -197,6 +200,8 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
 
   "realm-team__team_message": internal,
   "realm-team__team_set_access": internal,
+  "realm-team__teammate_create": internal,
+  "realm-team__teammate_update": internal,
 
   "realm-memory__memory_save": internal,
   "realm-memory__memory_remove": internal,

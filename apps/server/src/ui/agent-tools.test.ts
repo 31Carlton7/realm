@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type FakeScript } from "@realm/adapters";
@@ -10,6 +10,7 @@ import { McpCallLogStore } from "../store/mcp";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { waitFor } from "../test-utils";
+import { pickFolder } from "../workspace/spaces";
 import { UI_PROVIDER_NAME, createUiAgentProvider, type UiAgentToolsDeps } from "./agent-tools";
 
 const MODELS: DelegableModel[] = [
@@ -20,6 +21,7 @@ const MODELS: DelegableModel[] = [
 
 function setup(over: Partial<UiAgentToolsDeps> & { answer?: (card: AskCard) => AskOutcome; enabled?: boolean } = {}) {
   const cwd = tempDir("realm-ui-ws-");
+  const userHome = tempDir("realm-ui-home-");
   const asked: AskCard[] = [];
   const provider = createUiAgentProvider({
     mcp: { providerEnabled: () => over.enabled ?? true },
@@ -27,16 +29,18 @@ function setup(over: Partial<UiAgentToolsDeps> & { answer?: (card: AskCard) => A
     session: () => ({ agentKind: "codex", cwd, model: "gpt-6-luna" }),
     models: async () => ({ models: MODELS, own: { kind: "codex", label: "GPT-6 Luna" } }),
     branches: async () => ({ branches: ["feat/theme", "main"], current: "main" }),
+    folder: (path) => pickFolder({ userHome, realmHome: join(userHome, "Realm") }, path),
     ...over,
   });
   const call = (args: unknown) => provider.call({ sessionId: "s1", spaceId: "sp1" }, "ui_ask", args);
-  return { provider, call, asked, cwd };
+  const choose = (args: unknown) => provider.call({ sessionId: "s1", spaceId: "sp1" }, "ui_choose_folder", args);
+  return { provider, call, choose, asked, cwd, userHome };
 }
 const text = (r: { content: unknown[] }) => (r.content[0] as { text: string }).text;
 
 describe("realm-ui's ui_ask", () => {
   it("is offered where the space has it on, and is gone where it was switched off", async () => {
-    expect((await setup().provider.tools({ sessionId: "s1", spaceId: "sp1" })).map((t) => t.name)).toEqual(["ui_ask"]);
+    expect((await setup().provider.tools({ sessionId: "s1", spaceId: "sp1" })).map((t) => t.name)).toEqual(["ui_ask", "ui_choose_folder"]);
     expect(await setup({ enabled: false }).provider.tools({ sessionId: "s1", spaceId: "sp1" })).toEqual([]);
     expect(UI_PROVIDER_NAME).toBe("realm-ui");
   });
@@ -110,12 +114,53 @@ describe("realm-ui's ui_ask", () => {
   });
 });
 
+describe("realm-ui's ui_choose_folder", () => {
+  it("puts a folder question on the card, in the agent's own words and nothing else", async () => {
+    const { choose, asked } = setup();
+    await choose({ prompt: "Which folder should this space work in?", message: "To link it as a project." });
+    expect(asked).toEqual([{ asker: { kind: "agent", name: "Codex", agent: "codex" }, mode: "question", message: "To link it as a project.",
+      questions: [{ id: "folder", prompt: "Which folder should this space work in?", kind: "folder" }] }]);
+  });
+
+  it("hands back the folder the user chose, resolved", async () => {
+    const { choose, userHome } = setup({ answer: () => ({ outcome: "answered", answers: { folder: join(userHome, "Projects", "..") } }) });
+    mkdirSync(join(userHome, "Projects"));
+    const r = await choose({ prompt: "Which folder?" });
+    expect(r.structuredContent).toEqual({ chosen: true, path: realpathSync(userHome) });
+    expect(text(r)).toBe(`The user chose ${realpathSync(userHome)}`);
+  });
+
+  it("does not hand an agent a folder of keys, even one the user chose", async () => {
+    // THE MUTANT: return the chosen path without `pickFolder`. ~/.ssh then reaches the agent.
+    const { choose, userHome } = setup({ answer: () => ({ outcome: "answered", answers: { folder: join(userHome, ".ssh") } }) });
+    mkdirSync(join(userHome, ".ssh"));
+    const r = await choose({ prompt: "Which folder?" });
+    expect(r.structuredContent).toEqual({ chosen: false, reason: "refused" });
+    expect(text(r)).toMatch(/keys and credentials/);
+  });
+
+  it("says the user chose nothing when they skipped, or the card was withdrawn", async () => {
+    for (const [outcome, reason] of [["skipped", "skipped"], ["timeout", "timeout"], ["cancelled", "cancelled"]] as const) {
+      const r = await setup({ answer: () => ({ outcome }) }).choose({ prompt: "Which folder?" });
+      expect(r.structuredContent).toEqual({ chosen: false, reason });
+      expect(r.isError).toBe(false);
+    }
+  });
+
+  it("asks nothing when the call is malformed: it takes only a prompt and a message", async () => {
+    const { choose, asked } = setup();
+    expect((await choose({ prompt: "Which?", start: "/Users" })).isError).toBe(true);
+    expect((await choose({})).isError).toBe(true);
+    expect(asked).toEqual([]);
+  });
+});
+
 /* ── End to end: the fake agent calls ui_ask through its own gateway, the way a real agent does ── */
 
 let app: App;
 afterEach(async () => { await app?.close(); });
 
-const SCRIPT: FakeScript = [{ on: "ask", emit: [{ kind: "call", tool: "realm-ui__ui_ask", input: { questions: [
+const SCRIPT: FakeScript = [{ on: "choose", emit: [{ kind: "call", tool: "realm-ui__ui_choose_folder", input: { prompt: "Which folder?" } }] }, { on: "ask", emit: [{ kind: "call", tool: "realm-ui__ui_ask", input: { questions: [
   { id: "db", prompt: "Which database?", kind: "choice", options: [{ label: "Postgres" }, { label: "SQLite" }] },
   { id: "token", prompt: "Paste the deploy token.", kind: "text", secret: true },
 ] } }] }];
@@ -147,5 +192,21 @@ describe("ui_ask, end to end", () => {
     const calls = new McpCallLogStore(app.db).list({ sessionId: id });
     expect(calls.map((c) => c.tool)).toEqual(["ui_ask"]);
     expect(JSON.stringify(calls)).not.toContain("tok_live_SECRET_77");
+  });
+
+  it("puts a folder card up and hands the agent the path the person chose, and only a whole path", async () => {
+    const id = await boot();
+    const chosen = tempDir("realm-ui-chosen-");
+    for (const [answer, says] of [["relative/path", "did not choose a folder"], [chosen, `The user chose ${realpathSync(chosen)}`]] as const) {
+      const before = eventsOf(id).filter((e) => e.type === "tool_result").length;
+      await app.sessions.send(id, { text: "choose", attachments: [] });
+      await waitFor(() => eventsOf(id).filter((e) => e.type === "permission_request").length > before);
+      const req = eventsOf(id).filter((e) => e.type === "permission_request").at(-1)!;
+      expect(req.type === "permission_request" && req.payload.ask?.questions[0]?.kind).toBe("folder");
+      app.sessions.respondPermission(id, req.type === "permission_request" ? req.payload.requestId : "", "allow", { folder: answer });
+      await waitFor(() => eventsOf(id).filter((e) => e.type === "tool_result").length > before);
+      const result = eventsOf(id).filter((e) => e.type === "tool_result").at(-1)!;
+      expect(result.type === "tool_result" && result.payload.content).toContain(says);
+    }
   });
 });

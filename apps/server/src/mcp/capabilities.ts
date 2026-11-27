@@ -58,7 +58,9 @@ const BLOCKS: Record<string, string> = {
     "this Mac can run, a file here, a branch, a date. Use it for a decision that is genuinely the user's and that " +
     "nothing here can settle, and ask everything at once. A `model` question with a row per plan step lets the " +
     "user say who builds each; each answer is an id `agent_start` takes as `constraints.model`. A field marked " +
-    "`secret` is the only way to ask for a password or a token, and keeps it out of Realm's records.",
+    "`secret` is the only way to ask for a password or a token, and keeps it out of Realm's records. When a folder " +
+    "is needed and the user has not named one, `ui_choose_folder` opens the system's folder panel for them and " +
+    "hands back only the path they chose; never guess a path or browse the disk to find one.",
 
   "realm-browser":
     "- **The browser.** `browser_open` opens a real browser pane in this space (`browser_list` names its panes, " +
@@ -110,7 +112,13 @@ const BLOCKS: Record<string, string> = {
     "or `lead`): to ask it something, or to hand it work that is its to do. Add `wait: true` only when you cannot go on " +
     "without its answer; otherwise carry on, and it answers in its own chat. `team_set_access` sets a teammate's access " +
     "when the person asks: only the Lead, in its own chat, in a turn the person started (never one a teammate's message, " +
-    "a schedule or another session started), never above the Lead's own mode, and with a line in both chats the person can Undo.",
+    "a schedule or another session started), never above the Lead's own mode, and with a line in both chats the person can Undo. " +
+    "`teammate_create` adds a teammate and `teammate_update` changes one (brief, model, effort, access, folder, group, Lead, clock) " +
+    "when the person asks: the Lead in its own chat or one of the person's sessions, in a turn the person started, never above your " +
+    "own access, on a card unless you are on Full access; lowering a model or effort always asks. " +
+    "A Lead, in its own chat, reaches the other spaces of its profile: `space_teams` lists every space and who is on its team, " +
+    "`team_list` with `space` reads one space's team in full, and `team_message` with `space` messages one of its teammates, " +
+    "only in a turn the person started and on a card unless you are on Full access.",
 
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane, `terminal_write` types into it, " +

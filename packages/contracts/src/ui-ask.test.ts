@@ -134,6 +134,7 @@ describe("answers are held to the card they were asked with", () => {
       { id: "file", prompt: "Which file?", kind: "file", multiple: true },
       { id: "day", prompt: "When?", kind: "time", format: "date" },
       { id: "key", prompt: "Key?", kind: "text", secret: true },
+      { id: "dir", prompt: "Which folder?", kind: "folder" },
     ],
   });
 
@@ -151,6 +152,11 @@ describe("answers are held to the card they were asked with", () => {
   it("keeps a file inside the workspace and nothing that climbs out of it", () => {
     expect(normalizeAnswers(card, { file: ["src/a.ts", "../etc/passwd", "/etc/passwd", "~/x"] }).file).toEqual(["src/a.ts"]);
     expect(isWorkspaceRelative("a/../../b")).toBe(false);
+  });
+
+  it("keeps a folder only as a whole path, never one that climbs or one relative to somewhere", () => {
+    expect(normalizeAnswers(card, { dir: "/Users/me/Projects/app" }).dir).toBe("/Users/me/Projects/app");
+    for (const dir of ["Projects/app", "~/Projects", "/Users/me/../../etc", ""]) expect(normalizeAnswers(card, { dir }).dir).toBeUndefined();
   });
 
   it("keeps a date in the field's format", () => {

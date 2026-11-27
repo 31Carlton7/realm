@@ -49,6 +49,9 @@ export const AskKindSchema = z.enum([
   "time",
   /** A page the asker wants opened (MCP's URL mode). Answered "opened" once the user clicked. */
   "link",
+  /** A folder on this Mac, chosen by the user in the system's folder panel. Answered as its absolute
+   *  path; the asker never sees the disk, only what was chosen. */
+  "folder",
 ]);
 export type AskKind = z.infer<typeof AskKindSchema>;
 
@@ -193,6 +196,7 @@ export function normalizeAnswers(card: AskCard, raw: AskAnswers | undefined): As
       }
       case "time": { const v = values[0]; if (v !== undefined && (q.format === "date" ? DATE.test(v) : DATETIME.test(v))) out[q.id] = v; break; }
       case "link": { if (values[0] === "opened") out[q.id] = "opened"; break; }
+      case "folder": { const v = values[0]; if (v !== undefined && isAbsolutePath(v)) out[q.id] = v; break; }
       case "text": {
         // Typed answers keep their whitespace: a multi-line note is the note, not its trim.
         const v = Array.isArray(a) ? a[0] : a;
@@ -206,6 +210,11 @@ export function normalizeAnswers(card: AskCard, raw: AskAnswers | undefined): As
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+
+/** An absolute path with no `..` segment: what the folder panel hands back. */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") && !p.split("/").some((seg) => seg === "..");
+}
 
 /** A repo-relative path that stays inside its root: no absolute path, no `..` segment. */
 export function isWorkspaceRelative(p: string): boolean {
