@@ -12,6 +12,7 @@ import {
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
   type BrowserSnapshotElement, type BrowserSnapshotResult, type BrowserSnapshotScope, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
 } from "@realm/contracts";
+import { posix } from "node:path";
 import { credentialSiteMatch } from "./password-match";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
@@ -31,6 +32,9 @@ export const MAX_ELEMENTS = 400;
 const REGIONS_LISTED = 12;
 const NAME_MAX = 80;
 const VALUE_MAX = 120;
+/** How much of a row or card's text `in:` quotes. */
+const CONTEXT_MAX = 40;
+const ICON_NAME_MAX = 24;
 /** getEventListeners sweep budget: candidates beyond this are included on the cursor:pointer signal
  *  alone (honest over-inclusion beats a silent cap). Batched per `SWEEP_BATCH` — Browser-Use ships the
  *  same batching for the same reason (capability research §5: describeNode calls in twenties). */
@@ -85,6 +89,9 @@ type Candidate = {
   sweepCandidate: boolean;
   offscreen: boolean;
   field: boolean;
+  /** What an unnamed control shows instead of a name: its icon's name, or its image's. */
+  icon: string;
+  img: string;
 };
 type Landmark = { backendNodeId: number; nodeIndex: number; docIndex: number; role: string; name: string };
 
@@ -149,11 +156,13 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   const all: Candidate[] = [];
   const landmarks: Landmark[] = [];
   const layoutByDoc: LayoutInfo[] = [];
+  const contextByDoc: ((nodeIndex: number) => string)[] = [];
   for (const [docIndex, doc] of (snap.documents ?? []).entries()) {
     const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport, filled, codes);
     all.push(...collected.candidates);
     landmarks.push(...collected.landmarks);
     layoutByDoc.push(collected.layoutInfo);
+    contextByDoc.push(collected.contextOf);
   }
 
   // The getEventListeners sweep: cursor:pointer nodes that nothing else marked interactive. Batched.
@@ -182,9 +191,9 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   const coveredCount = interactive.length - uncovered.length;
   // One node, one line: a pseudo-element comes back carrying its host's backendNodeId.
   const seen = new Set<number>();
-  const visible = uncovered.filter((c) => !seen.has(c.backendNodeId) && Boolean(seen.add(c.backendNodeId)));
-
-  const ancestry = new Map(visible.map((c) => [c, ancestorsOf(c, layoutByDoc)]));
+  const deduped = uncovered.filter((c) => !seen.has(c.backendNodeId) && Boolean(seen.add(c.backendNodeId)));
+  const ancestry = new Map(deduped.map((c) => [c, ancestorsOf(c, layoutByDoc)]));
+  const visible = withoutLabelsOfListedFields(deduped, ancestry);
   const { matched, withinFound } = applyScope(visible, scope, ancestry, layoutByDoc);
   const ranked = rankForBudget(matched, ancestry, landmarks);
   const offset = scope.offset ?? 0;
@@ -206,11 +215,15 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   const index: SnapshotIndex = narrowed ? new Map(previous ?? []) : new Map();
   const lines: string[] = [];
   const elements: BrowserSnapshotElement[] = [];
+  const sameAs = new Map<string, number>();
+  for (const c of listed) sameAs.set(lineKey(c), (sameAs.get(lineKey(c)) ?? 0) + 1);
   for (const c of listed) {
     const fingerprint = `${c.role}|${c.name}|${c.value ?? ""}|${Math.round(c.rect.x / 8)},${Math.round(c.rect.y / 8)}`;
     index.set(c.backendNodeId, fingerprint);
     const isNew = previous !== null && previous.get(c.backendNodeId) !== fingerprint;
-    lines.push(formatLine(c, isNew));
+    const ambiguous = sameAs.get(lineKey(c))! > 1 || !c.name && !c.icon && !c.img;
+    const context = ambiguous ? contextByDoc[c.docIndex]!(c.nodeIndex) : "";
+    lines.push(formatLine(c, { isNew, context, geometry: scope.detail === "geometry" }));
     elements.push({
       ref: c.backendNodeId, role: c.role, name: c.name, value: c.value, rect: { ...c.rect },
       checked: c.checked, disabled: c.disabled, password: c.password, focused: c.focused, offscreen: c.offscreen,
@@ -234,6 +247,18 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
 
 const nodeKey = (docIndex: number, nodeIndex: number): string => `${docIndex}:${nodeIndex}`;
 
+/** What a line says about its control, before any `in:` — two controls with the same key read alike. */
+const lineKey = (c: Candidate): string => `${c.role}|${c.name}|${c.icon}|${c.img}`;
+
+/** A `<label>` around a listed field, or pointing at one with `for`, is the field's name and not a
+ *  control of its own: the field's line already carries it, and clicking either one is the same. A
+ *  label whose input is hidden (a styled checkbox) is the only thing to click, so it stays. */
+function withoutLabelsOfListedFields(visible: Candidate[], ancestry: Map<Candidate, number[]>): Candidate[] {
+  const ids = new Set(visible.filter((c) => c.field).map((c) => c.attrs.id).filter(Boolean));
+  const holders = new Set(visible.filter((c) => c.field).flatMap((c) => ancestry.get(c)!.map((ni) => nodeKey(c.docIndex, ni))));
+  return visible.filter((c) => c.tag !== "LABEL" || !(holders.has(nodeKey(c.docIndex, c.nodeIndex)) || c.attrs.for !== undefined && ids.has(c.attrs.for)));
+}
+
 /** A candidate's ancestors' node indexes, nearest first, within its own document. */
 function ancestorsOf(c: Candidate, layoutByDoc: LayoutInfo[]): number[] {
   const parents = layoutByDoc[c.docIndex]?.parentIndex ?? [];
@@ -256,7 +281,7 @@ function applyScope(visible: Candidate[], scope: BrowserSnapshotScope, ancestry:
   if (scope.query !== undefined) {
     const words = scope.query.toLowerCase().split(/\s+/).filter(Boolean);
     matched = matched.filter((c) => {
-      const hay = `${c.role} ${c.name} ${c.value ?? ""}`.toLowerCase();
+      const hay = `${c.role} ${c.name} ${c.icon} ${c.img} ${c.value ?? ""}`.toLowerCase();
       return words.every((w) => hay.includes(w));
     });
   }
@@ -369,6 +394,63 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     return parts.filter(Boolean).join(" ").trim();
   };
 
+  const tagOf = (ni: number): string => s(strings, nodeName[ni]).toUpperCase();
+  const attrsOf = (ni: number): Record<string, string> => {
+    const out: Record<string, string> = {};
+    const flat = attrsRaw[ni] ?? [];
+    for (let k = 0; k + 1 < flat.length; k += 2) out[s(strings, flat[k]).toLowerCase()] = s(strings, flat[k + 1]);
+    return out;
+  };
+
+  /** The icon or image inside an unnamed control, searched a few levels down. */
+  const pictureOf = (ni: number, attrs: Record<string, string>): { icon: string; img: string } => {
+    let icon = attrs["data-icon"] ?? "";
+    let img = "";
+    let holdsSvg = false;
+    const queue = [...(children.get(ni) ?? []).map((child) => ({ child, depth: 1 }))];
+    for (let seen = 0; queue.length > 0 && seen < 40 && !(icon && img); seen++) {
+      const { child, depth } = queue.shift()!;
+      if (nodeType[child] !== 1) continue;
+      const tag = tagOf(child);
+      const a = attrsOf(child);
+      if (tag === "IMG" && !img) img = a.alt || imageName(a.src ?? "");
+      if (tag === "SVG") holdsSvg = true;
+      if (!icon && (tag === "SVG" || tag === "USE" || tag === "I" || a["aria-hidden"] === "true")) {
+        icon = a["aria-label"] || a["data-icon"] || iconFromClass(a.class ?? "")
+          || (tag === "USE" ? (a.href ?? a["xlink:href"] ?? "").replace(/^.*#/, "").replace(ICON_CLASS_PREFIX, "") : "");
+      }
+      if (depth < 4) for (const g of children.get(child) ?? []) queue.push({ child: g, depth: depth + 1 });
+    }
+    // A bare svg says nothing about itself, and then the control's own class is all that names it.
+    if (!icon && holdsSvg) icon = iconFromClass(attrs.class ?? "");
+    return { icon: clip(icon.trim(), ICON_NAME_MAX), img: clip(img.trim(), ICON_NAME_MAX) };
+  };
+
+  /** The text of the nearest container that holds more than the control itself: the row or card it
+   *  sits in, which is what tells two of the same control apart. */
+  const contextOf = (ni: number): string => {
+    let inside = ni;
+    for (let up = parentIndex[ni] ?? -1, hops = 0; up >= 0 && hops < 8; inside = up, up = parentIndex[up] ?? -1, hops++) {
+      const tag = tagOf(up);
+      if (tag === "BODY" || tag === "HTML") return "";
+      const text = textOutside(up, inside).replace(/\s+/g, " ").trim();
+      if (text) return clip(text, CONTEXT_MAX);
+    }
+    return "";
+  };
+  /** `textOf(container)` without the text of `skip`'s subtree. */
+  const textOutside = (container: number, skip: number, depth = 0): string => {
+    if (depth > 3) return "";
+    const parts: string[] = [];
+    for (const child of children.get(container) ?? []) {
+      if (child === skip) continue;
+      if (nodeType[child] === 3) parts.push(s(strings, nodeValue[child]).trim());
+      else if (!["SCRIPT", "STYLE", "TEMPLATE"].includes(tagOf(child))) parts.push(textOutside(child, skip, depth + 1));
+      if (parts.join(" ").length > CONTEXT_MAX) break;
+    }
+    return parts.filter(Boolean).join(" ");
+  };
+
   const candidates: Candidate[] = [];
   const landmarks: Landmark[] = [];
   layout.nodeIndex.forEach((ni, li) => {
@@ -381,11 +463,9 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     if (styles.visibility === "hidden" || styles["pointer-events"] === "none") return;
     if (styles.opacity !== "" && Number(styles.opacity) === 0) return;
 
-    const tag = s(strings, nodeName[ni]).toUpperCase();
+    const tag = tagOf(ni);
     if (tag === "HTML" || tag === "BODY") return;
-    const attrs: Record<string, string> = {};
-    const flat = attrsRaw[ni] ?? [];
-    for (let k = 0; k + 1 < flat.length; k += 2) attrs[s(strings, flat[k]).toLowerCase()] = s(strings, flat[k + 1]);
+    const attrs = attrsOf(ni);
     // Every mark Realm draws in the page — ring, cursor, frame, stylesheet — is Realm's own
     // furniture, never page content: a snapshot that lists one hands the agent a `[new]` element
     // that is its OWN last click, and it chases it. Presence, not a value: a filter written as
@@ -425,7 +505,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     candidates.push({
       backendNodeId, nodeIndex: ni, docIndex, tag, attrs, rect,
       paintOrder: layout.paintOrders?.[li] ?? 0, styles,
-      role: axRole || ariaRole || tag.toLowerCase(),
+      role: axRole || ariaRole || tagRole(tag, attrs),
       name,
       value: rawValue === null ? null : clip(rawValue, VALUE_MAX),
       checked: tag === "INPUT" && ["checkbox", "radio"].includes((attrs.type ?? "").toLowerCase()) ? checkedSet.has(ni) : null,
@@ -434,6 +514,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
       password, interactive, sweepCandidate, offscreen,
       field: ["INPUT", "TEXTAREA", "SELECT"].includes(tag) || attrs.contenteditable === "" || attrs.contenteditable === "true"
         || FIELD_AX_ROLES.has(axRole) || FIELD_AX_ROLES.has(ariaRole),
+      ...(name ? { icon: "", img: "" } : pictureOf(ni, attrs)),
     });
   });
 
@@ -449,7 +530,43 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     bg: layout.nodeIndex.map((_, li) => s(strings, layout.styles?.[li]?.[bgIdx])),
     boxOpacity: layout.nodeIndex.map((_, li) => s(strings, layout.styles?.[li]?.[opIdx])),
   };
-  return { candidates, landmarks, layoutInfo };
+  return { candidates, landmarks, layoutInfo, contextOf };
+}
+
+/** The role a page's own markup implies, for an element the AX tree has no node for — as behind a
+ *  modal dialog, whose page Chrome makes inert. */
+function tagRole(tag: string, attrs: Record<string, string>): string {
+  if (tag === "INPUT") return INPUT_ROLES[(attrs.type ?? "").toLowerCase()] ?? "textbox";
+  if (tag === "A" && attrs.href !== undefined) return "link";
+  return TAG_ROLES[tag] ?? tag.toLowerCase();
+}
+const TAG_ROLES: Record<string, string> = { BUTTON: "button", SELECT: "combobox", TEXTAREA: "textbox", SUMMARY: "button" };
+const INPUT_ROLES: Record<string, string> = {
+  checkbox: "checkbox", radio: "radio", button: "button", submit: "button", reset: "button", image: "button",
+  file: "button", range: "slider", number: "spinbutton", search: "searchbox",
+};
+
+/** Words in an icon's class list that say nothing about which icon it is. */
+const ICON_CLASS_NOISE = new Set([
+  "icon", "icons", "svg", "fa", "fas", "far", "fab", "fal", "fat", "fad", "fa-solid", "fa-regular", "fa-light", "fa-brands", "fa-fw",
+  "lucide", "bi", "mdi", "ti", "ri", "ph", "glyphicon", "octicon", "material-icons", "material-symbols-outlined", "material-symbols-rounded",
+  "btn", "button", "small", "large", "sm", "md", "lg", "active", "selected",
+]);
+const ICON_CLASS_PREFIX = /^(fa|icon|icons|bi|lucide|mdi|ti|ri|ph|glyphicon|octicon|i)-/;
+
+/** The icon's name in a class list (`fa-solid fa-trash` → trash, `lucide lucide-heart` → heart):
+ *  a prefixed word first, then any plain word. Hashed names (`css-1x2y`, `sc-abc12`) are skipped. */
+function iconFromClass(classList: string): string {
+  const words = classList.toLowerCase().split(/\s+/).filter((w) => w && !ICON_CLASS_NOISE.has(w) && /^[a-z][a-z-]*$/.test(w) && !/^(css|sc|jsx|svelte)-/.test(w));
+  const prefixed = words.find((w) => ICON_CLASS_PREFIX.test(w));
+  return (prefixed ?? words[0] ?? "").replace(ICON_CLASS_PREFIX, "");
+}
+
+/** `/img/heart-outline.svg?v=2` → `heart-outline`. A data: or blob: URL has no name. */
+function imageName(src: string): string {
+  if (/^(data|blob):/i.test(src)) return "";
+  const file = posix.basename(src.split(/[?#]/)[0] ?? "");
+  return file.slice(0, file.length - posix.extname(file).length);
 }
 
 /**
@@ -501,7 +618,11 @@ export function isOpaqueColor(cssColor: string): boolean {
   return Number(parts[3]) >= 0.5;
 }
 
-function formatLine(c: Candidate, isNew: boolean): string {
+/** One snapshot line. A named control prints its name; an unnamed one prints what it shows instead
+ *  (`icon:`, `img:`); `context` is the `in:"…"` text, given where the line would otherwise read the
+ *  same as another or say nothing. The rect is only on a `geometry` snapshot: an agent acts by ref,
+ *  and coordinates are resolved at act time. */
+function formatLine(c: Candidate, o: { isNew: boolean; context: string; geometry: boolean }): string {
   const flags = [
     c.password ? "password field — typing is blocked, use browser_fill_credential" : null,
     // Named explicitly because the AX tree reports a file input as a plain `button`, so nothing else
@@ -512,9 +633,15 @@ function formatLine(c: Candidate, isNew: boolean): string {
     c.checked === true ? "checked" : c.checked === false ? "unchecked" : null,
     c.offscreen ? "offscreen" : null,
   ].filter(Boolean);
-  const pos = `(${Math.round(c.rect.x)},${Math.round(c.rect.y)} ${Math.round(c.rect.w)}×${Math.round(c.rect.h)})`;
+  const hints = [
+    c.icon ? `icon:${c.icon}` : null,
+    c.img ? `img:${c.img}` : null,
+    o.context ? `in:"${o.context}"` : null,
+  ].filter(Boolean);
+  const name = c.name || hints.length === 0 ? ` "${c.name}"` : "";
   const value = c.value !== null && c.value !== "" ? ` value="${c.value}"` : "";
-  return `[ref=${c.backendNodeId}] ${c.role} "${c.name}"${value} ${pos}${flags.length ? ` {${flags.join(", ")}}` : ""}${isNew ? " [new]" : ""}`;
+  const pos = o.geometry ? ` (${Math.round(c.rect.x)},${Math.round(c.rect.y)} ${Math.round(c.rect.w)}×${Math.round(c.rect.h)})` : "";
+  return `[ref=${c.backendNodeId}] ${c.role}${name}${hints.length ? ` ${hints.join(" ")}` : ""}${value}${pos}${flags.length ? ` {${flags.join(", ")}}` : ""}${o.isNew ? " [new]" : ""}`;
 }
 
 async function hasClickListeners(send: CdpSend, backendNodeId: number): Promise<boolean> {

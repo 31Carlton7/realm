@@ -163,9 +163,23 @@ describe("buildSnapshot", () => {
     doc.addLayout(btn, [10, 20, 100, 30]);
     const { send } = fakeSend({ snapshot: doc.payload(), ax: [{ backendDOMNodeId: 42, role: "button", name: "Submit order" }] });
     const snap = await buildSnapshot(send, null);
-    expect(snap.text).toContain('[ref=42] button "Submit order" (10,20 100×30)');
+    expect(snap.text).toBe('[ref=42] button "Submit order"');
     expect(snap.elementCount).toBe(1);
     expect(snap.url).toBe("https://example.com/");
+  });
+
+  it("puts the box on a line only when the snapshot asks for geometry, and keeps it in the data either way", async () => {
+    const doc = makeSnapshotDoc();
+    for (let i = 0; i < 20; i++) doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 100 + i }), [10, 20 + i * 40, 100, 30]);
+    const ax = Array.from({ length: 20 }, (_, i) => ({ backendDOMNodeId: 100 + i, role: "button", name: `Action ${i}` }));
+    const plain = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, null);
+    const geometry = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, null, { detail: "geometry" });
+    expect(plain.text).not.toMatch(/\d+×\d+/);
+    expect(plain.text.split("\n").every((l) => /^\[ref=\d+\] button "Action \d+"$/.test(l))).toBe(true);
+    // The size the rect costs: about sixteen characters a line, on every line of every snapshot.
+    expect(geometry.text.length - plain.text.length).toBeGreaterThanOrEqual(20 * 15);
+    expect(geometry.text).toContain('[ref=100] button "Action 0" (10,20 100×30)');
+    expect(plain.elements?.[0]?.rect).toEqual({ x: 10, y: 20, w: 100, h: 30 });
   });
 
   it("hands each listed element over as data too — the same refs and names as the lines, and never a password's value", async () => {
@@ -380,6 +394,148 @@ describe("buildSnapshot", () => {
     const snap = await buildSnapshot(send, null);
     expect(snap.text).not.toContain("x".repeat(200));
     expect(snap.text).toContain("…");
+  });
+});
+
+describe("buildSnapshot — controls with no name, or the same name", () => {
+  /** A product card: a heading link, a price, and two icon-only buttons holding bare svgs. */
+  function catalog(n: number) {
+    const doc = makeSnapshotDoc();
+    const refs: { link: number; add: number; save: number }[] = [];
+    for (let i = 1; i <= n; i++) {
+      const card = doc.addNode({ tag: "ARTICLE" });
+      doc.addLayout(card, [0, i * 200, 180, 190]);
+      const h2 = doc.addNode({ tag: "H2", parent: card });
+      const link = doc.addNode({ tag: "A", parent: h2, attrs: { href: `#p${i}` }, backendId: 10 * i });
+      doc.addNode({ type: 3, parent: link, text: `Product ${i}` });
+      doc.addLayout(link, [10, i * 200 + 80, 80, 20]);
+      const price = doc.addNode({ tag: "P", parent: card });
+      doc.addNode({ type: 3, parent: price, text: `$${i}.00` });
+      const icons = doc.addNode({ tag: "DIV", parent: card });
+      for (const [k, cls] of [[1, "add"], [2, "save"]] as const) {
+        const b = doc.addNode({ tag: "BUTTON", parent: icons, attrs: { class: cls }, backendId: 10 * i + k });
+        doc.addNode({ tag: "svg", parent: b });
+        doc.addLayout(b, [10 + k * 40, i * 200 + 150, 32, 32]);
+      }
+      refs.push({ link: 10 * i, add: 10 * i + 1, save: 10 * i + 2 });
+    }
+    return { doc, refs };
+  }
+
+  it("names an icon-only button by its icon and its card, and never prints an empty name for it", async () => {
+    const { doc } = catalog(2);
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload() }).send, null);
+    const lines = snap.text.split("\n");
+    expect(lines).toContain('[ref=11] button icon:add in:"Product 1 $1.00"');
+    expect(lines).toContain('[ref=22] button icon:save in:"Product 2 $2.00"');
+    expect(snap.text).not.toContain('""');
+    // A named link that nothing else shares needs no in:.
+    expect(lines).toContain('[ref=10] link "Product 1"');
+  });
+
+  it("finds icon names in an svg's title, a <use> sprite, an icon font's class and an image's file", async () => {
+    const doc = makeSnapshotDoc();
+    const add = (backendId: number, inner: (b: number) => void) => {
+      const b = doc.addNode({ tag: "BUTTON", backendId });
+      inner(b);
+      doc.addLayout(b, [0, backendId * 40, 32, 32]);
+    };
+    add(1, (b) => { const svg = doc.addNode({ tag: "svg", parent: b }); const title = doc.addNode({ tag: "title", parent: svg }); doc.addNode({ type: 3, parent: title, text: "Delete" }); });
+    add(2, (b) => { const svg = doc.addNode({ tag: "svg", parent: b }); doc.addNode({ tag: "use", parent: svg, attrs: { href: "/sprite.svg#icon-bell" } }); });
+    add(3, (b) => { doc.addNode({ tag: "I", parent: b, attrs: { class: "fa-solid fa-trash", "aria-hidden": "true" } }); });
+    add(4, (b) => { doc.addNode({ tag: "IMG", parent: b, attrs: { src: "/static/avatars/ada-lovelace.png?v=3" } }); });
+    add(5, (b) => { doc.addNode({ tag: "svg", parent: b, attrs: { class: "lucide lucide-heart css-1x2y" } }); });
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload() }).send, null);
+    // An svg's <title> is text, so it names its control the way a label would.
+    expect(snap.text).toContain('[ref=1] button "Delete"');
+    expect(snap.text).toContain("[ref=2] button icon:bell");
+    expect(snap.text).toContain("[ref=3] button icon:trash");
+    expect(snap.text).toContain("[ref=4] button img:ada-lovelace");
+    expect(snap.text).toContain("[ref=5] button icon:heart");
+    // query reaches a control by its icon, as it does by a name.
+    const bell = await buildSnapshot(fakeSend({ snapshot: doc.payload() }).send, null, { query: "bell" });
+    expect(bell.elementCount).toBe(1);
+  });
+
+  it("quotes the row for named controls that share a name, and only for those", async () => {
+    const doc = makeSnapshotDoc();
+    const table = doc.addNode({ tag: "TABLE" });
+    doc.addLayout(table, [0, 0, 600, 200]);
+    for (const [i, invoice] of ["INV-1001", "INV-1002"].entries()) {
+      const tr = doc.addNode({ tag: "TR", parent: table });
+      const cell = doc.addNode({ tag: "TD", parent: tr });
+      doc.addNode({ type: 3, parent: cell, text: `  ${invoice}\n   Acme  ` });
+      const actions = doc.addNode({ tag: "TD", parent: tr });
+      const edit = doc.addNode({ tag: "BUTTON", parent: actions, backendId: 100 + i });
+      doc.addNode({ type: 3, parent: edit, text: "Edit" });
+      doc.addLayout(edit, [500, i * 40, 60, 30]);
+    }
+    const save = doc.addNode({ tag: "BUTTON", backendId: 200 });
+    doc.addNode({ type: 3, parent: save, text: "Save" });
+    doc.addLayout(save, [0, 300, 60, 30]);
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload() }).send, null);
+    expect(snap.text.split("\n")).toEqual([
+      '[ref=100] button "Edit" in:"INV-1001 Acme"',
+      '[ref=101] button "Edit" in:"INV-1002 Acme"',
+      '[ref=200] button "Save"',
+    ]);
+  });
+
+  it("cuts a long row's text at forty characters", async () => {
+    const doc = makeSnapshotDoc();
+    const row = doc.addNode({ tag: "LI" });
+    doc.addNode({ type: 3, parent: row, text: "A very long description of the row ".repeat(4) });
+    const b = doc.addNode({ tag: "BUTTON", parent: row, backendId: 5 });
+    doc.addLayout(b, [0, 0, 30, 30]);
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload() }).send, null);
+    const quoted = /in:"(.*)"/.exec(snap.text)?.[1] ?? "";
+    expect(quoted.length).toBe(40);
+    expect(quoted.endsWith("…")).toBe(true);
+  });
+
+  it("keeps an empty name for a control with nothing to show and nothing around it", async () => {
+    const doc = makeSnapshotDoc();
+    doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 5 }), [0, 0, 30, 30]);
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload() }).send, null);
+    expect(snap.text).toBe('[ref=5] button ""');
+  });
+});
+
+describe("buildSnapshot — labels and roles", () => {
+  it("lists a field once, not again as the <label> around it or pointing at it", async () => {
+    const doc = makeSnapshotDoc();
+    const wrap = doc.addNode({ tag: "LABEL", backendId: 1, clickable: true });
+    doc.addNode({ type: 3, parent: wrap, text: "Email" });
+    doc.addLayout(wrap, [0, 0, 300, 50]);
+    const email = doc.addNode({ tag: "INPUT", parent: wrap, attrs: { type: "email" }, backendId: 2 });
+    doc.addLayout(email, [0, 20, 300, 30]);
+    const pointer = doc.addNode({ tag: "LABEL", attrs: { for: "city" }, backendId: 3, clickable: true });
+    doc.addNode({ type: 3, parent: pointer, text: "City" });
+    doc.addLayout(pointer, [0, 60, 300, 20]);
+    doc.addLayout(doc.addNode({ tag: "INPUT", attrs: { type: "text", id: "city" }, backendId: 4 }), [0, 80, 300, 30]);
+    // A styled checkbox: the input itself is invisible, so its label is the one thing to click.
+    const styled = doc.addNode({ tag: "LABEL", backendId: 5, clickable: true });
+    doc.addNode({ type: 3, parent: styled, text: "Remember me" });
+    doc.addLayout(styled, [0, 120, 300, 20]);
+    doc.addLayout(doc.addNode({ tag: "INPUT", parent: styled, attrs: { type: "checkbox" }, backendId: 6 }), [0, 120, 20, 20], { styles: { opacity: "0" } });
+    const ax: AxEntry[] = [
+      { backendDOMNodeId: 1, role: "LabelText", name: "" }, { backendDOMNodeId: 2, role: "textbox", name: "Email" },
+      { backendDOMNodeId: 3, role: "LabelText", name: "" }, { backendDOMNodeId: 4, role: "textbox", name: "City" },
+      { backendDOMNodeId: 5, role: "LabelText", name: "" },
+    ];
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, null);
+    expect(snap.elements?.map((e) => e.ref)).toEqual([2, 4, 5]);
+  });
+
+  it("gives an element the AX tree skips the role its markup implies, not its tag", async () => {
+    // Behind a showModal() dialog Chrome makes the page inert, and the AX tree has no node for it.
+    const doc = makeSnapshotDoc();
+    const cases: [string, Record<string, string>][] = [
+      ["A", { href: "#" }], ["INPUT", {}], ["INPUT", { type: "search" }], ["INPUT", { type: "checkbox" }], ["INPUT", { type: "submit" }], ["SELECT", {}], ["TEXTAREA", {}],
+    ];
+    cases.forEach(([tag, attrs], i) => doc.addLayout(doc.addNode({ tag, attrs: { ...attrs, "aria-label": `n${i}` }, backendId: i + 1 }), [0, i * 40, 100, 30]));
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload() }).send, null);
+    expect(snap.elements?.map((e) => e.role)).toEqual(["link", "textbox", "searchbox", "checkbox", "button", "combobox", "textbox"]);
   });
 });
 

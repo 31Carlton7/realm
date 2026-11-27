@@ -22,6 +22,7 @@ The audit was taken on `integration/v2.3` (Realm 2.2.0) by listing every tool th
 | Documents | docs_search/list/read/open/state | covered | covered |
 | | docs_progress | **not named** | named |
 | Schedules | schedule_create, schedule_list | covered | covered |
+| | schedule_update, schedule_pause, schedule_resume, schedule_run_now, schedule_delete (added later) | n/a | named |
 | Team | team_roles, record_*, review_submit, review_close | covered, but **told to every space**, team or not | only in a team's space (`listsIn`) |
 | | record_types, review_status, policy_read, team_handoff, team_mention | **not named** | named |
 | Vault | vault_list, vault_http | **no block** | block (team spaces) |
@@ -72,6 +73,7 @@ These are deliberate, and `realm_capabilities` names where the user does each on
 - Adding an MCP connection or signing in to one (OAuth).
 - Reading, editing or deleting a saved sign-in.
 - Settings beyond the five in `AGENT_SETTINGS`.
-- Editing or deleting a schedule.
+- Editing, pausing or deleting a schedule outside a turn the user started, or someone else's without their card.
+- Changing a teammate's clock from the schedule tools; the teammate's page does it.
 - Team roles and policies.
 - Opening Realm's own pages (Settings, Library, Code Review).
