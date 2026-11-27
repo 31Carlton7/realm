@@ -338,9 +338,9 @@ function ChatWindow({ sessionId, assistant, onNewChat }: { sessionId: string; as
       {pill && (
         <button type="button" className="quick-chat-answer" data-state={pill.state} title="Show the whole chat"
           onClick={() => setExpanded(true)}>
-          {pill.state === "done" ? <Icon name="checkCircle" size={16} className="quick-chat-answer-mark" />
-            : pill.state === "failed" ? <Icon name="errorCircle" size={16} className="quick-chat-answer-mark" />
-            : <Spinner size={16} className="quick-chat-answer-mark" />}
+          {pill.state === "done" ? <Icon name="checkCircle" size={14} className="quick-chat-answer-mark" />
+            : pill.state === "failed" ? <Icon name="errorCircle" size={14} className="quick-chat-answer-mark" />
+            : <Spinner size={14} className="quick-chat-answer-mark" />}
           <span className="quick-chat-answer-title">{pill.title}</span>
           {pill.answer && <span className="quick-chat-answer-text">{pill.answer}</span>}
         </button>

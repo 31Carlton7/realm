@@ -2636,7 +2636,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    its content). It is not there until it is asked for, or the assistant is up. */
 :root[data-surface="quick-chat"] .quick-chat-card { position: relative; flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column;
   background: var(--panel-ground); border-radius: var(--r-squircle-card);
-  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
+  box-shadow: inset 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
 :root[data-surface="quick-chat"] .quick-chat:not([data-expanded]) .quick-chat-card { display: none; }
 :root[data-surface="quick-chat"] .quick-chat-empty { display: none; }
 :root[data-surface="quick-chat"] .quick-chat-body,
@@ -2652,22 +2652,22 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The answer: a pill the bar's width over the toolbar, the mark of how the turn stands, the question
    as its title and two lines of what came back. A click shows the whole chat. */
 .quick-chat-answer { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 6px; align-items: center;
-  min-height: 40px; padding: 8px 18px; border-radius: var(--r-pill); text-align: start; color: var(--rl-text-dim);
-  background: var(--panel-ground); box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift);
+  min-height: 40px; padding: 9px 18px; border-radius: var(--r-pill); text-align: start; color: var(--rl-text-dim);
+  background: var(--panel-ground); box-shadow: inset 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift);
   -webkit-app-region: no-drag; }
 .quick-chat-answer-mark { grid-column: 1; color: var(--rl-text-dim); }
 .quick-chat-answer[data-state="done"] .quick-chat-answer-mark { color: var(--green); }
 .quick-chat-answer[data-state="failed"] .quick-chat-answer-mark { color: var(--rl-danger); }
 .quick-chat-answer-title { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 14px; line-height: 20px; font-weight: var(--fw-strong); color: var(--rl-text-bright); }
+  font-size: 13px; line-height: 18px; font-weight: var(--fw-strong); color: var(--rl-text-bright); }
 .quick-chat-answer-text { grid-column: 1 / -1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-  font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+  font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
 /* The foot: the capsule, or once there is an answer the toolbar at its right end. */
 :root[data-surface="quick-chat"] .quick-chat-foot { flex: none; display: flex; align-items: flex-end; justify-content: flex-end; min-width: 0; }
 :root[data-surface="quick-chat"] .quick-chat .composer-dock { flex: 1; min-width: 0; }
 .quick-chat-tools { display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 4px; border-radius: var(--r-pill);
-  background: var(--panel-ground); box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
-.quick-chat-tools > .icon-btn { width: 32px; height: 32px; border-radius: 50%; }
+  background: var(--panel-ground); box-shadow: inset 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
+.quick-chat-tools > .icon-btn { width: 32px; height: 32px; border-radius: 50%; corner-shape: round; }
 .quick-chat-tools .quick-chat-closing,
 .quick-chat-tools > .quick-chat-confirm { padding: 0 6px; }
 /* The capsule: + on the left, the words, then the model's mark, the assistant and send on the right,
@@ -2680,24 +2680,30 @@ button.panel-title:hover { background: var(--rl-hover); }
 }
 :root[data-surface="quick-chat"] .quick-chat .composer,
 :root[data-surface="quick-chat"] .quick-chat .composer:focus-within {
-  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
+  box-shadow: inset 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift); }
 :root[data-surface="quick-chat"] .quick-chat .composer > * { grid-column: 1 / -1; }
 :root[data-surface="quick-chat"] .quick-chat .composer-bar { display: contents; }
 :root[data-surface="quick-chat"] .quick-chat .composer-opts { grid-column: 1; grid-row: 9; margin-bottom: 6px; -webkit-app-region: no-drag; }
 :root[data-surface="quick-chat"] .quick-chat .composer-editor { grid-column: 2; grid-row: 9; -webkit-app-region: no-drag; }
 :root[data-surface="quick-chat"] .quick-chat .composer-actions { grid-column: 3; grid-row: 9; margin-bottom: 6px; gap: 2px; -webkit-app-region: no-drag; }
 :root[data-surface="quick-chat"] .quick-chat .composer-dictation-fetching { grid-row: 10; }
-:root[data-surface="quick-chat"] .quick-chat .composer-input { min-height: 40px; padding: 10px 8px; line-height: 20px; }
-:root[data-surface="quick-chat"] .quick-chat .composer-highlight { padding: 10px 8px; line-height: 20px; }
+/* ChatGPT's bar sets its words at 13 (measured on its capture: "What is 2+2?" 80pt wide, Realm's 15px
+   91pt), a rung under the pane's prompter: a bar this short reads as a field, not a page to write in.
+   Both layers take it together. */
+:root[data-surface="quick-chat"] .quick-chat .composer-input { min-height: 40px; padding: 10px 8px; font-size: 13px; line-height: 20px; }
+:root[data-surface="quick-chat"] .quick-chat .composer-highlight { padding: 10px 8px; font-size: 13px; line-height: 20px; }
 /* The model is the harness's mark alone, as a round button; its name is the button's tooltip. */
 :root[data-surface="quick-chat"] .quick-chat .model-chip :is(.chip-label, .chip-effort, .chip-fast, .chip-caret) { display: none; }
-:root[data-surface="quick-chat"] .quick-chat .model-chip { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; }
-:root[data-surface="quick-chat"] .quick-chat .composer-attach { border-radius: 50%; background: var(--rl-hover); }
+:root[data-surface="quick-chat"] .quick-chat .model-chip { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; corner-shape: round; }
+/* Its controls are drawn in the words' ink, as ChatGPT's are: on the frost the quiet ink read as a
+   control that was off. */
+:root[data-surface="quick-chat"] .quick-chat .composer-attach { border-radius: 50%; corner-shape: round; background: var(--rl-hover); color: var(--rl-text-bright); }
+:root[data-surface="quick-chat"] :is(.quick-chat-tools > .icon-btn, .quick-chat-mic:not([aria-pressed="true"])) { color: var(--rl-text-bright); }
 :root[data-surface="quick-chat"] .quick-chat .composer-send { width: 28px; height: 28px; }
 :root[data-surface="quick-chat"] .quick-chat .composer-send:disabled { background: var(--rl-accent-fill); color: var(--rl-accent-contrast); opacity: 0.45; }
 /* The meeting assistant, in the capsule or the toolbar: one round control, red-dotted while it
    listens. */
-.quick-chat-mic { position: relative; width: 28px; height: 28px; border-radius: 50%; }
+.quick-chat-mic { position: relative; width: 28px; height: 28px; border-radius: 50%; corner-shape: round; }
 .quick-chat-mic[aria-pressed="true"] { color: var(--accent-ink); }
 .quick-chat-mic[data-listening]::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px;
   border-radius: 50%; background: var(--red); }
@@ -2716,7 +2722,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer,
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer:focus-within {
   border-radius: var(--r-pill); background: var(--panel-ground);
-  box-shadow: 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift);
+  box-shadow: inset 0 0 0 var(--panel-rim-w) var(--panel-rim), var(--panel-shine), var(--prompter-lift);
 }
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer::before,
 :root[data-surface="quick-chat"][data-squircle] .quick-chat .composer::after { display: none; }
