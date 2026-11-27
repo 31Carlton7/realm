@@ -75,7 +75,8 @@ export type AssistantState = {
   asked: readonly AskedQuestion[];
   answer: LiveAnswer | null;
   notes: MeetingNotesState | null;
-  systemAudio: SystemAudioState | null;
+  /** How the helper's tap on this Mac's sound went, with its reason when it gave one. Null until it answers. */
+  systemAudio: { state: SystemAudioState; message: string | null } | null;
   problem: string | null;
   /** A quiet line under the words: the answer key pressed while not listening, or before anything was heard. */
   notice: string | null;
@@ -296,7 +297,7 @@ export class MeetingAssistant {
         this.answers.line(line);
       },
       partial: (source, text) => { if (this.run === run) this.set({ partial: { ...this.state.partial, [source]: text } }); },
-      systemAudio: (systemAudio) => { if (this.run === run) this.set({ systemAudio }); },
+      systemAudio: (state, message) => { if (this.run === run) this.set({ systemAudio: { state, message: message ?? null } }); },
       problem: (problem) => { if (this.run === run) this.set({ problem }); },
       ended: () => this.finish(run),
     });

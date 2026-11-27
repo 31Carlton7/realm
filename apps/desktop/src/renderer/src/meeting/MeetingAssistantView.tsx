@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { useDissolve } from "../components/ScrollFades";
 import { Sheet } from "../components/Sheet";
 import { useApp } from "../state/store";
-import type { TranscriptLine, TranscriptSource } from "../voice/transcript";
+import type { SystemAudioState, TranscriptLine, TranscriptSource } from "../voice/transcript";
 import {
   LONG_CUSTOM_INFO, customInfoText, type AskedQuestion, type AssistantState, type LiveAnswer, type MeetingAssistant, type MeetingNotesState,
 } from "./assistant";
@@ -117,6 +117,7 @@ export function AssistantBody({ assistant }: { assistant: MeetingAssistant }) {
       )}
       {s.answer && <Answer answer={s.answer} onDismiss={() => assistant.dismissAnswer()} />}
       {s.notes && <NotesLine notes={s.notes} assistant={assistant} />}
+      {isListening(s) && s.systemAudio && <ThemOffLine state={s.systemAudio.state} message={s.systemAudio.message} />}
       {s.notice && <p className="meeting-notice" role="status">{s.notice}</p>}
       {s.problem && <p className="meeting-problem" role="alert">{s.problem}</p>}
     </>
@@ -191,6 +192,28 @@ function NotesLine({ notes, assistant }: { notes: MeetingNotesState; assistant: 
       {notes.stage === "summarising" && (
         <button type="button" className="btn-quiet" onClick={() => assistant.cancelSummary()}>Cancel summary</button>
       )}
+    </p>
+  );
+}
+
+/** Why Them stays empty. Realm only checks System Audio Recording and never asks for it, so no
+ *  system prompt will say the grant is missing: this line does. */
+function ThemOffLine({ state, message }: { state: SystemAudioState; message: string | null }) {
+  if (state === "needs permission" || state === "denied") {
+    return (
+      <p className="meeting-notes meeting-them-off" role="status">
+        <span>Them is off: Realm needs System Audio Recording.</span>
+        <button type="button" className="btn-quiet" title="Opens Privacy & Security, Screen & System Audio Recording"
+          onClick={() => void window.realm?.permissions.openSettings("screenRecording")}>
+          Open System Settings
+        </button>
+      </p>
+    );
+  }
+  if (state !== "failed") return null;
+  return (
+    <p className="meeting-notes meeting-them-off" role="status">
+      <span>Them is off: Realm couldn't hear this Mac's sound.{message && ` ${message}`}</span>
     </p>
   );
 }

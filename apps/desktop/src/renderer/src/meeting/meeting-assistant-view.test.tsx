@@ -375,3 +375,67 @@ describe("the assistant's keys and its auto-answers switch, in the panel", () =>
     expect(r.asked.map((a) => a.trigger)).toEqual(["question"]);
   });
 });
+
+describe("the panel when Them cannot be heard", () => {
+  const opened: string[] = [];
+  const line = (dialog: HTMLElement) => dialog.querySelector<HTMLElement>(".meeting-them-off");
+  const listening = async () => {
+    const r = await mount({ consented: true });
+    showAssistant(r.dialog);
+    await act(() => r.assistant.start());
+    return r;
+  };
+  afterEach(() => {
+    opened.length = 0;
+    delete (window as { realm?: unknown }).realm;
+  });
+
+  it("says Realm needs System Audio Recording when it has not been granted", async () => {
+    const r = await listening();
+    act(() => r.events().systemAudio("needs permission", "System Audio Recording is not granted to Realm, so nothing was asked for and no tap was made."));
+    expect(line(r.dialog)!.textContent).toBe("Them is off: Realm needs System Audio Recording.Open System Settings");
+  });
+
+  it("says the same when it was refused", async () => {
+    const r = await listening();
+    act(() => r.events().systemAudio("denied", "System Audio Recording is not granted to Realm, so nothing was asked for and no tap was made."));
+    expect(line(r.dialog)!.textContent).toBe("Them is off: Realm needs System Audio Recording.Open System Settings");
+  });
+
+  it("says the Mac's sound could not be heard, with the helper's reason", async () => {
+    const r = await listening();
+    act(() => r.events().systemAudio("failed", "The audio tap could not be created (-10875)."));
+    expect(line(r.dialog)!.textContent).toBe("Them is off: Realm couldn't hear this Mac's sound. The audio tap could not be created (-10875).");
+    expect(within(line(r.dialog)!).queryByRole("button")).toBeNull();
+  });
+
+  it("says the Mac's sound could not be heard when the helper gave no reason", async () => {
+    const r = await listening();
+    act(() => r.events().systemAudio("failed"));
+    expect(line(r.dialog)!.textContent).toBe("Them is off: Realm couldn't hear this Mac's sound.");
+  });
+
+  it("says nothing while the Mac's sound is heard, or before the helper has answered", async () => {
+    const r = await listening();
+    expect(line(r.dialog)).toBeNull();
+    act(() => r.events().systemAudio("capturing"));
+    expect(line(r.dialog)).toBeNull();
+  });
+
+  it("says nothing once it has stopped listening", async () => {
+    const r = await listening();
+    act(() => r.events().systemAudio("needs permission"));
+    expect(line(r.dialog)).not.toBeNull();
+    await act(() => { fireEvent.click(within(r.dialog).getByRole("button", { name: "Stop" })); });
+    expect(line(r.dialog)).toBeNull();
+  });
+
+  it("opens Screen & System Audio Recording in System Settings", async () => {
+    (window as { realm?: unknown }).realm = { permissions: { openSettings: async (pane: string) => { opened.push(pane); } } };
+    const r = await listening();
+    act(() => r.events().systemAudio("needs permission"));
+    fireEvent.click(within(line(r.dialog)!).getByRole("button", { name: "Open System Settings" }));
+    // The row id main turns into Privacy_ScreenCapture (main/tcc.ts), the pane Screen & System Audio Recording.
+    expect(opened).toEqual(["screenRecording"]);
+  });
+});
