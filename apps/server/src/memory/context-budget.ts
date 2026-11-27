@@ -62,8 +62,33 @@ export function indexQuery(firstPrompt: string | null | undefined, title: string
   return firstPrompt?.trim() || title?.trim() || "";
 }
 
-/** The lines of an index Claude's auto-memory loads; the rest it drops. */
-const CLAUDE_INDEX_LINES = 200;
+/**
+ * How much of an index Claude's auto-memory loads, and drops the rest of: the text trimmed, its first
+ * 200 lines, and of those at most 25,000 characters, cut back to a line break. These are the CLI's own
+ * numbers, read from the 0.3.322 binary the SDK ships, and its warning says the same: "MEMORY.md is
+ * 222 lines (limit: 200). Only part of it was loaded: 22 of 222 lines were cut off, starting at line 201".
+ */
+export const CLAUDE_INDEX_LINES = 200;
+export const CLAUDE_INDEX_CHARS = 25_000;
+
+/**
+ * The lines of `index` that Claude's auto-memory does not load, in order and without blank ones — none
+ * when it loads the whole index. A line the character cap cuts in two is left out, as is the last line
+ * when `partial` says a read cap may have cut it short.
+ */
+export function claudeUnloadedLines(index: string, partial = false): string[] {
+  const text = index.trim();
+  let loaded = text.split("\n").slice(0, CLAUDE_INDEX_LINES).join("\n");
+  if (loaded.length > CLAUDE_INDEX_CHARS) {
+    const at = loaded.lastIndexOf("\n", CLAUDE_INDEX_CHARS);
+    loaded = loaded.slice(0, at > 0 ? at : CLAUDE_INDEX_CHARS);
+  }
+  const rest = text.slice(loaded.length).split("\n");
+  // The first piece is what is left of the last line loaded: "" when the cut fell at a line break.
+  rest.shift();
+  if (partial) rest.pop();
+  return rest.filter((l) => l.trim() !== "");
+}
 
 /** What a save tells the agent once `index` (an index's whole text, as the save left it) is at
  *  `INDEX_WARN_LINES` or `INDEX_WARN_CHARS`, or null while it is under both. */
@@ -130,9 +155,7 @@ function fitRanked(text: string, max: number, query: string, partial: boolean): 
   if (partial) lines.pop();
   const from = head === "" ? 0 : head.split("\n").length;
   const tail = lines.slice(from);
-  const ranked = new MemorySearch().rankIndexLines(tail.join("\n"), query);
-  const rankedSet = new Set(ranked);
-  const order = [...ranked, ...tail.map((_, i) => i).filter((i) => !rankedSet.has(i))];
+  const order = rankedFirst(tail, query);
   let left = max - head.length;
   const kept = new Set<number>();
   for (const i of order) {
@@ -142,6 +165,19 @@ function fitRanked(text: string, max: number, query: string, partial: boolean): 
     left -= cost;
   }
   return [head, ...tail.filter((_, i) => kept.has(i))].filter((l) => l !== "").join("\n");
+}
+
+/** The positions of `lines`, the ones that rank highest for `query` first and the rest after them in order. */
+function rankedFirst(lines: readonly string[], query: string): number[] {
+  const ranked = new MemorySearch().rankIndexLines(lines.join("\n"), query);
+  const rankedSet = new Set(ranked);
+  return [...ranked, ...lines.map((_, i) => i).filter((i) => !rankedSet.has(i))];
+}
+
+/** The lines of `text` reordered by `rankedFirst`. */
+function inRankOrder(text: string, query: string): string {
+  const lines = text.split("\n");
+  return rankedFirst(lines, query).map((i) => lines[i]!).join("\n");
 }
 
 /** The longest start of `text` that ends at a line break and is at most `max` long — "" when not even
@@ -159,7 +195,7 @@ function cutAtLine(text: string, max: number): string {
  * `spaces/<folder>/MEMORY.md` of the profile repo). Optional here so entries that do not carry it yet
  * read as the root index they are; the required field that replaces it satisfies this type as is.
  */
-export type RepoIndexLike = { scope: "profile" | "space"; kind?: "root" | "spaceFolder"; path: string; index: string; truncated: boolean };
+export type RepoIndexLike = { scope: "profile" | "space"; kind?: "root" | "spaceFolder"; path: string; index: string; truncated: boolean; claudeTail?: true };
 
 /**
  * The repos' indexes fitted to `MEMORY_INDEX_BUDGET`: the space folder's first, then a team repo's,
@@ -167,6 +203,9 @@ export type RepoIndexLike = { scope: "profile" | "space"; kind?: "root" | "space
  * to what fits and `truncated` set where anything is missing, so the block that renders it adds
  * `readRestPointer` — the line this budget held room for. With a `query` (`indexQuery`), what is cut
  * past an index's head is what ranked lowest for it, and `ranked` says so.
+ *
+ * A `claudeTail` entry is only the lines Claude's auto-memory left out (`claudeUnloadedLines`): it has
+ * no head of its own to keep, so all of it is put in rank order, and what does not fit is the lowest.
  */
 export function budgetRepoIndexes<T extends RepoIndexLike>(indexes: readonly T[], total = MEMORY_INDEX_BUDGET, query = ""): (T & { ranked: boolean })[] {
   const ranked = terms(query).length > 0;
@@ -175,7 +214,8 @@ export function budgetRepoIndexes<T extends RepoIndexLike>(indexes: readonly T[]
     return {
       priority: folder ? 0 : r.scope === "space" ? 1 : 2,
       cap: folder ? SPACE_FOLDER_INDEX_CAP : r.scope === "space" ? TEAM_INDEX_CAP : PROFILE_INDEX_CAP,
-      text: r.index, pointer: readRestPointer({ ...r, ranked }), cut: r.truncated, query,
+      text: r.claudeTail ? inRankOrder(r.index, query) : r.index,
+      pointer: readRestPointer({ ...r, ranked }), cut: r.truncated, query: r.claudeTail ? "" : query,
     };
   }), total);
   return indexes.map((r, i) => ({ ...r, index: fitted[i]!.text, truncated: fitted[i]!.cut, ranked: ranked && fitted[i]!.cut }));
