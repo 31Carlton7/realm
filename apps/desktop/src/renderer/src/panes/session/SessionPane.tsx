@@ -739,6 +739,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         // Keyed by SESSION, not by pane: a space switch tears this pane down and rebuilds it, and
         // what the reader is owed back is their place in this log (scroll-memory.ts).
         scrollKey={id}
+        stage
         mentionIds={liveMentionIds} appIcons={appIcons}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}

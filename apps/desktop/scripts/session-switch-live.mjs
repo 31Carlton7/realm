@@ -10,7 +10,9 @@
  * from the same data. Never point it at a running app's database: take a copy with
  * `sqlite3 <db> "VACUUM INTO '<copy>'"`, and in the copy disable schedules and set running sessions
  * idle. The targets are named by `SWITCH_SESSIONS` (two session ids) and `SWITCH_TEAMMATES` (two
- * teammate names), long first. All three are required.
+ * teammate names), long first. All three are required. `SWITCH_SPACE` opens the window on the
+ * targets' space; the space's saved layout should show none of them, or the first click on one is
+ * not a switch.
  *
  * Each click is timed in the page: `performance.now()` at the click, then every animation frame
  * until the focused pane's transcript stops changing. "First paint" is the first frame showing the
@@ -18,7 +20,14 @@
  * requestAnimationFrame). Beside them: the RPCs in flight, the long-animation-frame split of script
  * and style/layout, and when the pane and the composer were swapped.
  *
- * The check fails when a warm switch's median first paint is over `SWITCH_BUDGET_MS` (100). Set
+ * A cold switch is the first open of a target since launch. Its log's end may have been read ahead
+ * of the click (the sidebar reads the rows beside the session in focus, and the row under the
+ * pointer), so the cold table counts those apart from the ones read on the click; `SWITCH_HOVER_MS`
+ * puts the pointer on each cold row that long before clicking it.
+ *
+ * The check fails when a warm switch's median first paint is over `SWITCH_BUDGET_MS` (100), or when
+ * the p95 of every cold switch's first paint is over `SWITCH_COLD_BUDGET_MS` (650: a launch's first
+ * switch pays the app's warm-up, ~400 ms, and a log read on the click under load runs to ~600). Set
  * `SWITCH_ASSERT=0` to only measure, `SWITCH_LAUNCHES` (5) and `SWITCH_ROUNDS` (2) for the sample,
  * `SWITCH_OUT` for a JSON of every run, and `SWITCH_FRAMES=<dir>` to also screencast one cold and one
  * warm switch, frame by frame (`SWITCH_FRAMES_ONLY=1` for just those). `SWITCH_PROFILE=<dir>` saves a
@@ -39,10 +48,13 @@ const TEAMMATES = (process.env.SWITCH_TEAMMATES ?? "").split(",").filter(Boolean
 const LAUNCHES = Number(process.env.SWITCH_LAUNCHES ?? 5);
 const ROUNDS = Number(process.env.SWITCH_ROUNDS ?? 2);
 const BUDGET_MS = Number(process.env.SWITCH_BUDGET_MS ?? 100);
+const COLD_BUDGET_MS = Number(process.env.SWITCH_COLD_BUDGET_MS ?? 650);
+const HOVER_MS = Number(process.env.SWITCH_HOVER_MS ?? 0);
 const ASSERT = process.env.SWITCH_ASSERT !== "0";
 const OUT = process.env.SWITCH_OUT ?? null;
 const FRAMES = process.env.SWITCH_FRAMES ?? null;
 const SCRATCH_HOME = process.env.SWITCH_HOME_DIR ?? null;
+const SPACE = process.env.SWITCH_SPACE ?? null;
 const PROFILE = process.env.SWITCH_PROFILE ?? null;
 const BEHAVIOUR = process.env.SWITCH_BEHAVIOUR === "1";
 /** Only the screencasts: one launch that opens every target once and films a warm switch, then a
@@ -84,7 +96,10 @@ const INSTRUMENT = `(() => {
     }
     if (typeof data === "string") {
       const m = /^\\{"id":"?(\\d+)"?,"method":"([^"]+)"/.exec(data);
-      if (m) { const r = { id: Number(m[1]), method: m[2], t0: performance.now(), t1: null, bytes: 0 }; sw.rpc.push(r); sw.open.set(r.id, r); }
+      // A read back from a log's very end: the one a cold open waits on unless it was read ahead of
+      // the click. The fill behind the first paint reads back from a real seq.
+      const tail = m && m[2] === "sessions.events" && data.includes('"beforeSeq":${Number.MAX_SAFE_INTEGER}') && !data.includes('"types"');
+      if (m) { const r = { id: Number(m[1]), method: m[2], tail, t0: performance.now(), t1: null, bytes: 0 }; sw.rpc.push(r); sw.open.set(r.id, r); }
     }
     return send.call(this, data);
   };
@@ -96,8 +111,9 @@ const INSTRUMENT = `(() => {
 })()`;
 
 /** Click the row whose accessible name starts with `label`, then watch every frame until the
- *  focused pane's transcript has held still for `QUIET_MS` with no RPC in flight. */
-const MEASURE = (rowSelector, label) => `(async () => {
+ *  focused pane's transcript has held still for `QUIET_MS` with no RPC in flight. With `hoverMs`
+ *  the pointer comes onto the row that long before the click, as a hand on a mouse does. */
+const MEASURE = (rowSelector, label, hoverMs = 0) => `(async () => {
   const QUIET_MS = 1200, MAX_MS = 20000;
   const sw = window.__sw;
   const row = [...document.querySelectorAll(${JSON.stringify(rowSelector)})].find((b) => (b.getAttribute("aria-label") ?? "").startsWith(${JSON.stringify(label)}));
@@ -112,6 +128,11 @@ const MEASURE = (rowSelector, label) => `(async () => {
   };
   const before = read();
   const rpcFrom = sw.rpc.length;
+  if (${hoverMs} > 0) {
+    row.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+    row.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false, pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, ${hoverMs}));
+  }
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   performance.mark("switch-start");
   const t0 = performance.now();
@@ -139,7 +160,7 @@ const MEASURE = (rowSelector, label) => `(async () => {
   const after = (i) => (frames[i + 1] ?? frames[i]).t;
   const tEnd = after(settled);
   performance.mark("switch-drawn");
-  const rpc = sw.rpc.slice(rpcFrom).filter((r) => r.t0 - t0 <= tEnd).map((r) => ({ method: r.method, t0: r.t0 - t0, t1: r.t1 === null ? null : r.t1 - t0, bytes: r.bytes }));
+  const rpc = sw.rpc.slice(rpcFrom).filter((r) => r.t0 - t0 <= tEnd).map((r) => ({ method: r.method, tail: r.tail, t0: r.t0 - t0, t1: r.t1 === null ? null : r.t1 - t0, bytes: r.bytes }));
   // The wall time some RPC was in flight before the transcript was drawn: the union of the intervals.
   let wait = 0, edge = 0;
   for (const r of [...rpc].sort((a, b) => a.t0 - b.t0)) { const a = Math.max(r.t0, edge), b = Math.min(r.t1 ?? tEnd, tEnd); if (b > a) { wait += b - a; edge = b; } }
@@ -150,6 +171,9 @@ const MEASURE = (rowSelector, label) => `(async () => {
     paneSwap: (() => { const i = frames.findIndex((f) => f.newPane); return i >= 0 ? frames[i].t : null; })(),
     composer: (() => { const i = frames.findIndex((f) => f.newComposer); return i >= 0 ? frames[i].t : null; })(),
     blocks: fin.n, rpcWait: wait, rpc,
+    // Whether the log's end was read ahead of the click (a neighbour, or the hover): no read of it
+    // started between the click and the first paint. One after the paint is the fill behind it.
+    readAhead: !rpc.some((r) => r.tail && r.t0 >= 0 && r.t0 < (shown >= 0 ? after(shown) : tEnd)),
     longFrames: loaf.length, script: loaf.reduce((s, e) => s + e.script, 0),
     styleLayout: loaf.reduce((s, e) => s + (e.start + e.duration - e.styleAndLayoutStart), 0),
     maxFrame: Math.max(0, ...loaf.map((e) => e.duration)),
@@ -198,8 +222,18 @@ function freshHome() {
   execFileSync("cp", ["-c", SOURCE_DB, path.join(home, "realm.db")]);
   const user = path.join(dir, "user");
   fs.mkdirSync(user, { recursive: true });
-  return { dir, home, user };
+  const userData = path.join(dir, "userData");
+  fs.rmSync(userData, { recursive: true, force: true });
+  fs.mkdirSync(userData, { recursive: true });
+  // The window opens on the targets' space, as a window restored from its last quit would.
+  if (SPACE) fs.writeFileSync(path.join(userData, "windows.json"), JSON.stringify({ windows: [{ profileId: null, spaceId: SPACE, showing: SPACE }] }));
+  return { dir, home, user, userData };
 }
+
+const launchIn = (where, renderer) => launchLiveApp({
+  name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000,
+  env: { REALM_HOME: where.home, HOME: where.user, LIVE_USER_DATA: where.userData },
+});
 
 const load = () => {
   const [one] = os.loadavg();
@@ -211,10 +245,7 @@ const load = () => {
 
 async function oneLaunch(n, renderer, targets) {
   const where = freshHome();
-  const app = await launchLiveApp({
-    name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000,
-    env: { REALM_HOME: where.home, HOME: where.user },
-  });
+  const app = await launchIn(where, renderer);
   const runs = [];
   try {
     const { page } = app;
@@ -229,7 +260,7 @@ async function oneLaunch(n, renderer, targets) {
     await quiet();
     const click = async (t, phase) => {
       if (PROFILE) { await page.send("Profiler.enable"); await page.send("Profiler.setSamplingInterval", { interval: 200 }); await page.send("Profiler.start"); }
-      const r = await page.eval(MEASURE(t.selector, t.label));
+      const r = await page.eval(MEASURE(t.selector, t.label, phase === "cold" ? HOVER_MS : 0));
       if (r.error) throw new Error(r.error);
       if (PROFILE) {
         const { profile } = await page.send("Profiler.stop");
@@ -240,7 +271,7 @@ async function oneLaunch(n, renderer, targets) {
       }
       const row = { launch: n, phase, kind: t.kind, size: t.size, ...load(), ...r };
       runs.push(row);
-      console.log(`  ${phase.padEnd(4)} ${t.kind.padEnd(8)} ${t.size.padEnd(5)} paint ${r.firstPaint?.toFixed(0).padStart(5)} ms  drawn ${r.drawn.toFixed(0).padStart(5)} ms  rpc ${r.rpcWait.toFixed(0).padStart(5)} ms  script ${r.script.toFixed(0).padStart(4)}  layout ${r.styleLayout.toFixed(0).padStart(4)}  blocks ${r.blocks}  load ${row.load1}`);
+      console.log(`  ${phase.padEnd(4)} ${t.kind.padEnd(8)} ${t.size.padEnd(5)} ${phase === "cold" ? (r.readAhead ? "ahead" : "click") : "     "} paint ${r.firstPaint?.toFixed(0).padStart(5)} ms  drawn ${r.drawn.toFixed(0).padStart(5)} ms  rpc ${r.rpcWait.toFixed(0).padStart(5)} ms  script ${r.script.toFixed(0).padStart(4)}  layout ${r.styleLayout.toFixed(0).padStart(4)}  blocks ${r.blocks}  load ${row.load1}`);
       await quiet();
     };
     // Rotate which target opens first, so no one target always pays the app's first-switch warm-up.
@@ -291,19 +322,21 @@ async function captureFrames(app, targets) {
   await film(app.page, "warm", a);
 }
 
-/** A cold switch: the first open of the long session in a fresh launch. */
+/** A cold switch: the first open of a target in a fresh launch, the long session unless
+ *  `SWITCH_FRAMES_TARGET` names another by its place in the targets (1 is the long teammate). */
 async function coldFrames(renderer, targets) {
+  const target = targets[Number(process.env.SWITCH_FRAMES_TARGET ?? 0)];
   const where = freshHome();
-  const app = await launchLiveApp({ name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000, env: { REALM_HOME: where.home, HOME: where.user } });
+  const app = await launchIn(where, renderer);
   try {
     const { page } = app;
     await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-    await until(() => page.eval(`[...document.querySelectorAll(${JSON.stringify(targets[0].selector)})].some((b) => (b.getAttribute("aria-label") ?? "").startsWith(${JSON.stringify(targets[0].label)}))`), 120_000, "the sidebar rows");
+    await until(() => page.eval(`[...document.querySelectorAll(${JSON.stringify(target.selector)})].some((b) => (b.getAttribute("aria-label") ?? "").startsWith(${JSON.stringify(target.label)}))`), 120_000, "the sidebar rows");
     await page.eval(INSTRUMENT);
     await sleep(4000);
     await page.eval(DISMISS_WHATS_NEW);
     await sleep(600);
-    await film(page, "cold", targets[0]);
+    await film(page, "cold", target);
   } finally {
     await app.stop();
     await stopDaemons(where.home);
@@ -320,7 +353,7 @@ async function coldFrames(renderer, targets) {
 async function behaviour(renderer, targets) {
   const [long, , short] = targets;
   const where = freshHome();
-  const app = await launchLiveApp({ name: "session-switch", rendererUrl: renderer, timeoutMs: 120_000, env: { REALM_HOME: where.home, HOME: where.user } });
+  const app = await launchIn(where, renderer);
   const fails = [];
   const check = (ok, what, seen) => { console.log(`  ${ok ? "ok  " : "FAIL"} ${what}${seen === undefined ? "" : `: ${JSON.stringify(seen)}`}`); if (!ok) fails.push(what); };
   try {
@@ -405,7 +438,8 @@ try {
 
 const stat = (xs) => {
   const s = xs.filter((x) => x !== null).sort((a, b) => a - b);
-  return s.length ? { median: s[Math.floor((s.length - 1) / 2)], min: s[0], max: s.at(-1), n: s.length } : null;
+  // p95 by nearest rank: with fewer than twenty samples it is the slowest one.
+  return s.length ? { median: s[Math.floor((s.length - 1) / 2)], p95: s[Math.ceil(0.95 * s.length) - 1], min: s[0], max: s.at(-1), n: s.length } : null;
 };
 const summary = {};
 for (const phase of ["cold", "warm"]) for (const t of targets) {
@@ -420,7 +454,21 @@ for (const [k, v] of Object.entries(summary)) {
   const f = (s) => (s ? `${s.median.toFixed(0)}/${s.min.toFixed(0)}/${s.max.toFixed(0)}` : "-");
   console.log(`${k.padEnd(24)} | ${f(v.firstPaint).padEnd(23)} | ${f(v.drawn).padEnd(21)} | ${(v.rpcWait?.median ?? 0).toFixed(0).padStart(7)} | ${v.load1?.median ?? "-"} | ${v.swapMB?.median ?? "-"}`);
 }
-if (OUT) fs.writeFileSync(OUT, JSON.stringify({ at: new Date().toISOString(), launches: LAUNCHES, rounds: ROUNDS, summary, runs: all }, null, 2));
+/* The cold table: every first open since launch, by target and in all, split by whether the log's
+   end had been read ahead of the click (a neighbour of the session on screen, or the row hovered). */
+const cold = {};
+const coldRow = (key, rs) => { if (rs.length) cold[key] = { n: rs.length, ahead: rs.filter((r) => r.readAhead).length, firstPaint: stat(rs.map((r) => r.firstPaint)), drawn: stat(rs.map((r) => r.drawn)) }; };
+const colds = all.filter((r) => r.phase === "cold");
+for (const t of targets) coldRow(`${t.kind} ${t.size}`, colds.filter((r) => r.kind === t.kind && r.size === t.size));
+coldRow("all, read on the click", colds.filter((r) => !r.readAhead));
+coldRow("all, read ahead", colds.filter((r) => r.readAhead));
+coldRow("all", colds);
+console.log(`\ncold switch (hover ${HOVER_MS} ms)    |  n | ahead | first paint med / p95 | drawn med / p95`);
+for (const [k, v] of Object.entries(cold)) {
+  const f = (s) => (s ? `${s.median.toFixed(0).padStart(5)} / ${s.p95.toFixed(0).padStart(5)}` : "-");
+  console.log(`${k.padEnd(30)} | ${String(v.n).padStart(2)} | ${String(v.ahead).padStart(5)} | ${f(v.firstPaint).padEnd(21)} | ${f(v.drawn)}`);
+}
+if (OUT) fs.writeFileSync(OUT, JSON.stringify({ at: new Date().toISOString(), launches: LAUNCHES, rounds: ROUNDS, hoverMs: HOVER_MS, summary, cold, runs: all }, null, 2));
 
 const notLanded = Object.entries(summary).filter(([, v]) => !v.landed).map(([k]) => k);
 if (notLanded.length) { console.error(`FAIL: a click did not land on its row: ${notLanded.join(", ")}`); process.exit(1); }
@@ -428,4 +476,7 @@ if (ASSERT) {
   const over = Object.entries(summary).filter(([k, v]) => k.startsWith("warm") && (v.firstPaint?.median ?? Infinity) > BUDGET_MS);
   if (over.length) { console.error(`FAIL: warm switch first paint over ${BUDGET_MS} ms: ${over.map(([k, v]) => `${k} ${v.firstPaint?.median.toFixed(0)} ms`).join(", ")}`); process.exit(1); }
   console.log(`ok: every warm switch paints within ${BUDGET_MS} ms (median)`);
+  const coldP95 = cold.all?.firstPaint?.p95 ?? Infinity;
+  if (coldP95 > COLD_BUDGET_MS) { console.error(`FAIL: cold switch first paint p95 ${coldP95.toFixed(0)} ms, over ${COLD_BUDGET_MS} ms`); process.exit(1); }
+  console.log(`ok: cold switches paint within ${COLD_BUDGET_MS} ms (p95 of ${cold.all.n})`);
 }

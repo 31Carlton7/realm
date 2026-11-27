@@ -49,8 +49,10 @@ How quiet mode works, and what it records instead of showing (`quietWindowsLog`)
 
 ## The checks that are seen
 
-Some evidence only exists on the real screen. These opt out with `visible: "<why>"`, which prints
-the reason when they run. Run them when nobody is using the Mac.
+Some evidence only exists on the real screen. These opt out with `visible: "<why>"` (or
+`frontApp: "<why>"`), which prints the reason when they run. They refuse to start until nobody has
+touched the Mac for 5 minutes (`HIDIdleTime` from `ioreg`). `REALM_LIVE_SEEN_OK="<why it may>"` runs
+one anyway, for a run the person asked to see.
 
 | Check | Why |
 | --- | --- |
@@ -82,7 +84,8 @@ Tokens are `ceil(chars / 4)`, because no tokenizer is in the repo's dependencies
 Chars move a little between runs. A ref is the node's backendNodeId, and those grow as one pane
 loads page after page, so the same catalog lists longer refs on its third load than on its first.
 `[new]` marks depend on the snapshot before. Compare like with like: a full run against the
-baseline.
+baseline. The read after an act passes `diff: true`; a build from before that option drops the
+argument and answers with the whole list, so the same harness measures both.
 
 When a change is meant to move the numbers, write a new baseline in the same PR:
 `--out apps/desktop/scripts/fixtures/browser-bench/baseline.json`.

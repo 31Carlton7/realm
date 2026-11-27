@@ -43,6 +43,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; i
   const cli: Simctl = {
     devices: async () => { calls.push("devices"); return [{ udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false }]; },
     boot: async (udid) => { calls.push(`boot:${udid}`); return { ok: true, detail: "" }; },
+    springBoardStarted: async () => true,
     available: async () => true,
     apps: async (udid) => { calls.push(`apps:${udid}`); return [{ bundleId: "com.acme.app", name: "Acme" }]; },
     screenshot: async (udid, path) => { calls.push(`screenshot:${udid}:${path}`); return { ok: true, detail: "" }; },
@@ -157,6 +158,28 @@ describe("bringing a simulator up", () => {
     });
     // Every step is broadcast, because the pane's whole job while this runs is to say where it is.
     expect(events.map((e) => e.status)).toEqual(["booting", "serving", "running"]);
+  });
+
+  it("shows the picture while the device boots, and reads no tree until its boot has finished", async () => {
+    // A read that reaches the device mid-boot can leave it answering 503 for the whole boot — a
+    // fresh serve-sim does not bring it back. THE MUTANT: reading /ax without waiting for SpringBoard.
+    let finish = (_: boolean) => {};
+    let asked = 0;
+    const { service, spaceId, calls } = bring({ simctl: { springBoardStarted: () => { asked++; return new Promise((r) => { finish = r; }); } } });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator" });
+    service.start(simulatorId, "UDID-1");
+    await settle(() => service.stateOf(simulatorId).status === "running");
+    await expect(service.ax(simulatorId)).rejects.toThrow(/still finishing its boot/);
+    expect(calls).not.toContain("ax:UDID-1");
+    finish(true);
+    expect((await service.ax(simulatorId)).app).toBe("Safari");
+    expect(asked).toBe(1);
+    // Booted again, the last boot's answer is not this one's.
+    await service.stop(simulatorId);
+    service.start(simulatorId, "UDID-1");
+    await settle(() => service.stateOf(simulatorId).status === "running");
+    await expect(service.ax(simulatorId)).rejects.toThrow(/still finishing its boot/);
+    expect(asked).toBe(2);
   });
 
   it("adopts a stream somebody else already started rather than starting a second one", async () => {

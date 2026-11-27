@@ -8,7 +8,7 @@
 import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential, type AgentFillKind } from "@realm/contracts";
 import { isAbsolute } from "node:path";
 import { missedCodeError, type CodeWait } from "./security-codes";
-import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
+import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, REMOVE_REF_BOXES_JS, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, refBoxes, refBoxesScript, refLegend, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { credentialSiteMatch } from "./password-match";
 import { bothReads, readSecretRects, type SecretFields } from "./phone-frame";
@@ -957,7 +957,7 @@ export class BrowserAgentHost {
         );
       }
       case "screenshot":
-        return this.screenshot(browserId);
+        return this.screenshot(browserId, params.annotate === true);
       default:
         throw new Error(`unknown browser host op "${op}"`);
     }
@@ -983,20 +983,38 @@ export class BrowserAgentHost {
    * just after the capture. A page with such a field that cannot be covered — the page would not say
    * where its fields are while Realm had filled one, or the picture would not repaint — is not
    * pictured. A secret field inside another site's frame is not found, and not covered.
+   *
+   * `annotate` draws a numbered box over each element a fresh snapshot lists on screen, for this one
+   * capture, and answers the legend that goes with them. The boxes are taken off the page before this
+   * returns, whether the capture worked or not. The snapshot is not kept as the pane's last one, so
+   * the agent's next snapshot still marks `[new]` against its own previous read.
    */
-  private async screenshot(browserId: string): Promise<BrowserScreenshotResult> {
+  private async screenshot(browserId: string, annotate = false): Promise<BrowserScreenshotResult> {
     const entry = this.ensure(browserId);
     const send = entry.binding.send;
     const filled = [...this.filledSecrets.get(browserId) ?? []];
-    const before = await readSecretRects(send, filled);
-    // A view that is not on screen never paints, and the capture waits for a frame that never
-    // comes; give up while the agent can still do something else (`paneNotPaintingError`).
-    let timer: NodeJS.Timeout | undefined;
-    const unpainted = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(paneNotPaintingError(browserId))), this.d.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS);
-    });
-    const shot = (await Promise.race([send("Page.captureScreenshot", { format: "jpeg", quality: 70 }), unpainted])
-      .finally(() => clearTimeout(timer))) as { data?: string };
+    let legend: string | undefined;
+    let before: Awaited<ReturnType<typeof readSecretRects>>;
+    let shot: { data?: string };
+    try {
+      if (annotate) {
+        const snap = await buildSnapshot(send, entry.lastSnapshot, {}, this.filledSecrets.get(browserId));
+        const boxes = await refBoxes(send, snap.elements ?? [], snap.viewport ?? { width: Infinity, height: Infinity });
+        legend = this.hideFilledCodes(browserId, refLegend(boxes));
+        await send("Runtime.evaluate", { expression: refBoxesScript(boxes, this.accent), awaitPromise: true, silent: true });
+      }
+      before = await readSecretRects(send, filled);
+      // A view that is not on screen never paints, and the capture waits for a frame that never
+      // comes; give up while the agent can still do something else (`paneNotPaintingError`).
+      let timer: NodeJS.Timeout | undefined;
+      const unpainted = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(paneNotPaintingError(browserId))), this.d.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS);
+      });
+      shot = (await Promise.race([send("Page.captureScreenshot", { format: "jpeg", quality: 70 }), unpainted])
+        .finally(() => clearTimeout(timer))) as { data?: string };
+    } finally {
+      if (annotate) await send("Runtime.evaluate", { expression: REMOVE_REF_BOXES_JS, silent: true }).catch(() => {});
+    }
     if (!shot.data) throw new Error("screenshot produced no data");
     const fields = bothReads(before, await readSecretRects(send, filled));
     let data: string | null = shot.data;
@@ -1005,7 +1023,7 @@ export class BrowserAgentHost {
       if (!data) throw new Error("Realm could not cover the password or security code fields on this page, so it took no screenshot — use browser_snapshot to see the page");
     }
     const failed = this.d.pageState(browserId)?.error ?? null;
-    return { data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) };
+    return { data, mimeType: "image/jpeg", ...(legend !== undefined ? { legend } : {}), ...(failed ? { loadError: failed } : {}) };
   }
 
   /* ------------------------------ file choosers ------------------------------ */

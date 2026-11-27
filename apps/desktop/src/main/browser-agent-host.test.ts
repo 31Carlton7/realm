@@ -347,6 +347,60 @@ describe("BrowserAgentHost", () => {
     expect(await host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "c2NyZWVu", mimeType: "image/jpeg" });
   });
 
+  describe("an annotated screenshot", () => {
+    // One button, ref 42. Its snapshot rect is in device pixels, as a 2× display reports it; its quads
+    // are the CSS pixels the page draws in.
+    const strings = ["BUTTON", "", "https://x/", "T"];
+    const snapshot = {
+      documents: [{ documentURL: 2, title: 3, nodes: { parentIndex: [-1], nodeType: [1], nodeName: [0], nodeValue: [1], backendNodeId: [42], attributes: [[]], isClickable: { index: [0] } }, layout: { nodeIndex: [0], bounds: [[20, 20, 40, 20]], styles: [[1, 1, 1, 1, 1]], paintOrders: [1] } }],
+      strings,
+    };
+    const page = (more: Parameters<typeof setup>[0] = {}) => setup({ responses: { "DOMSnapshot.captureSnapshot": snapshot, "Accessibility.getFullAXTree": { nodes: [] }, "Page.getLayoutMetrics": { cssVisualViewport: { clientWidth: 800, clientHeight: 600 } } }, ...more });
+    const steps = (calls: { method: string; params?: Record<string, unknown> }[]) => calls.flatMap((c) => {
+      const expr = String(c.params?.expression ?? "");
+      if (c.method === "Page.captureScreenshot") return ["capture"];
+      if (c.method === "Runtime.evaluate" && expr.includes("attachShadow")) return ["draw"];
+      if (c.method === "Runtime.evaluate" && expr.includes('[data-realm-agent-highlight=\\"refs\\"]') && !expr.includes("attachShadow")) return ["remove"];
+      return [];
+    });
+
+    it("draws nothing into the page unless asked", async () => {
+      // THE MUTANT: boxes on every screenshot — including the one a failed act attaches.
+      const { host, calls } = page();
+      expect(await host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "c2NyZWVu", mimeType: "image/jpeg" });
+      expect(steps(calls)).toEqual(["capture"]);
+      expect(calls.some((c) => c.method === "DOMSnapshot.captureSnapshot")).toBe(false);
+    });
+
+    it("draws the boxes before the capture, takes them off after it, and answers the legend", async () => {
+      const { host, calls } = page();
+      expect(await host.handleOp("screenshot", { browserId: "b1", annotate: true })).toEqual({ data: "c2NyZWVu", mimeType: "image/jpeg", legend: "[1] ref=42 button" });
+      // THE MUTANT: no removal, and the boxes stay on the page.
+      expect(steps(calls)).toEqual(["draw", "capture", "remove"]);
+      // Placed by the quads (10,10 → 30,20), never by the snapshot's device-pixel rect (20,20 40×20).
+      const draw = calls.find((c) => String(c.params?.expression).includes("attachShadow"))!;
+      expect(String(draw.params?.expression)).toContain('[{"n":1,"left":10,"top":10,"width":20,"height":10}]');
+    });
+
+    it("takes the boxes off a page whose capture failed", async () => {
+      const { host, calls } = page({ screenshotTimeoutMs: 20, respond: (m) => (m === "Page.captureScreenshot" ? new Promise(() => {}) : undefined) });
+      await expect(host.handleOp("screenshot", { browserId: "b1", annotate: true })).rejects.toThrow("is not being drawn");
+      expect(steps(calls)).toEqual(["draw", "capture", "remove"]);
+    });
+
+    it("leaves the pane's last snapshot alone, so [new] still compares with the agent's own read", async () => {
+      const name = { value: "Save" };
+      const { host } = page({ respond: (m) => (m === "Accessibility.getFullAXTree" ? { nodes: [{ backendDOMNodeId: 42, role: { value: "button" }, name }] } : undefined) });
+      await host.handleOp("snapshot", { browserId: "b1" });
+      name.value = "Saving";
+      expect(await host.handleOp("screenshot", { browserId: "b1", annotate: true })).toMatchObject({ legend: '[1] ref=42 button "Saving"' });
+      name.value = "Save";
+      const again = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+      expect(again.text).toContain('button "Save"');
+      expect(again.text).not.toContain("[new]");
+    });
+  });
+
   it("a screenshot of a page that never paints gives up, naming pane_show, instead of waiting out the bridge", async () => {
     // THE MUTANT: no deadline on the capture. A view that is not on screen never produces a frame,
     // and the call sat until the server's 60-second bridge timeout (13 times in the call log).
@@ -1619,6 +1673,23 @@ describe("BrowserAgentHost — fillCode", () => {
     expect((await fill(p.host)).ok).toBe(true);
     expect(await p.host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "Y292ZXJlZA==", mimeType: "image/jpeg" });
     expect(covered).toEqual([{ jpeg: "c2NyZWVu", rects: [[10, 20, 40, 40], [10, 20, 40, 40]] }]);
+  });
+
+  it("covers the code fields in an annotated screenshot too", async () => {
+    const covered: number[][][] = [];
+    const rects = { vw: 800, vh: 600, rects: [[10, 20, 40, 40]] };
+    const p = codePage({
+      boxes: 6,
+      respond: (method, params) => {
+        if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
+        if (method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("getBoundingClientRect")) return { result: { value: rects } };
+        return undefined;
+      },
+      coverShot: (_jpeg, fields) => { covered.push(fields.rects); return "Y292ZXJlZA=="; },
+    });
+    expect((await fill(p.host)).ok).toBe(true);
+    expect(await p.host.handleOp("screenshot", { browserId: "b1", annotate: true })).toMatchObject({ data: "Y292ZXJlZA==", legend: "" });
+    expect(covered).toEqual([[[10, 20, 40, 40], [10, 20, 40, 40]]]);
   });
 
   it("takes no screenshot of a code field it cannot cover", async () => {

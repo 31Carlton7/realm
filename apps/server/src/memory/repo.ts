@@ -10,7 +10,7 @@ import type { GhRun } from "../code-review/gh";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { GIT_DIFF_FLAGS, gitCapture, gitReason, type GitResult, type GitRun } from "../workspace/git-exec";
-import { INDEX_LINE_MAX } from "./context-budget";
+import { INDEX_LINE_MAX, claudeUnloadedLines } from "./context-budget";
 import { claudeFact, claudeFactFile, claudeIndexTarget, mergeClaudeIndex, withClaudeIndexLine, type ClaudeFactType } from "./claude-facts";
 import { planClaudeImport, type ClaudeMemorySource } from "./claude-import";
 import { MemorySearch } from "./search";
@@ -24,8 +24,9 @@ export type RepoOwner = { scope: MemoryRepoScope; id: string };
 /** A repo one space's sessions use, and whose it is. */
 export type ActiveRepo = { scope: MemoryRepoScope; ownerId: string; path: string };
 /** One `MEMORY.md` a session in a space reads: a repo's root index, or — `spaceFolder` — the index of
- *  the space's own folder in the profile's repo, in Claude's auto-memory format. */
-export type RepoIndex = { scope: MemoryRepoScope; kind: "root" | "spaceFolder"; path: string; index: string; truncated: boolean };
+ *  the space's own folder in the profile's repo, in Claude's auto-memory format. `claudeTail`: only its
+ *  lines past what Claude's auto-memory loads. */
+export type RepoIndex = { scope: MemoryRepoScope; kind: "root" | "spaceFolder"; path: string; index: string; truncated: boolean; claudeTail?: true };
 /** Where one space's Claude-format memory lives in its profile's repo. */
 export type SpaceFolder = { owner: RepoOwner; repoPath: string; folder: string; dir: string };
 
@@ -310,23 +311,30 @@ export class MemoryRepoService {
   /**
    * Each active repo's `MEMORY.md` as one session receives it: whole up to `MEMORY_REPO_INDEX_MAX`
    * (or `readMax`), cut after that — the cap is per file, so a team's long index never crowds out the
-   * user's. After the profile's root index comes the space folder's, except for Claude: that folder is
-   * its own auto-memory directory, which it loads itself.
+   * user's. After the profile's root index comes the space folder's. Claude is handed only the lines
+   * of it past what its own auto-memory loads (`claudeUnloadedLines`) — that folder is its auto-memory
+   * directory — and no entry at all when it loads the whole index.
    */
   indexesFor(spaceId: string, opts: { forAgent?: AgentKind; readMax?: number } = {}): RepoIndex[] {
     const max = opts.readMax ?? MEMORY_REPO_INDEX_MAX;
     const out: RepoIndex[] = [];
-    const push = (scope: MemoryRepoScope, kind: RepoIndex["kind"], path: string, file: string): void => {
+    const push = (scope: MemoryRepoScope, kind: RepoIndex["kind"], path: string, file: string, claudeTail = false): void => {
       let index: string;
       try { index = readFileSync(file, "utf8"); } catch { return; }
       const truncated = index.length > max;
-      out.push({ scope, kind, path, index: truncated ? index.slice(0, max) : index, truncated });
+      if (truncated) index = index.slice(0, max);
+      if (!claudeTail) {
+        out.push({ scope, kind, path, index, truncated });
+        return;
+      }
+      const tail = claudeUnloadedLines(index, truncated);
+      if (tail.length > 0) out.push({ scope, kind, path, index: tail.join("\n"), truncated, claudeTail: true });
     };
     for (const repo of this.activeFor(spaceId)) {
       push(repo.scope, "root", repo.path, join(repo.path, MEMORY_REPO_INDEX_FILE));
-      if (repo.scope !== "profile" || opts.forAgent === "claude") continue;
+      if (repo.scope !== "profile") continue;
       const at = this.spaceFolderFor(spaceId);
-      if (at) push("profile", "spaceFolder", at.dir, join(at.dir, MEMORY_REPO_INDEX_FILE));
+      if (at) push("profile", "spaceFolder", at.dir, join(at.dir, MEMORY_REPO_INDEX_FILE), opts.forAgent === "claude");
     }
     return out;
   }

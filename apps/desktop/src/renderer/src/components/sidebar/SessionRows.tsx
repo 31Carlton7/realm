@@ -10,6 +10,7 @@ import { Spinner } from "../Spinner";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { ItemGlyph } from "./ItemList";
 import { sameRow, tallyWords, type FanOutRow, type ListRow, type SessionRow, type Tally } from "./model";
+import { usePrefetchOnHover } from "./prefetch";
 import { useArchiveAnywhere, useNow, useSpaceTint } from "./use-sidebar-model";
 
 /**
@@ -100,15 +101,16 @@ export function SessionRowView({ row, where, pinned = false, onChanged }: {
   const space = useApp((s) => (pinned ? s.spaces.find((x) => x.id === row.spaceId) : undefined));
   const tint = useSpaceTint(space?.color);
   const open = useOpenSessionRow(row);
+  const prefetch = usePrefetchOnHover(row.id);
   return (
     // Every space of the profile is loaded, so any row can be dragged into the view or lit as its focus.
-    <div className="item sb-row" data-active={focused || undefined} data-unread={signal.unread || undefined} data-actions="1"
+    <div className="item sb-row" data-session={row.id} data-active={focused || undefined} data-unread={signal.unread || undefined} data-actions="1"
       data-dragging={dragging || undefined} draggable
       onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", row.item.id); e.dataTransfer.effectAllowed = "move"; setDragging(true); }}
       onDragEnd={() => setDragging(false)} onContextMenu={onContextMenu(row.item)}>
       {renaming ? <RenameInput item={row.item} onDone={() => { setRenaming(false); onChanged(); }} /> : (
         <>
-          <button type="button" className="item-row" aria-label={said} data-tip="clipped"
+          <button type="button" className="item-row" aria-label={said} data-tip="clipped" {...prefetch}
             onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : open()))}>
             {pinned ? <span className="sb-space-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space?.icon || "folder"} size={16} /></span>
               : <Icon name={row.scheduled ? "clock" : "session"} size={16} />}

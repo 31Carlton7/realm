@@ -801,7 +801,7 @@ describe("a run's head names the work, not only how long it took", () => {
     expect(failed.querySelector("svg")).not.toBeNull(); // a glyph, so it is not colour alone
   });
 
-  it("draws the work only as wide as the parts on its one line, so the failure follows the last count shown", () => {
+  it("draws the work only as wide as the parts on its one line, so the failure follows the last count shown", async () => {
     // jsdom has no layout: the line is staged — the first two parts on it, the rest wrapped below.
     const rect = (r: Partial<DOMRect>) => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}), ...r }) as DOMRect;
     const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
@@ -812,8 +812,29 @@ describe("a run's head names the work, not only how long it took", () => {
     });
     try {
       render(<ToolGroup steps={steps(run())} sessionStatus="idle" />);
+      await Promise.resolve(); // fitted after the commit, before the paint
       // THE mutant: no fit — the box keeps the width it shrank to, and "1 failed" stands a gap away.
       expect((document.querySelector(".tool-group-work") as HTMLElement).style.maxWidth).toBe("160px");
+    } finally { spy.mockRestore(); }
+  });
+
+  it("measures every run drawn at once before it sets any of their widths, so the page is laid out once", async () => {
+    const rect = (r: Partial<DOMRect>) => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}), ...r }) as DOMRect;
+    // A read made while some run's width is already set is a read the browser lays the page out again for.
+    let staleReads = 0;
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if ([...document.querySelectorAll<HTMLElement>(".tool-group-work")].some((w) => w.style.maxWidth !== "")) staleReads++;
+      if (this.classList.contains("tool-group-work")) return rect({ left: 100, width: 300, top: 0 });
+      const parts = this.parentElement?.classList.contains("tool-group-work") ? [...this.parentElement.children] : null;
+      if (parts) { const i = parts.indexOf(this); return rect({ top: i < 2 ? 0 : 18, left: 100 + 80 * i, right: 100 + 80 * (i + 1) }); }
+      return rect({});
+    });
+    try {
+      render(<>{[1, 2, 3].map((n) => <ToolGroup key={n} steps={steps(run())} sessionStatus="idle" />)}</>);
+      await Promise.resolve();
+      const works = [...document.querySelectorAll<HTMLElement>(".tool-group-work")];
+      expect(works.map((w) => w.style.maxWidth)).toEqual(["160px", "160px", "160px"]);
+      expect(staleReads).toBe(0);
     } finally { spy.mockRestore(); }
   });
 

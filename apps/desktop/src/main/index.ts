@@ -9,7 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
-import { daemonStatePath, forgetDeadServer, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
+import { daemonStatePath, defaultRealmHome, forgetDeadServer, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
 import { appTokenSha256, liveAppTokenFile, mintAppToken, sealAppToken, unsealAppToken } from "./app-token";
 import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type DaemonEndpoint, type HandoffResult, type HandoffWhy } from "./daemon";
 import { SERVER_ENTRY_SUFFIX, STOP_WAIT_MS, realProcessOps, runsServer, stopServerProcess, stopStrayServers, waitForExit } from "./daemon-stop";
@@ -65,7 +65,7 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
-import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
+import { agentHome, agentUserData, installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
 import { bringForward, raiseBy, type RaiseBy } from "./bring-forward";
 import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
 import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
@@ -118,6 +118,19 @@ const platform = platformCapabilities(process.platform);
 const quiet = quietWindowsOn({ packaged: app.isPackaged, env: process.env });
 if (quiet) installQuietWindows();
 else delete process.env[QUIET_WINDOWS_ENV];
+const agentUserDataDir = agentUserData({
+  packaged: app.isPackaged, env: process.env, appPath: app.getAppPath(), tmpDir: tmpdir(),
+  userData: app.getPath("userData"), defaultUserData: join(app.getPath("appData"), app.name),
+});
+if (agentUserDataDir) app.setPath("userData", agentUserDataDir);
+const agentHomeDir = agentHome({ packaged: app.isPackaged, env: process.env, appPath: app.getAppPath(), tmpDir: tmpdir(), defaultHome: defaultRealmHome() });
+if (agentHomeDir) {
+  // Read by `realmHomePath` and passed on to the server, so neither ever looks at the default home.
+  process.env.REALM_HOME = agentHomeDir;
+  // One home per checkout, so Laya installing itself in each would fill the disk (layaAutoInstallOn).
+  process.env.REALM_NO_LAYA_AUTO_INSTALL = "1";
+  console.error(`[home] ${agentHomeDir}: started from an agent's shell, so not the default home, whose server is the owner's`);
+}
 // Windows shows a notification only for an app it can name, and names it by this id — the appId
 // electron-builder registers the Start menu shortcut under.
 if (process.platform === "win32") app.setAppUserModelId("co.charmtechnologies.realm");

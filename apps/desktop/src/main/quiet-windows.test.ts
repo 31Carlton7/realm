@@ -1,5 +1,12 @@
 import { EventEmitter } from "node:events";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { DaemonState } from "@realm/contracts";
+import { tempDir } from "@realm/test-utils";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { ensureDaemon, type Probe } from "./daemon";
+import { readDaemonState } from "./daemon-state";
+import { decideHandoff } from "./handoff-policy";
 
 const switches: string[] = [];
 const appEvents = new EventEmitter();
@@ -59,7 +66,7 @@ const registered: string[] = [];
 const globalShortcut = { register: (accelerator: string, _press?: () => void) => { registered.push(accelerator); return true; } };
 
 vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents, globalShortcut }));
-const { installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
+const { agentHome, agentUserData, installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
 
 describe("quietWindowsOn", () => {
   it("is on only for an unpackaged app asked for it", () => {
@@ -67,6 +74,94 @@ describe("quietWindowsOn", () => {
     expect(quietWindowsOn({ packaged: true, env: { REALM_QUIET_WINDOWS: "1" } })).toBe(false);
     expect(quietWindowsOn({ packaged: false, env: {} })).toBe(false);
     expect(quietWindowsOn({ packaged: false, env: { REALM_QUIET_WINDOWS: "true" } })).toBe(false);
+  });
+
+  it("is on for an unpackaged app an agent started, and never for a packaged one", () => {
+    expect(quietWindowsOn({ packaged: false, env: { REALM_AGENT_SHELL: "1" } })).toBe(true);
+    expect(quietWindowsOn({ packaged: true, env: { REALM_AGENT_SHELL: "1" } })).toBe(false);
+    expect(quietWindowsOn({ packaged: true, env: { REALM_AGENT_SHELL: "1", REALM_QUIET_WINDOWS: "1" } })).toBe(false);
+    expect(quietWindowsOn({ packaged: false, env: { REALM_AGENT_SHELL: "0" } })).toBe(false);
+  });
+});
+
+describe("agentUserData", () => {
+  const unpackaged = {
+    packaged: false, env: { REALM_AGENT_SHELL: "1" }, appPath: "/src/realm-a/apps/desktop",
+    userData: "/Library/Application Support/Realm", defaultUserData: "/Library/Application Support/Realm", tmpDir: "/tmp",
+  };
+
+  it("gives an unpackaged app an agent started a folder of its own under the temp folder, one per checkout", () => {
+    const a = agentUserData(unpackaged)!;
+    expect(a.startsWith("/tmp/realm-agent-shell/")).toBe(true);
+    expect(agentUserData(unpackaged)).toBe(a);
+    expect(agentUserData({ ...unpackaged, appPath: "/src/realm-b/apps/desktop" })).not.toBe(a);
+  });
+
+  it("leaves the folder alone for a packaged app, one no agent started, and one whose folder was already chosen", () => {
+    expect(agentUserData({ ...unpackaged, packaged: true })).toBeNull();
+    expect(agentUserData({ ...unpackaged, env: {} })).toBeNull();
+    expect(agentUserData({ ...unpackaged, env: { REALM_QUIET_WINDOWS: "1" } })).toBeNull();
+    expect(agentUserData({ ...unpackaged, userData: "/tmp/live-check/userData" })).toBeNull();
+  });
+});
+
+describe("agentHome", () => {
+  const DEFAULT_HOME = "/home/someone/Realm";
+  const unpackaged = { packaged: false, env: { REALM_AGENT_SHELL: "1" } as Record<string, string | undefined>, appPath: "/src/realm-a/apps/desktop", tmpDir: "/tmp", defaultHome: DEFAULT_HOME };
+
+  it("gives an unpackaged app an agent started a home beside its user-data folder, one per checkout", () => {
+    const a = agentHome(unpackaged)!;
+    expect(a).toBe(join(agentUserData({ ...unpackaged, userData: "x", defaultUserData: "x" })!, "home"));
+    expect(agentHome(unpackaged)).toBe(a);
+    expect(agentHome({ ...unpackaged, appPath: "/src/realm-b/apps/desktop" })).not.toBe(a);
+  });
+
+  it("does not take the default home an agent's shell inherits from the server that started it", () => {
+    const a = agentHome(unpackaged);
+    expect(agentHome({ ...unpackaged, env: { REALM_AGENT_SHELL: "1", REALM_HOME: DEFAULT_HOME } })).toBe(a);
+    expect(agentHome({ ...unpackaged, env: { REALM_AGENT_SHELL: "1", REALM_HOME: `${DEFAULT_HOME}/` } })).toBe(a);
+  });
+
+  it("leaves the home alone for a packaged app, one no agent started, and one given a home of its own", () => {
+    expect(agentHome({ ...unpackaged, packaged: true })).toBeNull();
+    expect(agentHome({ ...unpackaged, packaged: true, env: { REALM_AGENT_SHELL: "1", REALM_HOME: DEFAULT_HOME } })).toBeNull();
+    expect(agentHome({ ...unpackaged, env: {} })).toBeNull();
+    expect(agentHome({ ...unpackaged, env: { REALM_HOME: DEFAULT_HOME } })).toBeNull();
+    expect(agentHome({ ...unpackaged, env: { REALM_AGENT_SHELL: "1", REALM_HOME: "/tmp/realm-check-live-1/home" } })).toBeNull();
+  });
+
+  it("keeps an agent's Realm off the owner's idle server recorded in the default home", async () => {
+    const defaultHome = tempDir("realm-agent-home-test-");
+    const owners: DaemonState = {
+      version: 1, pid: process.pid, bootId: "owners-boot", port: 8790, token: "t", home: defaultHome, protocol: 1,
+      bundleId: "owners:bundle", entry: "/Applications/Realm.app/server/main.js", startedAt: 1, state: "running",
+    };
+    writeFileSync(join(defaultHome, "daemon.json"), JSON.stringify(owners));
+    const tmpDir = join(defaultHome, "tmp");
+    const replace = vi.fn(async (_state: DaemonState) => {});
+    const probe = vi.fn(async (): Promise<Probe> => ({ bootId: "owners-boot", protocol: 1 }));
+    const spawned: string[] = [];
+    for (const env of [{ REALM_AGENT_SHELL: "1" }, { REALM_AGENT_SHELL: "1", REALM_HOME: defaultHome }]) {
+      const home = agentHome({ packaged: false, env, appPath: "/src/realm-a/apps/desktop", tmpDir, defaultHome }) ?? env.REALM_HOME ?? defaultHome;
+      const handle = ensureDaemon({
+        home, ourBundleId: "dev:bundle", readState: readDaemonState, probe, ownToken: () => "t",
+        bundleOnDisk: () => owners.bundleId, pidAlive: (pid) => pid === process.pid,
+        // What main does for an idle server: nothing is working, so it is restarted unasked.
+        onHandoff: async (state, why) => {
+          if (decideHandoff({ why, work: { working: 0, activeRuns: 0 } }).kind !== "restart") return { kind: "adopt", stale: "bundle" };
+          await replace(state);
+          return { kind: "replaced" };
+        },
+        replace,
+        spawn: (h) => { spawned.push(h); throw new Error("spawned"); },
+      });
+      await expect(handle).rejects.toThrow("spawned");
+    }
+    expect(probe).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    const [first, second] = spawned;
+    expect(second).toBe(first);
+    expect(first?.startsWith(join(tmpDir, "realm-agent-shell"))).toBe(true);
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   INDEX_HEAD_SHARE, MEMORY_INDEX_BUDGET, PROFILE_INDEX_CAP, SPACE_FOLDER_INDEX_CAP, TEAM_INDEX_CAP,
-  budgetRepoIndexes, fitBlocks, indexQuery, readRestPointer, type RepoIndexLike,
+  budgetRepoIndexes, claudeUnloadedLines, fitBlocks, indexQuery, readRestPointer, type RepoIndexLike,
 } from "./context-budget";
 
 /** `n` index lines of exactly `width` characters each (the newline included), numbered so a cut can be read. */
@@ -195,5 +195,38 @@ describe("readRestPointer", () => {
     }
     // A folder entry whose path does not say which folder: the listing, never a guess.
     expect(readRestPointer({ scope: "profile", kind: "spaceFolder", path: "/mine" })).toContain('`memory_read` spaces with `repo: "profile"` lists the space folders');
+  });
+});
+
+describe("claudeUnloadedLines", () => {
+  it("is what follows line 200, past leading blank lines the CLI trims", () => {
+    const all = lines(222, 40).split("\n");
+    expect(claudeUnloadedLines(`\n\n${all.join("\n")}\n`)).toEqual(all.slice(200));
+    expect(claudeUnloadedLines(all.slice(0, 200).join("\n"))).toEqual([]);
+  });
+
+  it("starts earlier when the first 200 lines pass 25,000 characters", () => {
+    // 300-character lines: the 83rd ends at character 24,982, the 84th would end past 25,000.
+    const all = lines(120, 301).split("\n");
+    expect(claudeUnloadedLines(all.join("\n"))).toEqual(all.slice(83));
+  });
+
+  it("drops the last line when a read cap may have cut it", () => {
+    const all = lines(205, 40).split("\n");
+    expect(claudeUnloadedLines(all.join("\n"), true)).toEqual(all.slice(200, 204));
+  });
+});
+
+describe("budgetRepoIndexes, a Claude tail", () => {
+  it("puts the lines that rank for the prompt first, and cuts the lowest when it does not fit", () => {
+    // Each line longer than the pointer, so one that fits with the pointer cannot be the whole block.
+    const tail = ["- [A](a.md) — alpha", "- [B](b.md) — notarization keychain", "- [C](c.md) — gamma"].map((l) => l.padEnd(400, "."));
+    const entry = { scope: "profile" as const, kind: "spaceFolder" as const, path: "/mine/spaces/realm", index: tail.join("\n"), truncated: false, claudeTail: true as const };
+    const [fit] = budgetRepoIndexes([entry], MEMORY_INDEX_BUDGET, "notarization");
+    expect(fit!.index.split("\n")).toEqual([tail[1], tail[0], tail[2]]);
+    const small = `${tail[1]}\n${tail[0]}`.length + readRestPointer({ ...entry, ranked: true }).length;
+    const [cut] = budgetRepoIndexes([entry], small, "notarization");
+    expect(cut!.index.split("\n")).toEqual([tail[1], tail[0]]);
+    expect(cut!.truncated).toBe(true);
   });
 });

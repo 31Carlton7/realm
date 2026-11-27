@@ -7,7 +7,7 @@ describe("REALM_READ_ONLY_TOOLS", () => {
       "realm-browser__browser_list", "realm-browser__browser_snapshot", "realm-browser__browser_read",
       "realm-browser__browser_screenshot", "realm-browser__browser_credentials",
       "realm-workspace__workspace_state", "realm-workspace__sessions_list", "realm-workspace__session_read",
-      "realm-workspace__space_list", "realm-workspace__settings_get", "realm-workspace__realm_capabilities", "realm-workspace__machine_status",
+      "realm-workspace__space_list", "realm-workspace__project_list", "realm-workspace__settings_get", "realm-workspace__realm_capabilities", "realm-workspace__machine_status",
       "realm-agent__agent_peers", "realm-agent__agent_status",
       "realm-schedule__schedule_list",
       "realm-docs__docs_search", "realm-docs__docs_read", "realm-docs__docs_state",
@@ -25,6 +25,7 @@ describe("REALM_READ_ONLY_TOOLS", () => {
       "realm-schedule__schedule_resume", "realm-schedule__schedule_run_now", "realm-schedule__schedule_delete", "realm-docs__docs_open", "realm-docs__docs_list", "realm-docs__docs_progress",
       "realm-goal__update_goal", "realm-browser__browser_fill_credential", "realm-terminal__terminal_write", "realm-ui__ui_ask", "realm-ui__ui_choose_folder",
       "realm-workspace__pane_show", "realm-workspace__session_open", "realm-workspace__space_switch", "realm-workspace__space_create", "realm-workspace__settings_set",
+      "realm-workspace__project_link", "realm-workspace__project_unlink",
       "realm-team__team_message", "realm-team__team_set_access",
       "realm-memory__memory_save", "realm-memory__memory_remove", "realm-memory__memory_write_file",
     ]) expect(REALM_READ_ONLY_TOOLS).not.toContain(changes);

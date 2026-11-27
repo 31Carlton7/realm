@@ -1,6 +1,6 @@
 {
-  "commit": "c9b4fc71a310a780d9931543c1c4abcfbb0634b6",
-  "ranAt": "2026-11-26T08:42:40.804Z",
+  "commit": "642aa74ae8f96d1c425d534f6b855bdc4e64efcb",
+  "ranAt": "2026-11-27T13:07:58.574Z",
   "runs": 3,
   "tokenEstimate": "ceil(chars / 4)",
   "viewport": {
@@ -11,48 +11,61 @@
     "pane": {
       "width": 554,
       "height": 820
+    },
+    "paneView": {
+      "x": 886,
+      "y": 80,
+      "width": 554,
+      "height": 820
+    },
+    "display": {
+      "id": 3,
+      "label": "Sceptre O34",
+      "scaleFactor": 1
     }
   },
   "toolsList": {
     "browser": {
       "tools": 15,
-      "bytes": 13658,
-      "tokens": 3398
+      "bytes": 14610,
+      "tokens": 3634
     },
     "gateway": {
-      "tools": 77,
-      "bytes": 74933,
-      "tokens": 18660
+      "tools": 86,
+      "bytes": 81810,
+      "tokens": 20376
     }
   },
   "tasks": [
     {
       "id": "form",
       "title": "Fill and submit the 12-field sign-up",
-      "success": "3/3",
+      "success": "2/3",
       "toolCalls": 15,
       "snapshotCalls": 2,
-      "snapshotChars": 2575,
-      "snapshotTokens": 644,
-      "largestSnapshotChars": 2072,
-      "returnedChars": 2992,
-      "returnedTokens": 748,
+      "snapshotChars": 1508,
+      "snapshotTokens": 377,
+      "largestSnapshotChars": 1025,
+      "returnedChars": 1925,
+      "returnedTokens": 482,
       "imageBytes": 0,
-      "actMs": 13,
-      "snapshotMs": 9,
-      "taskMs": 639,
+      "actMs": 10,
+      "snapshotMs": 8,
+      "taskMs": 602,
       "snapshotCharsByRun": [
-        2383,
-        2575,
-        2575
+        1495,
+        1508,
+        1508
       ],
       "taskMsByRun": [
-        680,
-        620,
-        639
+        1190,
+        602,
+        585
       ],
       "notes": null,
-      "failures": []
+      "failures": [
+        "the page did not end where the task wanted"
+      ]
     },
     {
       "id": "catalog",
@@ -60,24 +73,24 @@
       "success": "3/3",
       "toolCalls": 4,
       "snapshotCalls": 3,
-      "snapshotChars": 70511,
-      "snapshotTokens": 17628,
-      "largestSnapshotChars": 24906,
-      "returnedChars": 70541,
-      "returnedTokens": 17636,
+      "snapshotChars": 42548,
+      "snapshotTokens": 10637,
+      "largestSnapshotChars": 22276,
+      "returnedChars": 42578,
+      "returnedTokens": 10645,
       "imageBytes": 0,
-      "actMs": 170,
-      "snapshotMs": 133,
-      "taskMs": 567,
+      "actMs": 166,
+      "snapshotMs": 113,
+      "taskMs": 505,
       "snapshotCharsByRun": [
-        69578,
-        70511,
-        70890
+        41876,
+        42548,
+        42740
       ],
       "taskMsByRun": [
-        573,
-        567,
-        566
+        518,
+        501,
+        505
       ],
       "notes": {
         "snapshotPages": 2,
@@ -92,24 +105,24 @@
       "success": "3/3",
       "toolCalls": 5,
       "snapshotCalls": 3,
-      "snapshotChars": 4164,
-      "snapshotTokens": 1041,
-      "largestSnapshotChars": 1527,
-      "returnedChars": 4223,
-      "returnedTokens": 1056,
+      "snapshotChars": 2319,
+      "snapshotTokens": 580,
+      "largestSnapshotChars": 863,
+      "returnedChars": 2378,
+      "returnedTokens": 595,
       "imageBytes": 0,
-      "actMs": 167,
-      "snapshotMs": 8,
-      "taskMs": 357,
+      "actMs": 166,
+      "snapshotMs": 7,
+      "taskMs": 346,
       "snapshotCharsByRun": [
-        4164,
-        4164,
-        4164
+        2319,
+        2319,
+        2319
       ],
       "taskMsByRun": [
-        357,
-        353,
-        358
+        348,
+        346,
+        341
       ],
       "notes": null,
       "failures": []
@@ -123,21 +136,21 @@
       "snapshotChars": 0,
       "snapshotTokens": 0,
       "largestSnapshotChars": 0,
-      "returnedChars": 1534,
-      "returnedTokens": 384,
+      "returnedChars": 1200,
+      "returnedTokens": 300,
       "imageBytes": 0,
-      "actMs": 444,
+      "actMs": 440,
       "snapshotMs": null,
-      "taskMs": 444,
+      "taskMs": 440,
       "snapshotCharsByRun": [
         0,
         0,
         0
       ],
       "taskMsByRun": [
-        454,
-        436,
-        444
+        440,
+        440,
+        435
       ],
       "notes": null,
       "failures": []
@@ -148,24 +161,24 @@
       "success": "3/3",
       "toolCalls": 1,
       "snapshotCalls": 1,
-      "snapshotChars": 1473,
-      "snapshotTokens": 369,
-      "largestSnapshotChars": 1473,
-      "returnedChars": 1473,
-      "returnedTokens": 369,
+      "snapshotChars": 1082,
+      "snapshotTokens": 271,
+      "largestSnapshotChars": 1082,
+      "returnedChars": 1082,
+      "returnedTokens": 271,
       "imageBytes": 0,
       "actMs": null,
-      "snapshotMs": 7,
-      "taskMs": 7,
+      "snapshotMs": 6,
+      "taskMs": 6,
       "snapshotCharsByRun": [
-        1473,
-        1473,
-        1473
+        1082,
+        1082,
+        1082
       ],
       "taskMsByRun": [
         7,
-        19,
-        7
+        6,
+        6
       ],
       "notes": {
         "backgroundListed": 7
@@ -178,32 +191,32 @@
       "success": "3/3",
       "toolCalls": 3,
       "snapshotCalls": 2,
-      "snapshotChars": 3747,
-      "snapshotTokens": 937,
-      "largestSnapshotChars": 1981,
-      "returnedChars": 3777,
-      "returnedTokens": 945,
+      "snapshotChars": 2083,
+      "snapshotTokens": 521,
+      "largestSnapshotChars": 1381,
+      "returnedChars": 2113,
+      "returnedTokens": 529,
       "imageBytes": 0,
-      "actMs": 165,
-      "snapshotMs": 11,
-      "taskMs": 185,
+      "actMs": 163,
+      "snapshotMs": 9,
+      "taskMs": 180,
       "snapshotCharsByRun": [
-        3747,
-        3747,
-        3747
+        2083,
+        2083,
+        2083
       ],
       "taskMsByRun": [
         185,
-        187,
-        185
+        180,
+        176
       ],
       "notes": {
         "linesBefore": 28,
-        "linesAfter": 26,
-        "markedNew": 10,
-        "removalNamed": false,
+        "linesAfter": 3,
+        "markedNew": 1,
+        "removalNamed": true,
         "saveEnabledShown": true,
-        "saveMarkedNew": false
+        "saveMarkedNew": true
       },
       "failures": []
     }

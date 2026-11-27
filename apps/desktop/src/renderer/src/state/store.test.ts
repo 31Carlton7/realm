@@ -1371,7 +1371,7 @@ describe("app store", () => {
       expect(e.lastSeq).toBe(2500);
       expect(e.t.blocks).toHaveLength(2500);
       expect(e.t.earlier).toBeUndefined();
-      expect(api.calls.filter((c) => /^sessionEventsBefore:se1:[^:]*$/.test(c))).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:1501", "sessionEventsBefore:se1:501"]);
+      expect(api.calls.filter((c) => /^sessionEventsBefore:se1:[^:]*$/.test(c))).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:2351", "sessionEventsBefore:se1:1351", "sessionEventsBefore:se1:351"]);
     });
 
     it("openSession lists the session's commands with its checkout, whose .claude/commands are the repo's", async () => {

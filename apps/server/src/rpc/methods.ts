@@ -776,6 +776,8 @@ export function registerMethods(d: Deps): void {
     const opened = openProject({ profiles: d.profiles, spaces: d.spaces, projects: d.projects, environments: d.environments }, p);
     if (opened.createdSpace) rpc.broadcast("spaces.changed", {});
     rpc.broadcast("items.changed", { spaceId: opened.space.id });
+    // The checkout is what the workspace selector lists, and the window refreshes it on its own event.
+    rpc.broadcast("environments.changed", { spaceId: opened.space.id });
     return { space: opened.space, project: opened.project, environment: opened.environment };
   });
   reg("projects.delete", (p) => { const pr = d.projects.get(p.id); d.projects.delete(p.id); if (pr) rpc.broadcast("items.changed", { spaceId: pr.spaceId }); return { ok: true as const }; });
