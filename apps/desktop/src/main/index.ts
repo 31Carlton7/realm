@@ -127,6 +127,8 @@ const agentHomeDir = agentHome({ packaged: app.isPackaged, env: process.env, app
 if (agentHomeDir) {
   // Read by `realmHomePath` and passed on to the server, so neither ever looks at the default home.
   process.env.REALM_HOME = agentHomeDir;
+  // One home per checkout, so Laya installing itself in each would fill the disk (layaAutoInstallOn).
+  process.env.REALM_NO_LAYA_AUTO_INSTALL = "1";
   console.error(`[home] ${agentHomeDir}: started from an agent's shell, so not the default home, whose server is the owner's`);
 }
 // Windows shows a notification only for an app it can name, and names it by this id — the appId

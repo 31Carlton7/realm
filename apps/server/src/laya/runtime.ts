@@ -317,6 +317,14 @@ function supervise(child: ChildProcess, graceMs: number): LayaProcess {
   };
 }
 
+/** Whether Laya installs itself (`LayaService`'s auto-install). Not in a harness: a live check boots
+ *  the server with the fake agent, and must never download two gigabytes into its scratch home. Nor
+ *  in the home a dev Realm an agent started gets (`agentHome` in apps/desktop), which is one per
+ *  checkout: each would grow its own copy. Installing from Settings still works in both. */
+export function layaAutoInstallOn(env: NodeJS.ProcessEnv): boolean {
+  return env.REALM_ENABLE_FAKE_AGENT !== "1" && env.REALM_NO_LAYA_AUTO_INSTALL !== "1";
+}
+
 /** What `laya-serve` runs with — built from a short list rather than inherited whole, so a `LAYA_*` or
  *  `HF_*` variable in the user's shell cannot quietly change what Realm runs or where it listens. */
 export function serveEnv(env: NodeJS.ProcessEnv, o: { port: number; apiKey: string; hf: string }): NodeJS.ProcessEnv {
