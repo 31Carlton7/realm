@@ -79,6 +79,25 @@ describe("machine_status", () => {
     const g = createMachineStatusTools({ report: async () => report(), processes: async () => [] });
     expect((await g.handlers.machine_status!({ sessionId: "me", spaceId: "s" }, { verbose: true })).isError).toBe(true);
   });
+
+  it("reports realm-server's own memory and how it moved over the samples kept", async () => {
+    const now = { at: 3 * 3_600_000, rss: 1.2 * GB, heapUsed: 700 * MB, heapTotal: 900 * MB, external: 20 * MB, arrayBuffers: 8 * MB };
+    const status = (g: { fromBytes: number; toBytes: number; changeBytes: number; peakBytes: number; overMs: number } | null) =>
+      createMachineStatusTools({ report: async () => report(), processes: async () => [], server: () => ({ now, growth: g }) });
+    const up = text(await status({ fromBytes: 200 * MB, toBytes: 1.2 * GB, changeBytes: 1.2 * GB - 200 * MB, peakBytes: 1.3 * GB, overMs: 3 * 3_600_000 })
+      .handlers.machine_status!({ sessionId: "me", spaceId: "s" }, {}));
+    expect(up).toContain("## Realm's server");
+    expect(up).toContain("- rss 1.2 GB · heap 700 MB of 900 MB · external 20 MB · array buffers 8 MB");
+    expect(up).toContain("- Up 1.0 GB in 3 h, from 200 MB (peak 1.3 GB)");
+    const down = text(await status({ fromBytes: 1.5 * GB, toBytes: 1.2 * GB, changeBytes: -0.3 * GB, peakBytes: 1.5 * GB, overMs: 30 * 60_000 })
+      .handlers.machine_status!({ sessionId: "me", spaceId: "s" }, {}));
+    expect(down).toContain("- Down 307 MB in 30 min, from 1.5 GB (peak 1.5 GB)");
+    const fresh = text(await status(null).handlers.machine_status!({ sessionId: "me", spaceId: "s" }, {}));
+    expect(fresh).toContain("- No earlier sample yet: it is read every 5 min.");
+    // Without the sampler wired, the section is left out rather than guessed.
+    const none = text(await createMachineStatusTools({ report: async () => report(), processes: async () => [] }).handlers.machine_status!({ sessionId: "me", spaceId: "s" }, {}));
+    expect(none).not.toContain("Realm's server");
+  });
 });
 
 describe("its advice", () => {
