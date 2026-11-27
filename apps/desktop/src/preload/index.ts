@@ -484,7 +484,8 @@ contextBridge.exposeInMainWorld("realm", {
     focusProfile: (profileId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-profile", profileId),
     setProfile: (profileId: string | null): void => ipcRenderer.send("window:set-profile", profileId),
     openSpace: (spaceId: string): Promise<void> => ipcRenderer.invoke("window:open-space", spaceId),
-    focusSpace: (spaceId: string, sessionId?: string): Promise<boolean> => ipcRenderer.invoke("window:focus-space", spaceId, sessionId ?? null),
+    focusSpace: (spaceId: string, sessionId?: string, by?: "agent"): Promise<boolean> =>
+      ipcRenderer.invoke("window:focus-space", spaceId, sessionId ?? null, by ?? "person"),
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
     drawn: (): void => ipcRenderer.send("window:drawn"),
