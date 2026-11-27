@@ -43,8 +43,8 @@ function makeSnapshotDoc() {
     layout.paintOrders.push(opts.paint ?? layout.nodeIndex.length);
     layout.styles.push(SNAPSHOT_STYLES.map((name) => intern(opts.styles?.[name] ?? "")));
   };
-  const payload = (url = "https://example.com/") => ({
-    documents: [{ documentURL: intern(url), title: intern("Example"), scrollOffsetX: 0, scrollOffsetY: 0, nodes, layout }],
+  const payload = (url = "https://example.com/", scroll = { x: 0, y: 0 }) => ({
+    documents: [{ documentURL: intern(url), title: intern("Example"), scrollOffsetX: scroll.x, scrollOffsetY: scroll.y, nodes, layout }],
     strings,
   });
   return { addNode, addLayout, payload, intern };
@@ -54,6 +54,8 @@ type AxEntry = { backendDOMNodeId: number; role?: string; name?: string; value?:
 
 function fakeSend(opts: {
   snapshot?: unknown;
+  /** What `Page.getLayoutMetrics` reports; a 1000×800 CSS viewport by default. */
+  metrics?: unknown;
   ax?: AxEntry[];
   listeners?: Record<number, string[]>;
   quads?: Record<number, number[][] | "throw">;
@@ -86,7 +88,7 @@ function fakeSend(opts: {
       case "DOMSnapshot.captureSnapshot": return opts.snapshot ?? { documents: [], strings: [] };
       case "Accessibility.getFullAXTree":
         return { nodes: (opts.ax ?? []).map((a) => ({ backendDOMNodeId: a.backendDOMNodeId, role: { value: a.role }, name: { value: a.name }, value: a.value !== undefined ? { value: a.value } : undefined, properties: [...(a.protected ? [{ name: "protected", value: { value: true } }] : []), ...(a.focused ? [{ name: "focused", value: { value: true } }] : [])] })) };
-      case "Page.getLayoutMetrics": return { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 } };
+      case "Page.getLayoutMetrics": return opts.metrics ?? { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 } };
       case "DOM.getDocument": {
         const inFrame = opts.frame?.nodes ?? [];
         const top = [7, 8, 9].filter((n) => !inFrame.includes(n)).map((backendNodeId) => ({ backendNodeId }));
@@ -210,6 +212,58 @@ describe("buildSnapshot", () => {
     ]);
     expect(JSON.stringify(snap.elements)).not.toContain("hunter2");
     expect(snap.viewport).toEqual({ width: 1000, height: 800 });
+  });
+
+  describe("on a display with more than one device pixel to a CSS pixel", () => {
+    /** Buttons at `cssTops` in a 1000×800 CSS viewport scrolled down `cssScroll`, reported the way
+     *  CDP reports them at `scale`: the snapshot's bounds and scroll offset in device pixels, the
+     *  layout metrics' `cssVisualViewport` in CSS pixels and `visualViewport` in device pixels. */
+    function page(scale: number, cssTops: number[], cssScroll = 0) {
+      const doc = makeSnapshotDoc();
+      const ax: AxEntry[] = [];
+      cssTops.forEach((top, i) => {
+        doc.addLayout(doc.addNode({ tag: "BUTTON", backendId: 10 + i }), [100 * scale, top * scale, 100 * scale, 30 * scale]);
+        ax.push({ backendDOMNodeId: 10 + i, role: "button", name: `At ${top}` });
+      });
+      const metrics = { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 }, visualViewport: { clientWidth: 1000 * scale, clientHeight: 800 * scale } };
+      return fakeSend({ snapshot: doc.payload("https://example.com/", { x: 0, y: cssScroll * scale }), ax, metrics }).send;
+    }
+
+    it("keeps an element in the lower half of the viewport on screen at 2×, and its rect in CSS pixels", async () => {
+      const snap = await buildSnapshot(page(2, [100, 600, 1200]), null);
+      expect(snap.elements?.map((e) => [e.name, e.offscreen])).toEqual([["At 100", false], ["At 600", false], ["At 1200", true]]);
+      expect(snap.elements?.[1]?.rect).toEqual({ x: 100, y: 600, w: 100, h: 30 });
+      expect(snap.viewport).toEqual({ width: 1000, height: 800 });
+    });
+
+    it("reads the same page the same way at 1×", async () => {
+      const snap = await buildSnapshot(page(1, [100, 600, 1200]), null);
+      expect(snap.elements?.map((e) => [e.name, e.offscreen])).toEqual([["At 100", false], ["At 600", false], ["At 1200", true]]);
+      expect(snap.elements?.[1]?.rect).toEqual({ x: 100, y: 600, w: 100, h: 30 });
+    });
+
+    it("measures the scroll offset in CSS pixels too", async () => {
+      // Scrolled 500: 500–1300 is on screen.
+      const snap = await buildSnapshot(page(2, [100, 900, 1350], 500), null);
+      expect(snap.elements?.map((e) => [e.name, e.offscreen])).toEqual([["At 100", true], ["At 900", false], ["At 1350", true]]);
+    });
+
+    it("does not list what a modal covers in the lower half at 2×", async () => {
+      const doc = makeSnapshotDoc();
+      const under = doc.addNode({ tag: "BUTTON", backendId: 10 });
+      doc.addLayout(under, [200, 1200, 200, 60], { paint: 1 });
+      const scrim = doc.addNode({ tag: "DIV", backendId: 20 });
+      doc.addLayout(scrim, [0, 0, 2000, 1600], { paint: 2, styles: { "background-color": "rgb(0, 0, 0)" } });
+      const ok = doc.addNode({ tag: "BUTTON", backendId: 30, parent: scrim });
+      doc.addLayout(ok, [900, 1300, 200, 60], { paint: 3 });
+      const metrics = { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 }, visualViewport: { clientWidth: 2000, clientHeight: 1600 } };
+      const { send } = fakeSend({ snapshot: doc.payload(), metrics, ax: [
+        { backendDOMNodeId: 10, role: "button", name: "Under the modal" },
+        { backendDOMNodeId: 30, role: "button", name: "OK" },
+      ] });
+      const snap = await buildSnapshot(send, null);
+      expect(snap.elements?.map((e) => [e.name, e.offscreen])).toEqual([["OK", false]]);
+    });
   });
 
   it("renders a file input's ATTACHED FILE NAMES the way a textbox renders its value (Plan 26)", async () => {
