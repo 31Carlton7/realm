@@ -296,6 +296,16 @@ describe("environments over rpc", () => {
     c.close();
   });
 
+  it("projects.open broadcasts environments.changed, so the window lists the folder's checkout (realm repo add)", async () => {
+    const { c } = await boot();
+    await c.call("profiles.create", { name: "Work" });
+    const folder = tempDir("realm-folder-");
+    const opened = (await c.call("projects.open", { path: folder })).result;
+    expect(opened.environment).toMatchObject({ spaceId: opened.space.id });
+    await waitFor(() => c.events.some((e) => e.event === "environments.changed" && e.payload.spaceId === opened.space.id), { timeout: 2000 });
+    c.close();
+  });
+
   it("sessions.create records the user-dispatch origin ONLY when userDispatched is claimed (Plan 13 W2)", async () => {
     const { c, space } = await bootRepoSpace();
     const plain = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude" })).result.session;
