@@ -3,7 +3,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { RESOURCE_CATEGORY_LABEL, platformCapabilities, type MachineMemory, type ResourceCategory, type ResourcePart, type ResourceReport } from "@realm/contracts";
 import { ok, parseArgs } from "../mcp/tool-result";
 import type { WorkspaceToolGroup } from "../workspace/agent-tools";
-import type { ProcRow } from "./machine";
+import { AVAILABLE_WARN_PERCENT, type ProcRow } from "./machine";
 
 /**
  * `machine_status`: how much this Mac has to spare, what of Realm's is heavy, and what to do about it —
@@ -73,7 +73,9 @@ export function advice(o: { machine: MachineMemory; heavy: { name: string; proce
   if (suites.length > 0) {
     out.push(`Already running on this Mac: ${suites.map((h) => `${h.name} (${h.processes} process${h.processes === 1 ? "" : "es"})`).join(", ")}. Never run two full suites or builds at once on one machine — run targeted tests, or wait.`);
   }
-  if (m.swap && m.swap.totalBytes > 0 && m.swap.usedBytes / m.swap.totalBytes > 0.8) out.push(`Swap is ${Math.round((m.swap.usedBytes / m.swap.totalBytes) * 100)}% full: anything new will page.`);
+  if (m.swap && m.swap.totalBytes > 0 && m.swap.usedBytes / m.swap.totalBytes > 0.8 && m.availablePercent !== null && m.availablePercent < AVAILABLE_WARN_PERCENT) {
+    out.push(`Swap is ${Math.round((m.swap.usedBytes / m.swap.totalBytes) * 100)}% full and only ${m.availablePercent}% of memory is available: anything new will page.`);
+  }
   const sims = report.parts.filter((p) => p.category === "simulators");
   if (sims.length > 0) out.push(`${sims.length} simulator${sims.length === 1 ? " Realm booted is" : "s Realm booted are"} running (${gb(sims.reduce((n, p) => n + size(p), 0))}): reuse a booted one rather than booting another, and shut down any you booted once you are done (\`xcrun simctl shutdown <udid>\`).`);
   out.push("Stop dev servers and watchers you started when you no longer need them, and kill any process you started that outlived its parent (`ps -axo pid,ppid,etime,command` shows them under ppid 1). Never touch a process you did not start.");

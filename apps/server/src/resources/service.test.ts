@@ -146,7 +146,7 @@ describe("the swap-out rate", () => {
     // timer, in the middle of a 10 MB burst — 100 MB a second, "critical", and the engines go.
     let t = 1_000_000, swapouts = 0;
     const probe = realMachineProbe({
-      platform: "darwin", now: () => t,
+      platform: "darwin", now: () => t, diskFree: async () => null,
       run: async (file) => file.endsWith("sysctl")
         ? "hw.memsize: 100\nkern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 60\nvm.swapusage: total = 2048.00M  used = 1024.00M  free = 1024.00M"
         : `Mach Virtual Memory Statistics: (page size of 1024 bytes)\nPages occupied by compressor: 2.\nSwapouts: ${swapouts}.\n`,
