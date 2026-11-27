@@ -73,6 +73,7 @@ const ELSEWHERE = [
   "The first teammate in a space with none: the team tools are listed only where a space has teammates, so the user adds it from ••• → Add a teammate….",
   "Other spaces: a Lead sees every team in its profile and can message a teammate there (`space_teams`, and `team_list` or `team_message` with `space`). That space's sessions and schedules, and changing its teammates, are done from inside it; another profile is out of reach.",
   "Memory page: the space's and profile's memory documents, which reach you as instructions, and the memory repo.",
+  "A space's projects: `project_link` and `project_unlink` attach and detach one in a turn the user started; renaming a project or choosing its default branch is the user's.",
   "Code Review, Library, search, checkpoints and history: the user's pages. Your own git and shell tools reach the same repository.",
   "Files: `browser_download` saves into downloads/ of the space's project (or its folder); anything you write into the space folder opens in the Documents pane.",
   "The system's folder panel: only the user works it. `ui_choose_folder` opens it for them and tells you only the folder they chose.",

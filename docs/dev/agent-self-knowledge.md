@@ -78,6 +78,7 @@ These are deliberate, and `realm_capabilities` names where the user does each on
 - Changing a teammate's clock from the schedule tools; the teammate's page or `teammate_update` does it, and `teammate_run_clock` runs it now.
 - Changing the Team (add, edit, archive, reorder, choose the Lead, run a clock) in a turn the user did not start, or from a teammate other than the Lead.
 - Adding the first teammate to a space with none: the team tools are listed only where a space has teammates.
+- Linking or unlinking a project outside a turn the user started, or in another profile's space; renaming a project or setting its default branch.
 - Team roles and policies.
 - Another space's sessions and schedules, and changing its teammates; a Lead only reads its team and messages them. Any other profile.
 - Opening Realm's own pages (Settings, Library, Code Review).
