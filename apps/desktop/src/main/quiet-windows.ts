@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
+import { publishChildViews } from "./quiet-child-views";
 import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, systemPreferences, webContents, type WebContents } from "electron";
 
 /**
@@ -214,6 +215,8 @@ export function installQuietWindows(): void {
   // On a Mac this bounces the Dock icon.
   proto.flashFrame = function () {};
   BrowserWindow.getFocusedWindow = () => live(key);
+  // A viewer relay sees a window's page only; this tells it where the browser panes over it are.
+  publishChildViews();
 
   app.on("browser-window-created", (_e, w) => {
     hush(w);

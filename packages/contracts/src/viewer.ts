@@ -78,3 +78,19 @@ export const ViewerInputSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),
 ]);
 export type ViewerInput = z.input<typeof ViewerInputSchema>;
+
+/**
+ * A child view drawn over a window's own page: a browser pane or an MCP app view, which the window's
+ * screencast cannot see. A quiet Realm's main keeps the list for each window in that window's page,
+ * in `CHILD_VIEWS_GLOBAL`, and calls `CHILD_VIEWS_BINDING` with it whenever it changes, so a relay on
+ * the window's DevTools socket can draw each one over the window's frame. The rect is in the window
+ * page's CSS pixels; `targetId` is the child's own DevTools target.
+ */
+export const ViewerChildViewSchema = z.object({
+  targetId: z.string(),
+  x: z.number(), y: z.number(),
+  width: z.number().nonnegative(), height: z.number().nonnegative(),
+});
+export type ViewerChildView = z.infer<typeof ViewerChildViewSchema>;
+export const CHILD_VIEWS_GLOBAL = "__realmChildViews";
+export const CHILD_VIEWS_BINDING = "__realmChildViewsChanged";

@@ -65,7 +65,9 @@ const webContents = { getFocusedWebContents: (): unknown => "the real one" };
 const registered: string[] = [];
 const globalShortcut = { register: (accelerator: string, _press?: () => void) => { registered.push(accelerator); return true; } };
 
-vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents, globalShortcut }));
+class FakeView { addChildView() {} removeChildView() {} setBounds() {} setVisible() {} }
+
+vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, View: FakeView, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents, globalShortcut }));
 const { agentHome, agentUserData, installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
 
 describe("quietWindowsOn", () => {
