@@ -1580,12 +1580,17 @@ input.sb-space-name { flex: 1; }
 /* Over a picture the picker stands on the picture as the prompter does: no fill or lift of ours, the
    picture blurred and dimmed (`--picture-ground`), its wells and lit row on the tints. With no picture
    it keeps its surface: a plain pane cannot blur, so the transcript would read through it. Reduce
-   Transparency keeps the surface and its steps, as it does the prompter's. */
+   Transparency keeps the surface and its steps, as it does the prompter's. The `@` and `/` pickers
+   stand on it the same way, and the sign-in's code field is a rung on its panel, so none of them is a
+   solid panel on the picture. */
 @media (prefers-reduced-transparency: no-preference) {
-  .model-picker[data-over-picture] { background: none; box-shadow: none; backdrop-filter: var(--picture-ground);
+  :is(.model-picker, .mention-picker, .skill-picker)[data-over-picture] { background: none; box-shadow: none; backdrop-filter: var(--picture-ground);
     --rl-text-faint: color-mix(in oklab, var(--ink-2) 50%, var(--ink-3)); }
   .model-picker[data-over-picture] :is(.mp-track, .mp-seg, .account-signin) { background: var(--well-tint); }
   .model-picker[data-over-picture] :is(.mp-row[data-active], .mp-bolt:hover, .mp-run-reset:hover, .mp-seg-opt[aria-pressed="true"]) { background: var(--row-tint); }
+  :root:not([data-glass]) .mention-picker[data-over-picture] .mention-row[data-active],
+  :root:not([data-glass]) .skill-picker[data-over-picture] .skill-picker-row[data-active],
+  :root:not([data-glass]) .model-picker[data-over-picture] .account-signin .account-signin-code { background: var(--row-tint); }
 }
 /* No rule under the search: the list below is a flex sibling that clips at its own edge and dissolves
    there, so nothing ever passes under this bar. */
@@ -6846,11 +6851,12 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 /* Over a picture the glass is the picture's ground: the lens with its slight frost, then the dim. */
 :root[data-glass] .session-pane:has(> .hero-backdrop) .composer-glass { backdrop-filter: var(--glass-lens, blur(var(--glass-blur))) var(--glass-tone); }
 :root[data-glass][data-clear-over-picture] .composer-glass { --glass-frost-px: 0px; }
-/* In dark the lens floods the pane's ground under the picture before it dims it, as a picker's does.
+/* The lens floods the pane's ground under the picture before it dims it, as a picker's does.
    The guard may draw a bright picture see-through, and Chromium lays the filter's result over the
    backdrop, so a see-through result let the picture back through the dim: over a white sky the
-   placeholder stood on a ground half again lighter than the dim allowed (11-18). */
-:root[data-glass]:not([data-mode="light"]):not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass { --glass-ground-share: 1; }
+   placeholder stood on a ground half again lighter than the dim allowed (11-18). Light's dim is
+   measured too now, and holds only on the same opaque ground. */
+:root[data-glass]:not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass { --glass-ground-share: 1; }
 /* ⌘K's lift, the same way. This is the square at the palette's corners: its `box-shadow` (four
    layers, one of them a ring) drew from the border box, which under the painted regime is a
    RECTANGLE with no radius at all — so a hard-cornered halo sat over the curve the worklet had
@@ -7184,8 +7190,17 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    blur keeps its round corners, since the tabs are inset from its sides. */
 :root .session-pane:has(> .hero-backdrop) .composer::before {
   inset: 0; opacity: 1; box-shadow: none; filter: none;
-  border-radius: calc(var(--r-squircle) / 2); backdrop-filter: var(--picture-ground); }
-:root .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--picture-ground); }
+  border-radius: calc(var(--r-squircle) / 2); backdrop-filter: var(--picture-frost); }
+:root .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--picture-frost); }
+/* The dim is a veil over the blur rather than a filter in it (tokens.css, `--picture-veil`): a dim in
+   the filter let a see-through picture back through it. On a tab the veil is its fill, the painted one
+   under the painter; Glass dims in its own filter and lays no veil. Reduce Transparency keeps the
+   prompter solid over a picture (tokens.css), so there the tabs keep their solid fill too. */
+@media (prefers-reduced-transparency: no-preference) {
+  :root .session-pane:has(> .hero-backdrop) .composer::before { background: var(--picture-veil); }
+  :root:not([data-glass]):not([data-squircle]) .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { background: var(--picture-veil); }
+  :root[data-squircle]:not([data-glass]) .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { --sq-fill: var(--picture-veil); }
+}
 :root .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip) {
   border-radius: calc(var(--r-squircle) / 2) calc(var(--r-squircle) / 2) 0 0; clip-path: inset(-24px -24px var(--tuck) -24px); }
 :root .session-pane:has(> .hero-backdrop) :is(.composer-goal + .composer-todos, .composer-goal + .composer-overstrip, .composer-todos + .composer-overstrip) { border-radius: 0; }
@@ -7206,6 +7221,12 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-squircle] .session-pane:has(> .hero-backdrop) .composer::before {
   border-radius: var(--r-squircle); corner-shape: squircle; clip-path: inset(var(--seat-top) 0 var(--seat-bottom) 0); }
 :root[data-squircle][data-glass] .session-pane:has(> .hero-backdrop) .composer-glass { clip-path: inset(var(--seat-top) 0 var(--seat-bottom) 0); }
+/* In Plain the dim is the card's veil, not its filter, and a seated strip paints its veil only outside
+   the card's curve, so a card cut short left a band of the picture blurred but not dimmed where the
+   strip tucks under it (11-18: a line of the raw sky between the prompter and its under-strip). Plain's
+   card runs to its own curve: the band is blurred twice, which a blurred picture does not show, and
+   dimmed once. */
+:root[data-squircle]:not([data-glass]) .session-pane:has(> .hero-backdrop) .composer::before { clip-path: none; }
 :root[data-squircle] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip) {
   border-radius: var(--sq-radius-top) var(--sq-radius-top) 0 0; corner-shape: squircle; }
 :root[data-squircle] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip):has(+ .composer) {

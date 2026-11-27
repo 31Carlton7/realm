@@ -279,11 +279,12 @@ describe("the prompter's lens", () => {
     const src = readFileSync(join(__dirname, "PrompterGlass.tsx"), "utf8");
     expect(src).toMatch(/useFittedLens\(ref, true\)/);
   });
-  it("floods the pane's ground under a picture in dark, so a see-through picture cannot show back through the dim", () => {
+  it("floods the pane's ground under a picture, so a see-through picture cannot show back through the dim", () => {
     // THE mutant: no flood, where the guard draws a bright picture see-through and the white sky came
-    // back through the prompter's dim (placeholder 2.14:1). Never in light or Clear, which stay as they were.
+    // back through the prompter's dim (placeholder 2.14:1). In both faces, since light's dim is measured
+    // too; never under Clear, which shows the picture as it is.
     const flood = cssRules.filter((r) => /\.composer-glass$/.test(r.sel) && /--glass-ground-share/.test(r.body));
-    expect(flood.map((r) => r.sel)).toEqual([':root[data-glass]:not([data-mode="light"]):not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass']);
+    expect(flood.map((r) => r.sel)).toEqual([":root[data-glass]:not([data-clear-over-picture]) .session-pane:has(> .hero-backdrop) .composer-glass"]);
     expect(flood[0]!.body).toMatch(/--glass-ground-share:\s*1/);
   });
   it("frosts nothing when the picture is to be seen clear", () => {
@@ -489,7 +490,7 @@ describe("the account switcher in Plain", () => {
   });
 
   it("over a picture stands the whole picker on the picture, blurred and dimmed, and its wells and lit row on tints", () => {
-    const panel = rule(".model-picker[data-over-picture]").body;
+    const panel = rule(":is(.model-picker, .mention-picker, .skill-picker)[data-over-picture]").body;
     expect(panel).toMatch(/background:\s*none/);
     expect(panel).toMatch(/box-shadow:\s*none/);
     expect(panel).toMatch(/backdrop-filter:\s*var\(--picture-ground\)/);
@@ -497,13 +498,22 @@ describe("the account switcher in Plain", () => {
     expect(inside.find((r) => /\.mp-track/.test(r.sel) && /\.mp-seg\b/.test(r.sel))!.body).toMatch(/background:\s*var\(--well-tint\)/);
     expect(inside.find((r) => /\.mp-row\[data-active\]/.test(r.sel) && /\.mp-bolt:hover/.test(r.sel))!.body).toMatch(/background:\s*var\(--row-tint\)/);
     for (const r of inside) expect(r.body, r.sel).not.toMatch(/background:[^;]*var\(--(hover|hover-2|surface|inset)\)/);
+    // THE mutants: any one of these left on its solid step in Plain, a grey slab on the picture.
+    const plainLit = cssRules.find((r) => r.sel.includes(".account-signin-code") && r.sel.includes("[data-over-picture]"))!;
+    expect(plainLit.body).toMatch(/background:\s*var\(--row-tint\)/);
+    const lit = plainLit.sel.split(",").map((s) => s.trim());
+    for (const sel of [
+      ":root:not([data-glass]) .mention-picker[data-over-picture] .mention-row[data-active]",
+      ":root:not([data-glass]) .skill-picker[data-over-picture] .skill-picker-row[data-active]",
+      ":root:not([data-glass]) .model-picker[data-over-picture] .account-signin .account-signin-code",
+    ]) expect(lit, sel).toContain(sel);
   });
 
   it("keeps its solid surface and its steps under Reduce Transparency", () => {
     // Every rule that stands the picker on the picture sits in the one block the preference turns off.
     const block = stylesCss.replace(/\/\*[\s\S]*?\*\//g, "").match(/@media \(prefers-reduced-transparency: no-preference\) \{((?:\s*[^{}]+\{[^{}]*\})*)\s*\}/)?.[1] ?? "";
-    const overPicture = cssRules.filter((r) => r.sel.startsWith(".model-picker[data-over-picture]"));
-    expect(overPicture.length).toBe(3);
+    const overPicture = cssRules.filter((r) => r.sel.includes("[data-over-picture]") && !r.sel.startsWith(":root[data-glass]"));
+    expect(overPicture.length).toBe(4);
     for (const r of overPicture) expect(block, r.sel).toContain(r.sel);
   });
 });
@@ -524,12 +534,12 @@ describe("a picker over a picture", () => {
     expect(rule.body).toMatch(/var\(--glass-picture-tone\) var\(--glass-panel-tone\)/);
     for (const r of cssRules.filter((x) => x.sel.startsWith(":root[data-glass]"))) expect(r.body, r.sel).not.toMatch(/var\(--picture-tone\)/);
   });
-  function Picker({ inPicture, dim }: { inPicture: boolean; dim?: string }) {
+  function Picker({ inPicture, dim, plain }: { inPicture: boolean; dim?: string; plain?: string }) {
     const anchorRef = useRef<HTMLButtonElement>(null);
     const ref = useRef<HTMLDivElement>(null);
     useAnchoredPopover({ ref, anchorRef, onClose: () => {}, placement: "up" });
     return (
-      <div className="session-pane" style={dim ? ({ "--glass-dim": dim } as CSSProperties) : undefined}>
+      <div className="session-pane" style={{ ...(dim && { "--glass-dim": dim }), ...(plain && { "--plain-dim": plain }) } as CSSProperties}>
         {inPicture && <canvas className="hero-backdrop" />}
         <div className="composer"><button ref={anchorRef} type="button">Model</button></div>
         <div ref={ref} className="model-picker" />
@@ -550,5 +560,13 @@ describe("a picker over a picture", () => {
     cleanup();
     render(<Picker inPicture />);
     expect((document.querySelector(".model-picker") as HTMLElement).style.getPropertyValue("--glass-dim")).toBe("");
+  });
+  it("takes Plain's measured dim too, which its ground reads in Plain", () => {
+    // THE mutant: only `--glass-dim` copied, which leaves a Plain picker over a white sky on the fixed 0.4.
+    render(<Picker inPicture plain="0.62" />);
+    expect((document.querySelector(".model-picker") as HTMLElement).style.getPropertyValue("--plain-dim")).toBe("0.62");
+    cleanup();
+    render(<Picker inPicture />);
+    expect((document.querySelector(".model-picker") as HTMLElement).style.getPropertyValue("--plain-dim")).toBe("");
   });
 });

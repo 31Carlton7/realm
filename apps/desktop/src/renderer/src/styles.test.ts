@@ -119,6 +119,9 @@ describe("the prompter's blurs over a picture", () => {
     expect(bodiesFor(".composer:has(+ .composer-understrip)").join(" ")).toContain("--seat-bottom: var(--seat-drop);");
     for (const sel of [`${PICTURE}.composer::before`, ":root[data-squircle][data-glass] .session-pane:has(> .hero-backdrop) .composer-glass"])
       expect(bodiesFor(sel).join(" "), sel).toContain("clip-path: inset(var(--seat-top) 0 var(--seat-bottom) 0);");
+    // THE mutant: Plain's card cut short too, which leaves the seat blurred but undimmed, since its
+    // dim is the card's veil and the strip paints its own only outside the card's curve.
+    expect(bodiesFor(':root[data-squircle]:not([data-glass]) .session-pane:has(> .hero-backdrop) .composer::before').join(" ")).toContain("clip-path: none;");
     expect(bodiesFor(`${PICTURE}.composer + .composer-understrip`).join(" ")).toContain("clip-path: inset(calc(var(--tuck) - var(--seat-drop)) -24px -24px -24px);");
     expect(bodiesFor(`${PICTURE}:is(.composer-goal, .composer-todos, .composer-overstrip):has(+ .composer)`).join(" "))
       .toContain("clip-path: inset(-24px -24px calc(var(--tuck) - var(--seat-drop)) -24px);");
@@ -1256,8 +1259,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     /* One named exception (the owner, 11-17): over a picture the prompter and its tabs blur the
        picture itself, so they keep its colour rather than wearing a theme grey on it. Those rules
        are scoped to a pane with a picture, read the one token, and paint no fill of their own. The
-       model picker opened over a picture stands on it the same way (11-18). */
-    const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ") || sel === ".model-picker[data-over-picture]";
+       pickers opened over a picture stand on it the same way (11-18). */
+    const overPicture = (sel: string) => sel.startsWith(":root .session-pane:has(> .hero-backdrop) ") || sel === ":is(.model-picker, .mention-picker, .skill-picker)[data-over-picture]";
     /* And the glass the owner asked for app-wide (11-17), only behind the root's `data-glass`, which
        Appearance sets and Reduce Transparency and the Mac's Low Power Mode clear. Every one reads the glass tokens
        or a shared lens, so the whole material is one set of numbers. */
@@ -1275,8 +1278,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     const picture = RULES.filter((r) => partsOf(r).some(overPicture) && /backdrop-filter:/.test(r.body));
     expect(picture.length).toBeGreaterThanOrEqual(2);
     for (const r of picture) {
-      expect(r.body).toMatch(/backdrop-filter: var\(--picture-ground\)/);
-      expect(r.body).not.toMatch(/background(?!:\s*none)/);
+      expect(r.body).toMatch(/backdrop-filter: var\(--picture-(ground|frost)\)/);
+      // The prompter's dim is a veil of pure black or white (tokens.css), the only thing laid on it.
+      expect(r.body).not.toMatch(/background(?!:\s*(none|var\(--picture-veil\)))/);
     }
     /* The edge blur replaces what the scroller paints with a blurred copy of it, as a filter named
        by the script, and paints nothing of its own. No band is left over the content. */

@@ -5,7 +5,10 @@
  * once each time the picture is drawn, from the picture where the prompter and its pickers sit, as
  * the least that keeps the words over it at their ratios. A dark picture takes none, and a bright one
  * as much as its words need, up to `GLASS_DIM_MAX`. Until a picture has been measured the glass takes
- * the picture's own dim (`--picture-dim`). Light glass keeps that dim and never reads this one.
+ * the picture's own dim (`--picture-dim`). In light the dim goes toward white, and light glass takes
+ * it only where it is more than the picture's own. The same measure, without the glass's saturation,
+ * is Plain's (`--plain-dim`), which also never goes under the picture's own: Plain's fixed dim left a
+ * bright picture's placeholder at 1.03:1 in dark, and a dark picture's quiet words at 1.11:1 in light.
  */
 import type { Rgb } from "../panes/session/hero-backdrop";
 import { GUARD_SPARE, luminance } from "../panes/session/hero-backdrop-color";
@@ -28,6 +31,8 @@ const SAMPLE_PX = 8;
 /** The token the picker's lit row is filled with (tokens.css). A name the stylesheet does not define
  *  reads as no tint at all, so the test holds this one to it. */
 export const ROW_TINT = "--row-tint";
+/** The token Plain's dim over a picture is read from (tokens.css), handed to a portalled picker too. */
+export const PLAIN_DIM = "--plain-dim";
 
 const clamp = (v: number) => Math.min(1, Math.max(0, v));
 
@@ -47,22 +52,30 @@ const tinted = (c: Rgb, t: GlassTint | null): Rgb => (t ? c.map((v, i) => v * (1
  * The least dim, from 0 to `GLASS_DIM_MAX`, at which every ink keeps its ratio (with the guard's
  * spare) over the picture's `samples`, all but the brightest `GLASS_DIM_TAIL` of them, once the
  * glass has saturated them by `saturate`, and laid `tint` on them under the words that can stand on
- * it. Dark glass's words are lighter than what is under them.
+ * it. Dark glass's words are lighter than what is under them, and its dim goes toward black. In
+ * `light` the words are darker, the dim goes toward white (`--picture-tone`'s share of white), and
+ * it is the darkest part of the picture that holds it.
  */
-export function glassDim(samples: readonly Rgb[], inks: readonly GlassInk[], saturate: number, tint: GlassTint | null = null): number {
+export function glassDim(samples: readonly Rgb[], inks: readonly GlassInk[], saturate: number, tint: GlassTint | null = null, light = false): number {
   if (!samples.length || !inks.length) return 0;
-  const ceiling = ({ color, need }: GlassInk) => (luminance(color) + 0.05) / (need + GUARD_SPARE) - 0.05;
-  const lit = samples.map((c) => toned(c, saturate, 1)).sort((a, b) => luminance(b) - luminance(a));
-  const bright = lit[Math.floor(lit.length * GLASS_DIM_TAIL)]!;
-  const fits = (k: number) => inks.every((ink) => luminance(tinted(toned(bright, 1, k), ink.onTint ? tint : null)) <= ceiling(ink));
-  if (fits(1)) return 0;
-  let keep = 0, over = 1;
+  const limit = ({ color, need }: GlassInk) => light
+    ? (luminance(color) + 0.05) * (need + GUARD_SPARE) - 0.05
+    : (luminance(color) + 0.05) / (need + GUARD_SPARE) - 0.05;
+  const lit = samples.map((c) => toned(c, saturate, 1)).sort((a, b) => light ? luminance(a) - luminance(b) : luminance(b) - luminance(a));
+  const worst = lit[Math.floor(lit.length * GLASS_DIM_TAIL)]!;
+  const dimmed = (d: number): Rgb => light ? worst.map((v) => v * (1 - d) + d) as Rgb : toned(worst, 1, 1 - d);
+  const fits = (d: number) => inks.every((ink) => {
+    const y = luminance(tinted(dimmed(d), ink.onTint ? tint : null));
+    return light ? y >= limit(ink) : y <= limit(ink);
+  });
+  if (fits(0)) return 0;
+  let under = 0, enough = 1;
   for (let i = 0; i < 16; i++) {
-    const k = (keep + over) / 2;
-    if (fits(k)) keep = k;
-    else over = k;
+    const d = (under + enough) / 2;
+    if (fits(d)) enough = d;
+    else under = d;
   }
-  return Math.min(GLASS_DIM_MAX, 1 - keep);
+  return Math.min(GLASS_DIM_MAX, enough);
 }
 
 /**
@@ -96,9 +109,10 @@ export function pictureUnderGlass(source: HTMLCanvasElement, pane: Element, grou
   return out;
 }
 
-/** The words on dark glass over a picture: typed text and labels in `--ink` at 4.5:1, the quiet words
- *  and the placeholder in `--ink-2` at 3:1, both of which a picker sets on its lit row and its
- *  account's well, and the picker's level in `--accent` at 3:1 on the glass (styles.css, "Glass").
+/** The words on glass over a picture, and on Plain's ground there: typed text and labels in `--ink`
+ *  at 4.5:1, the quiet words and the placeholder in `--ink-2` at 3:1, both of which a picker sets on
+ *  its lit row and its account's well, and the picker's level in `--accent` at 3:1 on the glass
+ *  (styles.css, "Glass").
  *  Read in the pane, so a theme's inks arrive as colours. */
 function glassInks(pane: Element, resolve: (css: string) => Rgb): GlassInk[] {
   const s = getComputedStyle(pane);
@@ -109,8 +123,9 @@ function glassInks(pane: Element, resolve: (css: string) => Rgb): GlassInk[] {
   ];
 }
 
-/** The picker's lit row (`ROW_TINT`), the lightest tint a word on the glass stands on, read as
- *  its colour and alpha off one pixel laid over black and over white. */
+/** The picker's lit row (`ROW_TINT`), the tint a word on the glass stands on that is furthest
+ *  toward its ink (the lightest in dark, the darkest in light), read as its colour and alpha off
+ *  one pixel laid over black and over white. */
 function glassTint(pane: Element): GlassTint | null {
   const g = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
   if (!g) return null;
@@ -127,11 +142,18 @@ function glassTint(pane: Element): GlassTint | null {
   return alpha > 0 ? { color: black.map((v) => Math.min(1, v / alpha)) as Rgb, alpha } : null;
 }
 
-/** Measures the picture `source` has just drawn and sets the pane's `--glass-dim`, in the dark face. */
+/** Measures the picture `source` has just drawn and sets the pane's `--glass-dim`, and Plain's
+ *  `--plain-dim`, which is the same measure without the glass's saturation. Only dark glass goes
+ *  under the picture's own dim (`--picture-dim`). */
 export function setGlassDim(pane: HTMLElement, source: HTMLCanvasElement, ground: Rgb, resolve: (css: string) => Rgb, opacity = 1) {
-  if (document.documentElement.getAttribute("data-mode") === "light") return;
+  const light = document.documentElement.getAttribute("data-mode") === "light";
   const samples = pictureUnderGlass(source, pane, ground, opacity);
   if (!samples.length) return;
-  const saturate = parseFloat(getComputedStyle(pane).getPropertyValue("--glass-saturate")) || 1;
-  pane.style.setProperty("--glass-dim", glassDim(samples, glassInks(pane, resolve), saturate, glassTint(pane)).toFixed(3));
+  const style = getComputedStyle(pane);
+  const saturate = parseFloat(style.getPropertyValue("--glass-saturate")) || 1;
+  const own = parseFloat(style.getPropertyValue("--picture-dim")) || 0;
+  const inks = glassInks(pane, resolve), tint = glassTint(pane);
+  const glass = glassDim(samples, inks, saturate, tint, light);
+  pane.style.setProperty("--glass-dim", (light ? Math.max(own, glass) : glass).toFixed(3));
+  pane.style.setProperty(PLAIN_DIM, Math.max(own, glassDim(samples, inks, 1, tint, light)).toFixed(3));
 }
