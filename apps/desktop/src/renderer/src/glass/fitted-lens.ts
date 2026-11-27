@@ -47,10 +47,19 @@ function readFit(el: HTMLElement, pseudo?: string): Fit | null {
   const share = parseFloat(style.getPropertyValue("--glass-ground-share"));
   const ground = Number.isFinite(share) ? Math.min(1, Math.max(0, share)) : 0;
   if (!(width > 0 && height > 0 && bezel > 0 && bend > 0)) return null;
-  return { width, height, radius: Math.min(parseFloat(box.borderTopLeftRadius) || 0, width / 2, height / 2), bezel, bend, frost, ground, dpr: window.devicePixelRatio || 1 };
+  return { width, height, radius: Math.min(parseFloat(box.borderTopLeftRadius) || 0, width / 2, height / 2), n: cornerExponent(box), bezel, bend, frost, ground, dpr: window.devicePixelRatio || 1 };
 }
 
-const keyOf = (f: Fit) => `${f.width}x${f.height}r${f.radius}b${f.bezel}`;
+/** The exponent of the box's corner: `superellipse(K)` traces 2^K, `squircle` is K = 2, and anything
+ *  else (round, or a Chromium that has no `corner-shape`) is the circle. */
+export function cornerExponent(box: CSSStyleDeclaration): number {
+  const shape = box.getPropertyValue("corner-top-left-shape").trim();
+  if (shape === "squircle") return 4;
+  const k = /^superellipse\(([\d.]+)\)$/.exec(shape);
+  return k ? 2 ** Number(k[1]) : 2;
+}
+
+const keyOf = (f: Fit) => `${f.width}x${f.height}r${f.radius}n${+(f.n ?? 2).toFixed(2)}b${f.bezel}`;
 
 function mapFor(f: Fit): string | null {
   const key = keyOf(f);

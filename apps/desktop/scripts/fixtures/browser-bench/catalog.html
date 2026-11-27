@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Catalog — Northwind</title>
+<style>
+  body { font: 14px/1.4 -apple-system, sans-serif; margin: 0; color: #1d1d1f; }
+  header { position: sticky; top: 0; z-index: 1; padding: 12px 24px; background: #fff; border-bottom: 1px solid #ddd; display: flex; gap: 20px; align-items: center; }
+  header .cart { margin-left: auto; }
+  #grid { display: grid; grid-template-columns: repeat(5, 180px); gap: 14px; padding: 18px 24px; }
+  article { border: 1px solid #e2e2e2; border-radius: 8px; padding: 10px; }
+  .swatch { height: 70px; border-radius: 6px; background: #ececf0; }
+  h2 { font-size: 14px; margin: 8px 0 2px; }
+  .price { color: #555; margin: 0 0 8px; }
+  .icons { display: flex; gap: 8px; }
+  .icons button { width: 32px; height: 32px; padding: 0; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+  svg { width: 16px; height: 16px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<header>
+  <a href="#">Northwind</a><a href="#">New</a><a href="#">Sale</a>
+  <button class="cart" id="cart">Cart (0)</button>
+</header>
+<div id="grid"></div>
+<!-- The cart and save buttons are icon-only on purpose: no text, no aria-label, no title. -->
+<template id="card">
+  <article>
+    <div class="swatch"></div>
+    <h2><a></a></h2>
+    <p class="price"></p>
+    <div class="icons">
+      <button class="add"><svg viewBox="0 0 16 16"><path d="M1 2h2l2 8h8l2-6H4" fill="none" stroke="currentColor"/><circle cx="6" cy="13" r="1"/><circle cx="12" cy="13" r="1"/></svg></button>
+      <button class="save"><svg viewBox="0 0 16 16"><path d="M8 14 2 8a3.5 3.5 0 0 1 6-4 3.5 3.5 0 0 1 6 4z" fill="none" stroke="currentColor"/></svg></button>
+    </div>
+  </article>
+</template>
+<script>
+  const grid = document.getElementById("grid");
+  const card = document.getElementById("card");
+  const cart = document.getElementById("cart");
+  let inCart = 0;
+  for (let n = 1; n <= 300; n++) {
+    const el = card.content.cloneNode(true);
+    const link = el.querySelector("a");
+    link.textContent = `Product ${n}`;
+    link.href = `#product-${n}`;
+    el.querySelector(".price").textContent = `$${(9 + (n * 7) % 90)}.00`;
+    el.querySelector(".add").addEventListener("click", async () => {
+      await fetch("/cart", { method: "POST", body: String(n) });
+      cart.textContent = `Cart (${++inCart})`;
+    });
+    el.querySelector(".save").addEventListener("click", (e) => e.currentTarget.classList.toggle("saved"));
+    grid.append(el);
+  }
+</script>
+</body>
+</html>

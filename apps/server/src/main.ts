@@ -5,7 +5,7 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 import { cleanDictation } from "@realm/adapters";
-import { billedGenerators } from "./billed-calls";
+import { billedGenerators, liveAnswerModel } from "./billed-calls";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { createApp } from "./app";
@@ -13,7 +13,7 @@ import { toolchainAvailable } from "./simulators/service";
 import { PhysicalDevices } from "./simulators/physical";
 import { phoneVideo } from "./simulators/phone-video";
 import { simctl } from "./simulators/simctl";
-import { realLayaRuntime } from "./laya/runtime";
+import { layaAutoInstallOn, realLayaRuntime } from "./laya/runtime";
 import { realMachineProbe } from "./resources/machine";
 import { APP_TOKEN_STDIN_ENV, DAEMON_PROTOCOL } from "@realm/contracts";
 import { relayBase } from "@realm/remote";
@@ -96,6 +96,9 @@ try {
     ...billedGenerators(),
     // Only ever asked once Settings ▸ Dictation ▸ Clean up dictation is on, and then only for the words.
     dictationCleanup: cleanDictation,
+    // Only ever asked from a meeting's panel, and then only for the transcript's last minutes and the
+    // custom info typed beside it. Scripted under the scripted agent, as the billed calls are.
+    liveAnswers: liveAnswerModel(),
     // The machine's own home, where `~/.agents`, `~/.claude`, `~/.codex` and `~/.cursor` live. Realm's
     // home is not it, and scanning there found nothing: this is the only caller that may name it.
     userHome: homedir(), codexHome: process.env.CODEX_HOME || undefined,
@@ -120,10 +123,9 @@ try {
     codeReview: { gh: process.env.REALM_GH_BIN || "gh" },
     // Laya's local runtime. Only here: every other `createApp` is a test or a script and gets none, so
     // nothing but this process ever looks for a Python or starts one. Laya is on by default and
-    // installs itself once there is a moment for it — but not in a harness: a live check boots this
-    // entry with the fake agent, and must never download two gigabytes into its scratch home.
+    // installs itself once there is a moment for it, where `layaAutoInstallOn` allows.
     laya: realLayaRuntime({ home }),
-    layaAutoInstall: process.env.REALM_ENABLE_FAKE_AGENT !== "1",
+    layaAutoInstall: layaAutoInstallOn(process.env),
     // The resource report reads this machine — `ps`, `footprint`, `sysctl` — only here, for the probe's
     // reason: every other `createApp` is a test or a script, and must not measure the Mac it runs on.
     resources: { probe: realMachineProbe() },

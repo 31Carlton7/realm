@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { platformCapabilities, type DictationCleanResult } from "@realm/contracts";
+import { platformCapabilities, type DictationCleanResult, type GitInfo } from "@realm/contracts";
 import { searchSettings, visibleSettingsGroups } from "../panes/settings/settings-index";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -58,10 +58,12 @@ function downloadingHelper() {
   return { helper, life, emit: (e: HelperEvent) => act(() => emit(e)), ready: (r: HelperStart) => act(async () => { ready(r); await new Promise((res) => setTimeout(res, 0)); }) };
 }
 
-async function mount(cleanUp = false) {
+/** `gitInfo` is the session's working tree (cwd /tmp in the fakes); a dirty one earns the box a hint. */
+async function mount(cleanUp = false, gitInfo: GitInfo | null = null) {
   const api = fakeApi({
     sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", model: "claude-opus-5-5" })],
     items: { s1: [item("i9", "s1", { kind: "session", refId: "se1", title: "s" })] },
+    gitInfo: { "/tmp": gitInfo },
   });
   if (cleanUp) api.data.settings[VOICE_PREFS_KEY] = { cleanUp: true };
   const store = createAppStore(api);
@@ -120,7 +122,7 @@ describe("dictating into the prompter", () => {
     const { store } = await mount();
     typeAt("Fix  please", 4);
     fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
-    expect(screen.getByRole("button", { name: "Stop dictating" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Stop dictation" }).getAttribute("aria-pressed")).toBe("true");
     heard("the login");
     expect(box().value).toBe("Fix the login please");
     expect(dictating()).toBe("the login");
@@ -135,6 +137,26 @@ describe("dictating into the prompter", () => {
     expect(dictating()).toBeNull();
     expect(box().readOnly).toBe(false);
     expect(box().selectionStart).toBe("Fix the login test".length);
+  });
+
+  it("hides the suggested prompt while it listens, before the first word, and gives it back when nothing was heard", async () => {
+    const { store } = await mount(false, { branch: "main", additions: 0, deletions: 0, dirty: 3, ahead: 0, behind: 0 });
+    const hint = () => document.querySelector(".composer-hint")?.textContent ?? null;
+    await waitFor(() => expect(hint()).toContain("Review my changes."));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dictate" })); await new Promise((res) => setTimeout(res, 0)); });
+    // THE MUTANT: the hint keyed on the draft alone, which stays empty until the words land.
+    expect(hint()).toBeNull();
+    expect(box().getAttribute("aria-describedby")).toBeNull();
+    heard("the login");
+    expect(hint()).toBeNull();
+    expect(box().value).toBe("the login");
+    // The box is read-only while it listens, so ⇥ has no suggestion to type into the draft under the words.
+    fireEvent.keyDown(box(), { key: "Tab" });
+    expect(store.getState().drafts["se1"] ?? "").toBe("");
+
+    await finished("");
+    expect(store.getState().drafts["se1"] ?? "").toBe("");
+    expect(hint()).toContain("Review my changes.");
   });
 
   it("puts spaces where the words would otherwise run into a word already there", async () => {
@@ -158,7 +180,7 @@ describe("dictating into the prompter", () => {
     expect(model()).toBe("Getting this Mac's speech model…42%");
     await download.ready({ t: "ready", stt: "analyzer" });
     expect(model()).toBeNull();
-    expect(screen.getByRole("button", { name: "Stop dictating" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Stop dictation" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("stops on Esc while the speech model is still coming, and lands nothing", async () => {
@@ -185,8 +207,89 @@ describe("dictating into the prompter", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
     fireEvent.keyDown(box(), { key: "Escape" });
     expect(mic.stops).toBe(1);
-    fireEvent.click(screen.getByRole("button", { name: "Stop dictating" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
     expect(mic.stops).toBe(2);
+  });
+
+  it("keeps listening, and the words, when the recogniser ends on its own, until the mic is clicked", async () => {
+    const { store } = await mount();
+    const helper = downloadingHelper();
+    mic.helper = helper.helper;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dictate" })); await new Promise((res) => setTimeout(res, 0)); });
+    await helper.ready({ t: "ready", stt: "analyzer" });
+    helper.emit({ t: "partial", turn: 1, text: "run the build" });
+    helper.emit({ t: "final", turn: 1, text: "run the build" });
+    expect(screen.getByRole("button", { name: "Stop dictation" }).getAttribute("aria-pressed")).toBe("true");
+    expect(dictating()).toBe("run the build");
+    helper.emit({ t: "partial", turn: 2, text: "and the tests" });
+    expect(dictating()).toBe("run the build and the tests");
+    expect(store.getState().drafts["se1"] ?? "").toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
+    helper.emit({ t: "final", turn: 2, text: "and the tests" });
+    await act(async () => { await new Promise((res) => setTimeout(res, 0)); });
+    expect(store.getState().drafts["se1"]).toBe("run the build and the tests");
+    expect(helper.life.stopped).toBe(true);
+  });
+
+  /** Dictation over the real `Dictation` and a helper the test speaks for, listening. */
+  const listening = async () => {
+    const helper = downloadingHelper();
+    mic.helper = helper.helper;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dictate" })); await new Promise((res) => setTimeout(res, 0)); });
+    await helper.ready({ t: "ready", stt: "analyzer" });
+    return helper;
+  };
+  const settle = () => act(async () => { await new Promise((res) => setTimeout(res, 0)); });
+
+  it("lands what was heard, as heard, with the problem, when the helper breaks minutes in", async () => {
+    const { store } = await mount(true);
+    typeAt("Then: ", 6);
+    const helper = await listening();
+    helper.emit({ t: "partial", turn: 1, text: "run the build" });
+    helper.emit({ t: "final", turn: 1, text: "run the build" });
+    helper.emit({ t: "partial", turn: 2, text: "um and the tests" });
+    helper.emit({ t: "error", message: "Transcription stopped: boom" });
+    await settle();
+    expect(store.getState().drafts["se1"]).toBe("Then: run the build um and the tests");
+    // No clean-up pass on words a broken dictation hands over, even with Clean up dictation on.
+    expect(mic.cleaned).toEqual([]);
+    expect(screen.getByRole("status").textContent).toContain("Transcription stopped: boom");
+    expect(dictating()).toBeNull();
+    expect(box().readOnly).toBe(false);
+    expect(screen.getByRole("button", { name: "Dictate" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("lands the words once when the helper's error is followed by the turn's final", async () => {
+    const { store } = await mount();
+    const helper = await listening();
+    helper.emit({ t: "partial", turn: 1, text: "fix the login" });
+    helper.emit({ t: "error", message: "Transcription stopped: boom" });
+    helper.emit({ t: "final", turn: 1, text: "fix the login" });
+    await settle();
+    expect(store.getState().drafts["se1"]).toBe("fix the login");
+    expect(screen.getByRole("status").textContent).toContain("Transcription stopped: boom");
+  });
+
+  it("lands what was heard when the recogniser keeps ending as soon as it starts", async () => {
+    const { store } = await mount();
+    const helper = await listening();
+    helper.emit({ t: "partial", turn: 1, text: "hello there" });
+    for (let turn = 1; turn <= 4; turn++) helper.emit({ t: "final", turn, text: turn === 1 ? "hello there" : "" });
+    await settle();
+    expect(store.getState().drafts["se1"]).toBe("hello there");
+    expect(screen.getByRole("status").textContent).toMatch(/keeps stopping/);
+  });
+
+  it("lands nothing, and only says why, when a dictation that heard nothing breaks", async () => {
+    const { store } = await mount();
+    typeAt("Fix  please", 4);
+    const helper = await listening();
+    helper.emit({ t: "error", message: "The speech helper stopped." });
+    await settle();
+    expect(store.getState().drafts["se1"]).toBe("Fix  please");
+    expect(screen.getByRole("status").textContent).toContain("The speech helper stopped.");
+    expect(box().readOnly).toBe(false);
+    expect(screen.getByRole("button", { name: "Dictate" }).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("with Clean up dictation off, which it is until turned on, asks no model and lands the raw words", async () => {
@@ -326,26 +429,46 @@ describe("dictating into the prompter", () => {
     expect(box().selectionStart).toBe("Fix the login test".length);
   });
 
-  it("swells the mic's ring with the voice, and holds it still under Reduce motion", async () => {
+  it("runs the voice across the pill's bars, and shows them the level alone under Reduce motion", async () => {
     await mount();
     fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
-    const ring = () => document.querySelector<HTMLElement>(".composer-dictate .composer-dictate-ring")!;
+    const bars = () => [...document.querySelectorAll<HTMLElement>(".composer-dictate .dictate-bar")].map((b) => b.style.getPropertyValue("--mic-level"));
+    expect(bars()).toHaveLength(4);
     act(() => mic.events!.level(0.2));
-    expect(ring().style.getPropertyValue("--mic-level")).toBe("1.000");
+    // THE MUTANTS: every bar at one lag or one gain, which is a single meter drawn four times.
+    expect(bars()).toEqual(["0.000", "1.000", "0.000", "0.000"]);
+    act(() => mic.events!.level(0.2));
+    act(() => mic.events!.level(0.2));
+    expect(bars()).toEqual(["0.000", "1.000", "0.800", "0.000"]);
     act(() => mic.events!.level(0));
-    expect(Number(ring().style.getPropertyValue("--mic-level"))).toBeLessThan(1);
+    expect(Number(bars()[1])).toBeLessThan(1);
     await finished("");
-    expect(ring().style.getPropertyValue("--mic-level")).toBe("");
+    expect(bars()).toEqual(["", "", "", ""]);
 
     vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q }) as MediaQueryList);
     try {
       fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
-      // THE MUTANT: the level written whatever the preference, so the ring keeps moving.
+      // THE MUTANT: the lag kept under Reduce motion, so the level still runs across the bars.
       act(() => mic.events!.level(0.2));
-      expect(ring().style.getPropertyValue("--mic-level")).toBe("");
+      expect(bars()).toEqual(["0.600", "1.000", "0.800", "0.650"]);
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("is one button throughout, pressed and named as the stop while it listens", async () => {
+    await mount();
+    const button = screen.getByRole("button", { name: "Dictate" });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+    // THE MUTANT: a second control swapped in for the pill, which loses the keyboard's place on it.
+    expect(screen.getByRole("button", { name: "Stop dictation" })).toBe(button);
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.getAttribute("title")).toBe("Stop dictation (Esc)");
+    expect(button.querySelectorAll(".dictate-bar")).toHaveLength(4);
+    expect(button.querySelector(".dictate-live")!.getAttribute("aria-hidden")).toBe("true");
+    fireEvent.click(button);
+    expect(mic.stops).toBe(1);
   });
 
   it("offers the mic and nothing that opens a conversation", async () => {

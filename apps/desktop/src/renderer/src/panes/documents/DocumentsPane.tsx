@@ -476,7 +476,7 @@ export function DocumentsPane({ item }: PaneProps) {
             <Editor
               buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
               reveal={reveal?.path === buf.path ? reveal : null} headSlot={headSlot} filePath={shownPath}
-              readOnly={isOutsideTab(buf.path)}
+              readOnly={isOutsideTab(buf.path)} root={root}
               onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
               onSave={() => { void save(buf.path); }}
             />
@@ -691,12 +691,14 @@ function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onT
  * The editor host. W2 adds the rich Markdown editor for `doc` and `slides`; the source view remains for
  * every kind and is the only view for `sheet` and `latex` until W3 and W5 replace it.
  */
-function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, readOnly, onChange, onSave }: {
+function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, readOnly, root, onChange, onSave }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; documentsId: string;
   /** Where a PDF's controls go, and the file on disk for its Open in Preview. */
   headSlot: HTMLElement | null; filePath: string | null;
   /** A file outside the space: drawn by the same editor, which takes no edits. */
   readOnly: boolean;
+  /** The space's folder, which a document's relative pictures are drawn from. */
+  root: string | null;
   /** A line asked for from outside the pane. The code editor goes to it; the rich views have no lines
    *  to go to, and open where the reader left off. */
   reveal: { line: number } | null;
@@ -738,6 +740,7 @@ function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, r
               ? <SheetEditor key={buffer.path} path={buffer.path} text={buffer.text} onChange={onChange}
                   scrollKey={`doc:${documentsId}:grid:${buffer.path}`} />
               : <RichTextEditor key={buffer.path} text={buffer.text} onChange={onChange} readOnly={readOnly}
+                  root={root} path={buffer.path}
                   scrollKey={`doc:${documentsId}:rich:${buffer.path}`} />}
           </Suspense>
         ) : kind === "code" ? (

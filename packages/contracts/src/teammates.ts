@@ -19,6 +19,15 @@ export const TEAMMATES_PROVIDER_NAME = "realm-team";
 export const TEAM_LIST_TOOL = "team_list";
 export const TEAM_MESSAGE_TOOL = "team_message";
 export const TEAM_SET_ACCESS_TOOL = "team_set_access";
+export const TEAMMATE_GET_TOOL = "teammate_get";
+export const TEAMMATE_SESSIONS_TOOL = "teammate_sessions";
+export const TEAMMATE_CREATE_TOOL = "teammate_create";
+export const TEAMMATE_UPDATE_TOOL = "teammate_update";
+export const TEAMMATE_ARCHIVE_TOOL = "teammate_archive";
+export const TEAMMATE_SET_LEAD_TOOL = "teammate_set_lead";
+export const TEAMMATE_REORDER_TOOL = "teammate_reorder";
+export const TEAMMATE_RUN_CLOCK_TOOL = "teammate_run_clock";
+export const SPACE_TEAMS_TOOL = "space_teams";
 
 /** The eight shapes and twelve colours an icon is made of: one flat shape, two eye strokes. */
 export const TEAMMATE_SHAPES = ["circle", "flower", "squircle", "pill", "triangle", "hexagon", "cloud", "drop"] as const;
@@ -231,6 +240,12 @@ export type CreateTeammateInput = z.infer<typeof CreateTeammateSchema>;
 export const UpdateTeammateSchema = TeammateFieldsSchema.partial().extend({ id: IdSchema });
 export type UpdateTeammateInput = z.infer<typeof UpdateTeammateSchema>;
 
+/** `teammate_create`'s arguments: the Add a teammate sheet's fields, in the caller's space. */
+export const TeammateCreateArgsSchema = TeammateFieldsSchema.omit({ compactWindow: true });
+
+/** `teammate_update`'s arguments: who (`to`, a handle or `lead`) and any of the sheet's fields. */
+export const TeammateUpdateArgsSchema = TeammateFieldsSchema.omit({ compactWindow: true }).partial().extend({ to: z.string().trim().min(1).max(60) });
+
 /** The Team list's order: every teammate in the space, top to bottom, with the section it sits in. */
 export const ReorderTeammatesSchema = z.object({
   spaceId: IdSchema,
@@ -244,8 +259,40 @@ export const TeamMessageArgsSchema = z.object({
   message: z.string().trim().min(1).max(20_000),
   /** Wait for the reply: the target's next turn's final text. */
   wait: z.boolean().optional(),
+  /** Another space of the profile, by id or name: the Lead's reach across its spaces. */
+  space: z.string().trim().min(1).max(200).optional(),
 });
 export type TeamMessageArgs = z.infer<typeof TeamMessageArgsSchema>;
+
+/** `team_list`'s arguments: `archived` lists the archived teammates instead; `space` (an id or a
+ *  name) another space's, for the Lead. */
+export const TeamListArgsSchema = z.object({ archived: z.boolean().optional(), space: z.string().trim().min(1).max(200).optional() });
+
+/** `space_teams` takes nothing: every space of the profile and who is on its team. */
+export const SpaceTeamsArgsSchema = z.object({});
+
+/** `teammate_get`'s arguments. `to` is a handle, `@handle`, or `lead`; an archived teammate is found too. */
+export const TeammateGetArgsSchema = z.object({ to: z.string().trim().min(1).max(60) });
+
+/** `teammate_archive`'s arguments: `archived: false` brings an archived teammate back. */
+export const TeammateArchiveArgsSchema = z.object({
+  to: z.string().trim().min(1).max(60),
+  archived: z.boolean().optional(),
+});
+
+/** `teammate_set_lead`'s arguments: `to` null leaves the space with no Lead. */
+export const TeammateSetLeadArgsSchema = z.object({ to: z.string().trim().min(1).max(60).nullable() });
+
+/** `teammate_reorder`'s arguments: every teammate on the Team list by handle, top to bottom, with its section. */
+export const TeammateReorderArgsSchema = z.object({
+  order: z.array(z.object({ handle: z.string().trim().min(1).max(60), group: z.string().trim().min(1).max(60).nullable().optional() })),
+});
+
+/** `teammate_sessions`'s arguments: newest first, `limit` of them. */
+export const TeammateSessionsArgsSchema = z.object({
+  to: z.string().trim().min(1).max(60),
+  limit: z.number().int().min(1).optional(),
+});
 
 /** `team_set_access`'s arguments. `mode` is any string, so a read-only one is refused by name rather
  *  than by a schema error. */

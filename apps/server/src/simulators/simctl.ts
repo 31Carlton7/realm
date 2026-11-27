@@ -117,6 +117,9 @@ export type Simctl = {
    *  another pane) answers ok without it — the difference between a simulator Realm booted and one it
    *  only showed. */
   boot(udid: string): Promise<{ ok: boolean; detail: string; booted?: boolean }>;
+  /** Waits until SpringBoard says it has finished starting up, then true; false for a device that is
+   *  not booted. It never boots one. */
+  springBoardStarted(udid: string): Promise<boolean>;
   available(): Promise<boolean>;
   /** Everything installed on the device, the user's own apps among Apple's. */
   apps(udid: string): Promise<SimulatorApp[]>;
@@ -154,6 +157,16 @@ export function simctl(env: NodeJS.ProcessEnv = process.env): Simctl {
       if (r.code === 0) return { ok: true, detail: text, booted: true };
       if (/current state: Booted/i.test(text)) return { ok: true, detail: text, booted: false };
       return { ok: false, detail: text || `xcrun exited ${r.code}` };
+    },
+    async springBoardStarted(udid) {
+      // `bootstatus` is no use here: MEASURED returning 4–8 s before SpringBoard is up.
+      const deadline = Date.now() + 240_000;
+      for (;;) {
+        const r = await run(bin, ["simctl", "spawn", udid, "notifyutil", "-g", "com.apple.springboard.finishedstartup"], 10_000);
+        if (r.code === 0 && finishedStartup(r.stdout)) return true;
+        if (/not booted/i.test(r.stderr) || Date.now() > deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
     },
     async available() {
       const r = await run(bin, ["simctl", "help"], 10_000);
@@ -201,6 +214,12 @@ export function simctl(env: NodeJS.ProcessEnv = process.env): Simctl {
       return said(r);
     },
   };
+}
+
+/** `notifyutil -g com.apple.springboard.finishedstartup`: SpringBoard posts its pid there once it is up,
+ *  and the state is 0 before. */
+function finishedStartup(stdout: string): boolean {
+  return Number(stdout.trim().split(/\s+/).pop()) > 0;
 }
 
 /** What every one-shot command answers with: whether it worked, and what it said if it did not. */

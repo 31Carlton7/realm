@@ -20,7 +20,14 @@ type PendingPrompt = { sessionId: string; toolKey: string; settle: Settle; timer
   /** Full access would not have asked it: neither `alwaysPrompt` nor `promptUnderBypass`. */
   bypassable?: boolean;
   /** Set for a QUESTION (`ask`): what its answers are held to, and how the log keeps them. */
-  card?: AskCard };
+  card?: AskCard;
+  /** Set for an `invite`: nothing waits on it, so it never holds its session waiting. */
+  invite?: boolean;
+  /** Only a person may answer Allow (`GateOptions.personOnly`). */
+  personOnly?: boolean };
+
+/** Who answered a card: a person, on Realm's window or their phone, or Realm's own code in process. */
+export type Answerer = "person" | "process";
 
 /**
  * How a question ended, for the caller that asked it. `refused`: Realm declined it before anyone saw
@@ -38,9 +45,10 @@ export type AskOutcome =
  * Per-call gate behaviour.
  *
  * `alwaysPrompt` makes ONE call prompt every single time: `bypassPermissions` does not skip it and
- * `allow_always` neither satisfies it nor gets recorded by it. Two tools set it: `browser_fill_code`,
- * for every code it reads out of the person's messages, and `browser_fill_credential` — for the password
- * Realm generates, and for a fill on a page of another site. A saved password filled on a page of its own site
+ * `allow_always` neither satisfies it nor gets recorded by it. `browser_fill_credential` sets it for a
+ * fill on a page of another site, always, and for the password Realm generates unless the person let
+ * agents finish sign-ins (then that and `browser_fill_code` are `preapproved` by main's switch, which
+ * still leaves Plan and Ask refusing). A saved password filled on a page of its own site
  * instead takes `promptUnderBypass`, keyed to that password and that exact page: "Always allow on
  * this site" is then the person's to give, kept in Electron main, and it removes the card there and
  * nothing else — the profile's unlock (Touch ID by default) still runs on every fill.
@@ -84,6 +92,12 @@ export type GateOptions = {
    * by the tenth. It records nothing durable — `onAlwaysAllow` still answers to "always" alone.
    */
   perSession?: boolean;
+  /**
+   * Only a person may answer it: an Allow that arrives from in process (`Answerer`), where an agent's
+   * tool call would come from, is refused and the card stays up. Deny is anyone's, so a session that
+   * ends still takes its cards down. Set on a password fill that offers to turn on agent sign-ins.
+   */
+  personOnly?: boolean;
 };
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
@@ -112,6 +126,8 @@ export type GateResult = { allowed: true } | { allowed: false; reason: string };
 export class BrowserPermissionBroker {
   private readonly pending = new Map<string, PendingPrompt>();
   private readonly always = new Map<string, Set<string>>();
+  /** Sessions already shown an `invite`, by its tool name. */
+  private readonly invited = new Map<string, Set<string>>();
 
   constructor(private readonly d: {
     /** Fresh read of the session's CURRENT permission mode — a mid-session setOptions must count. */
@@ -132,10 +148,12 @@ export class BrowserPermissionBroker {
 
   /** The user's answer, routed here by `SessionService.respondPermission`. Unknown ids are ignored
    *  (a stale card answered after the timeout already denied it), and so is an answer naming another
-   *  session than the one the card was put to. */
-  resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void {
+   *  session than the one the card was put to. False only for an Allow on a `personOnly` card that a
+   *  person did not give, which leaves the card up. */
+  resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string, by: Answerer = "process"): boolean {
     const p = this.pending.get(requestId);
-    if (!p || (sessionId !== undefined && p.sessionId !== sessionId)) return;
+    if (!p || (sessionId !== undefined && p.sessionId !== sessionId)) return true;
+    if (p.personOnly && decision !== "deny" && by !== "person") return false;
     this.pending.delete(requestId);
     clearTimeout(p.timer);
     if (p.card) {
@@ -146,7 +164,7 @@ export class BrowserPermissionBroker {
       this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision: answered ? "allow" : "deny", ...(answered ? { answers: loggableAnswers(p.card, given) } : {}) }));
       this.settled(p.sessionId);
       p.settle(answered ? { decision: "allow", answers: given } : { decision: "deny" });
-      return;
+      return true;
     }
     // An `alwaysPrompt` gate records nothing: the user answering "always" to a credential fill card
     // must not silently license the next one, on whatever origin that turns out to be.
@@ -160,15 +178,16 @@ export class BrowserPermissionBroker {
       if (decision === "allow_always") p.onAlwaysAllow?.();
     }
     this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision }));
-    this.settled(p.sessionId);
+    if (!p.invite) this.settled(p.sessionId);
     p.settle({ decision });
+    return true;
   }
 
   /** The session is waiting on nothing of the broker's any more, so it is running again — and not
    *  before: a card still open beside the one just answered must keep its session waiting, or the
    *  transcript stops drawing it. */
   private settled(sessionId: string): void {
-    for (const p of this.pending.values()) if (p.sessionId === sessionId) return;
+    for (const p of this.pending.values()) if (p.sessionId === sessionId && !p.invite) return;
     this.d.emit(sessionId, sessionEvent("status", { status: "running" }));
   }
 
@@ -182,6 +201,26 @@ export class BrowserPermissionBroker {
       p.settle({ decision: "deny", cancelled: true });
     }
     this.always.delete(sessionId);
+    this.invited.delete(sessionId);
+  }
+
+  /**
+   * A card for the person that the calling tool does not wait on: the tool has already answered its
+   * agent, and whatever the person does with the card reaches the agent by no route. Raised once per
+   * session and `toolName`; false when it was raised before. Answering it only takes it down.
+   */
+  invite(sessionId: string, toolName: string, title: string, input: Record<string, unknown> = {}): boolean {
+    let shown = this.invited.get(sessionId);
+    if (!shown) { shown = new Set(); this.invited.set(sessionId, shown); }
+    if (shown.has(toolName)) return false;
+    shown.add(toolName);
+    const requestId = REQUEST_PREFIX + randomBytes(12).toString("base64url");
+    const timer = setTimeout(() => {
+      if (this.pending.delete(requestId)) this.d.emit(sessionId, sessionEvent("permission_response", { requestId, decision: "deny" }));
+    }, PROMPT_TIMEOUT_MS);
+    this.pending.set(requestId, { sessionId, toolKey: toolName, settle: () => {}, timer, alwaysPrompt: true, perSession: false, invite: true });
+    this.d.emit(sessionId, sessionEvent("permission_request", { requestId, toolName, input, title, suggestions: [] }));
+    return true;
   }
 
   /**
@@ -265,7 +304,7 @@ export class BrowserPermissionBroker {
         resolve("deny");
       }, PROMPT_TIMEOUT_MS);
       this.pending.set(requestId, { sessionId, toolKey, settle: (r) => resolve(r.decision), timer, alwaysPrompt: opts.alwaysPrompt === true, perSession: opts.perSession === true, onAlwaysAllow: opts.onAlwaysAllow,
-        bypassable: !opts.alwaysPrompt && !opts.promptUnderBypass });
+        bypassable: !opts.alwaysPrompt && !opts.promptUnderBypass, personOnly: opts.personOnly === true });
       // Emitted AFTER the pending entry exists: a same-tick respondPermission must find it.
       // `toolName` is what the card SHOWS; `toolKey` is what `allow_always` remembers. They differ when
       // the grant must be narrower than the tool — Plan 20's ask keys on `agent_ask:<targetId>` so

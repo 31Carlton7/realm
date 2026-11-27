@@ -7,13 +7,14 @@
  * Every source is a `CodeSource`, asked for the messages that arrived since a moment, and only ever
  * asked by `SecurityCodes.latest` — which asks nothing while the switch is off. Main reads them
  * itself, so the grants are Realm's own: Messages' database and Mail's Envelope Index both sit behind
- * Full Disk Access. The live sources are:
+ * Full Disk Access, as does Notification Center's. The live sources are:
  *
  *   - Messages: `~/Library/Messages/chat.db`, opened read-only, incoming rows only. A row's words are
  *     in `text`, or since macOS 13 often only in `attributedBody`, a typedstream (`textOfAttributedBody`).
  *   - Mail: the `mac` command (`mac mail list`, then `mac mail extract --codes` for a message whose
  *     subject and preview carry no code). The list is asked with an operator so it never falls back
  *     to scripting Mail.app, which is what would put an Automation prompt in front of the person.
+ *   - Notifications: Notification Center's database, opened read-only (`notificationsSource`).
  *
  * Tests and live checks use `fakeCodeSource`, which reads a JSON file and nothing else. The harness
  * build never constructs a live source (`codeSourcesFor`).
@@ -28,9 +29,10 @@ import { accessSync, constants, existsSync, readFileSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import {
-  SECURITY_CODE_WINDOW_MS,
+  SECURITY_CODE_WAIT_MS, SECURITY_CODE_WINDOW_MS,
   type SecurityCodeSourceName, type SecurityCodeSourceState, type SecurityCodesStatus,
 } from "@realm/contracts";
+import { parsePlist, type PlistValue } from "./installed-apps";
 import { fallbackExtraDirs } from "./login-shell-path";
 
 /** One message, as a source hands it over. `code` is set when the source already found one (Mail's
@@ -42,6 +44,8 @@ export type CodeSource = {
   /** Messages that arrived at or after `since` (ms since the epoch), newest first. */
   recent(since: number): Promise<CodeMessage[]>;
   state(): Promise<SecurityCodeSourceState>;
+  /** Get the source fetching, for a fill that is about to wait on it. */
+  wake?(): void;
 };
 
 /* ─────────────────────────────── finding the code ─────────────────────────────── */
@@ -145,18 +149,66 @@ export class SecurityCodesSetting {
 
 /* ─────────────────────────────── the reader ─────────────────────────────── */
 
+/** How a source stood when a wait ran out: it could not be read, nothing new arrived in it, or what
+ *  arrived held no code. */
+export type CodeMiss = Record<SecurityCodeSourceName, SecurityCodeSourceState | "quiet" | "no_code">;
+
+export type CodeWait = { found: LatestCode } | { found: null; cancelled: true } | { found: null; cancelled: false; miss: CodeMiss };
+
+/** How often a waiting fill reads its sources again. */
+const WAIT_POLL_MS = 2_500;
+
+const MISS_WORDS: Record<SecurityCodeSourceName, Record<CodeMiss[SecurityCodeSourceName], string | null>> = {
+  Messages: {
+    ok: null,
+    quiet: "no text arrived in Messages (if the site texted the code, Text Message Forwarding may be off on the iPhone for this Mac)",
+    no_code: "texts arrived in Messages, but none held a code",
+    no_access: "Realm cannot read Messages (Full Disk Access is off for Realm)",
+    missing: "this Mac has no Messages history to read",
+  },
+  Mail: {
+    ok: null,
+    quiet: "no email arrived in Mail (Mail may not be fetching the account the code went to)",
+    no_code: "emails arrived in Mail, but none held a code",
+    no_access: "Realm cannot read Mail (Full Disk Access is off for Realm)",
+    missing: "Realm cannot read Mail on this Mac (the mac command is not installed)",
+  },
+  Notifications: {
+    ok: null,
+    quiet: "no notification arrived on this Mac",
+    no_code: "notifications arrived on this Mac, but none held a code",
+    no_access: "Realm cannot read this Mac's notifications (Full Disk Access is off for Realm)",
+    missing: "this Mac has no notification history to read",
+  },
+};
+
+/** Why a wait found nothing, source by source, in words an agent can act on. Never a message's text. */
+export function missedCodeError(miss: CodeMiss, waitedMs: number): string {
+  const why = (Object.keys(miss) as SecurityCodeSourceName[]).map((name) => MISS_WORDS[name][miss[name]]).filter(Boolean);
+  return `no security code arrived in ${Math.round(waitedMs / 1000)} s, so nothing was filled: ${why.join("; ")}`;
+}
+
+function sleepFor(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", done); resolve(); };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
 export class SecurityCodes {
   constructor(private readonly d: {
     setting: { enabled(): boolean; setEnabled(on: boolean): void };
     sources: readonly CodeSource[];
     now(): number;
+    sleep?(ms: number, signal?: AbortSignal): Promise<void>;
   }) {}
 
   enabled(): boolean { return this.d.setting.enabled(); }
 
   async status(): Promise<SecurityCodesStatus> {
     if (!this.d.setting.enabled()) return { enabled: false, sources: null };
-    const sources: Record<SecurityCodeSourceName, SecurityCodeSourceState> = { Messages: "missing", Mail: "missing" };
+    const sources: Record<SecurityCodeSourceName, SecurityCodeSourceState> = { Messages: "missing", Mail: "missing", Notifications: "missing" };
     for (const s of this.d.sources) sources[s.name] = await s.state().catch(() => "no_access" as const);
     return { enabled: true, sources };
   }
@@ -169,10 +221,44 @@ export class SecurityCodes {
   /** The code to offer on a page at `origin`, or null. Off, no source is touched. */
   async latest(origin: string): Promise<LatestCode | null> {
     if (!this.d.setting.enabled()) return null;
+    return (await this.read(origin)).found;
+  }
+
+  /**
+   * The code for `origin`, waiting up to `timeoutMs` for one to arrive. Mail is started in the
+   * background first, so an emailed code is fetched while this waits. Off, no source is touched;
+   * an abort ends the wait at once.
+   */
+  async waitFor(origin: string, o: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<CodeWait> {
+    const timeoutMs = o.timeoutMs ?? SECURITY_CODE_WAIT_MS;
+    const sleep = this.d.sleep ?? sleepFor;
+    const started = this.d.now();
+    const heard = new Set<SecurityCodeSourceName>();
+    if (this.d.setting.enabled()) for (const s of this.d.sources) s.wake?.();
+    while (!o.signal?.aborted && this.d.setting.enabled()) {
+      const read = await this.read(origin);
+      if (read.found) return { found: read.found };
+      for (const name of read.heard) heard.add(name);
+      const left = started + timeoutMs - this.d.now();
+      if (left <= 0) break;
+      await sleep(Math.min(WAIT_POLL_MS, left), o.signal);
+    }
+    if (o.signal?.aborted) return { found: null, cancelled: true };
+    const miss: CodeMiss = { Messages: "missing", Mail: "missing", Notifications: "missing" };
+    for (const s of this.d.sources) {
+      const state = await s.state().catch(() => "no_access" as const);
+      miss[s.name] = state !== "ok" ? state : heard.has(s.name) ? "no_code" : "quiet";
+    }
+    return { found: null, cancelled: false, miss };
+  }
+
+  /** One read of every source: the code for `origin`, and which sources had anything in the window. */
+  private async read(origin: string): Promise<{ found: LatestCode | null; heard: SecurityCodeSourceName[] }> {
     const now = this.d.now();
     const since = now - SECURITY_CODE_WINDOW_MS;
     const batches = await Promise.all(this.d.sources.map((s) => s.recent(since).catch(() => [] as CodeMessage[])));
-    return pickLatestCode(batches.flat(), now, origin);
+    const messages = batches.flat();
+    return { found: pickLatestCode(messages, now, origin), heard: [...new Set(messages.map((m) => m.source))] };
   }
 }
 
@@ -201,18 +287,9 @@ export function textOfAttributedBody(blob: Uint8Array): string | null {
 }
 
 export function messagesSource(dbPath = join(homedir(), "Library/Messages/chat.db")): CodeSource {
-  const state = async (): Promise<SecurityCodeSourceState> => {
-    try {
-      const { DatabaseSync } = await import("node:sqlite");
-      new DatabaseSync(dbPath, { readOnly: true }).close();
-      return "ok";
-    } catch {
-      return deniedOrMissing(dbPath);
-    }
-  };
   return {
     name: "Messages",
-    state,
+    state: () => databaseState(dbPath),
     async recent(since) {
       const { DatabaseSync } = await import("node:sqlite");
       const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -232,11 +309,58 @@ export function messagesSource(dbPath = join(homedir(), "Library/Messages/chat.d
   };
 }
 
+async function databaseState(path: string): Promise<SecurityCodeSourceState> {
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    new DatabaseSync(path, { readOnly: true }).close();
+    return "ok";
+  } catch {
+    return deniedOrMissing(path);
+  }
+}
+
 /** A path macOS hides behind Full Disk Access cannot even be stat'ed, so "missing" is believed only
  *  where the folder holding it can be read. */
 function deniedOrMissing(path: string): SecurityCodeSourceState {
   try { accessSync(dirname(path), constants.R_OK); } catch { return "no_access"; }
   return existsSync(path) ? "no_access" : "missing";
+}
+
+/* ─────────────────────────────── Notifications ─────────────────────────────── */
+
+/**
+ * Notification Center's database, where macOS 15 and later keep it (`usernoted` before 15 kept it
+ * under the per-user temp folder, which nothing here reads). `record` holds one row per notification:
+ * `delivered_date` in seconds since 2001, and `data`, a binary plist whose `req` dictionary carries
+ * the words shown — `titl`, `subt`, `body`. A text relayed from the iPhone, or an app's own push,
+ * lands here even when it never reaches Messages or Mail.
+ */
+export function notificationsSource(dbPath = join(homedir(), "Library/Group Containers/group.com.apple.usernoted/db2/db")): CodeSource {
+  return {
+    name: "Notifications",
+    state: () => databaseState(dbPath),
+    async recent(since) {
+      const { DatabaseSync } = await import("node:sqlite");
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      try {
+        const rows = db.prepare("SELECT data, delivered_date FROM record WHERE delivered_date >= ? ORDER BY delivered_date DESC LIMIT 20")
+          .all((since - APPLE_EPOCH_MS) / 1000) as { data: Uint8Array | null; delivered_date: number }[];
+        return rows.map((r) => ({
+          source: "Notifications" as const,
+          at: APPLE_EPOCH_MS + Math.round(r.delivered_date * 1000),
+          text: r.data ? textOfNotification(parsePlist(r.data)) : "",
+        }));
+      } finally {
+        db.close();
+      }
+    },
+  };
+}
+
+function textOfNotification(plist: PlistValue): string {
+  const req = typeof plist === "object" && plist !== null && !Array.isArray(plist) ? plist.req : null;
+  if (typeof req !== "object" || req === null || Array.isArray(req)) return "";
+  return [req.titl, req.subt, req.body].filter((v): v is string => typeof v === "string").join("\n");
 }
 
 /* ─────────────────────────────── Mail ─────────────────────────────── */
@@ -262,14 +386,21 @@ function runMacCommand(bin: string): RunMac {
   });
 }
 
+/** Mail launched hidden and left behind the front app (`-g -j`), so it fetches. `open` needs no
+ *  grant, and a Mail already running is left as it is. */
+function openMailInBackground(): void {
+  execFile("open", ["-g", "-j", "-a", "Mail"], { timeout: 5_000 }, () => {});
+}
+
 /** `mac`'s exit code for a permission macOS refused. */
 const MAC_DENIED = 2;
 /** At most this many recent emails are opened for `extract` per read. */
 const MAIL_EXTRACTS = 3;
 
-export function mailSource(run: RunMac | null): CodeSource {
+export function mailSource(run: RunMac | null, wake?: () => void): CodeSource {
   return {
     name: "Mail",
+    ...(wake ? { wake } : {}),
     async state() {
       if (!run) return "missing";
       const r = await run(["mail", "list", "newer:1d", "--limit", "1", "--json", "--quiet"]);
@@ -350,8 +481,8 @@ export function fakeCodeSource(name: SecurityCodeSourceName, file: string): Code
 export function codeSourcesFor(d: { packaged: boolean; env: Record<string, string | undefined> }): CodeSource[] {
   if (d.packaged || d.env.REALM_ENABLE_FAKE_AGENT !== "1") {
     const mac = findMacCommand(d.env);
-    return [messagesSource(), mailSource(mac ? runMacCommand(mac) : null)];
+    return [messagesSource(), mailSource(mac ? runMacCommand(mac) : null, openMailInBackground), notificationsSource()];
   }
   const file = d.env.REALM_LIVE_CODES;
-  return file ? [fakeCodeSource("Messages", file), fakeCodeSource("Mail", file)] : [];
+  return file ? [fakeCodeSource("Messages", file), fakeCodeSource("Mail", file), fakeCodeSource("Notifications", file)] : [];
 }

@@ -84,7 +84,7 @@ try {
   const ops = await make({ name: "Ops", handle: "ops", permissionMode: "bypassPermissions", icon: { shape: "hexagon", color: "teal" }, brief: "You run releases." });
 
   const modeOf = async (t) => (await api.call("teammates.get", { id: t.id })).permissionMode;
-  const transcript = () => ev(`document.querySelector('.transcript')?.textContent ?? ''`);
+  const transcript = () => ev(`[...document.querySelectorAll('.transcript')].find((t) => t.offsetParent !== null)?.textContent ?? ''`);
   const awake = () => ev(`(() => { document.documentElement.removeAttribute("data-window-inactive"); return true; })()`);
   const open = async (name) => {
     await ev(`(() => { const row = [...document.querySelectorAll('.sb-teammate .item-row')].find((el) => (el.getAttribute('aria-label') ?? '').startsWith(${JSON.stringify(name)})); row.click(); return true; })()`);
@@ -123,7 +123,7 @@ try {
   await shots("1-lead-chat-set");
   await open("Polish");
   await until(async () => /set @polish to Full access, at your request/.test(await transcript()), 10_000, "the line in @polish's chat");
-  check("@polish's chat chip follows", await ev(`document.querySelector('.composer')?.textContent.includes('Full access') ?? false`));
+  check("@polish's chat chip follows", await ev(`[...document.querySelectorAll('.composer')].find((c) => c.offsetParent !== null)?.textContent.includes('Full access') ?? false`));
   await shots("2-polish-chat-set");
 
   // 2. Undo, pressed in the page.
@@ -148,7 +148,7 @@ try {
   // Open the refused call so its reason is in the picture.
   await ev(`(() => { const rows = [...document.querySelectorAll('.tool-row')].filter((r) => /team_set_access|set access/i.test(r.textContent)); rows.at(-1)?.click(); return rows.length; })()`);
   await sleep(500);
-  await ev(`(() => { const t = document.querySelector('.transcript'); t.scrollTop = t.scrollHeight; return true; })()`);
+  await ev(`(() => { const t = [...document.querySelectorAll('.transcript')].find((t) => t.offsetParent !== null); t.scrollTop = t.scrollHeight; return true; })()`);
   await shots("5-lead-chat-refused");
   await open("Polish");
   await shots("6-polish-chat-unchanged");

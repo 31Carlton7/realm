@@ -17,8 +17,9 @@ import { z } from "zod";
  * `normal`/`warn`/`critical` start as macOS's level (`kern.memorystatus_vm_pressure_level`, the one
  * Activity Monitor colours green, yellow and red). macOS can stay green while the Mac pages out to a
  * swap file that only ever grows — measured on this Mac at 20 GB of swap and load averages in the
- * hundreds — so swapping out steadily between two readings lifts `normal` to `warn`. `unknown` is a
- * platform with no answer.
+ * hundreds — so swapping out steadily between two readings lifts `normal` to `warn`, and so does swap
+ * that is already most of the way full while little memory is available, or a disk with too little free
+ * for swap to grow into. `unknown` is a platform with no answer.
  */
 export const MEMORY_PRESSURES = ["normal", "warn", "critical", "unknown"] as const;
 export const MemoryPressureSchema = z.enum(MEMORY_PRESSURES);
@@ -138,12 +139,16 @@ export const RESOURCES_ADAPTIVE_DEFAULT = true;
 /** A stopped engine resumes its conversation on the next message in a few seconds; what the window
  *  trades is that wait, never the conversation. */
 export const PRESSURE_IDLE_MINUTES = { warn: 10, critical: 5 } as const;
+export type PressureIdleMinutes = { warn: number; critical: number };
+/** Laya's own: its default window is ten, so the shared ten at "warn" would change nothing, and
+ *  laya-serve is the largest thing Realm keeps loaded. */
+export const LAYA_PRESSURE_IDLE_MINUTES = { warn: 3, critical: 1 } as const;
 
 /** An idle window, as memory pressure leaves it. Only ever shorter, so 0 (never) stays never. */
-export function adaptIdleMinutes(minutes: number, pressure: MemoryPressure, adaptive: boolean): number {
+export function adaptIdleMinutes(minutes: number, pressure: MemoryPressure, adaptive: boolean, windows: PressureIdleMinutes = PRESSURE_IDLE_MINUTES): number {
   if (!adaptive) return minutes;
-  if (pressure === "critical") return Math.min(minutes, PRESSURE_IDLE_MINUTES.critical);
-  if (pressure === "warn") return Math.min(minutes, PRESSURE_IDLE_MINUTES.warn);
+  if (pressure === "critical") return Math.min(minutes, windows.critical);
+  if (pressure === "warn") return Math.min(minutes, windows.warn);
   return minutes;
 }
 

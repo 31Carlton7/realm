@@ -440,4 +440,17 @@ describe("Show in Finder", () => {
     act(() => { (result.current[0] as { onSelect: () => void }).onSelect(); });
     expect(reveal).toHaveBeenCalledWith(`${ROOT}/a.md`);
   });
+
+  /* THE mutants: the row missing beside Reveal, offered without the bridge, or handed another path. */
+  it("offers Download as PDF beside Reveal for a text file, at the same path", async () => {
+    const savePdf = vi.fn(async () => null);
+    vi.stubGlobal("realm", { files: { reveal, savePdf } });
+    const { store } = renderPane({ "a.md": "# A" }, ["a.md"], "a.md");
+    withRoot(store);
+    await screen.findByRole("button", { name: "Show a.md in Finder" });
+    const { result } = renderHook(() => useDocumentsMenuItems(paneItem));
+    expect(result.current.map((r) => ("label" in r ? r.label : null))).toEqual(["Reveal in Finder", "Download as PDF…"]);
+    act(() => { (result.current[1] as { onSelect: () => void }).onSelect(); });
+    expect(savePdf).toHaveBeenCalledWith(`${ROOT}/a.md`);
+  });
 });

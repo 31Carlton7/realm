@@ -62,6 +62,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *     (names and origins, no field for a password) is safe;
  *   - `workspace_state`, `sessions_list`, `session_read`, `space_list` — what is in this space and
  *     profile and what its sessions said, as the sidebar already shows it;
+ *   - `project_list` — the folders a space of this profile works in, by name and path;
  *   - `settings_get` — the five settings an agent may change (theme and the like), none of them secret;
  *   - `realm_capabilities` — Realm's tools, connections, skills and panes by name and state, as the
  *     Connections and Settings pages show them; never a value;
@@ -69,10 +70,13 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *     apps by name and size, as Settings ▸ RAM shows them; no process's arguments or environment;
  *   - `agent_peers` — the other sessions in this space and whether each can be asked;
  *   - `agent_status` — this session's own delegated runs, without collecting them;
- *   - `schedule_list` — the space's schedules;
+ *   - `schedule_list` — the space's schedules and its teammates' clocks;
  *   - `docs_search`, `docs_read` — the text of files in the space's folder;
  *   - `docs_state` — which files the space's Documents panes have open;
- *   - `team_list` — the space's teammates, what each does and what it is working on;
+ *   - `team_list`, `teammate_get` — the space's teammates, what each does, what it is working on and
+ *     how it is set up, as its page shows it;
+ *   - `teammate_sessions` — a teammate's task sessions by title and state, and the PR or release each made;
+ *   - `space_teams` — every space of the profile and who is on its team, as the sidebar shows them; a Lead's only;
  *   - `memory_index`, `memory_read`, `memory_search` — the memory repo, which refuses a secret's shape
  *     on every write;
  *   - `goal_status` — the session's goal, turns and budget.
@@ -80,7 +84,8 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  * NEVER class `read` (without `asksFirst`) a tool that changes state, sends something, moves the
  * user's screen or reveals a secret value: such a name runs with no prompt from either engine. Classed
  * otherwise on purpose: `docs_open`, `docs_reveal`, `pane_show`, `session_open`, `space_switch`, `space_create` (each changes what is
- * on screen); `team_message` (puts a turn in a teammate's chat); `team_set_access` (changes a teammate's mode).
+ * on screen); `team_message` (puts a turn in a teammate's chat); `team_set_access` (changes a teammate's mode); `teammate_create`, `teammate_update`, `teammate_archive`, `teammate_set_lead`, `teammate_reorder` (add or change a teammate);
+ * `teammate_run_clock` (puts a turn in a teammate's chat).
  */
 export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   // Promptless reads first, in the order `REALM_READ_ONLY_TOOLS` has always listed them.
@@ -89,6 +94,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__sessions_list": read,
   "realm-workspace__session_read": read,
   "realm-workspace__space_list": read,
+  "realm-workspace__project_list": read,
   "realm-workspace__settings_get": read,
   "realm-workspace__realm_capabilities": read,
   "realm-workspace__machine_status": read,
@@ -99,6 +105,9 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-docs__docs_read": read,
   "realm-docs__docs_state": read,
   "realm-team__team_list": read,
+  "realm-team__teammate_get": read,
+  "realm-team__teammate_sessions": read,
+  "realm-team__space_teams": read,
   "realm-memory__memory_index": read,
   "realm-memory__memory_read": read,
   "realm-memory__memory_search": read,
@@ -124,6 +133,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-agent__agent_answer": internal,
 
   "realm-ui__ui_ask": internal,
+  "realm-ui__ui_choose_folder": internal,
 
   "realm-computer__computer_list_apps": readAsking(SHOWS_ELSEWHERE),
   "realm-computer__computer_snapshot": readAsking(SHOWS_ELSEWHERE),
@@ -177,13 +187,26 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__session_open": internal,
   "realm-workspace__space_switch": internal,
   "realm-workspace__space_create": internal,
+  "realm-workspace__project_link": internal,
+  "realm-workspace__project_unlink": internal,
   "realm-workspace__settings_set": internal,
   "realm-workspace__theme_import": internal,
 
   "realm-schedule__schedule_create": internal,
+  "realm-schedule__schedule_update": internal,
+  "realm-schedule__schedule_pause": internal,
+  "realm-schedule__schedule_resume": internal,
+  "realm-schedule__schedule_run_now": internal,
+  "realm-schedule__schedule_delete": internal,
 
   "realm-team__team_message": internal,
   "realm-team__team_set_access": internal,
+  "realm-team__teammate_create": internal,
+  "realm-team__teammate_update": internal,
+  "realm-team__teammate_archive": internal,
+  "realm-team__teammate_set_lead": internal,
+  "realm-team__teammate_reorder": internal,
+  "realm-team__teammate_run_clock": internal,
 
   "realm-memory__memory_save": internal,
   "realm-memory__memory_remove": internal,

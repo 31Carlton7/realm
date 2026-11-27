@@ -1,4 +1,6 @@
-import { app, BrowserWindow, dialog, Menu, Notification, shell, systemPreferences, webContents, type WebContents } from "electron";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
+import { app, BrowserWindow, dialog, globalShortcut, Menu, Notification, shell, systemPreferences, webContents, type WebContents } from "electron";
 
 /**
  * Quiet windows: a live check's app that the person at the Mac never sees or hears.
@@ -8,7 +10,8 @@ import { app, BrowserWindow, dialog, Menu, Notification, shell, systemPreference
  * screen and everything still renders:
  *
  *   - no Dock icon, and the app is never activated: it runs as an accessory app, `app.focus` and
- *     `win.focus` do nothing to AppKit, and every window is non-focusable and ignores the mouse;
+ *     `win.focus` do nothing to AppKit (an `app.focus` is written in `quietWindowsLog`), and every
+ *     window is non-focusable and ignores the mouse;
  *   - every window is shown inactive at the lowest alpha there is (`QUIET_ALPHA`) with no shadow. It
  *     keeps its real place and size: macOS will not let a titled window leave the screens anyway
  *     (measured: a frame set 4000px past the last display came back with 40px on it), and a check of
@@ -17,25 +20,67 @@ import { app, BrowserWindow, dialog, Menu, Notification, shell, systemPreference
  *     `--disable-backgrounding-occluded-windows` (measured: browser-do-live's pane never settled
  *     while the person's own window covered it), so a quiet window is never covered: it floats above
  *     everything, on every Space, at an alpha nobody can see and with the mouse passing through;
- *   - the window main last showed or focused is KEY, as AppKit would have it, through `isFocused`,
+ *   - the window main last showed or focused is KEY until it is hidden or closed, as AppKit would have it, through `isFocused`,
  *     `getFocusedWindow` and the `focus`/`blur` events; the renderer's page is focus-emulated, so it
  *     draws as it does in use (not dimmed into `data-quiet`);
  *   - the webContents main last focused holds the keyboard, through `isFocused` and
  *     `getFocusedWebContents`. The real `webContents.focus()` makes its window key and activates the
  *     app whatever the window allows (measured: browser-menu-live had Electron in front for 18s);
  *   - secrets are sealed with Chromium's mock Keychain, so macOS never asks for the login password;
+ *   - no key is taken from the system: `globalShortcut.register` answers yes and registers nothing,
+ *     except the one accelerator a check names in `REALM_QUIET_GLOBAL_SHORTCUT`, which has to be a
+ *     chord nobody presses by accident;
  *   - no sound, notification, About panel, system dialog, permission prompt, Finder window or
  *     browser: each is recorded in `quietWindowsLog` instead, where a check can read it over
  *     `--inspect`.
  *
- * Honoured ONLY by an unpackaged app (`REALM_QUIET_WINDOWS=1`). A packaged Realm ignores it whatever
- * its environment says, and drops it from the environment its server inherits.
+ * Honoured ONLY by an unpackaged app (`REALM_QUIET_WINDOWS=1`, or started from an agent's shell,
+ * `REALM_AGENT_SHELL=1`). A packaged Realm ignores both whatever its environment says, and drops
+ * `REALM_QUIET_WINDOWS` from the environment its server inherits.
  */
 export const QUIET_WINDOWS_ENV = "REALM_QUIET_WINDOWS";
+/** Set in every agent's environment by realm-server (apps/server/src/sessions/service.ts). */
+export const AGENT_SHELL_ENV = "REALM_AGENT_SHELL";
 
 export function quietWindowsOn(d: { packaged: boolean; env: Record<string, string | undefined> }): boolean {
-  return !d.packaged && d.env[QUIET_WINDOWS_ENV] === "1";
+  return !d.packaged && (d.env[QUIET_WINDOWS_ENV] === "1" || d.env[AGENT_SHELL_ENV] === "1");
 }
+
+/**
+ * The user-data folder for an unpackaged Realm an agent started: one per checkout, under the temp
+ * folder. On the default folder it would share the single-instance lock with the owner's own dev
+ * Realm, and either quit at once or raise that Realm's window through `second-instance`.
+ *
+ * Null for a packaged app, for one no agent started, and for one whose folder was already chosen
+ * (`--user-data-dir`, or a live check's wrapper).
+ */
+export function agentUserData(d: {
+  packaged: boolean; env: Record<string, string | undefined>; appPath: string; userData: string; defaultUserData: string; tmpDir: string;
+}): string | null {
+  if (d.packaged || d.env[AGENT_SHELL_ENV] !== "1" || d.userData !== d.defaultUserData) return null;
+  return agentShellDir(d.tmpDir, d.appPath);
+}
+
+/**
+ * The Realm home for an unpackaged Realm an agent started: `home` in its own folder under the temp
+ * folder. An agent's shell inherits REALM_HOME from the server that started it, which is the owner's
+ * home, and a Realm there finds the owner's server in its `daemon.json`, built from other code, and
+ * hands it off: stops it unasked when it is idle, adopts it when it is not.
+ *
+ * Null for a packaged app, for one no agent started, and for one given a home other than the default
+ * (a live check's scratch home).
+ */
+export function agentHome(d: {
+  packaged: boolean; env: Record<string, string | undefined>; appPath: string; tmpDir: string; defaultHome: string;
+}): string | null {
+  if (d.packaged || d.env[AGENT_SHELL_ENV] !== "1") return null;
+  const home = d.env.REALM_HOME;
+  if (home && resolve(home) !== resolve(d.defaultHome)) return null;
+  return join(agentShellDir(d.tmpDir, d.appPath), "home");
+}
+
+const agentShellDir = (tmpDir: string, appPath: string): string =>
+  join(tmpDir, "realm-agent-shell", createHash("sha256").update(appPath).digest("hex").slice(0, 12));
 
 /** What quiet mode stopped from reaching the person, oldest first. */
 export const quietWindowsLog: { what: string; detail?: unknown }[] = [];
@@ -50,6 +95,36 @@ export const QUIET_ALPHA = 1 / 255;
 
 /** Construction options for a window that must not flash before `browser-window-created` runs. */
 export const QUIET_WINDOW_OPTIONS = { show: false, focusable: false, opacity: QUIET_ALPHA, hasShadow: false } as const;
+
+/**
+ * A window whose check is that it really takes the keyboard: the quick chat panel, which is a
+ * non-activating panel, so it can be key without the front app changing. Marked on the window
+ * rather than kept here, because this module may be loaded twice. Honoured only while the check
+ * asks (`REALM_QUIET_REAL_KEY=1`), and the window stays as hushed as every other.
+ */
+const KEYABLE = Symbol.for("realm.quietWindows.keyable");
+type Keyable = { [KEYABLE]?: true };
+export function quietKeyable(w: BrowserWindow): void {
+  (w as Keyable)[KEYABLE] = true;
+}
+const takesKey = (w: BrowserWindow) => process.env.REALM_QUIET_REAL_KEY === "1" && (w as Keyable)[KEYABLE] === true;
+
+/** A menu-bar item quiet mode keeps out of the menu bar: what it would say, and its picture as a PNG,
+ *  kept under its name on `globalThis[Symbol.for("realm.quietTrays")]` for a check to read over
+ *  `--inspect`. Global because this module may be loaded twice. */
+export type QuietTrayRecord = { title: string; toolTip: string; menu: string[]; png: string; destroyed: boolean };
+export function quietTray(name: string, image: { toPNG(): Buffer }) {
+  const g = globalThis as { [k: symbol]: Record<string, QuietTrayRecord> | undefined };
+  const all = (g[Symbol.for("realm.quietTrays")] ??= {});
+  const record: QuietTrayRecord = { title: "", toolTip: "", menu: [], png: image.toPNG().toString("base64"), destroyed: false };
+  all[name] = record;
+  return {
+    setTitle: (t: string) => { record.title = t; },
+    setToolTip: (t: string) => { record.toolTip = t; },
+    setContextMenu: (template: { label?: string }[]) => { record.menu = template.flatMap((i) => (i.label ? [i.label] : [])); },
+    destroy: () => { record.destroyed = true; },
+  };
+}
 
 /** Once per process, though the module may be loaded twice: a live check's wrapper loads its own
  *  build of this file before Realm's main, which carries another. */
@@ -81,12 +156,14 @@ export function installQuietWindows(): void {
     app.dock.downloadFinished = () => {};
     void app.whenReady().then(() => app.setActivationPolicy("accessory"));
   }
-  app.focus = () => {};
+  app.focus = (options?: { steal: boolean }) => note("app focus", options);
   app.showAboutPanel = () => note("about panel");
 
   /* ── Windows ─────────────────────────────────────────────────────────────────────────────── */
   const proto = BrowserWindow.prototype;
   const showInactive = proto.showInactive;
+  const hide = proto.hide;
+  const focus = proto.focus;
   const order: BrowserWindow[] = [];
   let key: BrowserWindow | null = null;
   const live = (w: BrowserWindow | null) => (w && !w.isDestroyed() ? w : null);
@@ -100,7 +177,7 @@ export function installQuietWindows(): void {
   const hush = (w: BrowserWindow) => {
     w.setOpacity(QUIET_ALPHA);
     w.setHasShadow(false);
-    w.setFocusable(false);
+    w.setFocusable(takesKey(w));
     w.setIgnoreMouseEvents(true);
     // Above everything, on every Space: a window anything covers is occluded, and an occluded
     // window's page stops getting frames whatever the Chromium switches say.
@@ -117,7 +194,13 @@ export function installQuietWindows(): void {
     setKey(this);
   };
   proto.focus = function (this: BrowserWindow) {
+    if (takesKey(this)) focus.call(this);
     if (this.isVisible()) setKey(this);
+  };
+  // AppKit takes key from a window it orders out, and hands it to the one in front.
+  proto.hide = function (this: BrowserWindow) {
+    hide.call(this);
+    if (live(key) === this) setKey([...order].reverse().find((o) => o !== this && !o.isDestroyed() && o.isVisible()) ?? null);
   };
   proto.blur = function (this: BrowserWindow) {
     if (live(key) === this) setKey(null);
@@ -150,6 +233,13 @@ export function installQuietWindows(): void {
     wc.focus = () => { keyboard = wc; };
     wc.isFocused = () => holder() === wc;
   });
+
+  const register = globalShortcut.register.bind(globalShortcut);
+  globalShortcut.register = (accelerator: string, callback: () => void) => {
+    if (accelerator === process.env.REALM_QUIET_GLOBAL_SHORTCUT) return register(accelerator, callback);
+    note("global shortcut", accelerator);
+    return true;
+  };
 
   /* ── Everything else that reaches the person ─────────────────────────────────────────────── */
   Notification.isSupported = () => false;

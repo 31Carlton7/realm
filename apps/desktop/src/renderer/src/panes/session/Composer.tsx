@@ -46,6 +46,10 @@ const NO_GREETINGS: readonly string[] = [];
 const NO_FAST_SUPPORT: Record<string, boolean> = {};
 const NO_EFFORT_SUPPORT: Record<string, string[]> = {};
 const NO_ICONS: Readonly<Record<string, string | null>> = {};
+/** The listening pill's bars. Each shows the mic's level as it was a few frames ago (a frame is about
+ *  21ms) at a height of its own, so a syllable runs across them instead of lifting all four as one. */
+const MIC_BARS = [{ lag: 4, gain: 0.6 }, { lag: 0, gain: 1 }, { lag: 2, gain: 0.8 }, { lag: 6, gain: 0.65 }] as const;
+const MIC_HISTORY = 7;
 /** "Messages", "Messages and Mail", "Messages, Mail and Notes". */
 const listNames = (names: readonly string[]): string =>
   names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
@@ -415,7 +419,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueTurn = null, queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything", dictation = null }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueTurn = null, queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, goalActive = false, packGreetings = NO_GREETINGS, sessionInit = null, defaultModel = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, bare = false, placeholder = "Ask anything", dictation = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -430,6 +434,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    * this prompter's "+" too, and the row above the card is where it is seen.
    */
   compact?: boolean;
+  /** Words only: no "+" and no model picker, for a prompter whose words go to something that is not
+   *  the session's agent (the quick chat panel's meeting assistant). */
+  bare?: boolean;
   /** What the empty box says. The media viewer's prompter names the file it is asking about. */
   placeholder?: string;
   /**
@@ -573,6 +580,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    *  node rather than the goal itself, for `hero`'s reason: everything it needs to DO belongs to the
    *  pane, and a Composer that took four goal callbacks would be a Composer that knows about goals. */
   goal?: React.ReactNode;
+  /** The session is pursuing a goal right now, so it will start its own next turns: the row says
+   *  "Goal". A paused, blocked or finished goal is the strip's to say. */
+  goalActive?: boolean;
   /** Hero-greeting lines from an unlocked friend pack. Drawn only with the eggs on, like everything
    *  else a pack brings — the switch is the consent boundary and a pack is not a way around it. */
   packGreetings?: readonly string[];
@@ -675,10 +685,6 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
     onDraftChange(`${before}${lead}${elementChipToken(chip.label)}${tail}${after}`);
   };
 
-  /** The hint replaces the placeholder, so it lives and dies with the placeholder: an empty draft
-   *  only. A single narrowed const rather than a boolean, so the ⇥ handler and the markup below both
-   *  get the string itself out of the one check. */
-  const hint = promptHint && draft === "" ? promptHint : null;
   const hintId = `prompt-hint-${session.id}`;
 
   // The greeting is picked once per session (and re-picked only if the space is renamed or the name
@@ -804,30 +810,42 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    *  text renders. A range, not a point: toggling a bullet over three selected lines must leave those
    *  three lines selected, or the next ⌘⇧8 would undo only the line the caret collapsed onto. */
   const pendingSel = useRef<{ start: number; end: number } | null>(null);
-  /** The ring inside the mic that follows the voice: its level is written straight onto it each
-   *  frame, never through state, so a frame of audio re-renders nothing. */
-  const micRing = useRef<HTMLSpanElement>(null);
-  const micShown = useRef(0);
+  /** The bars in the listening pill: their levels are written straight onto it each frame, never
+   *  through state, so a frame of audio re-renders nothing. */
+  const micMeter = useRef<HTMLSpanElement>(null);
+  /** The level shown on each of the last few frames, newest first. */
+  const micHistory = useRef<number[]>([]);
   const dictate = useDictation({
     port: dictation, draft, onDraftChange,
     caret: () => { const at = ta.current?.selectionEnd ?? draft.length; return chipAround(chips, at)?.end ?? at; },
     select: (at) => { pendingSel.current = { start: at, end: at }; },
     level: (rms) => {
-      // Under Reduce motion the ring holds still at its listening size.
-      if (!micRing.current || prefersReducedMotion()) return;
-      micShown.current = nextMicLevel(micShown.current, rms);
-      micRing.current.style.setProperty("--mic-level", micShown.current.toFixed(3));
+      const meter = micMeter.current;
+      if (!meter) return;
+      const history = micHistory.current;
+      history.unshift(nextMicLevel(history[0] ?? 0, rms));
+      history.length = Math.min(history.length, MIC_HISTORY);
+      // Under Reduce motion every bar shows the level now, so nothing runs across them.
+      const still = prefersReducedMotion();
+      MIC_BARS.forEach((bar, i) => {
+        (meter.children[i] as HTMLElement).style.setProperty("--mic-level", ((still ? history[0]! : history[bar.lag] ?? 0) * bar.gain).toFixed(3));
+      });
     },
   });
   useEffect(() => {
     if (dictate.live) return;
-    micShown.current = 0;
-    micRing.current?.style.removeProperty("--mic-level");
+    micHistory.current = [];
+    MIC_BARS.forEach((_, i) => (micMeter.current?.children[i] as HTMLElement | undefined)?.style.removeProperty("--mic-level"));
   }, [dictate.live]);
   /* While dictating, the words heard so far sit at the caret in the box, drawn as not yet typed, and
      the draft itself is untouched until they land. Each word is a piece of its own, so a new one eases
      in and a final one takes the typed ink; once they land, the ones that were not final yet settle. */
   const dictating = dictate.live ? placeDictation(draft, dictate.live.at, dictate.live.words) : null;
+  /** The hint replaces the placeholder, so it lives and dies with the placeholder: an empty draft
+   *  only, and not while dictating, when the box shows the words heard rather than the draft, which
+   *  stays empty until they land. A single narrowed const rather than a boolean, so the ⇥ handler and
+   *  the markup below both get the string itself out of the one check. */
+  const hint = promptHint && draft === "" && !dictate.live ? promptHint : null;
   const dictatedAt = dictate.live ? Math.min(dictate.live.at, draft.length) : 0;
   type Painted = Segment & { heard?: { settled: number }; settling?: true };
   const landed = dictate.landed?.draft === draft ? dictate.landed : null;
@@ -1485,13 +1503,13 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
           <div className="composer-opts">
             {/* The "+" opens the add menu now (Plan 12 W1) — its Add files… reaches the SAME picker
                 through the same handler the bare attach button used to call directly. */}
-            <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
+            {!bare && <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
               onSkills={() => setSkillPickerOpen(true)} canSkills={allSkills.length > 0}
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
               onAddSubAgent={session.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind) ? null : () => setSubAgentOpen(true)}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
-              modeRows={modeRows} btnRef={plusRef} compact={compact} />
+              modeRows={modeRows} btnRef={plusRef} compact={compact} />}
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it
@@ -1528,6 +1546,20 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
                 Allow everything? Confirm
               </button>
             )}
+            {/* The mode in words, beside the permission it sets aside: plain text in the row's ink, and
+                nothing at all in Build. A click on Plan or Ask is the "+" menu's Build row. A goal's
+                ways out are on its strip right above, so its word is only a word. */}
+            {!compact && inReadOnly && (
+              <button type="button" className="ghost-chip composer-mode-label" data-mode={mode}
+                title={`${MODE_LABEL[mode]} mode. Click to go back to Build`}
+                onClick={() => onMode("build")}>
+                {/* "Ask mode", because the permission chip beside it says "Ask each time", and "Ask" narrow. */}
+                {mode === "ask" ? "Ask mode" : MODE_LABEL[mode]}
+              </button>
+            )}
+            {!compact && goalActive && (
+              <span className="ghost-chip composer-mode-label" data-static="" data-mode="goal" title="Working toward a goal across turns">Goal</span>
+            )}
           </div>
           {/* The first dictation on a Mac waits for its speech model to come from Apple. */}
           {dictate.live?.fetching && (
@@ -1540,18 +1572,21 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             {/* ONE chip, not two. A harness is only ever chosen FOR a model, so that choice lives on
                 the model's own row in the picker, where there is one. The chip still wears the
                 harness's mark, so nothing a harness chip said is lost. */}
-            <ModelPicker kind={kind} model={session.model} agentProbe={agentProbe} ran={ran} effort={effort} rows={rows} info={modelInfo}
+            {!bare && <ModelPicker kind={kind} model={session.model} agentProbe={agentProbe} ran={ran} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
               onPick={onPickModel} fast={fast} eggs={eggs} account={account}
-              switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />
+              switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />}
             {dictation && (
               <button type="button" className="icon-btn composer-attach composer-dictate" aria-pressed={dictate.live !== null}
-                aria-label={dictate.live ? "Stop dictating" : "Dictate"} title={dictate.live ? "Stop dictating (Esc)" : "Dictate"}
+                aria-label={dictate.live ? "Stop dictation" : "Dictate"} title={dictate.live ? "Stop dictation (Esc)" : "Dictate"}
                 disabled={dictate.live?.cleaning}
                 onMouseDown={(e) => e.preventDefault() /* the box keeps its focus and its caret */}
                 onClick={() => (dictate.live ? dictate.stop() : dictate.start())}>
-                <span ref={micRing} className="composer-dictate-ring" aria-hidden="true" />
-                <Icon name="mic" size={16} />
+                <Icon name="mic" size={16} className="dictate-mic" />
+                <span ref={micMeter} className="dictate-live" aria-hidden="true">
+                  {MIC_BARS.map((_, i) => <span key={i} className="dictate-bar" />)}
+                  <span className="dictate-stop" />
+                </span>
               </button>
             )}
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,

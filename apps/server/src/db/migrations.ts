@@ -1318,4 +1318,16 @@ export const migrations: string[] = [
   // teammate before this, is TEAMMATE_HOME_COMPACT_WINDOW, so nothing is backfilled and a later change
   // to the default reaches them. A second run fails on the ALTER, inside the migration's transaction.
   `ALTER TABLE team_roles ADD COLUMN compact_window INTEGER;`,
+  // The Command key the double-tap is read on (contracts/global-keys.ts), Left when unset. Before the
+  // choice it took either key, and the switch was all a home could save: one saved on keeps Either.
+  // An unset switch and one saved off read Left. `INSERT OR IGNORE`: safe to meet twice, and a side
+  // already chosen is kept.
+  `
+  INSERT OR IGNORE INTO settings (key, value_json)
+    SELECT 'keys.doubleTapSide', '"either"' FROM settings WHERE key = 'keys.doubleTapCommand' AND value_json = 'true';
+  `,
+  // The session whose agent made a schedule (`Schedule.createdBySession`). NULL, every row before this,
+  // reads as the person's: nothing recorded which agent made which, so none is an agent's own to change
+  // without a card. A second run fails on the ALTER, inside the migration's transaction.
+  `ALTER TABLE schedules ADD COLUMN created_by_session TEXT;`,
 ];

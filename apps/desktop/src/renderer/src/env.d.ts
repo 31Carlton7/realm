@@ -20,15 +20,43 @@ interface Window {
     /** The space this window was opened for, or undefined. Boot lands on it. */
     spaceId?: string;
     landSpaceId?: string;
+    /** "quick-chat" in the quick chat panel's page; undefined in a Realm window. */
+    surface?: string;
+    /** The quick chat panel's meeting assistant: the menu bar's red mark while it listens, and the
+     *  mark's Stop. Answered for the panel's own page only. */
+    meetingAssistant?: {
+      setListening(on: boolean): void;
+      onStop(cb: () => void): () => void;
+      /** The assistant's chords, pressed in any app. */
+      onKey?(cb: (action: import("@realm/contracts").AssistantPageAction) => void): () => void;
+      keysReady?(): void;
+      setShown?(on: boolean): void;
+    };
+    /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). Optional like
+     *  every bridge: jsdom has none. */
+    quickChatPanel?: {
+      hide(): void;
+      opening(): Promise<boolean>;
+      onShown(cb: () => void): () => void;
+      shortcut(): Promise<import("@realm/contracts").QuickChatShortcutState>;
+      setShortcut(chord: string | null): Promise<import("@realm/contracts").QuickChatShortcutState>;
+      setHideFromSharing(on: boolean): void;
+      openInRealm(target: { sessionId: string; spaceId: string }): void;
+      openDocument(target: { spaceId: string; path: string }): void;
+      chatChanged(): void;
+      onChatChanged(cb: () => void): () => void;
+    };
     /** Realm's windows (main/window-registry.ts). Optional like every bridge: jsdom has none. */
     windows?: {
       openProfile(profileId: string): Promise<void>;
       focusProfile(profileId: string): Promise<boolean>;
       setProfile(profileId: string | null): void;
       openSpace(spaceId: string): Promise<void>;
-      focusSpace(spaceId: string, sessionId?: string): Promise<boolean>;
+      focusSpace(spaceId: string, sessionId?: string, by?: "agent"): Promise<boolean>;
       setSpace(spaceId: string | null): void;
       newWindow(): Promise<boolean>;
+      /** Once booted, at the next frame: the quick chat panel made ahead waits for it. */
+      drawn(): void;
     };
     /** The window's page zoom, 1 at 100% (`webFrame.getZoomFactor`). Optional like every other
      *  bridge: jsdom has none, and a renderer without it reads as 100%, which is what the app
@@ -36,6 +64,8 @@ interface Window {
     zoomFactor?(): number;
     /** A session picked from the menu-bar item while the window was closed. */
     onOpenSession(cb: (target: { sessionId: string; spaceId: string | null }) => void): () => void;
+    /** A space's file asked for from the quick chat panel. */
+    onOpenDocument?(cb: (target: { spaceId: string; path: string }) => void): () => void;
     /** Quit Realm and stop every agent. Confirms in main when anything is working. */
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */
@@ -82,10 +112,36 @@ interface Window {
      *  back to open in a Realm Browser tab. Optional like the other late bridges. */
     links?: {
       setOpenIn(pref: import("@realm/contracts").LinksOpenIn): void;
-      onOpenInRealm(cb: (url: string) => void): () => void;
+      onOpenInRealm(cb: (url: string, opts: { background: boolean }) => void): () => void;
+      /** A browser pane's page asked for a new tab: beside it, and behind it when `background`. */
+      onOpenTab?(cb: (m: { browserId: string; url: string; background: boolean; focus: boolean; page: string }) => void): () => void;
+      /** The new tab's browser, for the page Chromium made (`onOpenTab`'s `page`). */
+      claimTab?(page: string, browserId: string): void;
+      /** A browser pane's page closed itself: its tab closes. */
+      onCloseTab?(cb: (m: { browserId: string }) => void): () => void;
     };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };
+    /** Settings ▸ General ▸ Meetings: the switch, and calendar access as macOS reports it. */
+    meetings?: {
+      setOpenWhenStarts(on: boolean): Promise<void>;
+      setStartAssistantWithCall?(on: boolean): Promise<void>;
+      calendarAccess(): Promise<import("@realm/contracts").CalendarAccess | null>;
+      askForCalendar(): Promise<void>;
+      openCalendarSettings(): Promise<void>;
+      onCalendarAccess(cb: (access: import("@realm/contracts").CalendarAccess | null) => void): () => void;
+    };
+    /** Settings ▸ Keys ▸ From anywhere: the keys Realm answers from any app. */
+    keys?: {
+      state(): Promise<import("@realm/contracts").GlobalKeysState>;
+      setDoubleTap(on: boolean): Promise<void>;
+      setDoubleTapSide(side: import("@realm/contracts").CommandSide): Promise<void>;
+      setHold(key: import("@realm/contracts").HoldKey): Promise<void>;
+      setAssistant(on: boolean): Promise<void>;
+      watch(on: boolean): void;
+      onEvent(cb: (event: import("@realm/contracts").GlobalKeysEvent) => void): () => void;
+      onState(cb: (state: import("@realm/contracts").GlobalKeysState) => void): () => void;
+    };
     /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every
      *  late bridge: jsdom has none, and a renderer without it simply lists no apps. */
     apps?: {
@@ -197,6 +253,8 @@ interface Window {
       finderIcon(): Promise<string | null>;
       /** Copy it where the user points; the saved path, or null when they cancelled. */
       saveCopy(path: string): Promise<string | null>;
+      /** Typeset it as a PDF and save that where the user points (main/print-pdf.ts). Optional. */
+      savePdf?(path: string): Promise<string | null>;
       /** Quick Look, Share and drag-out (main/file-actions.ts). Optional, like every bridge. */
       quickLook?(path: string, base?: string): Promise<void>;
       share?(path: string, at: { x: number; y: number }, base?: string): Promise<void>;
@@ -216,6 +274,15 @@ interface Window {
       start(): Promise<unknown>;
       command(command: Record<string, unknown>): void;
       audio(pcm: Uint8Array): void;
+      stop(): void;
+      onEvent(cb: (event: unknown) => void): () => void;
+    };
+    /** A meeting's transcript, the speech helper's continuous mode; its wire is voice/transcript.ts. */
+    transcript?: {
+      start(): Promise<unknown>;
+      command(command: Record<string, unknown>): void;
+      audio(source: string, pcm: Uint8Array): void;
+      systemAudio(): void;
       stop(): void;
       onEvent(cb: (event: unknown) => void): () => void;
     };
@@ -289,6 +356,8 @@ interface Window {
       keychainList?(): Promise<import("@realm/contracts").BrowserCredential[]>;
       codesStatus?(): Promise<import("@realm/contracts").SecurityCodesStatus | null>;
       setCodes?(enabled: boolean): Promise<import("@realm/contracts").SecurityCodesStatus | null>;
+      signinsStatus?(): Promise<import("@realm/contracts").AgentSigninsStatus | null>;
+      setSignins?(enabled: boolean): Promise<import("@realm/contracts").AgentSigninsStatus | null>;
       neverList?(profileId: string): Promise<string[]>;
       setNever?(profileId: string, origin: string, never: boolean): Promise<string[]>;
       fillAllows?(profileId: string): Promise<import("@realm/contracts").PasswordFillAllow[]>;

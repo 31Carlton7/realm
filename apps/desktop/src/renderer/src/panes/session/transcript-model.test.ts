@@ -503,6 +503,18 @@ describe("a question put to the user", () => {
     }
   });
 
+  it("takes the place of a ui_choose_folder call too", () => {
+    const input = { prompt: "Which folder should this space work in?" };
+    const t = reduceAll([
+      sessionEvent("tool_call", { toolUseId: "t1", name: "mcp__realm__realm-ui__ui_choose_folder", input, parentToolUseId: null }, 15),
+      request({ toolName: "ui_choose_folder", input, ask: { asker: codex, mode: "question", questions: [{ id: "folder", prompt: input.prompt, kind: "folder" }] } }),
+      answer({ folder: "/Users/me/app" }),
+      sessionEvent("tool_result", { toolUseId: "t1", content: "The user chose /Users/me/app", isError: false }),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["question"]);
+    expect(t.blocks[0]).toMatchObject({ toolUseId: "t1", answers: { folder: "/Users/me/app" } });
+  });
+
   it("leaves a different call's row alone, and makes no question of a permission", () => {
     const t = reduceAll([
       sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }),

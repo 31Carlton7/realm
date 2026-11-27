@@ -152,9 +152,8 @@ describe("the prompter's squircle edge", () => {
     // Glass: the lens covers the face, so the edge is the glass's own rim, cut on the same curve.
     expect(bodiesFor(":root[data-squircle] .composer-glass").join(" ")).toContain("border-radius: var(--r-squircle); corner-shape: squircle;");
     const rim = RULES.find((r) => r.selectors.some((s) => s.startsWith(":root[data-glass] :is(.composer-glass,") && s.endsWith("::before")))!;
-    expect(rim.body).toContain("border-radius: inherit;");
+    expect(rim.body).toContain("border-radius: inherit; corner-shape: inherit;");
     expect(rim.body).toContain("background: var(--glass-specular);");
-    expect(bodiesFor(":root[data-glass] .composer-glass::before").join(" ")).toContain("corner-shape: inherit;");
   });
 
   it("never puts the prompter back on a round corner", () => {
@@ -1086,6 +1085,9 @@ describe("Ara refresh §3/§4 geometry", () => {
     // A row with vertical padding on top of the token would be taller than it, so none has any.
     expect(bodiesFor(".mention-row").join(" ")).toMatch(/padding: 0 8px/);
     expect(bodiesFor('.plus-menu [role^="menuitem"]').join(" ")).toMatch(/padding-block: 0/);
+    // The skill row is two lines tall, so its corner is worked out from a one-line row's height; at its
+    // own 53px it came out a pill beside the model row (#528).
+    expect(bodiesFor(".skill-picker-row").join(" ")).toMatch(/--btn-h: var\(--picker-row-h\)/);
   });
 
   it("a key is drawn one way: a card's chords and footer keys wear the menus' key chip", () => {
@@ -1510,8 +1512,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // the room it leaves under the last row (`slack`): both read off the laid-out list at the pick.
       // Used with 0px fallbacks, so a held picker that never receives them is merely unpadded.
       "--mp-floor", "--mp-slack",
-      // The microphone's level while dictating (Composer.tsx), 0–1, written on the mic's ring each
-      // frame; 0 without it.
+      // The microphone's level while dictating (Composer.tsx), 0–1, written on each of the listening
+      // pill's bars each frame; 0 without it.
       "--mic-level",
       // A glass surface's fitted lens (glass/fitted-lens.ts), drawn for its own box and named on it
       // once its map exists; every rule reads it with a CSS frost to stand in until then.
@@ -2170,8 +2172,10 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
          paint (the prompter's over a picture) takes the painted curve. */
       .filter((sel) => !sel.startsWith(":root[data-squircle]"))
       /* Nor is a card's preview, which takes the card's corner less its inset and clips a picture —
-         a fill painted behind an image would be under it, so Chromium's own curve draws the clip. */
-      .filter((sel) => sel !== ".docs-card-preview" && sel !== ".docs-card-preview[data-shows=\"picture\"]::after");
+         a fill painted behind an image would be under it, so Chromium's own curve draws the clip. Nor
+         are the controls in a file card's corners, cut from their ground's corner the same way. */
+      .filter((sel) => ![".docs-card-preview", ".docs-card-preview[data-shows=\"picture\"]::after", ".docs-card-cell > .docs-home-attach",
+        ".library-grid .library-file-more"].includes(sel));
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });
@@ -5242,30 +5246,25 @@ describe("the machine pane's screen", () => {
   });
 });
 
-/* The band above the prompter is one object. `.composer[data-mode]` re-colours the card's ring, and a
-   strip left on the neutral `--card-ring` draws a different-coloured line up each side of the same
-   band — which shows as a notch at either edge, where the card's own top corners sit inside the strip.
-   THE MUTANT: colour the card alone, which is what it did. */
-it("carries the prompter's mode ring up through every strip stacked above it, and down through the one below", () => {
-  for (const [mode, token] of [["plan", "--rl-warning"], ["ask", "--rl-success"]] as const) {
-    const strips: [string, string][] = [
-      ...[".composer-goal", ".composer-todos", ".composer-overstrip"].map((strip): [string, string] => [strip, `${strip}:has(~ .composer[data-mode="${mode}"])`]),
-      // The under-strip is the card's LATER sibling, so it reads the mode with no `:has`.
-      [".composer-understrip", `.composer[data-mode="${mode}"] ~ .composer-understrip`],
-    ];
-    for (const [strip, sel] of strips) {
-      const painted = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
-      expect(painted, `${strip} under ${mode}`).toContain(token);
-      /* …and under the gate the edge is the painter's ALONE. The fallback's box-shadow is drawn on the
-         border box, which the painter squares to radius 0, so left on it drew a second ring: square
-         past the painted corners, and across the band where two strips meet. THE mutant: drop this. */
-      expect(painted, `${strip} under ${mode} keeps the fallback's box-shadow`).toContain("box-shadow: none");
-      // The painter is gated, so the fallback edge has to say the same thing.
-      const fallback = bodiesFor(sel).join(" ");
-      expect(fallback, `${strip} fallback under ${mode}`).toContain(token);
-      expect(fallback, `${strip} fallback hairline`).toContain("var(--hairline-w)");
+/* The prompter's mode is a word on its row and a wash on its card, and nothing round it. THE MUTANTS:
+   a ring in the mode's colour back on the card, its focus, or the strips stacked on it. */
+describe("the prompter's mode state draws no ring", () => {
+  /** Every rule on the prompter's band that is keyed on a mode: the card's `data-mode`, however it is
+   *  spelled (`[data-mode=…]`, `:is([data-mode…])`, a strip's `:has(~ …)`), or the label's presence. */
+  const modeRules = RULES.filter((r) => partsOf(r).some((sel) => /composer/.test(sel) && /\[data-mode|composer-mode-label/.test(sel)));
+
+  it("no rule keyed on the card's mode draws an edge round the card or a strip of its band", () => {
+    expect(modeRules.length).toBeGreaterThan(0);
+    for (const r of modeRules) expect(r.body, partsOf(r).join(", ")).not.toMatch(/--sq-ring|box-shadow|outline|border/);
+  });
+
+  it("washes the card in the state's tone after its alpha, so the tone holds over a thinned pane and a picture", () => {
+    for (const [mode, token] of [["ask", "--rl-success"], ["plan", "--rl-warning"]] as const) {
+      const wash = `color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(${token}) 6%)`;
+      expect(bodiesFor(`.composer[data-mode="${mode}"]`).join(" "), `${mode} fallback`).toContain(`background: ${wash}`);
+      expect(bodiesFor(`:root[data-squircle] .composer[data-mode="${mode}"]`).join(" "), `${mode} painted`).toContain(`--sq-fill: ${wash}`);
     }
-  }
+  });
 });
 
 /**
@@ -5669,7 +5668,152 @@ describe("one squircle ladder (the owner, 11-17)", () => {
     const fixed = RULES.filter((r) => /corner-shape: squircle/.test(r.body) && /border-radius: var\(--r-(ctl|chip)\)/.test(r.body))
       .flatMap(partsOf);
     expect(fixed).not.toContain(".documents-tab");
-    expect(fixed.length).toBeLessThanOrEqual(70);
+    expect(fixed.length).toBeLessThanOrEqual(62);
+  });
+});
+
+/* A segmented control's chosen segment read as a small plain rounded rect in Glass: a 10px corner on the
+   surfaces' curve inside a 13px track two pixels away, its rim traced on a circle round it (the owner,
+   11-19: "fix the corners on a lot of these glass elements and selectors"). A track is a control, so it
+   takes its height times the control ratio on the control's curve, and the segment takes the track's
+   corner less the gap between them. */
+describe("segmented controls", () => {
+  const TRACKS = [".seg", ".settings-tabs", ".mp-seg", ".documents-modes", ".mp-account-well"];
+  const SEGMENTS = [".seg-opt", ".settings-tab", ".mp-seg-opt", ".documents-modes button", ".mp-account-row"];
+  const TRACK_R = "border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);";
+  const SEGMENT_R = "border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl);";
+  /** The segment a selector lights: its state stripped, then the whole selector or its last compound. */
+  const segmentOf = (sel: string) => {
+    const bare = sel.replace(/\[[^\]]*\]|:[\w-]+(\([^)]*\))?/g, "").trim();
+    return SEGMENTS.find((s) => s === bare || s === bare.split(/[ >]+/).at(-1));
+  };
+
+  it("draws the control curve from tokens: log2 of the painter's exponent, and one gap", () => {
+    expect(tokensCss).toContain("--corner-ctl: superellipse(log(var(--sq-n-ctl), 2));");
+    expect(tokensCss).toContain("--seg-pad: 2px;");
+  });
+
+  it("puts every track on the control rung, at a height it states", () => {
+    for (const sel of TRACKS) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toMatch(/--seg-h: \d+px;/);
+      expect(body, sel).toContain(TRACK_R);
+      expect(body, sel).toMatch(/padding: var\(--seg-pad\)/);
+    }
+    // The account well grows when it opens; every other track is one row, at least as tall as the
+    // height its corner is worked out from.
+    for (const sel of TRACKS.filter((t) => t !== ".mp-account-well")) expect(bodiesFor(sel).join(" "), sel).toContain("min-height: var(--seg-h);");
+  });
+
+  it("lets a track grow with its labels' text size", () => {
+    // Segment labels scale with the UI text size (theme/text-scale.ts); a track fixed at its default
+    // height kept its 26px at an 18px UI size while its labels grew to 26.6px, and they hung out of it.
+    for (const sel of [...TRACKS, ".page .seg", ".library-toolbar .library-view.seg", ".docs-home-view.seg"])
+      expect(bodiesFor(sel).join(" "), sel).not.toMatch(/(^|[ ;])(max-)?height:/);
+    // A fieldset's min-height stops at the fieldset, so the segment holds the floor for an icon-only one.
+    expect(bodiesFor(".seg-opt").join(" ")).toContain("min-height: calc(var(--seg-h) - 2 * var(--seg-pad));");
+  });
+
+  it("cuts every segment concentric with its track, and nothing redraws that corner", () => {
+    for (const sel of SEGMENTS) expect(bodiesFor(sel).join(" "), sel).toContain(SEGMENT_R);
+    // A state or a variant may change the fill, never the corner, and an option's height comes from
+    // its track. The settings rail's tabs reuse the class as navigation, off any track.
+    const redraw = RULES.flatMap((r) => partsOf(r).filter((s) => !SEGMENTS.includes(s) && !s.includes(".page-rail") && segmentOf(s))
+      .map((s) => ({ s, body: r.body })))
+      .filter(({ body }) => /border-radius|corner-shape|(^|[ ;])height:/.test(body));
+    expect(redraw.map(({ s }) => s)).toEqual([]);
+  });
+
+  it("lets no glass segment, glass ring or chosen row leave the curve", () => {
+    // Every chosen segment Glass draws is one of the segments above, so a new one cannot take a corner
+    // of its own; and the bead is cut by its own border box, the only thing that shapes a backdrop blur.
+    const bead = RULES.find((r) => r.body.includes("--glass-bezel: var(--glass-control-bezel); --glass-bend: var(--glass-control-bend); --glass-frost-px: var(--glass-control-blur)"))!;
+    const lit = /^:root\[data-glass\] :is\((.*)\)$/.exec(partsOf(bead)[0]!)![1]!;
+    for (const sel of splitSelectors(lit).map((s) => s.trim())) expect(segmentOf(sel), sel).toBeDefined();
+    expect(bead.body).not.toMatch(/mask|clip-path/);
+    // A ring of the specular light traces its box's curve, not a circle of its radius.
+    const rings = RULES.filter((r) => r.body.includes("var(--glass-specular)") && r.body.includes("border-radius: inherit"));
+    expect(rings.length).toBeGreaterThanOrEqual(2);
+    for (const r of rings) expect(r.body, partsOf(r).join(", ")).toContain("border-radius: inherit; corner-shape: inherit;");
+    // The pickers' rows are controls on the control curve too.
+    for (const sel of [".mp-row", ".mention-row", ".mp-bolt", ".skill-picker-row"])
+      expect(bodiesFor(sel).join(" "), sel).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);");
+  });
+
+  it("draws a lit switch's knob solid white in Glass, as Plain does, in both faces", () => {
+    // At 60% white the accent came through and the knob read pale blue, where macOS's is white (11-20).
+    expect([...tokensCss.matchAll(/--glass-knob: ([^;]+);/g)].map((m) => m[1])).toEqual(["#fff"]);
+    expect(bodiesFor(":root[data-glass] .switch::after").join(" ")).toContain("background: var(--glass-knob)");
+  });
+});
+
+/* The documents grid's card held its well 6px in on a 14px corner, but its own box was the half-curve
+   circle, so its lit edge and lift traced a tighter corner than its painted fill, and the link in the
+   well's corner was a 13.4px control corner 4px from a 14px one (the owner, 11-19: "Fix the corners here
+   too"). A file card's box is the card rung on the card curve, a well inside it is that corner less the
+   card's padding, and what sits in the well's corner is the well's corner less its gap, all on one curve. */
+describe("file cards", () => {
+  const CARD_R = "var(--r-squircle-card)";
+  /** Each file card, the well inside it and its padding, and the control in the corner with its gap. */
+  const CARDS = [
+    { card: ".docs-card", well: ".docs-card-preview", pad: "var(--doc-card-inset)", corner: ".docs-card-cell > .docs-home-attach", gap: "var(--attach-gap)" },
+    { card: ".library-tile", corner: ".library-grid .library-file-more", gap: "var(--more-gap)" },
+    { card: ".saved-turn-open" },
+  ];
+  const esc = (s: string) => s.replace(/[.()]/g, "\\$&");
+  /** Every rule with a selector part naming `cls`, under the painter or not. */
+  const rulesNaming = (cls: string) => RULES.filter((r) => partsOf(r).some((s) => new RegExp(`${esc(cls)}(?![\\w-])`).test(s)));
+  const decl = (body: string, prop: string) => new RegExp(`(?:^|; )${prop}: ([^;]+)`).exec(body)?.[1]?.trim();
+
+  it("draws each card's box on the card curve, under the painter as well", () => {
+    for (const { card } of CARDS) {
+      expect(bodiesFor(card).join(" "), card).toContain(`border-radius: ${CARD_R}; corner-shape: squircle;`);
+      // Under the painter the LAST rule to set the corner wins, and it has to be the card's own curve,
+      // not the half-curve circle the shared painted-card rule gives every other card.
+      const painted = rulesNaming(card).filter((r) => partsOf(r).some((s) => s.startsWith(":root[data-squircle]")) && decl(r.body, "border-radius"));
+      const last = painted.at(-1)!;
+      expect(decl(last.body, "border-radius"), card).toBe(CARD_R);
+      expect(decl(last.body, "corner-shape"), card).toBe("squircle");
+    }
+  });
+
+  it("cuts each well concentric with its card, and what sits in its corner concentric with the well", () => {
+    for (const { card, well, pad, corner, gap } of CARDS) {
+      if (!well) continue;
+      expect(bodiesFor(card).join(" "), card).toMatch(new RegExp(`padding: ${esc(pad!)} ${esc(pad!)} `));
+      expect(bodiesFor(well).join(" "), well).toContain(`border-radius: calc(${CARD_R} - ${pad}); corner-shape: squircle;`);
+      const c = bodiesFor(corner!).join(" ");
+      expect(c, corner).toContain(`top: calc(${pad} + ${gap}); right: calc(${pad} + ${gap});`);
+      expect(c, corner).toMatch(new RegExp(`border-radius: max\\(\\d+px, calc\\(${esc(CARD_R)} - ${esc(pad!)} - ${esc(gap)}\\)\\); corner-shape: squircle;`));
+      // It rises with the card, so the gap holds while the card is lifted.
+      expect(bodiesFor(".docs-card-cell:has(> .docs-card:hover:not([data-pressed], :active:focus-visible)) > .docs-home-attach").join(" ")).toContain("translate: 0 -1px");
+    }
+    // A control in a card's own corner, with no well between, is the card's corner less its gap.
+    const more = bodiesFor(".library-grid .library-file-more").join(" ");
+    expect(more).toContain("top: var(--more-gap); right: var(--more-gap);");
+    expect(more).toContain(`border-radius: calc(${CARD_R} - var(--more-gap)); corner-shape: squircle;`);
+    // A corner cut from the card rung is a well registered above: a new one cannot drift off the card.
+    const cut = RULES.filter((r) => /border-radius: (max\(\d+px, )?calc\(var\(--r-squircle-card\) - /.test(r.body)).flatMap(partsOf);
+    const known = CARDS.flatMap((c) => [c.well, c.corner]).filter(Boolean);
+    expect(cut.filter((s) => !known.includes(s))).toEqual([]);
+  });
+
+  it("lets no state of a card redraw its corner or drop the painted fill", () => {
+    for (const { card, well, corner } of CARDS) {
+      const parts = [card, well, corner].filter(Boolean) as string[];
+      const states = RULES.filter((r) => partsOf(r).map((s) => s.replace(/^:root\[data-squircle\] /, "")).some((s) => parts.some((p) => s !== p
+        && s.includes(p.split(" ").at(-1)!) && /:(hover|focus|active|has)|\[data-|\[aria-/.test(s))));
+      // Only a layer laid over the box may name the corner, and then as the box's own.
+      for (const r of states) {
+        expect(decl(r.body, "border-radius") ?? "inherit", partsOf(r).join(", ")).toBe("inherit");
+        expect(decl(r.body, "corner-shape") ?? "squircle", partsOf(r).join(", ")).toBe("squircle");
+      }
+    }
+    // A state that sets the card's background replaces the painted fill unless its painted twin sets it
+    // back: the pressed card was a plain rounded rect, its base rule later than the painter's at equal weight.
+    for (const r of RULES.filter((x) => partsOf(x).some((s) => /^\.docs-card:/.test(s)) && decl(x.body, "background"))) {
+      for (const s of partsOf(r).filter((x) => /^\.docs-card:/.test(x))) expect(bodiesFor(`:root[data-squircle] ${s}`).join(" "), s).toContain("paint(rl-squircle)");
+    }
   });
 });
 
@@ -5820,6 +5964,14 @@ describe("one segmented control", () => {
     expect(capped).toEqual([]);
     expect(prop(".settings-row[data-stack] > .settings-tabs", "align-self")).toBe("flex-start");
   });
+
+  it("scrolls a strip too wide for a narrow page inside its row, rather than running past the column", () => {
+    /* #530: a fieldset's UA `min-inline-size: min-content` held the strip as wide as its tabs, so at the
+       narrow width it ran past the column with the last tab cut off and never scrolled. THE MUTANT:
+       either half dropped, and the strip spills again. */
+    const narrow = blockAfter("@container (max-width: 640px)");
+    expect(narrow).toMatch(/\.settings-tabs \{[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;[^}]*overflow-x: auto/);
+  });
 });
 
 it("draws a disclosure with the icon set's chevron, never a typed triangle", () => {
@@ -5869,13 +6021,35 @@ describe("dictation in the prompter", () => {
     expect(css).toMatch(/@keyframes rl-heard-settle \{\s*from \{ color: var\(--rl-text-dim\); \}\s*\}/);
   });
 
-  it("swells the mic's ring inside its box, and stands it still under Reduce motion", () => {
-    const ring = bodiesFor(".composer-dictate-ring").join(" ");
-    expect(ring).toContain("position: absolute");
-    expect(ring).toContain("inset: 2px");
-    expect(bodiesFor('.composer-dictate[aria-pressed="true"] .composer-dictate-ring').join(" ")).toContain("scale: calc(.7 + var(--mic-level, 0) * .3)");
+  it("grows the mic into a red pill of level bars and a stop square on the spring, and cuts it under Reduce motion", () => {
+    const pill = bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]').join(" ");
+    // THE MUTANTS: the pill in a new red, or in the bare --red meant for text and dots.
+    expect(pill).toContain("background: var(--rl-danger-fill)");
+    expect(pill).toContain("color: var(--rl-danger-contrast)");
+    expect(pill).toContain("width: 48px");
+    expect(bodiesFor(".composer-actions .composer-dictate").join(" ")).toContain("width var(--dur-base) var(--spring-smooth)");
+    // The press that starts it is a hover, whose zero duration would cut the morph.
+    expect(bodiesFor(".composer-actions .composer-dictate:is(:hover, :active, [data-press-tracking])").join(" "))
+      .toContain("transition-duration: 0s, 0s, var(--dur-base)");
+    expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:hover').join(" ")).toContain("background: var(--rl-danger-fill-hover)");
+    expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled)').join(" "))
+      .toContain("background: var(--rl-danger-press)");
+    // The icon button's pressed rule darkens its ink; on the red the bars and the square stay white.
+    expect(bodiesFor('.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled)').join(" "))
+      .toContain("color: var(--rl-danger-contrast)");
+    expect(bodiesFor(".dictate-bar").join(" ")).toContain("scale: 1 calc(var(--bar-rest) + var(--mic-level, 0) * (1 - var(--bar-rest)))");
+    // At rest the bars stand at different heights, so a silent stretch reads as listening, not stopped.
+    const rests = [".dictate-bar", ".dictate-bar:nth-child(2)", ".dictate-bar:nth-child(3)"]
+      .map((sel) => /--bar-rest: ([\d.]+)/.exec(bodiesFor(sel).join(" "))?.[1]);
+    expect(new Set(rests).size).toBe(3);
+    expect(Math.min(...rests.map(Number))).toBeGreaterThanOrEqual(.3);
+    // The stop is a filled square in the pill's ink, as a recorder's is, not an outline.
+    expect(bodiesFor(".dictate-stop").join(" ")).toContain("background: currentColor");
+    // Idle shows the mic alone; listening shows the bars and the stop alone.
+    expect(bodiesFor('.composer-dictate[aria-pressed="true"] .dictate-mic').join(" ")).toContain("opacity: 0");
+    expect(bodiesFor('.composer-dictate[aria-pressed="false"] .dictate-live').join(" ")).toContain("opacity: 0");
     expect(blocksAfter("@media (prefers-reduced-motion: reduce)").join(" ").replace(/\s+/g, " "))
-      .toContain('.composer-dictate[aria-pressed="true"] .composer-dictate-ring { scale: 1; }');
+      .toContain(".composer-actions .composer-dictate, .composer-dictate > *, .dictate-bar { transition: none; }");
   });
 });
 
@@ -6053,6 +6227,29 @@ describe("markdown is drawn on tints of the ink, never on a solid surface", () =
   });
 });
 
+describe("the prompter's mode label", () => {
+  /** The pane width at or under which a label of this kind is hidden. */
+  const yieldsAt = (mode: string) => {
+    const m = css.match(new RegExp(`@container \\(max-width: (\\d+)px\\) \\{ \\.composer-mode-label\\[data-mode="${mode}"\\] \\{ display: none; \\} \\}`));
+    expect(m, `no narrow rule for the ${mode} label`).not.toBeNull();
+    return Number(m![1]);
+  };
+
+  it("gives way before the model's name does: the goal's word first, then Ask mode, then Plan", () => {
+    // Measured on the built app (s4-mode-indicator/after/numbers.json): below these widths each word
+    // would cut "Opus 5.5" where the row without it showed the whole name.
+    expect(yieldsAt("goal")).toBeGreaterThan(yieldsAt("ask"));
+    expect(yieldsAt("ask")).toBeGreaterThan(yieldsAt("plan"));
+    expect(yieldsAt("plan")).toBeGreaterThanOrEqual(464);
+  });
+
+  it("is quieter than the chip beside it by weight, not by an ink under AA", () => {
+    const body = bodiesFor(".composer-mode-label").join(" ");
+    expect(body).toContain("font-weight: var(--fw-body)");
+    expect(body).not.toMatch(/color:|background/);
+  });
+});
+
 it("draws a space's page in tints that thin with the pane, on the app's own painted controls", () => {
   /* THE MUTANTS: the card back on the settings card's fill (solid on the light face); a field or a
      button on a solid fill, or one that no longer thins with the pane; a card casting a shadow; the
@@ -6087,4 +6284,14 @@ it("draws a space's page in tints that thin with the pane, on the app's own pain
   expect(tokensCss).toContain("--space-head-tint: 28%;");
   // One checkout a row, through the fold's own wrapper: a two-column grid folds after six, not three.
   expect(bodiesFor(".env-field .env-list").join(" ")).toContain("grid-template-columns: minmax(0, 1fr)");
+});
+
+describe("the quick chat panel", () => {
+  it("puts a sheet opened in the panel over the card that fills it", () => {
+    const z = (body: string) => Number(/z-index:\s*(\d+)/.exec(body)?.[1] ?? NaN);
+    const card = Math.max(...bodiesFor(".quick-chat").map(z).filter(Number.isFinite));
+    const sheet = Math.max(...bodiesFor(':root[data-surface="quick-chat"] .sheet-backdrop').map(z).filter(Number.isFinite));
+    // THE MUTANT: the panel's sheet left at the window's 40, under the card's 70.
+    expect(sheet).toBeGreaterThan(card);
+  });
 });

@@ -23,13 +23,14 @@ import type { InputChannel, InputStep } from "./device-input";
 import { createApp, type App } from "../app";
 import { SimulatorService, toolchainAvailable } from "./service";
 import type { Simctl } from "./simctl";
-import type { ServeSim, ServeSimStream } from "./serve-sim";
+import { serveSim as realServeSim, type ServeSim, type ServeSimStream } from "./serve-sim";
 import type { Android } from "./android";
 import type { AndroidStream } from "./android-stream";
 import { createSimulatorAgentProvider, loopbackPort, shrinkForModel, SIMULATOR_PROVIDER_NAME } from "./agent-tools";
 import type { ScreenMotion } from "./screen-motion";
 import { PhysicalDevices } from "./physical";
 import { FakePhone, PHONE_UDID } from "./phone.test-fakes";
+import type { ProcRow } from "../resources/machine";
 
 /** A picture watcher whose stream is already gone: every walk falls back to reading the tree. */
 const GONE: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "lost", rest: async () => false, close: () => {} };
@@ -86,6 +87,7 @@ function fakeClis(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>
   const simctl: Simctl = {
     devices: async () => IOS,
     boot: async (udid) => { cli.push(`boot:${udid}`); return { ok: true, detail: "" }; },
+    springBoardStarted: async () => true,
     available: async () => true,
     apps: async () => [{ bundleId: "com.acme.app", name: "Acme" }, { bundleId: "com.apple.Preferences", name: "Settings" }],
     screenshot: async (udid, path) => { cli.push(`screenshot:${udid}:${path}`); writeFileSync(path, PHONE_PNG); return { ok: true, detail: "" }; },
@@ -140,6 +142,8 @@ function setup(opts: {
   watchScreen?: (url: string) => ScreenMotion;
   /** A real iPhone on the cable, scripted: listed by devicectl and driven through its runner. */
   phone?: FakePhone;
+  /** This Mac's process table, for the checks that read it. Unset, the service cannot tell. */
+  processes?: () => Promise<ProcRow[]>;
 } = {}) {
   const home = tempDir("realm-sim-tools-");
   const db = openDatabase(join(home, "realm.db"));
@@ -171,7 +175,7 @@ function setup(opts: {
     home, devicectl: dc, runners: opts.phone.runners(),
     bridge: async () => ({ streamUrl: "http://127.0.0.1:47001/stream.mjpeg", wsUrl: "ws://127.0.0.1:47001/ws", port: 47001, close: async () => {} }),
   }) : undefined;
-  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel, watchScreen, physical });
+  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel, watchScreen, physical, processes: opts.processes });
   let mode = opts.broker?.mode ?? "default";
   const real: BrowserPermissionBroker | null = opts.broker ? new BrowserPermissionBroker({
     permissionMode: () => mode,
@@ -822,6 +826,31 @@ describe("acting on an element", () => {
     expect(asked).toBe(1);
   });
 
+  it("does not ask again when the read timed out — another read waits as long (#645)", async () => {
+    // serve-sim's own read, against a daemon that never answers: each read waits out its timeout
+    // (shortened here) and then aborts, the way `AbortSignal.timeout` aborts the real fetch.
+    const TIMEOUT_MS = 500;
+    let asked = 0, stuck = false;
+    const daemon = (async () => {
+      asked++;
+      if (!stuck) return new Response(JSON.stringify([{ AXLabel: "Settings", type: "Application", enabled: true, frame: { x: 0, y: 0, width: 402, height: 874 }, children: [] }]));
+      await new Promise((r) => setTimeout(r, TIMEOUT_MS));
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    }) as typeof fetch;
+    const dev = setup({ serveSim: { ax: realServeSim({}, daemon).ax } });
+    const simulatorId = await dev.running();
+    stuck = true; asked = 0;
+    const started = Date.now();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open Settings", x: 100, y: 100 });
+    const took = Date.now() - started;
+    // THE MUTANT: a timeout read as "not yet" — three reads and two pauses, ~3× the timeout per step.
+    expect(asked).toBe(1);
+    expect(took).toBeLessThan(TIMEOUT_MS * 2);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("did not arrive within 8 s");
+    expect(dev.calls.sent).toEqual([]);
+  });
+
   it("looks for the element on the screen as it is once the card is answered — a card can wait minutes", async () => {
     let meanwhile = () => {};
     const dev = device({ onCard: () => meanwhile() });
@@ -858,6 +887,274 @@ describe("acting on a point", () => {
       expect(text(r)).toContain("402×874 points");
     }
     expect(dev.calls.sent).toEqual([]);
+  });
+});
+
+/** A turned phone's tree: Settings in landscape states its screen the other way round. */
+const TURNED: SimulatorAxTree = { ...TREE, screen: { width: 874, height: 402 } };
+
+/** A PNG of the given size, for a screenshot of one shape or the other. */
+const pngOf = (width: number, height: number): Buffer => encodePng({ width, height, rgba: Buffer.alloc(width * height * 4, 255) });
+
+/**
+ * A device whose stream's `/config` and screenshots the test can change as well as its tree — the
+ * two places a rotation or a new screen shows up without a tree read. serve-sim keeps reporting the
+ * portrait framebuffer when the device turns; only the orientation in it changes.
+ */
+function turning(over: Parameters<typeof setup>[0] = {}) {
+  let frame = { width: 1206, height: 2622, orientation: "portrait" };
+  let shot = pngOf(201, 437);
+  const dev = device({
+    ...over,
+    serveSim: { ...over.serveSim, screen: async () => frame },
+    simctl: { ...over.simctl, screenshot: async (_udid, path) => { writeFileSync(path, shot); return { ok: true, detail: "" }; } },
+  });
+  return { ...dev, frame: (f: Partial<typeof frame>) => { frame = { ...frame, ...f }; }, shot: (png: Buffer) => { shot = png; } };
+}
+
+/** Two taps at the middle: the first reads the size, the second is measured against it unread. */
+async function primed(dev: ReturnType<typeof turning>, simulatorId: string): Promise<void> {
+  for (let i = 0; i < 2; i++) await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+  expect(dev.treeReads()).toBe(1);
+}
+
+const lastTouch = (sent: { steps: readonly InputStep[] }[]) => frames(sent.slice(-1)).map((f) => [f.type, f.x, f.y]);
+
+describe("the screen size a point is measured against (#645)", () => {
+  it("is the last tree's: a point step after a read reads no tree of its own", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    const reads = dev.treeReads();
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 })).isError).toBe(false);
+    expect((await dev.call("simulator_double_tap", { simulatorId, intent: "zoom", x: 201, y: 437 })).isError).toBe(false);
+    expect((await dev.call("simulator_long_press", { simulatorId, intent: "hold", x: 201, y: 437 })).isError).toBe(false);
+    expect((await dev.call("simulator_swipe", { simulatorId, intent: "scroll", from: { x: 201, y: 655.5 }, to: { x: 201, y: 218.5 } })).isError).toBe(false);
+    // THE MUTANT: a tap that reads the tree anyway, for a size it already has — 0.4–0.9 s a step.
+    expect(dev.treeReads()).toBe(reads);
+    expect(frames(dev.calls.sent).filter((f) => f.type === "begin").map((f) => [f.x, f.y])).toEqual([[0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.75]]);
+  });
+
+  it("is read once when nothing is known yet, and kept for the next step", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    expect(dev.treeReads()).toBe(1);
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    expect(dev.treeReads()).toBe(1);
+    expect(frames(dev.calls.sent).map((f) => [f.type, f.x, f.y])).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5], ["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("is read again after the device turns, and the tap maps by the turned screen", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await primed(dev, simulatorId);
+    // The pane's Rotate goes straight down serve-sim's socket; the server hears of it from /config.
+    dev.frame({ orientation: "landscape_left" });
+    dev.show(TURNED);
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 437, y: 201 });
+    /* THE MUTANT: a rotation that leaves the size cached. (437,201) is off a 402-wide screen and is
+       refused — and a point that is on both lands somewhere else. */
+    expect(r.isError).toBe(false);
+    expect(dev.treeReads()).toBe(2);
+    expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 437, y: 201 });
+    expect(dev.treeReads()).toBe(2);
+  });
+
+  it("is read again when the stream's frame is another size", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await primed(dev, simulatorId);
+    dev.frame({ width: 1320, height: 2868 });
+    dev.show({ ...TREE, screen: { width: 440, height: 956 } });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 220, y: 478 });
+    // THE MUTANT: compare the orientation alone. The tap is measured against the old 402×874.
+    expect(dev.treeReads()).toBe(2);
+    expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("is read again after a screenshot of another shape, and kept after one of the same shape", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    // An app that turned with the device: simctl's screenshot follows the screen, /config does not.
+    await dev.call("simulator_screenshot", { simulatorId });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    expect(dev.treeReads()).toBe(1);
+    dev.shot(pngOf(437, 201));
+    dev.show(TURNED);
+    expect((await dev.call("simulator_screenshot", { simulatorId, save: true })).isError).toBe(false);
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 437, y: 201 });
+    // THE MUTANT: a screenshot's size never checked. The turned app's tap is refused as off the screen.
+    expect(r.isError).toBe(false);
+    expect(dev.treeReads()).toBe(2);
+    expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("is read again after the device boots", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await primed(dev, simulatorId);
+    dev.service.start(simulatorId, "UDID-UP", "ios");
+    await runningAgain(dev.service, simulatorId);
+    dev.show({ ...TREE, screen: { width: 440, height: 956 } });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 220, y: 478 });
+    // THE MUTANT: a boot that keeps the size — the device it came up as may be another screen.
+    expect(dev.treeReads()).toBe(2);
+    expect(lastTouch(dev.calls.sent)).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("is read again after an app is launched, a URL opened or Home pressed", async () => {
+    const dev = turning();
+    const simulatorId = await dev.running();
+    await primed(dev, simulatorId);
+    const steps: [string, Record<string, unknown>][] = [
+      ["simulator_launch", { bundleId: "com.acme.app" }], ["simulator_open_url", { url: "https://example.com" }], ["simulator_press", { intent: "go home", key: "home" }],
+    ];
+    for (const [i, [tool, args]] of steps.entries()) {
+      expect((await dev.call(tool, { simulatorId, ...args })).isError, tool).toBe(false);
+      await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+      // THE MUTANT: a switch of app that keeps the size. A landscape app on a turned device has another.
+      expect(dev.treeReads(), tool).toBe(2 + i);
+    }
+  });
+
+  it("a point step that reads no tree tells the observer no elements, and its after is the next fresh read", async () => {
+    const heard: ActObservation[] = [];
+    const afters: string[][] = [];
+    const dev = turning({ observe: (o) => { heard.push(o); return (after) => { afters.push(after.map((e) => e.label)); }; } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    await dev.call("simulator_tap", { simulatorId, intent: "open Wi-Fi", x: 201, y: 350 });
+    // THE MUTANT: hand it the list the agent read before — a screen the step may already have changed.
+    expect(dev.treeReads()).toBe(1);
+    expect(heard.map((o) => o.elements)).toEqual([[]]);
+    dev.show({ ...TREE, elements: [{ ...TREE.elements[1]!, path: "0.0", label: "Wi-Fi", role: "Heading" }] });
+    await dev.call("simulator_elements", { simulatorId });
+    expect(afters).toEqual([["Wi-Fi"]]);
+  });
+});
+
+/**
+ * A simulator shut down and booted again outside Realm while its pane streams it (#638). serve-sim's
+ * daemon outlives `simctl shutdown` and `--list` keeps naming it, but it stays attached to the boot it
+ * started on: its `/ax` answers 503 for every boot after that one. The fake keeps that rule, and the
+ * process table says when the device's launchd and each daemon started.
+ */
+function rebooted(o: { held?: Promise<void> } = {}) {
+  const udid = "D94F0FDE-7C84-42F1-A328-97EF12A91866";
+  let clock = 1_800_000_000_000;
+  let bootAt: number | null = clock;
+  let daemon: { pid: number; at: number } | null = null;
+  let pid = 99;
+  const served: string[] = [];
+  const streamOf = (d: { pid: number }): ServeSimStream => ({ ...STREAM(udid), pid: d.pid });
+  const dev = setup({
+    simctl: {
+      devices: async () => [{ ...IOS[1]!, udid, state: bootAt === null ? "Shutdown" : "Booted" }],
+      boot: async () => { served.push("boot"); if (bootAt === null) { clock += 30_000; bootAt = clock; } return { ok: true, detail: "" }; },
+    },
+    serveSim: {
+      find: async () => (daemon ? streamOf(daemon) : NOTHING),
+      start: async () => { if (pid > 99) await o.held; clock += 5_000; daemon = { pid: pid++, at: clock }; served.push(`serve:${daemon.pid}`); return { stream: streamOf(daemon), detail: "" }; },
+      kill: async () => { if (daemon) served.push(`kill:${daemon.pid}`); daemon = null; },
+      // The tree, but only from a daemon started on this boot.
+      ax: async (stream) => (daemon && stream.pid === daemon.pid && bootAt !== null && daemon.at >= bootAt ? TREE : null),
+    },
+    processes: async () => [
+      ...(bootAt === null ? [] : [{ pid: 700, ppid: 1, tty: null, residentBytes: 1, startedAt: bootAt, command: `launchd_sim /U/Library/Developer/CoreSimulator/Devices/${udid}/data/var/run/launchd_bootstrap.plist` }]),
+      ...(daemon ? [{ pid: daemon.pid, ppid: 1, tty: null, residentBytes: 1, startedAt: daemon.at, command: "node /U/.npm/_npx/x/node_modules/.bin/serve-sim --detach -q" }] : []),
+    ],
+  });
+  return {
+    ...dev, udid, served,
+    /** `xcrun simctl shutdown`, then a boot half an hour later — from a shell, not from Realm. */
+    shutDown: () => { clock += 60_000; bootAt = null; },
+    bootElsewhere: () => { clock += 30 * 60_000; bootAt = clock; },
+  };
+}
+
+const runningAgain = async (service: SimulatorService, simulatorId: string) => {
+  for (let i = 0; i < 400 && service.stateOf(simulatorId).status !== "running"; i++) await new Promise((r) => setTimeout(r, 5));
+};
+
+describe("a simulator booted again outside Realm under its pane (#638)", () => {
+  it("simulator_open replaces the stream left from the earlier boot, and the tree reads again", async () => {
+    const dev = rebooted();
+    await dev.call("simulator_open", { udid: dev.udid });
+    const [row] = dev.service.list(dev.spaceId);
+    dev.shutDown();
+    dev.bootElsewhere();
+    const r = await dev.call("simulator_open", { udid: dev.udid });
+    expect(r.isError).toBe(false);
+    // THE MUTANT: trust the pane's "running". The old daemon stays, and its tree never comes.
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+    expect(dev.service.list(dev.spaceId)).toHaveLength(1);
+    const elements = await dev.call("simulator_elements", { simulatorId: row!.id });
+    expect(elements.isError).toBe(false);
+    expect(text(elements)).toContain('"General"');
+  });
+
+  it("a read on the earlier boot's stream starts a fresh one and says so, and then reads and taps land", async () => {
+    const dev = rebooted();
+    await dev.call("simulator_open", { udid: dev.udid });
+    const [row] = dev.service.list(dev.spaceId);
+    dev.shutDown();
+    dev.bootElsewhere();
+    const first = await dev.call("simulator_elements", { simulatorId: row!.id });
+    expect(first.isError).toBe(true);
+    // THE MUTANT: the old "not published yet", which is what an agent read for nine minutes.
+    expect(text(first)).toContain("from before the device last booted");
+    await runningAgain(dev.service, row!.id);
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+    expect((await dev.call("simulator_elements", { simulatorId: row!.id })).isError).toBe(false);
+    const tap = await dev.call("simulator_tap", { simulatorId: row!.id, intent: "tap the middle", x: 201, y: 437 });
+    expect(tap.isError).toBe(false);
+    expect(frames(dev.calls.sent).map((f) => [f.type, f.x, f.y])).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+  });
+
+  it("a tap while the fresh stream is still starting says so, rather than asking for a stream", async () => {
+    let release!: () => void;
+    const dev = rebooted({ held: new Promise((r) => { release = r; }) });
+    await dev.call("simulator_open", { udid: dev.udid });
+    const [row] = dev.service.list(dev.spaceId);
+    dev.shutDown();
+    dev.bootElsewhere();
+    const tap = await dev.call("simulator_tap", { simulatorId: row!.id, intent: "tap the middle", x: 201, y: 437 });
+    expect(tap.isError).toBe(true);
+    // THE MUTANT: "start the simulator's stream first", for a stream Realm is in the middle of starting.
+    expect(text(tap)).toContain("still starting");
+    expect(dev.calls.sent).toEqual([]);
+    release();
+    await runningAgain(dev.service, row!.id);
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+  });
+
+  it("simulator_open boots a device shut down under its pane that nothing has read since", async () => {
+    const dev = rebooted();
+    await dev.call("simulator_open", { udid: dev.udid });
+    dev.shutDown();
+    // THE MUTANT: only a stream older than the boot counts. A device with no boot at all stays down.
+    expect((await dev.call("simulator_open", { udid: dev.udid })).isError).toBe(false);
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+  });
+
+  it("a read on a device shut down under its pane says it is off, and simulator_open boots it", async () => {
+    const dev = rebooted();
+    await dev.call("simulator_open", { udid: dev.udid });
+    const [row] = dev.service.list(dev.spaceId);
+    dev.shutDown();
+    const r = await dev.call("simulator_elements", { simulatorId: row!.id });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("shut down outside Realm");
+    expect(text(await dev.call("simulator_elements", { simulatorId: row!.id }))).toContain(`simulator_open with udid "${dev.udid}"`);
+    // No walk from a read: booting a device is simulator_open's, behind its card.
+    expect(dev.served).toEqual(["boot", "serve:99"]);
+    expect(dev.service.stateOf(row!.id).status).toBe("off");
+    expect((await dev.call("simulator_open", { udid: dev.udid })).isError).toBe(false);
+    expect(dev.served).toEqual(["boot", "serve:99", "boot", "kill:99", "serve:100"]);
+    expect((await dev.call("simulator_elements", { simulatorId: row!.id })).isError).toBe(false);
   });
 });
 
@@ -1046,6 +1343,7 @@ describe("the observer", () => {
     await dev.call("simulator_swipe", { simulatorId, intent: "scroll", direction: "up" });
     // The home screen names itself nothing, and a step there is in no app.
     dev.show({ ...TREE, app: " " });
+    await dev.call("simulator_elements", { simulatorId });
     await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
     // THE MUTANT: leave the app out. The shadow then judges a like in Instagram as a tap in Settings.
     expect(heard.map((o) => o.app)).toEqual(["Instagram", "Instagram", "Instagram", "Instagram", undefined]);

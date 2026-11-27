@@ -1,5 +1,151 @@
 # Changelog
 
+## v2.22.0 - 2026-11-22
+
+Claude sessions show their first words without waiting on a slow plan-limits read, and a quick chat can be saved to a space.
+
+### New
+
+- **The quick chat opens over any app.** On macOS, ⌃⌥Space opens the quick chat in a small panel over whatever app is in front, without bringing Realm forward. Escape or the same key puts it away and keeps the chat. It is the same chat as ⌥⌘N in a window, and its bar reads "Quick chat" until you save it. It opens at once, the first time too. In Glass it stays readable over a white window. Change the key in Settings > Keys > From anywhere. "Hide the quick chat from screen sharing", on by default: "Left out of screenshots and screen recordings on this Mac. Not yet checked from the other side of a call." macOS only. (#594, #609, #616)
+- **Save a quick chat to a space.** A quick chat (⌥⌘N) used to be deleted when it closed. Once the first answer is in, a row under the prompter reads "Save to", then the space the chat ran in and your most recently used spaces, up to three, then "Other…" for every space. Saving makes the chat a session in that space, with its whole transcript, and Open brings it forward there. Closing a chat that has an answer offers "Save to" that space beside "Delete chat". A chat saved to a space it didn't run in keeps working in its original folder, and the row says which. (#591)
+- **A Quick chat model setting.** Quick chats start on the model set in Settings > General > Sessions > Quick chat model, not on whatever the last pane used. It lists the models your installed CLIs report. Left alone, it picks the newest Haiku when Claude is signed in, and otherwise a small, quick model from the next agent that can run. A quick chat's own picker still changes the model for that chat. After you delete a quick chat, Realm starts an engine for the next one on that model, so it opens on an engine that is already running; that engine stops after 5 minutes unused. (#592)
+- **Realm opens your meeting when it starts.** For a calendar event with a Zoom, Google Meet, Microsoft Teams, Webex or FaceTime link that you haven't declined, Realm shows a notification two minutes before and opens the link when the meeting starts, once. It does nothing until Realm can read your calendar; its row, "Open the meeting when it starts" in Settings > General > Meetings, says what is missing beside one button. It is on by default, and that row turns it off. macOS only. (#598)
+- **Double-tap Command to open the quick chat.** On macOS, a double-tap of either Command key, in any app, opens the quick chat panel over the app in front, and a second double-tap puts it away. It works once macOS lets Realm see keys; until then Settings > Keys > From anywhere says which permission is missing, with a button to that pane. That group has the switch, on by default, "Try it", which shows the keys as Realm sees them, and a choice of held key that nothing uses yet. macOS uses the same keys for Siri when Siri is on, and one of the two can be changed. macOS only. (#601, #616)
+
+### Improved
+
+- Quick chats start on the lowest effort their model takes, `low` on Haiku 5.5. The chat's own picker can still raise it. Other sessions are unchanged. (#595)
+- The Documents home lists Markdown files in a space's meetings folder under Meetings. (#613)
+
+### Fixed
+
+- A Claude session's first words no longer wait on a slow plan-limits read. When Claude's usage check was slow, every streamed word waited behind it, in every Claude session, not only quick chats. Before, on those turns, a quick chat on Haiku 5.5 took 14 to 18 s to show its first word on our test Mac. After the fix it took 1.4 to 2.6 s. (#595)
+- A saved turn card in the Library now casts its shadow from its own rounded shape, so no pale sliver shows at its corners. (#602, fixes #532)
+- In the browser pane, when a link opens a page in place of the one that opened it, the first page keeps running behind. If that hidden page navigated, Realm forgot you had typed into the page in front, so the pane could be discarded in the background with your text in it. Realm now remembers what you typed for each page, and what you typed into the page waiting behind is kept from a discard too. (#596, #605, fixes #579 and #611)
+- On a narrow Settings page, a segmented strip too wide for the column, such as "New sessions start in", ran past it with the last tab cut off, and never scrolled. It now stays inside its row and scrolls sideways there. (#603, fixes #530)
+- The blur at the foot of a Settings page now comes in when the page grows under you, whether a section grew or a new one appeared, without needing a scroll first. (#600, #606, fixes #524)
+- In Laya's Shadow mode, when memory is short, Laya no longer asks anything or loads its runtime, which takes about 2.4 GB. (#614, fixes #610)
+- In Glass, a switch's knob is white, as macOS draws it, where it read pale blue. (#621)
+- A theme or look set through Realm's RPC shows in every open window at once, where it waited for a reload. (#633)
+- When a simulator was shut down and booted again outside Realm while its pane streamed it, the simulator tools could no longer read its screen or tap by point, and kept saying the device had not published its accessibility tree yet. Realm now sees that the stream belongs to the earlier boot and starts a fresh one. A device shut down this way shows as off until `simulator_open` boots it. (#639, fixes #638)
+- A Realm tool call from a Claude session could fail with "ECONNRESET: The socket connection was closed unexpectedly", often two parallel calls at once, after the session had sat a few seconds since its last call. Realm's tool server closed a quiet connection after 5 seconds while the Claude CLI kept it for its next call, and the CLI does not retry. Realm now leaves closing it to the CLI. (#640, fixes #637)
+- The lit row in the skill picker now has the same rounded corner as the rows in the model, @ and / pickers, where it used to come out as a pill. (#604, fixes #528)
+
+## v2.21.0 - 2026-11-20
+
+Closing a tab a page opened brings you back to the page that opened it.
+
+### Improved
+
+- **A tab a page opened hands you back to that page when it closes.** In the browser pane, when a tab that a page opened from another tab closes while it is in front, the tab that opened it now comes forward, as in a browser. It works the same whether the page closed itself or you pressed its ×. If you have picked another tab in that pane since it opened, switched spaces or reopened Realm, the tab beside it comes forward, as before. (#585, fixes #571)
+
+## v2.20.5 - 2026-11-20
+
+An error inside Realm no longer stops every window behind an error box.
+
+### Fixed
+
+- When something went wrong inside Realm itself, macOS put up an error box titled "A JavaScript error occurred in the main process", and every window waited until someone pressed OK. Realm no longer shows that box, and carries on. (#581, fixes #567)
+- In the browser pane, a tab whose page closes itself is now removed from the space, the way pressing its × removes it. Before, it left the tab bar but was kept in the space, one more for every tab that closed itself. (#583, fixes #572)
+
+## v2.20.4 - 2026-11-20
+
+A window a page opens by itself, with no click, now works, and shows in the same tab.
+
+### Fixed
+
+- In the browser pane, when a page opens a window by itself, with no click behind it, Realm still shows the new page in the same tab, but it is now the page the site opened rather than a fresh load of its address. A page that writes to the window it opened, or waits for it to answer, now hears back, and a form a page sends to a new window keeps what was filled in. Before, the page was handed a window that was already closed, and the form arrived empty. Back returns to the page that opened it, as it was left rather than reloaded, and when the new page closes itself that page is shown again. Forward does not return to the new page after Back. (#557, fixes #543)
+
+## v2.20.3 - 2026-11-20
+
+A new tab whose page closes itself straight away no longer stays behind as a blank tab.
+
+### Fixed
+
+- A page opened in a new tab that closes itself straight away could leave its tab open over a blank pane when Realm was slow to show it. The tab now closes, the way it does when a page closes itself a moment later. (#570, fixes #569)
+
+## v2.20.2 - 2026-11-20
+
+An agent's click no longer pulls your keyboard into the tab it opens.
+
+### Fixed
+
+- When an agent clicks a link that opens a new tab, the tab no longer takes the keyboard or the focused pane. Before, if the page the agent clicked in was the one you had last clicked or typed in, its new tab took the keyboard, and it could take the focused pane too. A tab you open yourself with a click still takes the keyboard, and one opened behind with a ⌘-click or a middle-click still leaves it where it was. (#564, fixes #561)
+
+## v2.20.1 - 2026-11-20
+
+A tab whose page closes itself now closes, and the "update ready" question no longer holds Realm up.
+
+### Fixed
+
+- In the browser pane, a tab whose page closes itself, as a page opened from a link may when it is done, now closes as if you had pressed its ×. Before, the tab was left on a dead page. (#559, fixes #558)
+- The "Realm update ready" question no longer stops Realm until it is answered. It is now a sheet on the Realm window you are in. When no Realm window is in front as the download finishes, it is not asked, and the restart button in the rail and in Settings > General still offers the update. Before, agents' browser tools answered "host not answering" for as long as the question was up, and the actions they had given up on all ran at once when it was answered. An action an agent has stopped waiting for is now never run late. (#563, fixes #562)
+
+## v2.20.0 - 2026-11-20
+
+Documents, sheets and code files download as typeset PDFs.
+
+### New
+
+- **Download as PDF.** "Download as PDF…" sits in the documents pane's ⋯ menu, the file menu on the documents home's cards and rows, and the ⋯ menu of the file viewer. Markdown prints as a document, a CSV or TSV as a table, and a code file as one highlighted block under its name. The page is dark ink on white whatever your theme, with the title and page numbers in the footer, and headings become bookmarks. Paper is Letter or A4, following your Mac's region. Realm asks where to save, starting in Downloads. (#545)
+
+### Fixed
+
+- A tab you open by clicking a link in the browser pane now takes the keyboard. In 2.19.1 the keyboard stayed with the page you clicked, hidden behind the new tab. A tab opened behind, with a ⌘-click or a middle-click, still leaves the keyboard where it was. (#547, fixes #546)
+- When a Markdown file in a space links a picture by a relative path, the picture now draws in the Documents pane instead of showing as broken. A path is read from the file's own folder, and one starting with / from the space's folder. Saving keeps the path as you wrote it. (#549, fixes #548)
+- The suggested prompt hides while you dictate into an empty prompter, so the words you say no longer draw on top of it. It comes back if dictation stops with nothing heard. (#552, fixes #550)
+- Dictation no longer adds a second full stop after a long pause, as in "run the build..". (#553, fixes #551)
+
+## v2.19.1 - 2026-11-19
+
+Dictation listens until you stop it, and new-tab links stay in the browser pane.
+
+### Improved
+
+- **Dictation keeps listening until you stop it.** A pause no longer ends dictation. It runs until you press the mic button or Esc, and the words heard so far carry over from one sentence to the next. It still stops on its own if the microphone goes away or won't open, and the words heard by then land in the prompter. (#538)
+- **The mic turns into a stop button while you dictate.** The mic grows into a small red pill with four level bars that follow your voice and a stop square. Press it to stop. (#542)
+- **New-tab links open as tabs in the browser pane.** A link or form meant for a new tab, a ⌘-click and a middle-click now open a new tab beside the page instead of replacing it, and so does a page that opens a window when you click, up to three tabs for one click. A plain click brings the tab to the front. A ⌘-click or middle-click opens it behind, so you stay on the page you were reading. When an agent clicks one of these links, the tab opens without taking the keyboard from what you are typing. Sign-in popups still open as their own windows. In a chat and in the Documents editor, a middle-click on a link now follows your "Links open in" setting, and when it opens in Realm the tab goes behind. (#539, fixes #537)
+
+### Fixed
+
+- When dictation stops on a problem, the words it heard are kept. They land in the prompter as heard, next to a note about the problem, instead of being cleared. (#541)
+
+### Realm for iPhone
+
+- Every teammate at the head of Home. Home opens with a row of every teammate's mark and name, on All, Needs you and Pinned, so any teammate's chat is one tap from launch. A dot beside the name shows when it is working or needs you, and the name is bold while its chat is unread. A long press opens the same actions as the Team row. (#534)
+- A pairing the phone can't read says so. When the phone can't read its pairing or keys from the keychain, it shows a plain error instead of the scan screen, so it no longer looks as if the phone was never paired. A copy of Realm that wasn't signed to open its keychain is told to install Realm from TestFlight. (#526, #535)
+
+## v2.19.0 - 2026-11-19
+
+A space gets a page of its own, and Documents gets a grid.
+
+### New
+
+- **The space's name opens its page.** Click the name at the head of the sidebar, or focus it and press Enter or Space, and the space's page opens on the section you last chose. The ··· menu, the right-click menu and Rename work as before. (#508)
+- **A space's page is headed by the space.** The page opens with the space's icon in a tile of its colour beside its name, with the section you are on named underneath. Name, Icon, Color and Profile sit together in one card, with Delete in its own card below. Fields and buttons are larger and see-through over the pane, and the Worktrees list shows three checkouts with "Show all" for the rest. (#510)
+- **Queued messages keep their model.** A message you queue runs on the model, effort and fast mode the picker showed when you queued it, even if you change the picker before its turn. Each row says what it will run on when that differs from the picker or the running turn, and the picker goes back once the turn ends. (#509)
+- **Documents in a grid.** The Documents home has a List / Grid switch, and Realm remembers your choice. In Grid each file is a card with a preview: pictures and video show their thumbnail, PDFs their first page, Markdown the top of the page rendered, and code, text and CSV their first lines. A card opens, drags and previews with Space just as its row does, and the arrow keys move across the grid. (#515, #514)
+
+### Improved
+
+- **Glass pickers frost what is behind them.** The model, mention, slash and skill pickers and the selection bar now blur the words under them instead of leaving them sharp. (#503)
+- **Glass fits every surface.** The prompter, the pickers, the selection bar, the selected segment of every segmented control and the knob of every switch each get a lens drawn for their own box, with a light rim on two sides, closer to macOS 26. (#505)
+- **Dark Glass takes the picture's light.** Over a picture, dark Glass stays as bright as what is behind it and keeps its colour, dimming only as far as its words need to stay readable. Over a dark picture it no longer turns navy or near black, and over a bright one its words keep their contrast. This reaches the prompter and the model, effort and account pickers. (#516)
+- **Glass inside the model picker.** With Glass on, the lit row, the effort track and the account row and its menu are see-through tints instead of grey blocks. (#507)
+- **The account list grows out of its row.** In the model picker, the account list opens upward from its row, in Plain and in Glass. Reduce motion turns the animation off. (#507)
+- **The prompter names its mode.** In Plan and Ask mode, a quiet word beside the permission chip says so ("Plan", "Ask mode"), and clicking it goes back to Build. An active goal shows "Goal". Build shows nothing. The coloured ring around the whole prompter is gone, and the card keeps a soft wash of the mode's colour. (#502)
+- **The Plain model picker takes the picture.** In Plain over a picture, the model picker shows the picture through it, blurred and dimmed, instead of a grey panel. With no picture, or with Reduce Transparency on, it keeps its solid surface. The account switcher's well and hovered row are tints in both looks, and the hovered row stands clearly above the rest. (#517)
+- **Glass under Low power.** Realm's own Low power no longer turns Glass off. When the Mac's Reduce Transparency or Low Power Mode is holding Glass back, Settings ▸ Appearance ▸ Controls says which one and where to change it in System Settings. (#503)
+- **Document cards on one curve.** On the Documents grid and in the Library, a file card, the preview well inside it and the button in the well's corner now share one curve, so a hovered card shows a single clean edge. (#531)
+
+### Fixed
+
+- On a Retina screen, the dark Glass model picker no longer shows the transcript through it. (#505)
+- Going back to a space opens the screen you left it on, the same chat with its side pane and any page that was up over it, instead of the space's newest session. Each window remembers its own, and it holds after a relaunch. If that session has since been deleted or archived, the space opens on its Overview. (#512, fixes #511)
+- Text scrolling under a bar no longer shows twice, sharp with a blurred copy on top. The edge of Settings and the other pages, the transcript under its bar and the lines above the prompter now blur once, with Glass on or off. The blur above the prompter comes in only as far as the chat runs past it, so the last line is no longer smudged when you stop a few pixels short of the end. (#506, #523)
+- The prompter has its squircle edge back, in Plain and in Glass, and the strip under it and the band above it now sit on the prompter's curve instead of meeting it with square corners. (#504)
+- The chosen segment of every segmented control now follows its track's curve, so the two corners run parallel, and under Glass the rim follows the same curve. Segmented controls also grow with the text size instead of cutting off their labels at large sizes. (#525, #527)
+
 ## v2.18.0 - 2026-11-18
 
 Realm lets the picture through.

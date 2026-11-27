@@ -724,7 +724,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
-      {!peek && <SessionBackdrop sessionId={id} hero={hero} />}
+      {!peek && <SessionBackdrop sessionId={id} hero={hero} shown={visible} />}
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track teammates={spaceTeammates}
         saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken} onEarlier={onEarlier}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
@@ -739,6 +739,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         // Keyed by SESSION, not by pane: a space switch tears this pane down and rebuilds it, and
         // what the reader is owed back is their place in this log (scroll-memory.ts).
         scrollKey={id}
+        stage
         mentionIds={liveMentionIds} appIcons={appIcons}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
@@ -825,6 +826,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             hero={hero} spaceName={space?.name ?? "this space"} spaceIcon={space?.icon} spaceTint={spaceTint} place={place}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
             packGreetings={packGreetings}
+            goalActive={goal?.status === "active"}
             goal={<GoalStrip goal={goal}
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}

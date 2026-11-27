@@ -171,6 +171,8 @@ export const BrowserSnapshotScopeSchema = z.object({
   offset: z.number().int().min(0).optional(),
   query: z.string().trim().min(1).max(200).optional(),
   within: z.number().int().positive().optional(),
+  detail: z.enum(["geometry"]).optional(),
+  diff: z.boolean().optional(),
 });
 export type BrowserSnapshotScope = z.infer<typeof BrowserSnapshotScopeSchema>;
 
@@ -179,6 +181,8 @@ export const SNAPSHOT_SCOPE_PROPERTIES = {
   offset: { type: "number", description: "skip this many elements of the ranked list — the snapshot's note gives the offset of the next page when it is cut off" },
   query: { type: "string", description: "list only elements whose role, name or value contains every one of these words (case-insensitive), e.g. \"save\" or \"email address\"" },
   within: { type: "number", description: "list only elements inside the element with this ref — a region ref from the snapshot's note, or any ref" },
+  detail: { type: "string", enum: ["geometry"], description: "\"geometry\" adds each element's box, (x,y width×height) in CSS pixels of the page — only for when where things sit matters; acting by ref never needs it" },
+  diff: { type: "boolean", description: "true lists only what changed since your previous snapshot of this page, as added, changed and removed lines — the cheap way to check what an act did" },
 } as const;
 
 export type BrowserSnapshotResult = {
@@ -231,8 +235,9 @@ export type BrowserPageActivity = { loading: boolean; requests: number; quietMs:
 export type BrowserReadResult = { text: string; loadError?: BrowserLoadError | null;
   /** The page's filled-in fields, secret ones hidden — only when the read asked for them (`fields`). */
   fields?: PageField[] };
-/** `loadError`: the capture is of the empty document Chromium commits for a failed load. */
-export type BrowserScreenshotResult = { data: string; mimeType: string; loadError?: BrowserLoadError | null };
+/** `loadError`: the capture is of the empty document Chromium commits for a failed load. `legend`:
+ *  only on an annotated capture — a `[N] ref=… role "name"` line for each numbered box drawn in it. */
+export type BrowserScreenshotResult = { data: string; mimeType: string; legend?: string; loadError?: BrowserLoadError | null };
 export type BrowserNavigateResult = { url: string | null };
 
 /**
@@ -438,9 +443,14 @@ export const CREDENTIAL_STORAGE_NOTE =
 /** The part of a credentialed sign-in Realm cannot do for you, said once, in one place, so no
  *  surface has to invent its own wording for it. Deliberately NOT hedged: Duo/Okta push approvals
  *  and authenticator-app prompts are not automated here and no amount of retrying makes them so. The
- *  one exception is a code sent by text or email (`security-codes.ts`). */
-export const CREDENTIAL_2FA_NOTE =
+ *  one exception is a code sent by text or email (`security-codes.ts`). Settings shows it. */
+export const CREDENTIAL_2FA_LIMITS_NOTE =
   "Two-factor steps are not automated, except a code the site sends by text or email: with Settings ▸ Sign-ins ▸ Security codes on, Realm fills it, and when an agent asks, only after you approve that fill. A push (Duo, Okta Verify) or an authenticator app's code you complete yourself in the pane.";
+
+/** The same limit said to an agent, after every credential list and fill: steer the second step to
+ *  the one kind Realm can fill, so a push or an authenticator app is never the first thing tried. */
+export const CREDENTIAL_2FA_NOTE =
+  "For a second step, prefer a code by text or email (choose it under 'Other options' / 'Try another way'), then browser_fill_code; it waits for the code to arrive. A push or an authenticator app is the last resort: switch method first, and stop only if none is offered.";
 
 /**
  * Normalize a URL to the origin string credentials are compared on, or null when the input is not a

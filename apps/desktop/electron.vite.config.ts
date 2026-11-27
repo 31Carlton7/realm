@@ -91,10 +91,13 @@ export default defineConfig({
   // electron-vite leaves every target unminified; the renderer is the one a person waits on, so it is
   // minified. `keepNames` keeps function names through the mangling, because the app picker names the
   // React components that drew an element from them (app-pick/describe.ts).
+  // Vite pre-bundles dependencies for dev at chrome87 whatever build.target says, and noVNC awaits at
+  // its top level, which chrome87 cannot; the renderer is a current Chromium, so dev targets esnext.
   renderer: {
     plugins: [katexWoff2Only(), textScale(), pdfjsAssets(), react(), tailwindcss()],
     resolve: { alias: hugeiconsAlias() },
     server: { host: "127.0.0.1" },
+    optimizeDeps: { esbuildOptions: { target: "esnext" } },
     build: { minify: "esbuild" },
     esbuild: { keepNames: true },
   },

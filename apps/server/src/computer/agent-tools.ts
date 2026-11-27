@@ -156,7 +156,7 @@ const TOOLS: Tool[] = [
   {
     name: "computer_act",
     description:
-      "Act on the app you last snapshotted: click, type, press a key, scroll, set a field's value directly, drag one element onto another, or open an element's context menu. Give the [N] from your most recent computer_snapshot; the element's position is re-read at the moment of acting. The user is asked to approve the first action against each app. Realm never types into password fields — hand those to the user.",
+      "Act on the app you last snapshotted: click, type, press a key, scroll, set a field's value directly, drag one element onto another, or open an element's context menu. Give the [N] from your most recent computer_snapshot; the element's position is re-read at the moment of acting. The user is asked to approve the first action against each app. Realm never types into password fields: a web sign-in's password goes through browser_fill_credential, and a code it texts or emails through browser_fill_code, in a browser pane.",
     inputSchema: {
       type: "object",
       properties: {
@@ -387,7 +387,7 @@ const HANDLERS: Record<string, Handler> = {
         : result.detail);
     }
     if (result.refused === "secure_field") {
-      return err("refused: that is a password field. Realm never types into one, in any mode — tell the user what to enter and let them type it themselves.");
+      return err("refused: that is a password field. Realm never types into one, in any mode. For a web sign-in, open it in a browser pane and use browser_fill_credential; in a Mac app, tell the user what to enter and let them type it themselves.");
     }
     if (result.refused === "forbidden_app") return err(FORBIDDEN_REFUSAL);
     if (result.refused === "stale_snapshot" || result.refused === "no_element") {

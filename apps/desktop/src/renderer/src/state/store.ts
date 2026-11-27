@@ -24,11 +24,11 @@ import {
   forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SESSION_DONE_KEY, sessionDoneWhen, type SessionDoneWhen, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
-  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type QueueTurn, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
+  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type MeetingNotesList, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type QueueTurn, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -42,7 +42,7 @@ import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CHILD_ORIGINS } from "../panes/session-labels";
-import { FALLBACK_AGENT, LAST_AGENT_SETTING, QUICK_CHAT_SETTING } from "@realm/view";
+import { FALLBACK_AGENT, LAST_AGENT_SETTING, QUICK_CHAT_MODEL_SETTING, QUICK_CHAT_SETTING, type QuickChatModel } from "@realm/view";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
   isOverridden, parseFontPref, type FontPref,
@@ -50,7 +50,8 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, lastUserMessage, prependTranscript, reduceTranscript, type Earlier, type Rating, type Transcript } from "../panes/session/transcript-model";
-import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, TAIL_EVENTS, readBack } from "./transcript-paging";
+import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, FIRST_EVENTS, FIRST_PAGE, TAIL_EVENTS, readBack } from "./transcript-paging";
+import { TailCache } from "./tail-cache";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { rankTabs, type SpaceTab } from "../panes/session/mention-sources";
@@ -201,8 +202,9 @@ export type Api = TeammatesApi & {
   /** Open a space in a window of its own, or bring forward the window already showing it. */
   openSpaceWindow(spaceId: string): Promise<void>;
   /** Whether ANOTHER window shows this space — which, if so, main has just brought forward, and
-   *  handed `sessionId` to open there. */
-  focusSpaceWindow(spaceId: string, sessionId?: string): Promise<boolean>;
+   *  handed `sessionId` to open there. Asked `by` an agent, main never takes the person away from
+   *  the app they are in to do it. */
+  focusSpaceWindow(spaceId: string, sessionId?: string, by?: "agent"): Promise<boolean>;
   /** A window on the next space no window shows. False when every space is open. */
   newWindow(): Promise<boolean>;
   /** Global list across all profiles, in user sort order. */
@@ -273,6 +275,7 @@ export type Api = TeammatesApi & {
   writeGuideStorage(documentsId: string, path: string, storage: Record<string, string>): Promise<unknown>;
   startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
   listLectures(spaceId: string): Promise<Lecture[]>;
+  listMeetingNotes(spaceId: string): Promise<MeetingNotesList>;
   plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
   plynnImport(spaceId: string, files: string[]): Promise<PlynnImportResult>;
   updateItem(input: UpdateItemInput): Promise<Item>;
@@ -324,10 +327,10 @@ export type Api = TeammatesApi & {
   sessionsDigest(spaceId: string): Promise<{ sessionId: string; lastReply: string | null }[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
-  /** A session with NO item row, and so in no list anywhere — the quick chat's shape. Its own method
-   *  rather than a flag on `createSession`, because the two differ in what they RETURN: everything
-   *  else gets an item and goes on to place it, and this has none to place. */
-  createUnlistedSession(input: CreateSessionInput): Promise<{ session: Session }>;
+  /** A new quick chat's session: NO item row, and so in no list anywhere, on the engine and model the
+   *  Quick chat model setting names. Its own method rather than a flag on `createSession`, because the
+   *  two differ in what they RETURN: everything else gets an item and goes on to place it. */
+  startQuickChat(spaceId: string): Promise<{ session: Session }>;
   /** `sessions.delete` — the row, its transcript and its pty. The one route for a session with no
    *  item to delete through. */
   deleteSession(id: string): Promise<void>;
@@ -476,6 +479,8 @@ export type Api = TeammatesApi & {
   setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
   /** `sessions.moveToSpace` — same guard as setAgent/setEnvironment: rejected once the session has any event. */
   moveSessionToSpace(id: string, spaceId: string): Promise<Session>;
+  /** `sessions.keep`: list an unlisted session (the quick chat) in a space, moving it there first. */
+  keepSession(id: string, spaceId: string): Promise<{ session: Session; itemId: string }>;
   /** `sessions.moveOptions`: what moving a started session would carry and leave, for the Move sheet. */
   sessionMoveOptions(id: string): Promise<MoveOptions>;
   /** `sessions.move`: a started session to another checkout or a new worktree. */
@@ -632,6 +637,19 @@ export type Api = TeammatesApi & {
   setReducedMotion(pref: ReducedMotionPref): Promise<void>;
   /** Tell main the keep-awake switch moved; main holds the blocker while a session works. */
   setPreventSleep(on: boolean): Promise<void>;
+  /** Tell main the Meetings switch moved; main reads the calendar only while it is on. */
+  setOpensMeetings(on: boolean): Promise<void>;
+  /** Tell main "Start the assistant when a call starts" moved; main watches calls only while it is on. */
+  setStartsAssistant(on: boolean): Promise<void>;
+  /** Calendar access as macOS reports it for Realm, read again. Null while nothing is reading it:
+   *  the switch is off, or this OS has no calendar to read. Never asks. */
+  calendarAccess(): Promise<CalendarAccess | null>;
+  /** Every change of it. Optional: a renderer with no preload bridge simply never hears one. */
+  onCalendarAccess?(cb: (access: CalendarAccess | null) => void): () => void;
+  /** Have macOS ask for the calendar. Only the button in Settings calls it. */
+  askForCalendar(): Promise<void>;
+  /** Open System Settings on Privacy ▸ Calendars, where a refusal is undone. */
+  openCalendarSettings(): Promise<void>;
   /** Tell main where a clicked link opens (Settings ▸ General ▸ Links); main routes the click. */
   setLinksOpenIn(pref: LinksOpenIn): void;
   /** The apps installed on this Mac (main's scan), for the `@` list. [] without the bridge. */
@@ -970,6 +988,13 @@ export const SETTING_DOCUMENTS_VIEW = "ui.documentsView";
  *  `@realm/view`, because the server reads the session id from it to leave the quick chat out of
  *  Realm Mobile's Needs you, as the sidebar does. */
 export const SETTING_QUICK_CHAT = QUICK_CHAT_SETTING;
+/** Whether this page is the quick chat panel's (main/quick-chat-panel.ts) rather than a Realm window's. */
+const inQuickChatPanel = (): boolean => window.realm?.surface === "quick-chat";
+/** The session a stored `SETTING_QUICK_CHAT` names, or null. */
+const quickChatIdOf = (raw: unknown): string | null => {
+  const id = raw && typeof raw === "object" ? (raw as { sessionId?: unknown }).sessionId : null;
+  return typeof id === "string" ? id : null;
+};
 /** Which sub-agent each lead's Agents tab was showing, by lead session id — so a tab restored after a
  *  relaunch opens where it was left. Capped at `AGENTS_SHOWN_MAX` leads, the newest kept. */
 export const SETTING_AGENTS_SHOWN = "ui.agentsShown";
@@ -983,6 +1008,12 @@ export function parseAgentsShown(raw: unknown): Record<string, string> {
   return out;
 }
 export const EVENTS_PAGE = 1000;
+/** How many log ends read ahead of a click are kept (`prefetchSession`), and the longest one kept. A
+ *  row's two neighbours and the last few rows hovered; at a few hundred KB each, a few MB in all. */
+export const TAIL_CACHE_SIZE = 8;
+export const TAIL_CACHE_EVENTS = 2000;
+/** A first open's read of a log's end (`readTail`), or a catch-up's read on from what is held. */
+type TailRead = { events: StoredSessionEvent[]; earlier: Earlier | null; carried: StoredSessionEvent[] };
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
 export const MCP_CALLS_PAGE = 50;
@@ -1483,7 +1514,8 @@ export type AppState = TeammatesSlice & {
    *  polarity, matching the service), and the permission mode new sessions start in
    *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
    *  mount, and a null renders as loading rather than as every-toggle-on lies. */
-  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string } | null;
+  /** `quickChatModel` is the stored value as read; `quickChatModelOf` says what it means. */
+  settingsPrefs: { disabledCategories: NotificationCategory[]; sessionDoneWhen: SessionDoneWhen; defaultPermissionMode: string; quickChatModel: unknown } | null;
   /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
    *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
    *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
@@ -1738,7 +1770,12 @@ export type AppState = TeammatesSlice & {
    * It still RUNS somewhere — an agent needs a working directory — so the row carries the space it
    * was made in. That is a fact about where its commands land, not about which list it appears in.
    */
-  quickChat: { sessionId: string } | null;
+  quickChat: {
+    sessionId: string;
+    /** The space it was saved to, once it has been: from then on it is that space's session, which
+     *  this window happens to still be showing, and closing the window deletes nothing. */
+    keptIn: string | null;
+  } | null;
   /** The media viewer, when a file is open in it — see `state/viewer.ts`. Transient: a file is looked
    *  at, not kept, so it is never written into the saved view and a profile switch takes it away. */
   viewer: ViewerState | null;
@@ -1890,9 +1927,10 @@ export type AppState = TeammatesSlice & {
    * place. Nothing unloads and nothing slides — every space of the profile is already loaded. A space
    * with no session shows its Overview, which says how to start one. A space in another profile
    * switches the window to that profile first. A space open in ANOTHER window brings that window
-   * forward instead, and this one stays as it is: a space is open in at most one window.
+   * forward instead, and this one stays as it is: a space is open in at most one window. `by` says
+   * an agent asked, and then that window comes forward only inside Realm.
    */
-  selectSpace(id: string): Promise<void>;
+  selectSpace(id: string, by?: "agent"): Promise<void>;
   /** Switch the window to another profile: its spaces load, and its own view comes back. The one
    *  switch left, and a rare, deliberate one. A no-op for the profile already showing. */
   selectProfile(profileId: string): Promise<void>;
@@ -2243,9 +2281,14 @@ export type AppState = TeammatesSlice & {
    *  window to that profile first. False when its space holds no item for that session, so a caller
    *  with a fallback can take it. */
   revealSession(sessionId: string, spaceId: string | null): Promise<boolean>;
-  /** Load (or catch up) a session's transcript. A first open reads from the end (`transcript-paging.ts`);
-   *  after that, events after the last known seq are fetched and reduced. */
+  /** Load (or catch up) a session's transcript. A first open reads from the end (`transcript-paging.ts`):
+   *  the last screenful first, drawn as soon as it lands, then the rest of the tail in front of it,
+   *  which is when the promise settles. After that, events after the last known seq are fetched and
+   *  reduced. */
   openSession(id: string): Promise<void>;
+  /** Read the end of a session's log ahead of its open (`tail-cache.ts`), so a click on its row paints
+   *  without waiting on the server. Nothing for a session already held, already read or running. */
+  prefetchSession(id: string): void;
   /** Read the stretch of an opened transcript before what it holds, and put it in front. Nothing when it
    *  already starts at the log's start. */
   loadEarlierEvents(id: string): Promise<void>;
@@ -2660,11 +2703,21 @@ export type AppState = TeammatesSlice & {
    *  there is one quick chat, and a button that stacked windows would be a way to lose one. */
   openQuickChat(): Promise<void>;
   /** Close it, which DELETES the session — the window is the only place it was ever shown, so
-   *  leaving the row behind would be leaving litter nobody asked to keep. */
+   *  leaving the row behind would be leaving litter nobody asked to keep. One that was saved to a
+   *  space is that space's session and is left alone. */
   closeQuickChat(): Promise<void>;
+  /** Save the quick chat to a space (`sessions.keep`). The window stays up. */
+  keepQuickChat(spaceId: string): Promise<void>;
+  /** Put the window away and bring the saved chat forward as the session it now is. */
+  openKeptQuickChat(): Promise<void>;
   /** Where the window sits, from a drag. Clamped by the window itself, which is the only thing that
    *  knows how big it is. */
   setQuickChatPos(pos: { x: number; y: number }): void;
+  /** Another page opened or deleted the quick chat: take it as the setting has it now. */
+  syncQuickChat(): Promise<void>;
+  /** The quick chat panel was opened (main/quick-chat-panel.ts): wear the look as it is set now, show
+   *  the chat there is, and make one when there is none. Only the panel's own page calls this. */
+  showQuickChatPanel(): Promise<void>;
   /** Show files in the media viewer, replacing whatever it was showing. Loads the owner session's
    *  transcript when it is not held yet, so the exchange can be drawn as it arrives. */
   openViewer(input: OpenViewerInput): void;
@@ -2754,6 +2807,8 @@ export type AppState = TeammatesSlice & {
   /** Wrap a lecture up: a new session beside the focused pane, sent the wrap-up prompt. */
   wrapUpLecture(lecture: Lecture, spaceId?: string | null): Promise<void>;
   listLectures(spaceId?: string | null): Promise<Lecture[]>;
+  /** The files in a space's `meetings/` folder, the newest meeting first, and that space's folder. A passthrough. */
+  listMeetingNotes(spaceId: string): Promise<MeetingNotesList>;
   /** The preview frame's ingredients and the guide progress bridge (PreviewFrame). Passthroughs. */
   previewInfo(): Promise<{ port: number; token: string }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
@@ -2843,8 +2898,9 @@ export type AppState = TeammatesSlice & {
    *  (the first window is the one whose space the server reads back). With `firstSession` (a space
    *  `space_create` just made) it lands where the New space sheet does, on a new session there. */
   applySpaceSwitchRequested(payload: { spaceId: string; firstSession?: { projectId: string | null } }, typing: boolean): Promise<void>;
-  /** The `settings.changed` handler: an agent's `settings_set`, taken as if this window's own Settings
-   *  had made it — for the keys on `AGENT_SETTINGS` and no other, and only a value the app offers. */
+  /** The `settings.changed` handler: an agent's `settings_set`, or any `settings.set` over RPC, taken
+   *  as if this window's own Settings had made it — for the keys on `AGENT_SETTINGS` and the look, and
+   *  only a value the app offers. */
   applySettingChanged(payload: { key: string; value?: unknown }): void;
   /** The `session.openRequested` handler: a session an agent's `session_open` made for the user goes
    *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
@@ -2928,11 +2984,16 @@ export type AppState = TeammatesSlice & {
   /** Flip ONE category's off switch and persist the whole disabled set under
    *  `NOTIFICATIONS_DISABLED_KEY`. Disabling stops NEW rows only — the service's contract. */
   setNotificationCategoryEnabled(category: NotificationCategory, enabled: boolean): Promise<void>;
+  /** When a session finishing notifies (`NOTIFICATIONS_SESSION_DONE_KEY`): once its work is done, or
+   *  after every turn. Read by the server, which writes the rows. */
+  setSessionDoneWhen(when: SessionDoneWhen): Promise<void>;
   /** Persist the default permission mode for new sessions (`DEFAULT_PERMISSION_MODE_KEY`) —
    *  consumed server-side at `sessions.create`. The bypass confirm lives in the page, not here:
    *  by the time this runs the user has already said it twice. */
   setDefaultPermissionMode(mode: string): Promise<void>;
   setMidTurnMode(mode: MidTurnMode): Promise<void>;
+  /** Persist what new quick chats start on (`QUICK_CHAT_MODEL_SETTING`), read server-side when one opens. */
+  setQuickChatModel(pick: QuickChatModel): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
   /** Load one profile's sign-ins and passkeys, and the store's own state (encryption available,
@@ -3040,12 +3101,31 @@ export type AppState = TeammatesSlice & {
   /** Keep the Mac awake while a session works (Settings ▸ General ▸ Power). Off by default. */
   preventSleep: boolean;
   setPreventSleep(on: boolean): Promise<void>;
+  /** Open a calendar meeting's link when it starts (Settings ▸ General ▸ Meetings). On by default. */
+  opensMeetings: boolean;
+  setOpensMeetings(on: boolean): Promise<void>;
+  /** Start the meeting assistant when a call starts (Settings ▸ General ▸ Meetings). */
+  startsAssistant: boolean;
+  setStartsAssistant(on: boolean): Promise<void>;
+  /** Calendar access as macOS reports it for Realm; null until asked, or with the switch off. */
+  calendarAccess: CalendarAccess | null;
+  refreshCalendarAccess(): Promise<void>;
+  watchCalendarAccess(): () => void;
+  askForCalendar(): Promise<void>;
+  openCalendarSettings(): Promise<void>;
   /** Where a clicked web link opens (Settings ▸ General ▸ Links): the default browser unless asked. */
   linksOpenIn: LinksOpenIn;
   setLinksOpenIn(pref: LinksOpenIn): Promise<void>;
   /** A web link in a Realm Browser tab: a new tab in the side pane of the session in view, the way
-   *  ⌘T opens one, already on `url` — and with no session on screen, a browser beside the focus. */
-  openLinkInBrowser(url: string): Promise<void>;
+   *  ⌘T opens one, already on `url` — and with no session on screen, a browser beside the focus.
+   *  `background` (a middle-click) puts it behind the tab showing. */
+  openLinkInBrowser(url: string, opts?: { background?: boolean }): Promise<void>;
+  /** A new tab a browser pane's page asked for (a target=_blank link, a ⌘- or middle-click): a tab
+   *  beside that page's, as `openLinkInBrowser` makes one — behind it, keyboard untouched, when
+   *  `background`. Without `focus` (the page that asked did not have the keyboard: an agent clicked)
+   *  it never takes the keyboard, and comes to the front as an agent's page does. `onCreated` is how
+   *  main learns which browser hosts the page Chromium already made. */
+  openPageTab(browserId: string, url: string, opts: { background: boolean; focus: boolean; onCreated?: (browserId: string) => void }): Promise<void>;
   /** Which editor the transcript's path menu offers — an id, "realm" for none, null for the first
    *  installed one (see `resolveEditor`). */
   openFilesIn: OpenFilesIn | null;
@@ -3665,7 +3745,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const qc = get().quickChat; const pos = get().quickChatPos;
       // The position is kept even with no chat: closing removes the conversation, not the corner the
       // user put the window in.
-      await api.setSetting(SETTING_QUICK_CHAT, { sessionId: qc?.sessionId ?? null, pos });
+      // A saved chat is its space's session by now, so a relaunch does not bring the window back.
+      // `panel` marks a chat the panel is showing: a window leaves it there (`restoreQuickChat`).
+      const live = qc && !qc.keptIn ? qc : null;
+      await api.setSetting(SETTING_QUICK_CHAT, { sessionId: live?.sessionId ?? null, pos, ...(live && inQuickChatPanel() ? { panel: true } : {}) });
+      window.realm?.quickChatPanel?.chatChanged();
     };
     const scheduleQuickChatPersist = () => {
       if (quickTimer) clearTimeout(quickTimer);
@@ -3678,19 +3762,57 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * its row — the space it ran in was deleted, the session was deleted from elsewhere — and a
      * window opened onto a session that is gone is a window with a prompter that cannot send.
      */
-    const restoreQuickChat = async (raw: unknown) => {
-      const v = raw && typeof raw === "object" ? raw as { sessionId?: unknown; pos?: unknown } : null;
+    const restoreQuickChat = async (raw: unknown, asked = false) => {
+      const v = raw && typeof raw === "object" ? raw as { sessionId?: unknown; pos?: unknown; panel?: unknown } : null;
       const pos = v?.pos && typeof v.pos === "object"
         && typeof (v.pos as { x?: unknown }).x === "number" && typeof (v.pos as { y?: unknown }).y === "number"
         ? v.pos as { x: number; y: number } : null;
       set({ quickChatPos: pos });
-      const id = typeof v?.sessionId === "string" ? v.sessionId : null;
+      const id = quickChatIdOf(raw);
       if (!id) return;
+      // A chat the panel is showing stays in the panel: a window puts its card up for it only when
+      // asked to (`openQuickChat`), not because it was launched.
+      if (v?.panel === true && !asked && !inQuickChatPanel()) return;
       const session = await api.getSession(id).catch(() => null);
       if (!session) { set({ quickChat: null }); await persistQuickChat(); return; }
       set({ sessions: { ...get().sessions, [session.id]: session }, sessionStatus: { ...get().sessionStatus, [session.id]: session.status },
-        sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id } });
+        sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id, keptIn: null } });
       await get().openSession(session.id);
+    };
+    /** Everything this page holds about the quick chat's session, let go. The session itself is left
+     *  alone: `closeQuickChat` deletes it, and a page told another one did (`followQuickChat`) has
+     *  nothing left to delete. */
+    const forgetQuickChat = (id: string) => {
+      set({ quickChat: null });
+      dropTranscript(id);
+      const { [id]: _s, ...sessions } = get().sessions;
+      const { [id]: _st, ...sessionStatus } = get().sessionStatus;
+      const { [id]: _sp, ...sessionSpace } = get().sessionSpace;
+      const { [id]: _d, ...drafts } = get().drafts;
+      const { [id]: _a, ...pendingAttachments } = get().pendingAttachments;
+      set({ sessions, sessionStatus, sessionSpace, drafts, pendingAttachments });
+    };
+    /**
+     * The quick chat as the setting has it now, after another page opened or deleted it. There is one
+     * quick chat, shown in the panel, in a window's card, or both. A chat this page shows that is no
+     * longer the one is dropped. The panel then shows the new one; a window puts up no card it was
+     * not asked for. A chat saved to a space is no longer the quick chat, so the page showing it
+     * keeps showing it.
+     */
+    const followQuickChat = async (raw: unknown) => {
+      if (get().quickChat?.keptIn) return;
+      const id = quickChatIdOf(raw);
+      const mine = get().quickChat?.sessionId ?? null;
+      if (mine === id) return;
+      if (mine) forgetQuickChat(mine);
+      if (id && inQuickChatPanel()) await restoreQuickChat(raw);
+    };
+    /** The space a chat made in the panel runs in: the one the app was last in, else the first. The
+     *  current space is derived from the profile and its last space, so those are what is set. */
+    const aimQuickChatPanel = (saved: unknown) => {
+      const spaces = get().spaces;
+      const space = spaces.find((sp) => sp.id === saved) ?? spaces[0];
+      if (space) set({ activeProfileId: space.profileId, lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: space.id } });
     };
     /** `refreshSessions` REBUILDS each refreshed space's slice of `sessions`, and a profile switch
      *  empties it, so the quick chat's row — which may belong to another profile's space entirely —
@@ -3851,12 +3973,85 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const loading = new Map<string, StoredSessionEvent[]>();
     /** The earlier-stretch read in flight per session, so a second ask joins it rather than reading twice. */
     const loadingEarlier = new Map<string, Promise<void>>();
+    /** Log ends read ahead of an open (`prefetchSession`), and the reads still in flight, which an open
+     *  waits for rather than reading the same end twice. */
+    const tails = new TailCache<TailRead>(TAIL_CACHE_SIZE, TAIL_CACHE_EVENTS);
+    const prefetching = new Map<string, Promise<void>>();
     /** `also` is folded into the SAME write. A transcript move and a session's activity line are two
      *  facts about one event, and two `set` calls for them is two notifications — a render of every
      *  subscribed pane — per event, per streaming session. */
     const setTranscript = (id: string, entry: TranscriptEntry, also?: Partial<AppState>) =>
       set({ ...also, transcripts: { ...get().transcripts, [id]: entry } });
-    const dropTranscript = (id: string) => { pendingDeltas.delete(id); const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
+    const dropTranscript = (id: string) => { pendingDeltas.delete(id); tails.delete(id); const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
+    /**
+     * The end of a log as a first open draws it: the last screenful or so, starting on a prompt,
+     * reaching back to the reader's mark when it is in reach, and the log's last word on what the
+     * prompter reads from wherever it was said. Small, so it lands in a frame or two even when every
+     * event in it is a long tool result.
+     */
+    const readTail = async (id: string): Promise<TailRead> => {
+      const markAt = (get().sessions[id] ?? get().allSessions[id])?.seenSeq ?? 0;
+      const [tail, carried] = await Promise.all([
+        readBack((before, limit) => api.sessionEventsBefore(id, before, limit), Number.MAX_SAFE_INTEGER, FIRST_EVENTS, markAt > 0 ? markAt : null, FIRST_PAGE),
+        api.sessionEventsBefore(id, Number.MAX_SAFE_INTEGER, CARRIED_LIMIT, CARRIED_TYPES),
+      ]);
+      return { events: tail.events, earlier: tail.earlier, carried };
+    };
+    /**
+     * Reduce a read onto the session's transcript and draw it. `markFrom` is where the stretch drawn
+     * starts, for the "new since you were here" rule: a mark before it is out of reach.
+     */
+    const foldRead = (id: string, read: TailRead, streamed: readonly StoredSessionEvent[], markFrom: Earlier | null) => {
+      // The rule's position, read from the mark as it was BEFORE this open, and only when there
+      // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
+      // missed nothing, and one already caught up has nothing to divide.
+      const row = get().sessions[id];
+      // A mark before the stretch read is out of reach: the rule would land on its first event.
+      const seenSeq = row && row.seenSeq > 0 && (markFrom === null || row.seenSeq >= markFrom.from) ? row.seenSeq : null;
+      let { lastSeq, t } = get().transcripts[id] ?? { lastSeq: 0, t: emptyTranscript() };
+      const { earlier } = read;
+      if (earlier !== null && !get().transcripts[id]) {
+        // What the log last said before the stretch read, about what outlives it — see `CARRIED_TYPES`.
+        for (const e of read.carried) if (e.seq < earlier.from) t = reduceTranscript(t, e.event, false, e.seq);
+        t = { ...t, earlier };
+      }
+      let marked = get().newSinceSeq[id] !== undefined;
+      for (const e of [...read.events, ...streamed]) {
+        if (e.seq < 0) { t = reduceTranscript(t, e.event); continue; }
+        if (e.seq <= lastSeq) continue;
+        // The FIRST event past the mark carries it. `reduceTranscript` refuses a second one, so
+        // re-entering this loop on a later page cannot draw two rules.
+        const mark = seenSeq !== null && !marked && e.seq > seenSeq;
+        if (mark) marked = true;
+        t = reduceTranscript(t, e.event, mark, e.seq);
+        lastSeq = e.seq;
+      }
+      setTranscript(id, { lastSeq, t });
+      if (marked && get().newSinceSeq[id] === undefined && seenSeq !== null) {
+        set({ newSinceSeq: { ...get().newSinceSeq, [id]: seenSeq } });
+      }
+    };
+    /** Read at least `want` events of the stretch before what the transcript holds, and put it in front. */
+    const readEarlier = (id: string, want: number): Promise<void> => {
+      const from = get().transcripts[id]?.t.earlier?.from;
+      if (from === undefined) return Promise.resolve();
+      const inFlight = loadingEarlier.get(id);
+      if (inFlight) return inFlight;
+      const load = (async () => {
+        try {
+          const read = await readBack((before, limit) => api.sessionEventsBefore(id, before, limit), from, want);
+          // Closed, reopened from scratch or already extended while this read: what it read is not
+          // the stretch in front of what is held now.
+          const cur = get().transcripts[id];
+          if (!cur || cur.t.earlier?.from !== from) return;
+          let older = emptyTranscript();
+          for (const e of read.events) older = reduceTranscript(older, e.event, false, e.seq);
+          setTranscript(id, { ...cur, t: prependTranscript(older, cur.t, read.earlier ?? undefined) });
+        } finally { loadingEarlier.delete(id); }
+      })();
+      loadingEarlier.set(id, load);
+      return load;
+    };
 
     /**
      * Ephemeral `assistant_delta` text that has arrived but not yet been written to the store, per
@@ -3974,6 +4169,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * row nobody is tracking simply stays, which is the safe direction.
      */
     const delegatedChildren = new Map<string, { doneRow?: string }>();
+    /** A page's new tab, by its item, and the tab it was opened from — which comes back on screen when
+     *  the new one closes in front (`closeFromLayout`). `showing` is the tab its strip showed at the
+     *  last write; the link goes once its strip shows any other tab, since then the person has moved on. */
+    const openers = new Map<string, { opener: string; showing: string | null }>();
+    const forgetOpenersPast = (layout: Layout) => {
+      for (const [tab, link] of openers) {
+        const showing = findLeafOfItem(layout, tab)?.itemId ?? null;
+        if (showing === tab || (showing !== null && showing === link.showing)) link.showing = showing;
+        else openers.delete(tab);
+      }
+    };
     /**
      * The ONE way the view is written. It is brought to its one shape here (`normalizeView`: the main
      * panes, the one panel beside them, each tab in its session's run and leaving with its session),
@@ -4000,6 +4206,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // write hands it on, to the pane of the session whose tab it was in (the panel closing), or to
       // the pane beside the one that left the split — else to the first pane.
       const focusedLeafId = keep && findLeaf(shaped.layout, keep) ? keep : landing(get().layout, keep, shaped.layout);
+      forgetOpenersPast(shaped.layout);
       return { view: shaped, layout: shaped.layout, paneHistory: reconcileNav(history, shaped.layout), ...extra, focusedLeafId, peek };
     };
     /** Where the keyboard lands when the leaf it was in went with a write: the pane of the session whose
@@ -4284,11 +4491,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  panel is showing that session's tabs (or nothing), or that session is the one the keyboard is
      *  working for — and otherwise waits in the strip, so two agents opening pages side by side do not
      *  pull the panel back and forth under the person reading it. */
-    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean; show?: boolean } = {}): Promise<boolean> => {
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean; show?: boolean; front?: boolean } = {}): Promise<boolean> => {
       const view = viewNow();
       const panel = findPanel(view.layout);
       const showingOwner = panel?.itemId ? tabOwner(panel, panel.itemId) : undefined;
-      const front = !!opts.focus || !!opts.show || !panel || showingOwner === owner || servedSession() === owner;
+      const front = opts.front ?? (!!opts.focus || !!opts.show || !panel || showingOwner === owner || servedSession() === owner);
       const layout = layoutOpenInSidePane(view.layout, owner, itemId, { front });
       if (!layout) return false;
       const leaf = findLeafOfItem(layout, itemId)!;
@@ -4306,20 +4513,27 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return true;
     };
     /** `newTab`'s browser, and a link's: a tab in the side pane of the session the ask is about, on
-     *  `url` (blank without one). Answers the browser's item, or null when it never reached the screen. */
-    const openBrowserTab = async (leafId: string | null, url?: string): Promise<string | null> => {
+     *  `url` (blank without one). Answers the browser's item, or null when it never reached the screen.
+     *  `background` puts it behind the tab showing and leaves the keyboard where it is; `quiet` leaves
+     *  the keyboard too, and shows the tab by the rule an agent's pages follow. `onCreated` hears the
+     *  browser's id before the tab is placed, which is before its pane can mount. */
+    const openBrowserTab = async (leafId: string | null, url?: string, opts: { background?: boolean; quiet?: boolean; onCreated?: (browserId: string) => void } = {}): Promise<string | null> => {
       // For the session the ask came from — read before the awaits, since the click or the key was
       // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
       // in, or in the panel the session whose tab is showing, else the first session on screen.
       const owner = leafId ? sessionAt(leafId) ?? get().peekOwner() : get().peekOwner();
       const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
       const sid = ownerItem?.spaceId ?? get().activeSpaceId; if (!sid) return null;
-      const { itemId } = await api.createBrowser(sid, url);
+      const { browserId, itemId } = await api.createBrowser(sid, url);
+      opts.onCreated?.(browserId);
       await loadSpaceItems(sid);
       if (!inProfile(sid)) return null;
       // A tab of that session's run — and with no session on screen, an ordinary browser beside the
       // focused pane.
-      if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
+      if (opts.background || opts.quiet) {
+        const place = opts.background ? { front: false } : {};
+        if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, place))) await get().openItemBesideQuiet(itemId);
+      } else if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
       return itemId;
     };
     /** Bring the side panel back if it was put away: a person just asked to look at something in it
@@ -4758,7 +4972,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, memoryLearning: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
+      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, opensMeetings: MEETINGS_OPEN_DEFAULT, startsAssistant: MEETING_AUTO_START_DEFAULT, calendarAccess: null, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
@@ -4849,6 +5063,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         /* Which profile this window shows. The bound one first — a window opened for a profile is that
            profile's — then the one it was last on, then (a home last run with rooms) the profile of the
            space it was in, then the first profile that has any space, then the first at all. */
+        /* The quick chat panel's page stops here. It wears the look read above and holds the chat, and
+           it shows no space, so it enters no profile's view, restores no layout and claims nothing a
+           window would. It runs again each time the panel opens (`showQuickChatPanel`), which is how
+           a theme changed in a window since reaches it. */
+        if (inQuickChatPanel()) {
+          aimQuickChatPanel(saved);
+          set({ caret: parseCaretPrefs(await api.getSetting(CARET_KEY).catch(() => null), { editorBlink: null }) });
+          await followQuickChat(quick);
+          set({ booted: true });
+          return;
+        }
         const savedSpace = typeof saved === "string" ? spaces.find((sp) => sp.id === saved) : undefined;
         const known = (id: unknown): id is string => typeof id === "string" && profiles.some((p) => p.id === id);
         // A window brought back after a relaunch lands where it was, ahead of everything else.
@@ -4903,6 +5128,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const awake = await api.getSetting(POWER_PREVENT_SLEEP_KEY).catch(() => null);
         set({ preventSleep: awake === true });
         void api.setPreventSleep(awake === true).catch(() => {});
+        // On unless turned off: only an explicit `false` stops Realm opening meetings.
+        const opensMeetings = (await api.getSetting(MEETINGS_OPEN_KEY).catch(() => null)) !== false;
+        set({ opensMeetings });
+        void api.setOpensMeetings(opensMeetings).catch(() => {});
+        const startsAssistant = await api.getSetting(MEETING_AUTO_START_KEY).catch(() => null);
+        set({ startsAssistant: typeof startsAssistant === "boolean" ? startsAssistant : MEETING_AUTO_START_DEFAULT });
         const linksIn = await api.getSetting(LINKS_OPEN_IN_KEY).catch(() => null);
         const linksOpenIn = isLinksOpenIn(linksIn) ? linksIn : LINKS_OPEN_IN_DEFAULT;
         set({ linksOpenIn });
@@ -4926,10 +5157,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
         void get().refreshCliStatus().catch(() => {});
       },
-      selectSpace(id) { return holdTrail(async () => {
+      selectSpace(id, by) { return holdTrail(async () => {
         const space = get().spaces.find((s) => s.id === id);
         if (!space) return;
-        if (id !== get().activeSpaceId && await api.focusSpaceWindow(id)) return;
+        if (id !== get().activeSpaceId && await api.focusSpaceWindow(id, undefined, by)) return;
         if (space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
         if (get().activeProfileId !== space.profileId) return;
         // Remembered first: with nothing focused, this is the space a new session goes to.
@@ -5625,8 +5856,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const itemId = await openBrowserTab(leafId);
         if (itemId && opts.full) await zoomItemPane(itemId);
       },
-      async openLinkInBrowser(url) {
-        await openBrowserTab(null, url);
+      async openLinkInBrowser(url, opts) {
+        await openBrowserTab(null, url, opts);
+      },
+      async openPageTab(browserId, url, opts) {
+        const layout = get().layout;
+        const opener = get().items.find((i) => i.kind === "browser" && i.refId === browserId);
+        const leaf = layout && opener ? findLeafOfItem(layout, opener.id) : null;
+        const itemId = await openBrowserTab(leaf?.id ?? null, url, { background: opts.background, quiet: !opts.focus, onCreated: opts.onCreated });
+        const showing = itemId && get().layout ? findLeafOfItem(get().layout!, itemId)?.itemId ?? null : null;
+        if (itemId && opener && showing) openers.set(itemId, { opener: opener.id, showing });
       },
       peekOwner() {
         const layout = get().layout; if (!layout) return null;
@@ -5749,6 +5988,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (closing?.kind === "browser") api.destroyBrowserView(closing.refId);
         // A turn's review is a look, not a setting: closing its pane ends it, so the next way in shows the checkout as it is.
         if (closing?.kind === "diff" && get().diffTurns[closing.refId]) get().closeTurnDiff(closing.refId);
+        const opener = openers.get(itemId)?.opener;
+        openers.delete(itemId);
         const view = viewNow();
         if (!findLeafOfItem(view.layout, itemId)) {
           // Only a tab of a side pane kept off screen: it leaves that, and the screen is untouched.
@@ -5763,7 +6004,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           await persist();
           return;
         }
-        set(writeLayout(layoutClose(view.layout, itemId)));
+        set(writeLayout(layoutClose(view.layout, itemId, opener)));
         await persist();
         // Closing the last pane lands in a fresh prompter, never the empty-state placeholder.
         // Deliberately scoped to this path: a prune also empties the view while taking deleted items
@@ -6263,13 +6504,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         return get().revealSession(sid, spaceOf(sid));
       },
       async openSession(id) {
+        // A read of this log's end already on its way is waited for rather than made twice.
+        const ahead = prefetching.get(id);
+        if (ahead) await ahead;
         if (loading.has(id)) return;
         loading.set(id, []);
         // Buffered deltas are discarded rather than replayed onto the transcript this rebuilds: the
         // fetch re-derives it from persisted events and the reply streaming now, which is the same
         // text those deltas were spelling out.
         pendingDeltas.delete(id);
+        // How much of the tail is still to read in front of what the first paint drew.
+        let fill = 0;
         try {
+          /* A log end read ahead of the click is drawn now, before anything is asked of the server,
+             unless the log has since been cut back past it. The read below then goes on from where
+             it stops, as a catch-up does. */
+          const row0 = get().sessions[id] ?? get().allSessions[id];
+          const cached = get().transcripts[id] ? undefined : tails.take(id);
+          const early = cached && (!row0 || (cached.events.at(-1)?.seq ?? 0) <= row0.lastEventSeq) ? cached : undefined;
+          if (early) foldRead(id, early, [], early.earlier);
           const held = get().transcripts[id];
           const prev = held ?? { lastSeq: 0, t: emptyTranscript() };
           const fetchAll = async () => {
@@ -6281,23 +6534,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
               after = page.at(-1)!.seq;
             }
           };
-          /* A first open reads from the END: the newest turns, back to the reader's mark when it is in
-             reach, and the last word on what the prompter reads from wherever it was said. A catch-up
-             (a reconnect, a reopen) reads forward from what is already held. */
-          const markAt = (get().sessions[id] ?? get().allSessions[id])?.seenSeq ?? 0;
-          const fetchTail = async (): Promise<{ events: StoredSessionEvent[]; earlier: Earlier | null; carried: StoredSessionEvent[] }> => {
-            const [tail, carried] = await Promise.all([
-              readBack((before, limit) => api.sessionEventsBefore(id, before, limit), Number.MAX_SAFE_INTEGER, TAIL_EVENTS, markAt > 0 ? markAt : null),
-              api.sessionEventsBefore(id, Number.MAX_SAFE_INTEGER, CARRIED_LIMIT, CARRIED_TYPES),
-            ]);
-            return { events: tail.events, earlier: tail.earlier, carried };
-          };
+          /* A first open reads from the END (`readTail`). A catch-up (a reconnect, a reopen, an open
+             drawn from a read ahead) reads forward from what is already held. */
           const [session, read] = await Promise.all([get().sessions[id] ? null : api.getSession(id),
-            held ? fetchAll().then((events) => ({ events, earlier: null, carried: [] })) : fetchTail()]);
-          const events = read.events;
+            held ? fetchAll().then((events): TailRead => ({ events, earlier: null, carried: [] })) : readTail(id)]);
           // After the log, so the text a reply has streamed so far — in no stored event yet — picks
           // up where the log stops. Without it a window reloaded mid-turn starts the reply mid-sentence.
-          const streaming = await api.sessionStreaming(id);
+          // A session at rest is streaming nothing, and asking would cost a second round trip after
+          // the log's. Read as nothing yet, `withStreamed` applies every event that arrived meanwhile.
+          const status = get().sessionStatus[id];
+          const streaming = status === "idle" || status === "ended" || status === "error" ? { seq: -1, message: null } : await api.sessionStreaming(id);
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           refreshGitFor(id); // opening a session refreshes its cwd's git context
@@ -6310,56 +6556,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
            same for every agent kind — there is no injection the agent has to support. */
         if (opened) get().run(() => get().refreshCommands(id));
         if (opened) get().run(() => get().refreshScripts(opened.spaceId));
-          // The rule's position, read from the mark as it was BEFORE this open, and only when there
-          // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
-          // missed nothing, and one already caught up has nothing to divide.
-          const row = get().sessions[id];
-          // A mark before the stretch read is out of reach: the rule would land on its first event.
-          const { earlier } = read;
-          const seenSeq = row && row.seenSeq > 0 && (earlier === null || row.seenSeq >= earlier.from) ? row.seenSeq : null;
-          let { lastSeq, t } = get().transcripts[id] ?? prev;
-          if (earlier !== null && !get().transcripts[id]) {
-            // What the log last said before the stretch read, about what outlives it — see `CARRIED_TYPES`.
-            for (const e of read.carried) if (e.seq < earlier.from) t = reduceTranscript(t, e.event, false, e.seq);
-            t = { ...t, earlier };
-          }
-          let marked = get().newSinceSeq[id] !== undefined;
-          for (const e of [...events, ...withStreamed(id, loading.get(id) ?? [], streaming)]) {
-            if (e.seq < 0) { t = reduceTranscript(t, e.event); continue; }
-            if (e.seq <= lastSeq) continue;
-            // The FIRST event past the mark carries it. `reduceTranscript` refuses a second one, so
-            // re-entering this loop on a later page cannot draw two rules.
-            const mark = seenSeq !== null && !marked && e.seq > seenSeq;
-            if (mark) marked = true;
-            t = reduceTranscript(t, e.event, mark, e.seq);
-            lastSeq = e.seq;
-          }
-          setTranscript(id, { lastSeq, t });
-          if (marked && get().newSinceSeq[id] === undefined && seenSeq !== null) {
-            set({ newSinceSeq: { ...get().newSinceSeq, [id]: seenSeq } });
-          }
+          foldRead(id, read, withStreamed(id, loading.get(id) ?? [], streaming), early ? early.earlier : read.earlier);
+          if (early || !held) fill = TAIL_EVENTS - (early ?? read).events.length;
         } finally { loading.delete(id); }
+        // The rest of the tail, read in front of the end already on screen.
+        if (fill > 0) await readEarlier(id, fill);
       },
-      loadEarlierEvents(id) {
-        const from = get().transcripts[id]?.t.earlier?.from;
-        if (from === undefined) return Promise.resolve();
-        const inFlight = loadingEarlier.get(id);
-        if (inFlight) return inFlight;
-        const load = (async () => {
-          try {
-            const read = await readBack((before, limit) => api.sessionEventsBefore(id, before, limit), from, EARLIER_EVENTS);
-            // Closed, reopened from scratch or already extended while this read: what it read is not
-            // the stretch in front of what is held now.
-            const cur = get().transcripts[id];
-            if (!cur || cur.t.earlier?.from !== from) return;
-            let older = emptyTranscript();
-            for (const e of read.events) older = reduceTranscript(older, e.event, false, e.seq);
-            setTranscript(id, { ...cur, t: prependTranscript(older, cur.t, read.earlier ?? undefined) });
-          } finally { loadingEarlier.delete(id); }
-        })();
-        loadingEarlier.set(id, load);
-        return load;
+      prefetchSession(id) {
+        if (get().transcripts[id] || loading.has(id) || prefetching.has(id) || tails.has(id)) return;
+        // A running log outgrows its read before the click: there is nothing to gain from one.
+        const status = get().sessionStatus[id] ?? get().sessions[id]?.status;
+        if (status === "running" || status === "waiting_permission") return;
+        const read = readTail(id)
+          .then((tail) => { if (!get().transcripts[id] && !loading.has(id)) tails.put(id, tail); }, () => {})
+          .finally(() => prefetching.delete(id));
+        prefetching.set(id, read);
       },
+      loadEarlierEvents(id) { return readEarlier(id, EARLIER_EVENTS); },
       async loadEventsThrough(id, seq) {
         for (;;) {
           const from = get().transcripts[id]?.t.earlier?.from;
@@ -6420,7 +6633,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const buf = loading.get(ev.sessionId);
         if (buf) { lineOnly(); buf.push(ev); return; } // deltas too: `withStreamed` decides which the read already holds
         const cur = get().transcripts[ev.sessionId];
-        if (!cur) { lineOnly(); return; } // not opened yet: openSession fetches everything later
+        // Not opened yet: openSession fetches everything later, and a log end read ahead of it is
+        // behind now.
+        if (!cur) { lineOnly(); if (!ev.ephemeral) tails.delete(ev.sessionId); return; }
         // Deltas are buffered and land a frame later; see `pendingDeltas`.
         if (ev.ephemeral) { lineOnly(); if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.payload.at, ev.event.ts); return; }
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
@@ -7581,17 +7796,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async openQuickChat() {
         if (get().quickChat) return;
+        // There may be one already, made in the panel or in another window: this page shows that one.
+        await restoreQuickChat(await api.getSetting(SETTING_QUICK_CHAT), true);
+        if (get().quickChat) { if (!inQuickChatPanel()) await persistQuickChat(); return; }
         const sid = get().activeSpaceId; if (!sid) return;
-        const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
-        /* `unlisted`: no item row, so no sidebar entry, no pinned tile, no palette hit, no Library
-           row and no pane. The window is the only place this conversation is ever shown — which is
-           also why it is not confined to the space it happens to run in. */
-        const { session } = await api.createUnlistedSession({ agentKind, spaceId: sid });
-        rememberAgent(agentKind);
+        /* Unlisted: no item row, so no sidebar entry, no pinned tile, no palette hit, no Library row
+           and no pane. The window is the only place this conversation is ever shown — which is also
+           why it is not confined to the space it happens to run in. The server picks its engine and
+           model from the Quick chat model setting, not from the last pane's. */
+        const { session } = await api.startQuickChat(sid);
         // Unconditional, unlike every other create: the quick chat outlives the active space, so its
         // row has to be in `sessions` whichever space is current (see `keepQuickChatSession`).
         set({ sessions: { ...get().sessions, [session.id]: session }, sessionStatus: { ...get().sessionStatus, [session.id]: session.status },
-          sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id } });
+          sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id, keptIn: null } });
         await get().openSession(session.id);
         await persistQuickChat();
       },
@@ -7600,19 +7817,37 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!qc) return;
         // Cleared FIRST so the window goes at once. The delete is a round trip, and a window that sat
         // there waiting for it would look like a close that had not worked.
-        set({ quickChat: null });
-        dropTranscript(qc.sessionId);
-        const { [qc.sessionId]: _s, ...sessions } = get().sessions;
-        const { [qc.sessionId]: _st, ...sessionStatus } = get().sessionStatus;
-        const { [qc.sessionId]: _sp, ...sessionSpace } = get().sessionSpace;
-        const { [qc.sessionId]: _d, ...drafts } = get().drafts;
-        const { [qc.sessionId]: _a, ...pendingAttachments } = get().pendingAttachments;
-        set({ sessions, sessionStatus, sessionSpace, drafts, pendingAttachments });
+        if (qc.keptIn) { set({ quickChat: null }); await persistQuickChat(); return; }
+        forgetQuickChat(qc.sessionId);
         await persistQuickChat();
         // There is no item to delete THROUGH — an unlisted session has none — so this is the route.
         await api.deleteSession(qc.sessionId);
       },
+      async keepQuickChat(spaceId) {
+        const qc = get().quickChat;
+        if (!qc) return;
+        const { session } = await api.keepSession(qc.sessionId, spaceId);
+        mergeSession(session);
+        set({ quickChat: { sessionId: session.id, keptIn: spaceId } });
+        if (inProfile(spaceId)) await loadSpaceItems(spaceId);
+        await persistQuickChat();
+      },
+      async openKeptQuickChat() {
+        const qc = get().quickChat;
+        if (!qc?.keptIn) return;
+        await get().closeQuickChat();
+        // The panel has no panes: a Realm window comes forward on the session instead.
+        if (inQuickChatPanel()) { window.realm?.quickChatPanel?.openInRealm({ sessionId: qc.sessionId, spaceId: qc.keptIn }); return; }
+        await get().revealSession(qc.sessionId, qc.keptIn);
+      },
       setQuickChatPos(pos) { set({ quickChatPos: pos }); scheduleQuickChatPersist(); },
+      async syncQuickChat() { await followQuickChat(await api.getSetting(SETTING_QUICK_CHAT)); },
+      async showQuickChatPanel() {
+        // A chat saved to a space since the panel was last open lives there now: this starts a new one.
+        if (get().quickChat?.keptIn) await get().closeQuickChat();
+        await get().boot();
+        if (!get().quickChat) await get().openQuickChat();
+      },
       openViewer(input) {
         const files = input.files.filter((f) => f.path !== "");
         if (files.length === 0) return;
@@ -7899,6 +8134,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = spaceFor(spaceId); if (!sid) return [];
         return api.listLectures(sid);
       },
+      listMeetingNotes: (spaceId) => api.listMeetingNotes(spaceId),
       previewInfo: () => api.previewInfo(),
       readGuideProgress: (documentsId, path) => api.readGuideProgress(documentsId, path),
       recordGuideAttempt: (documentsId, path, topic, correct, total) => api.recordGuideAttempt(documentsId, path, topic, correct, total),
@@ -8084,7 +8320,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // window has read the list again.
         if (!mine()) await get().refreshSpaces();
         if (!mine()) return;
-        if (!firstSession) { await get().selectSpace(spaceId); return; }
+        if (!firstSession) { await get().selectSpace(spaceId, "agent"); return; }
         // A space an agent just made, the person asked to be taken to: the session the sheet would open.
         if (firstSession.projectId) await get().refreshProjects(spaceId);
         await openFirstSession(spaceId, firstSession.projectId, instantPick());
@@ -8098,6 +8334,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           case AGENT_SETTINGS.submitKey.key: if (isSubmitKey(value)) set({ submitKey: value }); return;
           case AGENT_SETTINGS.midTurnMode.key: set({ midTurnMode: resolveMidTurnMode(value) }); return;
           case AGENT_SETTINGS.terminalCursorBlink.key: if (typeof value === "boolean") set({ terminalCursorBlink: value }); return;
+          case LOOK_SETTING: if (isLook(value)) set({ look: value }); return;
           /* `theme_import` wears the theme it just imported. The themes are read again first, for
              `refreshCustomThemes`'s reason: a name the registry does not hold yet would fall back to
              Realm's own palette, which is the frame this would otherwise paint. */
@@ -8225,15 +8462,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       memoryLibraryCreate(input) { return api.memoryLibraryCreate(input); },
       memoryLibraryDelete(id, confirmExternal) { return api.memoryLibraryDelete(id, confirmExternal); },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone, quickChatModel, rawSessionDone] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
           api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY), api.getSetting(MID_TURN_MODE_KEY),
-          api.getSetting(NOTIFICATIONS_IPHONE_KEY),
+          api.getSetting(NOTIFICATIONS_IPHONE_KEY), api.getSetting(QUICK_CHAT_MODEL_SETTING), api.getSetting(NOTIFICATIONS_SESSION_DONE_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
+        set({ settingsPrefs: { disabledCategories, sessionDoneWhen: sessionDoneWhen(rawSessionDone), defaultPermissionMode, quickChatModel }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
           soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume), iphoneNotifications: rawIphone !== false });
       },
       async refreshModelFavorites() {
@@ -8294,10 +8531,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSetting(NOTIFICATIONS_DISABLED_KEY, disabledCategories);
         set({ settingsPrefs: { ...prefs, disabledCategories } });
       },
+      async setSessionDoneWhen(when) {
+        const prefs = get().settingsPrefs; if (!prefs) return;
+        await api.setSetting(NOTIFICATIONS_SESSION_DONE_KEY, when);
+        set({ settingsPrefs: { ...prefs, sessionDoneWhen: when } });
+      },
       async setDefaultPermissionMode(mode) {
         const prefs = get().settingsPrefs; if (!prefs) return;
         await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
         set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+      },
+      async setQuickChatModel(pick) {
+        const prefs = get().settingsPrefs; if (!prefs) return;
+        await api.setSetting(QUICK_CHAT_MODEL_SETTING, pick);
+        set({ settingsPrefs: { ...prefs, quickChatModel: pick } });
       },
       async setMidTurnMode(mode) {
         await api.setSetting(MID_TURN_MODE_KEY, mode);
@@ -8591,6 +8838,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // push is what reaches a turn already running.
         await Promise.all([api.setSetting(POWER_PREVENT_SLEEP_KEY, on), api.setPreventSleep(on)]);
       },
+      async setOpensMeetings(on) {
+        set({ opensMeetings: on });
+        await Promise.all([api.setSetting(MEETINGS_OPEN_KEY, on), api.setOpensMeetings(on)]);
+        await get().refreshCalendarAccess();
+      },
+      async setStartsAssistant(on) {
+        set({ startsAssistant: on });
+        await Promise.all([api.setSetting(MEETING_AUTO_START_KEY, on), api.setStartsAssistant(on)]);
+      },
+      async refreshCalendarAccess() { set({ calendarAccess: await api.calendarAccess() }); },
+      watchCalendarAccess() { return api.onCalendarAccess?.((access) => set({ calendarAccess: access })) ?? (() => {}); },
+      async askForCalendar() { await api.askForCalendar(); },
+      async openCalendarSettings() { await api.openCalendarSettings(); },
       async setOpenFilesIn(pref) {
         set({ openFilesIn: pref });
         await api.setSetting(FILES_OPEN_IN_KEY, pref);
@@ -8840,6 +9100,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
            restore did not work. Clearing it first makes the reopen re-derive from seq 0. */
         const rewound = checkpointSession ?? sessionId;
         if (result.conversationRewound && rewound) {
+          tails.delete(rewound);
           const { [rewound]: _dropped, ...rest } = get().transcripts;
           const { [rewound]: _mark, ...marks } = get().newSinceSeq;
           set({ transcripts: rest, newSinceSeq: marks });

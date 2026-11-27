@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PermissionCard } from "./PermissionCard";
 import type { PendingPermission } from "./transcript-model";
 
@@ -69,6 +69,51 @@ describe("PermissionCard options", () => {
 
   it("does not relabel a tool that merely looks like one", () => {
     expect(labels(card({ toolName: "computer_snapshot" }).options)).toEqual(["Allow", "Allow always", "Deny"]);
+  });
+});
+
+describe("a password fill while agent sign-ins are off", () => {
+  const offer = { toolName: "browser_fill_credential", title: "Fill", input: { origin: "https://example.com", page: "https://example.com", offersSignins: true } };
+  const saved = window.realm;
+  afterEach(() => { (window as unknown as { realm: unknown }).realm = saved; });
+  /** Settings' own IPC to main's switch, stood in. */
+  function bridge(answer: () => Promise<unknown>) {
+    const sets: boolean[] = [];
+    (window as unknown as { realm: unknown }).realm = { ...saved, credentials: { setSignins: async (on: boolean) => { sets.push(on); return answer(); } } };
+    return sets;
+  }
+
+  it("offers Allow once, Turn on sign-ins and Deny", () => {
+    expect(labels(card(offer).options)).toEqual(["Allow once", "Turn on sign-ins", "Deny"]);
+  });
+
+  it("turns sign-ins on in main first, then answers Allow once, so the fill needs no second card", async () => {
+    // THE MUTANT: answering before main's switch is on, or never answering after it.
+    const sets = bridge(async () => ({ enabled: true, fills: [] }));
+    const { options, decided } = card(offer);
+    fireEvent.click(options[1]!);
+    expect(decided).toEqual([]);
+    await waitFor(() => expect(decided).toEqual(["allow"]));
+    expect(sets).toEqual([true]);
+  });
+
+  it("answers nothing when main did not turn sign-ins on, and says so", async () => {
+    bridge(async () => null);
+    const { options, decided, root } = card(offer);
+    fireEvent.keyDown(root, { key: "Enter", shiftKey: true });
+    expect(await within(root).findByRole("alert")).toHaveTextContent("Realm couldn't turn on sign-ins");
+    expect(decided).toEqual([]);
+    fireEvent.click(options[0]!);
+    expect(decided).toEqual(["allow"]);
+  });
+});
+
+describe("the invitation to turn agent sign-ins on", () => {
+  it("opens Settings or goes away, and has no Allow to give", () => {
+    const { options, decided } = card({ toolName: "agent_signins", title: "Let agents finish sign-ins? Opens Settings", input: { opens: "settings:signins" } });
+    expect(labels(options)).toEqual(["Open Settings", "Not now"]);
+    fireEvent.click(options[1]!);
+    expect(decided).toEqual(["deny"]);
   });
 });
 

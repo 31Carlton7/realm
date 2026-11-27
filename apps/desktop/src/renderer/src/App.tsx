@@ -6,6 +6,7 @@ import { Sidebar } from "./components/sidebar/Sidebar";
 import { Rail } from "./components/sidebar/Rail";
 import { WindowLead } from "./components/sidebar/WindowLead";
 import { SidePaneToggle } from "./components/SidePaneToggle";
+import { closeTab } from "./components/pane-close";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
@@ -260,6 +261,20 @@ export function FullScreenBridge() {
 }
 
 /**
+ * The quick chat is one chat wherever it is shown, and main says when another page opened or deleted
+ * it (`quick-chat:changed`). A window follows what was stored, so its card comes down for a chat the
+ * panel deleted rather than staying up on a session that is gone.
+ */
+export function QuickChatBridge() {
+  const store = useAppStore();
+  useEffect(() => window.realm?.quickChatPanel?.onChatChanged(() => {
+    const st = store.getState();
+    st.run(() => st.syncQuickChat());
+  }), [store]);
+  return null;
+}
+
+/**
  * Whether the system draws OVERLAY scrollbars — macOS's "show scroll bars: when scrolling", which is
  * also what "automatically" resolves to on a Mac with only a trackpad. Stamped on `:root` as
  * `data-overlay-scrollbars`, and the stylesheet's own scrollbar treatment stands down under it but for
@@ -285,7 +300,7 @@ export function overlayScrollbars(doc: Document): boolean {
   return reserved === 0;
 }
 
-function ScrollbarStyleBridge() {
+export function ScrollbarStyleBridge() {
   useEffect(() => {
     // jsdom lays nothing out, so every probe there reads as an overlay; only a real Mac window asks.
     if (window.realm?.platform !== "darwin") return;
@@ -302,13 +317,13 @@ function ScrollbarStyleBridge() {
 }
 
 /** A held button's highlight follows the pointer (press-tracking.ts). */
-function PressTrackingBridge() {
+export function PressTrackingBridge() {
   useEffect(() => installPressTracking(document), []);
   return null;
 }
 
 /** Every control's `title` as the app's own tooltip (tooltips.ts), kept clear of the browser views. */
-function TooltipBridge() {
+export function TooltipBridge() {
   const store = useAppStore();
   useEffect(() => installTooltips(document, { avoid: () => store.getState().browserRects }), [store]);
   return null;
@@ -317,7 +332,7 @@ function TooltipBridge() {
 /** The app's caret over every field (caret.ts), in the shape and motion Settings ▸ Appearance ▸ Cursor
  *  chose. Subscribed rather than rendered: the layer is the DOM's, and a new preference reaches it
  *  without re-rendering anything. */
-function CaretBridge() {
+export function CaretBridge() {
   const store = useAppStore();
   useEffect(() => {
     const layer = installCaret(document, store.getState().caret);
@@ -328,7 +343,7 @@ function CaretBridge() {
 }
 
 /** The app's scrollers give at their ends (rubber-band.ts), under Reduce motion too, as AppKit's do. */
-function RubberBandBridge() {
+export function RubberBandBridge() {
   useEffect(() => installRubberBand(document, { onPhase: window.realm?.onScrollPhase }), []);
   return null;
 }
@@ -432,6 +447,18 @@ export function ConnectionBanner() {
   );
 }
 
+/** What a page showing a session has to hear to keep it current: its events, its status, and the
+ *  queue behind a running turn. Applied in every window and in the quick chat panel, since a
+ *  session's pane may be open in any of them and the payloads are small. */
+export function subscribeSessionEvents(store: StoreApi<AppState>): () => void {
+  const offs = [
+    rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev)),
+    rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status)),
+    rpc().on("session.queue", ({ sessionId, queued, move, turn }) => store.getState().applySessionQueue(sessionId, queued, move, turn ?? null)),
+  ];
+  return () => { for (const off of offs) off(); };
+}
+
 /** Renders whichever modal sheet the store says is open. */
 function SheetHost() {
   const sheet = useApp((s) => s.sheet);
@@ -492,7 +519,11 @@ export function Main() {
   // The boot mark in index.html comes down when there is something to show — which is `booted`, not
   // mount: this component renders an empty shell for as long as `boot()` is in flight. Declared
   // above the early returns below, because a hook after a `return` is a hook that stops running.
-  useEffect(() => { if (booted) dismissBootSplash(); }, [booted]);
+  useEffect(() => {
+    if (!booted) return;
+    dismissBootSplash();
+    requestAnimationFrame(() => window.realm?.windows?.drawn?.());
+  }, [booted]);
   // Every space's teammates, once the spaces are known and again when they change (a space made, a
   // profile switched); `teammates.changed` keeps each one current after that.
   const refreshTeammates = useApp((s) => s.refreshTeammates);
@@ -613,6 +644,18 @@ export const AGENT_PANE_EVENTS = ["browser.agentOpened", "simulator.agentOpened"
 export function subscribeAgentPanes(store: StoreApi<AppState>, on: Subscribe): () => void {
   const offs = AGENT_PANE_EVENTS.map((event) => on(event, (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); }));
   return () => { for (const off of offs) off(); };
+}
+
+/**
+ * A browser pane's page called window.close(): its tab closes as the tab's × closes it, which for a
+ * browser deletes the item. Without the confirm the × asks for, since the page asked. Exported for its test.
+ */
+export function subscribeSelfClosedTabs(store: StoreApi<AppState>, links: Window["realm"]["links"]): (() => void) | undefined {
+  return links?.onCloseTab?.(({ browserId }) => {
+    const st = store.getState();
+    const closing = st.items.find((i) => i.kind === "browser" && i.refId === browserId);
+    if (closing) st.run(() => closeTab(closing, st));
+  });
 }
 
 export function App() {
@@ -744,7 +787,7 @@ export function App() {
     const onTyped = (e: KeyboardEvent) => { if (isEditableTarget(e.target) || (e.target instanceof HTMLElement && e.target.closest(".xterm"))) typedAt = Date.now(); };
     window.addEventListener("keydown", onTyped, true);
     const offSw = rpc().on("space.switchRequested", (p) => { const st = store.getState(); st.run(() => st.applySpaceSwitchRequested(p, Date.now() - typedAt < TYPING_QUIET_MS)); });
-    // A setting an agent changed with `settings_set`, applied in every window.
+    // A setting changed by an agent's `settings_set` or any `settings.set` over RPC, applied in every window.
     const offSet = rpc().on("settings.changed", (p) => store.getState().applySettingChanged(p));
     // A session an agent opened for the user with `session_open`: a pane of its own, beside that agent's.
     const offSO = rpc().on("session.openRequested", (p) => { const st = store.getState(); st.run(() => st.applySessionOpenRequested(p)); });
@@ -762,11 +805,7 @@ export function App() {
     const offSim = rpc().on("simulator.status", (p) => store.getState().applySimulatorState(p));
     const offGoal = rpc().on("goal.changed", (p) => store.getState().applyGoalChanged(p));
     const offMimg = rpc().on("machineImage.progress", (p) => store.getState().applyMachineImageProgress(p));
-    const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
-    const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
-    // The queue behind a running turn. Applied in every window for the reason the statuses are: the
-    // session's pane may be open in any of them, and the payload is a handful of short strings.
-    const offQ = rpc().on("session.queue", ({ sessionId, queued, move, turn }) => store.getState().applySessionQueue(sessionId, queued, move, turn ?? null));
+    const offE = subscribeSessionEvents(store);
     // A turn saved or unsaved — from this window's track, another's, or the Library — is the same set in
     // every window, which is also how a Library list open in one hears about a bookmark pressed in another.
     const offSaved = rpc().on("session.saved", ({ sessionId, seqs }) => store.getState().applySavedTurns(sessionId, seqs));
@@ -797,12 +836,29 @@ export function App() {
         st.run(() => st.revealSession(sessionId, spaceId));
       });
     });
-    // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, or the
-    // link's right-click menu): main routed it here, and the tab goes beside the session in view.
-    const offLink = window.realm?.links?.onOpenInRealm((url) => {
-      const st = store.getState();
-      st.run(() => st.openLinkInBrowser(url));
+    // A meeting's notes, opened from the quick chat panel: main has brought this window forward.
+    const offOD = window.realm?.onOpenDocument?.(({ spaceId, path }) => {
+      void whenBooted(store).then(() => store.getState().run(async () => {
+        const space = store.getState().spaces.find((sp) => sp.id === spaceId);
+        if (space && space.profileId !== store.getState().activeProfileId) await store.getState().selectProfile(space.profileId);
+        if (store.getState().activeSpaceId !== spaceId) await store.getState().selectSpace(spaceId);
+        await store.getState().openDocumentPath(path, null, spaceId);
+      }));
     });
+    // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, a
+    // middle-click, or the link's right-click menu): main routed it here, and the tab goes beside the
+    // session in view — behind the tab showing for a middle-click.
+    const offLink = window.realm?.links?.onOpenInRealm((url, opts) => {
+      const st = store.getState();
+      st.run(() => st.openLinkInBrowser(url, opts));
+    });
+    // A browser pane's page asked for a new tab (main/browser-pane.ts): beside that page, showing the
+    // page Chromium made for it.
+    const offTab = window.realm?.links?.onOpenTab?.(({ browserId, url, background, focus, page }) => {
+      const st = store.getState();
+      st.run(() => st.openPageTab(browserId, url, { background, focus, onCreated: (id) => window.realm?.links?.claimTab?.(page, id) }));
+    });
+    const offCloseTab = subscribeSelfClosedTabs(store, window.realm?.links);
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
@@ -858,12 +914,12 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offTeamAccess(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offMT(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offTeamAccess(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offMT(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();
       window.removeEventListener("drop", swallowDrop);
-      offOS?.(); offLink?.();
+      offOS?.(); offOD?.(); offLink?.(); offTab?.(); offCloseTab?.();
     };
   }, [store]);
   return (
@@ -879,6 +935,7 @@ export function App() {
       <TooltipBridge />
       <CaretBridge />
       <WhatsNewBridge />
+      <QuickChatBridge />
       {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
           column (components/page-nav.tsx). */}
       <PageNavProvider>

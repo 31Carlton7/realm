@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  AGENT_GRACE_MS, BrowserPaneHost, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
+  ACTIVATION_MS, AGENT_GRACE_MS, PARKED_OPENERS, TABS_PER_PRESS, BrowserPaneHost, UNCLAIMED_TAB_MS, UserActivation, hostedTab, sendAsAgent, type TabAnswer, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
-  type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks,
+  type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks, type WindowKeyboard,
 } from "./browser-host";
 
 describe("normalizeAddress", () => {
@@ -85,10 +85,16 @@ describe("windowOpenAction", () => {
     expect(windowOpenAction({ url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x", disposition: "new-window" }, 0)).toBe("popup");
   });
 
-  it("a link to a new tab stays in place, as it always has — a target=_blank link keeps no opener", () => {
-    // The mutant that makes everything a window turns every target=_blank link into a popup.
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "foreground-tab" }, 0)).toBe("in-place");
-    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "background-tab" }, 0)).toBe("in-place"); // ⌘-click
+  it("a link meant for a new tab is a new tab: in front for a click, behind for a ⌘- or middle-click", () => {
+    // The owner's bug (#537): target=_blank, window.open(url), noopener and a form's target=_blank all
+    // replaced the page that was clicked on. THE MUTANT: answer "in-place" for either tab.
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "foreground-tab" }, 0)).toBe("foreground-tab");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "background-tab" }, 0)).toBe("background-tab");
+  });
+
+  it("anything else that is not a window stays in place", () => {
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "default" }, 0)).toBe("in-place");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "current-tab" }, 0)).toBe("in-place");
     expect(windowOpenAction({ url: "https://example.com/docs", disposition: "other" }, 0)).toBe("in-place");
   });
 
@@ -104,7 +110,289 @@ describe("windowOpenAction", () => {
     expect(windowOpenAction(signIn, POPUP_LIMIT - 1)).toBe("popup");
     expect(windowOpenAction(signIn, POPUP_LIMIT)).toBe("refuse"); // the `<=` mutant opens one more
     expect(windowOpenAction({ url: "about:blank", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("refuse");
-    expect(windowOpenAction({ url: "https://example.com/", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("in-place");
+    expect(windowOpenAction({ url: "https://example.com/", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("foreground-tab");
+  });
+});
+
+describe("UserActivation", () => {
+  it("lets one press open TABS_PER_PRESS tabs, so a click that opens two windows opens two tabs, and refuses the rest", () => {
+    // THE MUTANTS: spend the press on the first tab, and the second window of one click goes in place,
+    // taking the clicked page with it; never count, and a page looping window.open fills the strip.
+    const a = new UserActivation();
+    a.note("mouseDown", 1_000);
+    for (let i = 0; i < TABS_PER_PRESS; i++) expect(a.decide(1_001, false)).toBe("tab");
+    expect(a.decide(1_002, false)).toBe("refuse");
+    expect(TABS_PER_PRESS).toBe(3);
+  });
+
+  it("counts again from a new press", () => {
+    // THE MUTANT: keep the count across presses, and a page someone has clicked on three times opens no more tabs.
+    const a = new UserActivation();
+    a.note("mouseDown", 0);
+    for (let i = 0; i < TABS_PER_PRESS; i++) a.decide(1, false);
+    a.note("keyDown", 2);
+    expect(a.decide(3, false)).toBe("tab");
+  });
+
+  it("counts the windows Chromium marked as gestured toward the same press", () => {
+    // THE MUTANT: let a gestured window through uncounted, and each window of a looping click handler
+    // that Chromium happens to mark gets a tab on top of the cap.
+    const a = new UserActivation();
+    a.note("mouseDown", 0);
+    for (let i = 0; i < TABS_PER_PRESS; i++) expect(a.decide(1, true)).toBe("tab");
+    expect(a.decide(1, true)).toBe("refuse");
+  });
+
+  it("takes a gestured window with no main-frame press behind it for a press of its own: a click in a cross-site frame", () => {
+    // THE MUTANT: treat it as no press, and a link in a cross-site frame goes in place instead of opening a tab.
+    const a = new UserActivation();
+    expect(a.decide(1_000, true)).toBe("tab");
+    expect(a.decide(1_001, false)).toBe("tab");
+  });
+
+  it("goes in place when nothing was pressed and Chromium saw no gesture", () => {
+    const a = new UserActivation();
+    expect(a.decide(1_000, false)).toBe("in-place");
+  });
+
+  it("runs out", () => {
+    // THE MUTANT: no expiry, and a click an hour ago still opens the tab a timer asks for now.
+    const a = new UserActivation();
+    a.note("mouseDown", 1_000);
+    expect(a.decide(1_000 + ACTIVATION_MS, false)).toBe("in-place");
+  });
+
+  it("lasts five seconds, as Chromium's does", () => {
+    // THE MUTANT: any other ACTIVATION_MS — the tests above read the constant, so only a number here pins it.
+    const pressed = new UserActivation();
+    pressed.note("mouseDown", 0);
+    expect(pressed.decide(4_999, false)).toBe("tab");
+    const lapsed = new UserActivation();
+    lapsed.note("mouseDown", 0);
+    expect(lapsed.decide(5_000, false)).toBe("in-place");
+  });
+
+  it("belongs to the page pressed on: a navigation forgets the press and its count", () => {
+    // THE MUTANTS: keep the press across documents, and a link clicked to a page that calls window.open
+    // as it loads opens that page's tab as if the click had been for it; keep the count, and a
+    // gestured click on the next page is refused.
+    const a = new UserActivation();
+    a.note("mouseDown", 0);
+    a.forget();
+    expect(a.decide(1, false)).toBe("in-place");
+    const spent = new UserActivation();
+    spent.note("mouseDown", 0);
+    for (let i = 0; i < TABS_PER_PRESS; i++) spent.decide(1, false);
+    spent.forget();
+    expect(spent.decide(2, true)).toBe("tab");
+  });
+
+  it("tells the agent's press from the person's, so the agent's tab never takes the keyboard (#561)", async () => {
+    // THE MUTANTS: never mark the agent's press, and its click in a page holding the keyboard moves the
+    // keyboard into its tab; mark only the press and not the command in flight, and a window opened by
+    // a click in a cross-site frame, which no main-frame press shows, is the person's.
+    const a = new UserActivation();
+    await a.asAgent(async () => {
+      a.note("mouseDown", 1_000);
+      expect(a.personPressed(1_000)).toBe(false);
+    });
+    expect(a.decide(1_001, true)).toBe("tab");
+    expect(a.personPressed(1_001)).toBe(false);
+    const frame = new UserActivation();
+    await frame.asAgent(async () => {
+      // Main asks before it decides: the keyboard is read off the opener ahead of the page being made.
+      expect(frame.personPressed(1_000)).toBe(false);
+      expect(frame.decide(1_000, true)).toBe("tab");
+    });
+    expect(frame.personPressed(1_001)).toBe(false);
+  });
+
+  it("gives the keyboard back to the person's press once theirs is the last", async () => {
+    // THE MUTANTS: keep the agent's mark past the next press, and the person's click after the agent's
+    // opens a tab that leaves the keyboard behind (#547); keep it past ACTIVATION_MS, and the same for a
+    // timer's window after it.
+    const a = new UserActivation();
+    await a.asAgent(async () => { a.note("mouseDown", 0); });
+    a.note("mouseDown", 10);
+    expect(a.personPressed(11)).toBe(true);
+    const lapsed = new UserActivation();
+    await lapsed.asAgent(async () => { lapsed.note("mouseDown", 0); });
+    expect(lapsed.personPressed(ACTIVATION_MS - 1)).toBe(false);
+    expect(lapsed.personPressed(ACTIVATION_MS)).toBe(true);
+    const person = new UserActivation();
+    person.note("mouseDown", 0);
+    expect(person.personPressed(1)).toBe(true);
+  });
+
+  it("ends the agent's command when it fails, so the person's next press is theirs", async () => {
+    // THE MUTANT: count down only on success, and one failed CDP click marks every press after it as the agent's.
+    const a = new UserActivation();
+    await expect(a.asAgent(async () => { throw new Error("detached"); })).rejects.toThrow("detached");
+    a.note("mouseDown", 0);
+    expect(a.personPressed(1)).toBe(true);
+  });
+
+  it("leaves the person's click in a cross-site frame theirs", () => {
+    // THE MUTANT: mark a gestured window's press as the agent's with no command in flight, and the
+    // person's click on a link in a cross-site frame opens a tab that leaves the keyboard behind.
+    const a = new UserActivation();
+    expect(a.decide(1_000, true)).toBe("tab");
+    expect(a.personPressed(1_001)).toBe(true);
+  });
+
+  it("comes from a press, not from a mouse passing over or a key let go", () => {
+    const a = new UserActivation();
+    for (const type of ["mouseMove", "mouseEnter", "mouseWheel", "keyUp", "char"]) a.note(type, 0);
+    expect(a.decide(1, false)).toBe("in-place");
+    for (const type of ["mouseDown", "rawKeyDown", "keyDown", "touchEnd"]) {
+      const pressed = new UserActivation();
+      pressed.note(type, 0);
+      expect(pressed.decide(1, false)).toBe("tab");
+    }
+  });
+});
+
+describe("sendAsAgent", () => {
+  /** What `personPressed` reads while the page is answering `send`. */
+  const pressedDuring = (a: UserActivation, answer: () => Promise<unknown> = async () => ({})) => {
+    const seen: boolean[] = [];
+    const send = sendAsAgent(a, async () => { seen.push(a.personPressed(0)); return answer(); });
+    return { send, seen };
+  };
+
+  it("sends the agent's Input commands as its own, until they answer (#561)", async () => {
+    // THE MUTANT: send Input.* straight to the page, and the agent's click in the page the person is
+    // typing in opens a tab that takes the keyboard.
+    const a = new UserActivation();
+    const { send, seen } = pressedDuring(a, async () => ({ ok: 1 }));
+    await expect(send("Input.dispatchMouseEvent", { type: "mousePressed" })).resolves.toEqual({ ok: 1 });
+    expect(seen).toEqual([false]);
+    expect(a.personPressed(0)).toBe(true);
+  });
+
+  it("leaves its other commands alone", async () => {
+    // THE MUTANT: send every command asAgent, and a person's click while the agent reads the page
+    // (Runtime.evaluate) opens a tab that leaves the keyboard behind.
+    const a = new UserActivation();
+    const { send, seen } = pressedDuring(a);
+    await send("Runtime.evaluate", { expression: "1" });
+    expect(seen).toEqual([true]);
+  });
+
+  it("ends a command that fails, so the person's next press is theirs", async () => {
+    // THE MUTANT: count down only on success, and one failed CDP click marks every press after it as the agent's.
+    const a = new UserActivation();
+    const { send, seen } = pressedDuring(a, async () => { throw new Error("detached"); });
+    await expect(send("Input.dispatchKeyEvent", { type: "keyDown" })).rejects.toThrow("detached");
+    expect(seen).toEqual([false]);
+    a.note("mouseDown", 0);
+    expect(a.personPressed(1)).toBe(true);
+  });
+
+  it("sends as before for a page with no activation", async () => {
+    const send = vi.fn(async () => "sent");
+    await expect(sendAsAgent(undefined, send)("Input.dispatchMouseEvent", { type: "mousePressed" })).resolves.toBe("sent");
+    expect(send).toHaveBeenCalledWith("Input.dispatchMouseEvent", { type: "mousePressed" });
+  });
+});
+
+describe("hostedTab", () => {
+  /** The person pressed in the page that had the keyboard. */
+  const PERSON: WindowKeyboard = { openerFocused: true, personPressed: true };
+  it("lets Chromium make the window, so window.open answers a live window, and hosts it as the tab", () => {
+    // Denying the window and loading its address fresh in a new tab makes window.open answer null, as
+    // if the popup were blocked, and loses the window.opener link and a POST form's body.
+    // THE MUTANT: answer "deny".
+    const adopt = vi.fn();
+    const r = hostedTab({ partition: P }, () => "tab", PERSON, adopt, () => {});
+    expect(r.action).toBe("allow");
+    const page = livePage();
+    // THE MUTANT: make a page of our own here, and Electron throws — the window it made is not hosted.
+    expect(r.createWindow({ webContents: page })).toBe(page);
+    expect(adopt).toHaveBeenCalledWith(page, true);
+    expect(page.close).not.toHaveBeenCalled();
+  });
+
+  it("gives the tab the keyboard only when the opener had it and the person pressed for it (#561)", () => {
+    // THE MUTANTS: drop `personPressed`, and the agent's click in the page the person is typing in
+    // opens a tab that takes the keyboard; drop `openerFocused`, and a click in a page without the
+    // keyboard takes it from wherever it was.
+    const focused = (keyboard: WindowKeyboard) => {
+      const adopt = vi.fn();
+      hostedTab({ partition: P }, () => "tab", keyboard, adopt, () => {}).createWindow({ webContents: livePage() });
+      return adopt.mock.calls[0]?.[1];
+    };
+    expect(focused(PERSON)).toBe(true);
+    expect(focused({ openerFocused: true, personPressed: false })).toBe(false);
+    expect(focused({ openerFocused: false, personPressed: true })).toBe(false);
+  });
+
+  it("goes in place when nobody pressed anything: no tab, and the pane shows the page Chromium made, kept alive", () => {
+    // Measured on 2.19.0: a window.open(url) as a page loads, or from its timer, reaches the handler as
+    // a foreground tab like a click's. THE MUTANTS: ignore `pressed`, and a page spawns tabs on its own;
+    // close the page and load its address afresh, and window.open answers a window that is already
+    // closed, and a POST form's body is lost (#543).
+    const adopt = vi.fn();
+    const inPlace = vi.fn();
+    const page = livePage();
+    expect(hostedTab({ partition: P }, () => "in-place", { openerFocused: false, personPressed: true }, adopt, inPlace).createWindow({ webContents: page })).toBe(page);
+    expect(adopt).not.toHaveBeenCalled();
+    expect(page.close).not.toHaveBeenCalled();
+    expect(inPlace).toHaveBeenCalledWith(page, false);
+  });
+
+  it("refuses a window past the press's tabs: closed, no tab, and the pane stays on its page", () => {
+    // THE MUTANT: follow it in place like a window nobody pressed for, and the page that was pressed is gone.
+    const adopt = vi.fn();
+    const inPlace = vi.fn();
+    const page = livePage();
+    hostedTab({ partition: P }, () => "refuse", PERSON, adopt, inPlace).createWindow({ webContents: page });
+    expect(page.close).toHaveBeenCalled();
+    expect(adopt).not.toHaveBeenCalled();
+    expect(inPlace).not.toHaveBeenCalled();
+  });
+
+  describe("the keyboard", () => {
+    const opened = (as: TabAnswer, keyboard: WindowKeyboard) => {
+      const adopt = vi.fn();
+      const inPlace = vi.fn();
+      hostedTab({ partition: P }, () => as, keyboard, adopt, inPlace).createWindow({ webContents: { close: vi.fn() } });
+      return [...adopt.mock.calls, ...inPlace.mock.calls][0]![1] as boolean;
+    };
+    /** The agent's CDP input in flight on the opener, as `personPressed` reads it then. */
+    const duringAgentInput = () => {
+      const activation = new UserActivation();
+      let personPressed = true;
+      void activation.asAgent(async () => { personPressed = activation.personPressed(0); });
+      return personPressed;
+    };
+
+    it("a page shown in place takes it when the opener had it and nobody pressed", () => {
+      // #557's keys-on row. THE MUTANT: never focus the page shown in place.
+      expect(opened("in-place", { openerFocused: true, personPressed: true })).toBe(true);
+    });
+
+    it("a page shown in place leaves it where it is when the opener did not have it", () => {
+      // #557's keys-off row: a timer's window must not take the keys typed into the prompter.
+      // THE MUTANT: always focus the page shown in place.
+      expect(opened("in-place", { openerFocused: false, personPressed: true })).toBe(false);
+    });
+
+    it("a page shown in place during the agent's input still takes it from the opener, which it covers", () => {
+      // The opener held the person's keyboard and is now hidden behind the new page in the same pane:
+      // left there, their keys would go to a page they can't see. THE MUTANT: give the page shown in
+      // place the tab's rule (#564's `personPressed` too).
+      const personPressed = duringAgentInput();
+      expect(personPressed).toBe(false);
+      expect(opened("in-place", { openerFocused: true, personPressed })).toBe(true);
+    });
+  });
+
+  it("outlives the page that opened it, as a tab does, in the pane's profile", () => {
+    // THE MUTANT: drop outlivesOpener, and closing the page that opened a tab closes the tab too.
+    const r = hostedTab({ partition: P, sandbox: true }, () => "tab", PERSON, () => {}, () => {});
+    expect(r.outlivesOpener).toBe(true);
+    expect(r.overrideBrowserWindowOptions).toEqual({ webPreferences: { partition: P, sandbox: true } });
   });
 });
 
@@ -183,12 +471,14 @@ const P = "persist:browser";
 function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
     entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null,
-    error: null as BrowserLoadError | null, ready: false, popups: [] as string[], scroll: { x: 0, y: 0 } as { x: number; y: number } | null };
+    error: null as BrowserLoadError | null, ready: false, popups: [] as string[], scroll: { x: 0, y: 0 } as { x: number; y: number } | null,
+    keyboard: false, muted: false, pid: 0 as number | null, typed: false };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
     setBounds: (r) => calls.push(`bounds:${r.x},${r.y},${r.width},${r.height}`),
     setVisible: (v) => calls.push(`visible:${v}`),
+    focus: () => calls.push("focus"),
     loadURL: (url) => { calls.push(`load:${url}`); nav.url = url; nav.loading = true; hooks?.emitState(); },
     goBack: () => calls.push("back"), goForward: () => calls.push("forward"),
     reload: () => calls.push("reload"), stop: () => calls.push("stop"),
@@ -203,32 +493,47 @@ function fakeView() {
     setZoomFactor: (f) => { calls.push(`zoom:${f}`); nav.zoom = f; },
     print: () => calls.push("print"),
     popups: () => nav.popups,
+    typed: () => nav.typed,
     readScroll: async () => { calls.push("readScroll"); return nav.scroll; },
     scrollAfterLoad: (x, y) => calls.push(`scrollAfterLoad:${x},${y}`),
+    reclaim: () => calls.push("reclaim"),
+    hasKeyboard: () => nav.keyboard,
+    isAudioMuted: () => nav.muted,
+    setAudioMuted: (muted) => { nav.muted = muted; },
+    getOSProcessId: () => nav.pid,
     destroy: () => calls.push("destroy"),
   };
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
 }
 
-function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReason | null>; now?: () => number } = {}) {
+function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReason | null>; now?: () => number; windowGone?: () => boolean } = {}) {
   const views = new Map<string, ReturnType<typeof fakeView>>();
   const states: BrowserViewState[] = [];
   const found: (FindResult & { id: string })[] = [];
   const findRequests: string[] = [];
   const emulations: { id: string; metrics: DeviceMetrics | null }[] = [];
-  const factory = vi.fn((id: string, hooks: ViewHooks, _partition: string) => {
+  const tabs: { id: string; url: string; background: boolean; focus: boolean; page: string }[] = [];
+  const closedTabs: string[] = [];
+  const factory = vi.fn((id: string, hooks: ViewHooks, _partition: string, _page?: unknown) => {
     const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle;
   });
   const host = new BrowserPaneHost({
     createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor,
     sendFound: (m) => found.push(m), requestFind: (id) => findRequests.push(id),
-    emulate: (id, metrics) => emulations.push({ id, metrics }),
-    ...(o.guard ? { guard: o.guard } : {}), ...(o.now ? { now: o.now } : {}),
+    emulate: (id, metrics) => emulations.push({ id, metrics }), openTab: (m) => tabs.push(m),
+    closeTab: (id) => closedTabs.push(id),
+    ...(o.guard ? { guard: o.guard } : {}), ...(o.now ? { now: o.now } : {}), ...(o.windowGone ? { windowGone: o.windowGone } : {}),
   });
-  return { host, views, states, factory, found, findRequests, emulations };
+  return { host, views, states, factory, found, findRequests, emulations, tabs, closedTabs };
 }
 
 const alive = (v: ReturnType<typeof fakeView>) => !v.calls.includes("destroy");
+/** A page Chromium made for a new tab, still open. */
+const livePage = () => ({ close: vi.fn(), isDestroyed: () => false });
+/** One that called window.close() already: closing it again throws, as Electron 45 does. */
+const closedPage = () => ({ close: vi.fn(() => { throw new TypeError("Object has been destroyed"); }), isDestroyed: () => true });
+/** One turn of the event loop: what a closed page's tab waits before it closes. */
+const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 /** One more browser than the budget can retain, named v0 (oldest) upward. */
 const overBudget = (host: BrowserPaneHost) => {
   const ids = Array.from({ length: RETAINED_VIEW_LIMIT + 1 }, (_, i) => `v${i}`);
@@ -333,6 +638,723 @@ describe("BrowserPaneHost", () => {
     expect(views.get("b1")!.calls).toContain("load:https://example.com/popup");
     hooks.openInPlace("https://evil.com/popup");
     expect(views.get("b1")!.calls).not.toContain("load:https://evil.com/popup");
+  });
+
+  describe("a window nobody pressed for, shown in place (#543)", () => {
+    /** b1 on `opener`, whose page has just opened `url` with no press behind it. */
+    const openedInPlace = (url = "https://example.com/x", allowlist: string[] | null = ["https://example.com"], focused = false) => {
+      const made = makeHost();
+      made.host.create("b1", "https://example.com/opener", allowlist, P);
+      made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      const opener = made.views.get("b1")!;
+      const page = livePage();
+      opener.getHooks().adoptInPlace(url, page, focused);
+      return { ...made, opener, page, front: made.views.get("b1")! };
+    };
+
+    it("hosts the page Chromium made in the opener's place, and never loads its address again", () => {
+      // Loading the bare address is what left window.open a closed window and dropped a POST body.
+      // THE MUTANT: loadURL the address in the view, as openInPlace does.
+      const { factory, opener, front, page, states } = openedInPlace();
+      expect(factory).toHaveBeenLastCalledWith("b1", expect.anything(), P, { page, url: "https://example.com/x" });
+      expect(front).not.toBe(opener);
+      expect([...opener.calls, ...front.calls].filter((c) => c.startsWith("load:https://example.com/x"))).toEqual([]);
+      expect(page.close).not.toHaveBeenCalled();
+      // Shown where the opener was, which goes off screen.
+      expect(front.calls).toContain("bounds:0,0,200,100");
+      expect(front.calls).toContain("visible:true");
+      expect(opener.calls.at(-1)).toBe("visible:false");
+      expect(states.at(-1)).toMatchObject({ id: "b1", canGoBack: true });
+    });
+
+    it("keeps the opener's page alive behind it, so the window it holds is a live one", () => {
+      // THE MUTANT: destroy the opener, and a page waiting for the window to post back hears nothing.
+      const { opener } = openedInPlace();
+      expect(alive(opener)).toBe(true);
+    });
+
+    it("Back from the new page's first entry shows the opener's page again, as it was", () => {
+      // Main navigated in place, so Back reloaded the opener. THE MUTANT: leave Back to the new page's
+      // own history, which has nothing in it, and the opener's page is gone for good.
+      const { host, opener, front, states } = openedInPlace();
+      host.navAction("b1", "back");
+      expect(alive(front)).toBe(false);
+      expect(front.calls).not.toContain("back");
+      expect(opener.calls).toContain("reclaim");
+      expect(opener.calls.at(-1)).toBe("visible:true");
+      expect(opener.calls.filter((c) => c.startsWith("load:"))).toEqual(["load:https://example.com/opener"]);
+      expect(states.at(-1)).toMatchObject({ id: "b1", url: "https://example.com/opener", canGoBack: false });
+    });
+
+    it("Back inside the new page's own history stays on it", () => {
+      // THE MUTANT: uncover the opener whenever there is one, and Back skips the new page's history.
+      const { host, opener, front } = openedInPlace();
+      front.nav.back = true;
+      host.navAction("b1", "back");
+      expect(front.calls).toContain("back");
+      expect(alive(front)).toBe(true);
+      expect(opener.calls).not.toContain("reclaim");
+    });
+
+    it("closes a page outside the pane's allowlist and leaves the opener where it is", () => {
+      const { page, opener, front, factory } = openedInPlace("https://evil.com/x");
+      expect(page.close).toHaveBeenCalled();
+      expect(front).toBe(opener);
+      expect(factory).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts the popups of the opener behind as the browser's: a discard would close them with it", () => {
+      // What keeps the browser from a discard ("popup"). THE MUTANT: read only the page in front, and
+      // a sign-in window the opener has open goes when the sweep takes the browser.
+      const { host, opener, front } = openedInPlace();
+      opener.nav.popups = ["https://accounts.google.com/o/oauth2/v2/auth"];
+      front.nav.popups = ["https://example.com/share"];
+      expect(host.popupsOf("b1")).toEqual(["https://example.com/share", "https://accounts.google.com/o/oauth2/v2/auth"]);
+    });
+
+    it("counts what was typed into the opener behind as the browser's: a discard would lose it with it", () => {
+      // What keeps the browser from a discard ("form"). THE MUTANT: read only the page in front, and a
+      // form half filled in on the opener is gone when the page shown in its place is closed to get back.
+      const { host, opener, front } = openedInPlace();
+      expect(host.typedOf("b1")).toBe(false);
+      opener.nav.typed = true;
+      expect(host.typedOf("b1")).toBe(true);
+      opener.nav.typed = false;
+      front.nav.typed = true;
+      expect(host.typedOf("b1")).toBe(true);
+      expect(host.typedOf("nope")).toBe(false);
+    });
+
+    it("closes the opener's page with the browser", () => {
+      // THE MUTANT: destroy only the page in front, and the opener runs on unseen with nothing to end it.
+      const { host, opener, front } = openedInPlace();
+      host.destroy("b1");
+      expect(alive(front)).toBe(false);
+      expect(alive(opener)).toBe(false);
+    });
+
+    it("the page behind cannot move the pane: its own windows and links go nowhere", () => {
+      // It is off screen, so only its timers can ask. THE MUTANT: let it, and a page that opens a window
+      // on a timer piles up pages behind the pane without end, or drags the pane off the page in front.
+      const { host, opener, front } = openedInPlace();
+      const again = livePage();
+      opener.getHooks().adoptInPlace("https://example.com/y", again, false);
+      expect(again.close).toHaveBeenCalled();
+      opener.getHooks().openInPlace("https://example.com/z");
+      expect(front.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
+      expect(host.navigate("b1", "https://example.com/w")).toBe("https://example.com/w");
+      expect(front.calls).toContain("load:https://example.com/w");
+    });
+
+    const focuses = (v: ReturnType<typeof fakeView>) => v.calls.filter((c) => c === "focus").length;
+
+    it("gives the new page the keyboard when the opener had it", () => {
+      // The opener held the keys, and on main the page shown in its place was the same webContents.
+      // THE MUTANT: never focus the new page, and the keys go on landing in the page hidden behind it.
+      const { host, front } = openedInPlace(undefined, undefined, true);
+      expect(focuses(front)).toBe(1);
+      host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      expect(focuses(front)).toBe(1);
+    });
+
+    it("leaves the keyboard where it is when the opener did not have it", () => {
+      // The caret is in the prompter, or an agent's run opened it. THE MUTANT: always focus the new
+      // page, and the person's draft stops taking keys.
+      const { host, front } = openedInPlace(undefined, undefined, false);
+      host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      expect(focuses(front)).toBe(0);
+    });
+
+    it("waits for the pane to show the new page before giving it the keyboard", () => {
+      // A hidden view holding the keyboard swallows the keys.
+      const made = makeHost();
+      made.host.create("b1", "https://example.com/opener", null, P);
+      made.views.get("b1")!.getHooks().adoptInPlace("https://example.com/x", livePage(), true);
+      const front = made.views.get("b1")!;
+      expect(focuses(front)).toBe(0);
+      made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      expect(focuses(front)).toBe(1);
+    });
+
+    it("gives the opener back the keyboard the page in front had", () => {
+      // THE MUTANT: never focus the opener when it is uncovered, and the keys go to a page that is gone.
+      const { host, opener, front } = openedInPlace();
+      front.nav.keyboard = true;
+      host.navAction("b1", "back");
+      expect(focuses(opener)).toBe(1);
+    });
+
+    it("leaves the keyboard alone on Back when the page in front did not have it", () => {
+      // Back pressed in the pane's own bar: the keyboard is in the window, not the page. THE MUTANT:
+      // always focus the opener, and the keyboard leaves wherever the person put it.
+      const { host, opener } = openedInPlace(undefined, undefined, true);
+      host.navAction("b1", "back");
+      expect(focuses(opener)).toBe(0);
+    });
+
+    it("shows the opener again when the page in front closes itself, and keeps the tab", async () => {
+      // window.open, postMessage back, window.close(): the usual end of this. THE MUTANTS: ignore the
+      // close, and the pane is left on a page that is gone, with the opener hidden behind it for good;
+      // close the tab as for a page with nothing behind it, and the opener goes with it.
+      const { host, opener, front, states, closedTabs } = openedInPlace();
+      opener.nav.title = "Opener";
+      const shown = states.length;
+      expect(() => front.getHooks().pageClosed()).not.toThrow();
+      await turn();
+      expect(closedTabs).toEqual([]);
+      expect(host.has("b1")).toBe(true);
+      expect(opener.calls).toContain("reclaim");
+      expect(opener.calls.at(-1)).toBe("visible:true");
+      expect(opener.calls.filter((c) => c.startsWith("load:"))).toEqual(["load:https://example.com/opener"]);
+      expect(states.length).toBe(shown + 1);
+      expect(states.at(-1)).toMatchObject({ id: "b1", url: "https://example.com/opener", title: "Opener", canGoBack: false });
+    });
+
+    it("hands the keyboard back when the page in front closes itself holding it", () => {
+      const { opener, front } = openedInPlace(undefined, undefined, true);
+      front.nav.keyboard = true;
+      front.getHooks().pageClosed();
+      expect(focuses(opener)).toBe(1);
+    });
+
+    it("closes the tab of a page shown in place that closes itself once Back has emptied what was behind it", async () => {
+      // Back to the opener, then the opener closes itself: nothing waits behind it, so it is a tab's
+      // page closing itself (#559). THE MUTANT: uncover on every close, from an empty stack.
+      const { host, opener, closedTabs } = openedInPlace();
+      host.navAction("b1", "back");
+      expect(() => opener.getHooks().pageClosed()).not.toThrow();
+      await turn();
+      expect(closedTabs).toEqual(["b1"]);
+      expect(host.has("b1")).toBe(false);
+    });
+
+    it("drops and destroys an opener that closes itself from behind the page in front, and nothing else", async () => {
+      // A page waiting behind is a page too, and may call window.close() from a timer. THE MUTANTS:
+      // take its close for the front page's, and the pane uncovers or its tab closes; keep it behind,
+      // and Back shows a page that is gone; send no state, and the pane's Back stays lit for nothing;
+      // drop it without destroying it, and it is the one page that leaves without being torn down.
+      // Its popups close either way: Electron closes a window.open window with its opener.
+      const { host, opener, front, states, closedTabs } = openedInPlace();
+      front.nav.title = "Child";
+      opener.nav.pid = 11; front.nav.pid = 12;
+      expect(states.at(-1)).toMatchObject({ canGoBack: true });
+      opener.getHooks().pageClosed();
+      await turn();
+      expect(opener.calls).toContain("destroy");
+      expect(closedTabs).toEqual([]);
+      expect(host.has("b1")).toBe(true);
+      expect(front.calls).not.toContain("destroy");
+      expect(opener.calls).not.toContain("reclaim");
+      expect(states.at(-1)).toMatchObject({ id: "b1", title: "Child", canGoBack: false });
+      expect(host.processes().map((p) => p.pid)).toEqual([12]);
+      host.navAction("b1", "back");
+      expect(front.calls).not.toContain("destroy");
+      expect(opener.calls).not.toContain("reclaim");
+    });
+
+    it("drops only the opener that closed itself when several wait behind", () => {
+      // THE MUTANT: drop the last one behind instead of the one that went, and Back shows a page that
+      // is gone while the live one is lost.
+      const { host, views, opener, front } = openedInPlace();
+      front.getHooks().adoptInPlace("https://example.com/y", livePage(), false);
+      const third = views.get("b1")!;
+      opener.getHooks().pageClosed();
+      expect(third.calls).not.toContain("destroy");
+      host.navAction("b1", "back");
+      expect(front.calls).toContain("reclaim");
+      expect(third.calls).toContain("destroy");
+      host.navAction("b1", "back");
+      expect(opener.calls).not.toContain("reclaim");
+    });
+
+    it("does nothing when a page the pane closed reports closing", async () => {
+      // Back destroys the page in front, and its close arrives after. THE MUTANT: act on a close from
+      // a page the browser no longer has, and that late close uncovers the next opener or closes the tab.
+      const { host, views, opener, front, closedTabs } = openedInPlace();
+      front.getHooks().adoptInPlace("https://example.com/y", livePage(), false);
+      const third = views.get("b1")!;
+      host.navAction("b1", "back");
+      expect(front.calls).toContain("reclaim");
+      third.getHooks().pageClosed();
+      await turn();
+      expect(alive(front)).toBe(true);
+      expect(opener.calls).not.toContain("reclaim");
+      expect(closedTabs).toEqual([]);
+    });
+
+    it("mutes the page waiting behind, and gives it its sound back when Back shows it again", () => {
+      // Hidden, it plays on with nothing on screen to stop it from. THE MUTANT: leave it unmuted.
+      const { host, opener, front } = openedInPlace();
+      expect(opener.nav.muted).toBe(true);
+      expect(front.nav.muted).toBe(false);
+      host.navAction("b1", "back");
+      expect(opener.nav.muted).toBe(false);
+    });
+
+    it("leaves a page that was muted before it waited muted when it comes back", () => {
+      // THE MUTANT: unmute whatever comes back, and a page Realm had muted starts making sound.
+      const made = makeHost();
+      made.host.create("b1", "https://example.com/opener", null, P);
+      const opener = made.views.get("b1")!;
+      opener.nav.muted = true;
+      opener.getHooks().adoptInPlace("https://example.com/x", livePage(), false);
+      made.views.get("b1")!.getHooks().pageClosed();
+      expect(opener.calls).toContain("reclaim");
+      expect(opener.nav.muted).toBe(true);
+    });
+
+    it("counts the pages waiting behind a browser as that browser's, off screen since they were covered", () => {
+      // The resource report names renderers by these. THE MUTANT: list only the page in front, and a
+      // parked opener's renderer shows up as nobody's.
+      let now = 1_000;
+      const made = makeHost(2, { now: () => now });
+      made.host.create("b1", "https://example.com/opener", null, P);
+      made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      const opener = made.views.get("b1")!;
+      opener.nav.pid = 11; opener.nav.title = "Opener";
+      now = 2_000;
+      opener.getHooks().adoptInPlace("https://example.com/x", livePage(), false);
+      const front = made.views.get("b1")!;
+      front.nav.pid = 12; front.nav.title = "Child";
+      made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+      expect(made.host.processes()).toEqual([
+        { browserId: "b1", pid: 11, title: "Opener", hiddenSince: 2_000 },
+        { browserId: "b1", pid: 12, title: "Child", hiddenSince: null },
+      ]);
+      // A page that has gone has no process to name.
+      front.nav.pid = null;
+      expect(made.host.processes()).toEqual([{ browserId: "b1", pid: 11, title: "Opener", hiddenSince: 2_000 }]);
+    });
+
+    it("keeps at most PARKED_OPENERS pages behind one pane, closing the oldest first", () => {
+      // THE MUTANT: no limit, and a chain of pages each opening the next keeps every one running.
+      const { host, views } = makeHost();
+      host.create("b1", "https://example.com/0", null, P);
+      const chain = [views.get("b1")!];
+      for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), false);
+        chain.push(views.get("b1")!);
+      }
+      expect(alive(chain[0]!)).toBe(false);
+      expect(chain.slice(1).every(alive)).toBe(true);
+    });
+
+    it("Back past the kept openers loads the closed one's address again, as main's Back did", () => {
+      // The bound is on renderers left running, not on where Back can go. THE MUTANT: forget the closed
+      // opener, and Back stops one page short of where the person started.
+      const { host, views, states } = makeHost();
+      host.create("b1", "https://example.com/0", null, P);
+      const chain = [views.get("b1")!];
+      for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), false);
+        chain.push(views.get("b1")!);
+      }
+      for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");
+      const last = chain[1]!;
+      expect(states.at(-1)).toMatchObject({ id: "b1", canGoBack: true });
+      host.navAction("b1", "back");
+      expect(last.calls.at(-1)).toBe("load:https://example.com/0");
+      expect(alive(last)).toBe(true);
+      expect(states.at(-1)).toMatchObject({ id: "b1", url: "https://example.com/0" });
+    });
+
+    it("Back past the kept openers loads a closed one's address only if the allowlist still lets it in", () => {
+      // THE MUTANT: load the remembered address straight into the view, past the check navigate makes.
+      const { host, views } = makeHost();
+      host.create("b1", "https://example.com/0", ["https://example.com"], P);
+      const chain = [views.get("b1")!];
+      for (let i = 1; i <= PARKED_OPENERS + 1; i++) {
+        chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), false);
+        chain.push(views.get("b1")!);
+      }
+      for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");
+      host.setAllowlist("b1", ["https://other.com"]);
+      host.navAction("b1", "back");
+      expect(chain[1]!.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
+    });
+
+    it("tells each page whether it is the one its browser shows", () => {
+      // What the passkey and password brokers ask before acting on a page's request. THE MUTANT:
+      // answer true for every page, and the opener hidden behind can raise a fingerprint prompt.
+      const { host, opener, front } = openedInPlace();
+      expect(opener.getHooks().inFront()).toBe(false);
+      expect(front.getHooks().inFront()).toBe(true);
+      host.navAction("b1", "back");
+      expect(opener.getHooks().inFront()).toBe(true);
+      expect(front.getHooks().inFront()).toBe(false);
+    });
+
+    it("a hook a factory calls while it is still making the view throws nothing and moves nothing", () => {
+      // Not done by Electron's factory today. THE MUTANT: read the handle being made before it is
+      // assigned, and the hook throws a ReferenceError out of `create`.
+      const made = makeHost();
+      made.factory.mockImplementationOnce((id, hooks) => {
+        hooks.emitState();
+        expect(hooks.inFront()).toBe(false);
+        const v = fakeView(); v.setHooks(hooks); made.views.set(id, v); return v.handle;
+      });
+      expect(() => made.host.create("b1", "https://example.com/", null, P)).not.toThrow();
+      expect(made.host.has("b1")).toBe(true);
+    });
+
+    describe("a window closing with a page shown in place", () => {
+      // #559 measured, on macOS, the window's "closed" firing before its pages' "destroyed", and the
+      // factory hears none of those as a page closing itself. These hold the host to the same if a
+      // close does reach it while the window goes, from either page first.
+      const chainOf = (pages: number) => {
+        let gone = false;
+        const made = makeHost(2, { windowGone: () => gone });
+        made.host.create("b1", "https://example.com/0", null, P);
+        made.host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+        const chain = [made.views.get("b1")!];
+        for (let i = 1; i <= pages; i++) {
+          chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), true);
+          chain.push(made.views.get("b1")!);
+        }
+        chain.at(-1)!.nav.keyboard = true;
+        return { ...made, chain, closeWindow: () => { gone = true; } };
+      };
+      const quiet = (v: ReturnType<typeof fakeView>, from: number) =>
+        v.calls.slice(from).filter((c) => c === "reclaim" || c === "focus" || c === "visible:true" || c.startsWith("bounds:"));
+
+      for (const [order, pages] of [["the page behind first", 1], ["the page in front first", 1], ["the page behind first, two shown in place", 2], ["the page in front first, two shown in place", 2]] as const) {
+        it(`touches no page and closes no tab: ${order}`, async () => {
+          // THE MUTANT: no window check in pageClosed, and the front page's close shows, unmutes and
+          // focuses the page behind it on a window that is going.
+          const { host, chain, states, closedTabs, closeWindow } = chainOf(pages);
+          const marks = chain.map((v) => v.calls.length);
+          const sent = states.length;
+          closeWindow();
+          const closing = order.startsWith("the page in front") ? [...chain].reverse() : chain;
+          for (const v of closing) v.getHooks().pageClosed();
+          await turn();
+          chain.forEach((v, i) => expect(quiet(v, marks[i]!)).toEqual([]));
+          expect(chain.slice(0, -1).every((v) => v.nav.muted)).toBe(true);
+          expect(states.length).toBe(sent);
+          expect(closedTabs).toEqual([]);
+          host.destroyAll();
+          expect(chain.every((v) => !alive(v))).toBe(true);
+        });
+      }
+
+      it("forgets the browser before destroying its pages, so a close any of them reports on the way is nobody's", async () => {
+        // A factory that did not mark its own destroy would report each page closing. THE MUTANT:
+        // forget the browser after its pages, and the page behind is dropped, the one in front taken
+        // for a tab closing itself, and its tab closed.
+        const { host, chain, states, closedTabs } = chainOf(2);
+        for (const v of chain) {
+          const destroy = v.handle.destroy;
+          v.handle.destroy = () => { destroy(); v.getHooks().pageClosed(); };
+        }
+        const sent = states.length;
+        host.destroyAll();
+        await turn();
+        expect(chain.every((v) => !alive(v))).toBe(true);
+        expect(states.length).toBe(sent);
+        expect(closedTabs).toEqual([]);
+      });
+    });
+
+    describe("a page waiting behind that has already gone", () => {
+      /** Its page is gone: destroying it again throws, as a webContents that is gone does. */
+      const gone = (v: ReturnType<typeof fakeView>) => {
+        v.handle.destroy = () => { v.calls.push("destroy"); throw new TypeError("Object has been destroyed"); };
+      };
+      const destroys = (v: ReturnType<typeof fakeView>) => v.calls.filter((c) => c === "destroy").length;
+      /** b1 with two pages shown in place, so two wait behind the one in front. */
+      const twoBehind = () => {
+        const made = openedInPlace();
+        made.front.getHooks().adoptInPlace("https://example.com/y", livePage(), false);
+        return { ...made, middle: made.front, front: made.views.get("b1")! };
+      };
+
+      for (const teardown of ["destroy", "destroyAll"] as const) {
+        it(`is destroyed once when it closes itself, and not again by ${teardown}`, () => {
+          // THE MUTANTS: keep a page that closed itself behind, and the browser's teardown destroys it
+          // again; drop it without destroying it, and it is the one page that leaves without being
+          // torn down.
+          const { host, opener, middle, front } = twoBehind();
+          gone(opener);
+          opener.getHooks().pageClosed();
+          expect(destroys(opener)).toBe(1);
+          if (teardown === "destroy") host.destroy("b1"); else host.destroyAll();
+          expect(destroys(opener)).toBe(1);
+          expect([middle, front].every((v) => !alive(v))).toBe(true);
+          expect(host.has("b1")).toBe(false);
+        });
+
+        it(`leaves ${teardown} destroying the rest when one went with its window`, () => {
+          // THE MUTANT: destroy the pages behind unguarded, and the first that throws leaves the rest
+          // of the browser's pages running.
+          const { host, opener, middle, front } = twoBehind();
+          gone(opener);
+          expect(() => (teardown === "destroy" ? host.destroy("b1") : host.destroyAll())).not.toThrow();
+          expect([opener, middle, front].every((v) => destroys(v) === 1)).toBe(true);
+          expect(host.has("b1")).toBe(false);
+        });
+      }
+
+      it("leaves a discard destroying the rest of the browser's pages", async () => {
+        // THE MUTANT: destroy the pages behind unguarded, and the discard throws with the page in
+        // front still running.
+        const { host, opener, middle, front } = twoBehind();
+        gone(opener);
+        host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, false);
+        await expect(host.discard("b1")).resolves.toBe(true);
+        expect([opener, middle, front].every((v) => destroys(v) === 1)).toBe(true);
+        expect(host.isDiscarded("b1")).toBe(true);
+      });
+
+      it("leaves the oldest closed past PARKED_OPENERS, and the next page shown", () => {
+        // THE MUTANT: destroy the oldest unguarded, and the window that pushed it out is never shown.
+        const { host, views, states } = makeHost();
+        host.create("b1", "https://example.com/0", null, P);
+        host.setBounds("b1", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+        const chain = [views.get("b1")!];
+        for (let i = 1; i <= PARKED_OPENERS; i++) {
+          chain.at(-1)!.getHooks().adoptInPlace(`https://example.com/${i}`, livePage(), false);
+          chain.push(views.get("b1")!);
+        }
+        chain[0]!.nav.url = "https://example.com/0";
+        gone(chain[0]!);
+        expect(() => chain.at(-1)!.getHooks().adoptInPlace("https://example.com/last", livePage(), false)).not.toThrow();
+        expect(destroys(chain[0]!)).toBe(1);
+        const last = views.get("b1")!;
+        expect(chain).not.toContain(last);
+        expect(last.calls).toContain("visible:true");
+        for (let i = 0; i < PARKED_OPENERS; i++) host.navAction("b1", "back");
+        expect(states.at(-1)).toMatchObject({ id: "b1", canGoBack: true });
+      });
+    });
+  });
+
+  it("hosts the page Chromium made for a new tab, and never loads its address again", () => {
+    // Loading the bare address is what lost a POST form's body and the page's window.opener link.
+    // THE MUTANT: load the url in `create` as for any other browser.
+    const { host, views, tabs, factory } = makeHost();
+    host.create("b1", "", ["https://example.com"], P);
+    const page = livePage();
+    views.get("b1")!.getHooks().openTab("https://example.com/echo", true, page, true);
+    expect(tabs).toEqual([{ id: "b1", url: "https://example.com/echo", background: true, focus: true, page: expect.any(String) }]);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/echo", ["https://example.com"], P);
+    // …named by the address it was opened on, which the bar shows until the page commits: an empty one
+    // reads as a blank tab, and the pane puts the keyboard in its address field.
+    expect(factory).toHaveBeenLastCalledWith("b2", expect.anything(), P, { page, url: "https://example.com/echo" });
+    expect(views.get("b2")!.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
+    expect(page.close).not.toHaveBeenCalled();
+    // The page that was clicked on stays where it was.
+    expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toEqual([]);
+  });
+
+  it("never hosts a page in another profile's tab: that page goes, and the address loads in the jar asked for", () => {
+    // THE MUTANT: hand the page over whatever the partition, and one profile's sign-ins show in another's tab.
+    const { host, views, tabs, factory } = makeHost();
+    host.create("b1", "", null, P);
+    const page = livePage();
+    views.get("b1")!.getHooks().openTab("https://example.com/docs", false, page, false);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/docs", null, "persist:browser-other");
+    expect(page.close).toHaveBeenCalled();
+    expect(factory).toHaveBeenLastCalledWith("b2", expect.anything(), "persist:browser-other", undefined);
+    expect(views.get("b2")!.calls).toContain("load:https://example.com/docs");
+  });
+
+  it("closes a page outside the pane's allowlist instead of making it a tab", () => {
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", ["https://example.com"], P);
+    const page = livePage();
+    views.get("b1")!.getHooks().openTab("https://evil.com/docs", false, page, false);
+    expect(tabs).toEqual([]);
+    expect(page.close).toHaveBeenCalled();
+  });
+
+  it("closes a page no tab claims, and one whose browser closes before its pane showed it", () => {
+    // THE MUTANT: forget the timer, and a tab the renderer never made leaves a page running unseen.
+    vi.useFakeTimers();
+    try {
+      const { host, views, tabs } = makeHost();
+      host.create("b1", "", null, P);
+      const unclaimed = livePage();
+      views.get("b1")!.getHooks().openTab("https://example.com/a", false, unclaimed, false);
+      vi.advanceTimersByTime(UNCLAIMED_TAB_MS - 1);
+      expect(unclaimed.close).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(unclaimed.close).toHaveBeenCalled();
+
+      const closed = livePage();
+      views.get("b1")!.getHooks().openTab("https://example.com/b", true, closed, false);
+      host.claimTab(tabs[1]!.page, "b3");
+      vi.advanceTimersByTime(UNCLAIMED_TAB_MS);
+      expect(closed.close).not.toHaveBeenCalled(); // claimed: a background tab may wait unseen
+      host.destroy("b3");
+      expect(closed.close).toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("says a page asked for its tab without the keyboard, so the tab does not take it", () => {
+    // An agent's click lands in a page the person is not typing in. THE MUTANT: always send focus: true,
+    // and the keys going to the prompter land in a page they never opened.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, livePage(), false);
+    expect(tabs[0]).toMatchObject({ focus: false });
+  });
+
+  it("gives a new tab's page the keyboard the person's page had, once, when its pane first shows it", () => {
+    // A person clicked a target=_blank link: the keys they type next are the new page's, as in any
+    // browser. THE MUTANT: never focus the view, and they go on landing in the page now behind it.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, livePage(), true);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/a", null, P);
+    const focuses = () => views.get("b2")!.calls.filter((c) => c === "focus").length;
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, false);
+    expect(focuses()).toBe(0); // not on screen yet: a hidden view holding the keyboard swallows it
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    expect(focuses()).toBe(1); // the next frame's sync must not take it back from wherever it went
+  });
+
+  it("leaves the keyboard where it is for a ⌘- or middle-click's tab, even once the person shows it", () => {
+    // THE MUTANT: focus a background tab the first time it shows, and the keyboard jumps out of the
+    // page the person went on reading into one they only switched to look at.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", true, livePage(), true);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/a", null, P);
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    expect(views.get("b2")!.calls).not.toContain("focus");
+  });
+
+  it("leaves the keyboard alone when the page that opened the tab did not have it", () => {
+    // An agent's click. THE MUTANT: focus every hosted page, and the prompter's draft stops taking keys.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, livePage(), false);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/a", null, P);
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    expect(views.get("b2")!.calls).not.toContain("focus");
+  });
+
+  it("closes the tab whose page closed itself, and never reads the dead page again", async () => {
+    // A page a script opened may call window.close(), and Chromium lets it: the web contents go, and
+    // every getter on the handle throws "Object has been destroyed". THE MUTANT: keep the view, and the
+    // next state or bounds sync reads a page that is not there while the tab sits on a blank view.
+    const { host, views, tabs, factory, states, closedTabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, livePage(), true);
+    host.claimTab(tabs[0]!.page, "b2");
+    host.create("b2", "https://example.com/a", null, P);
+    const closed = views.get("b2")!;
+    for (const getter of ["getURL", "getTitle", "isLoading", "canGoBack", "canGoForward", "isReady", "setBounds", "setVisible", "focus"] as const) {
+      closed.handle[getter] = () => { throw new TypeError("Object has been destroyed"); };
+    }
+    closed.getHooks().pageClosed();
+    await turn();
+    expect(closedTabs).toEqual(["b2"]);
+    expect(host.has("b2")).toBe(false);
+    const sent = states.length;
+    host.setBounds("b2", { x: 0, y: 0, width: 200, height: 100 }, 2, true);
+    host.setDevice("b2", "phone");
+    expect(states.length).toBe(sent);
+    // Its pane showing it again before the tab closes gets a page, not the dead one.
+    host.create("b2", "https://example.com/a", null, P);
+    expect(factory).toHaveBeenLastCalledWith("b2", expect.anything(), P, undefined);
+    expect(views.get("b2")!.calls).toContain("load:https://example.com/a");
+    expect(views.get("b1")!.calls).not.toContain("destroy");
+  });
+
+  it("closes the tab whose page closed itself before its pane made the view, and makes no view of it", async () => {
+    // A page that calls window.close() in its <head> can be gone before the renderer gets to
+    // browser:create, and `new WebContentsView` throws on it ("options.webContents must be a
+    // WebContents"), leaving the tab on a blank pane. THE MUTANT: hand the dead page to createView.
+    const { host, views, tabs, factory, closedTabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, closedPage(), true);
+    host.claimTab(tabs[0]!.page, "b2");
+    factory.mockClear();
+    host.create("b2", "https://example.com/a", null, P);
+    expect(factory).not.toHaveBeenCalled();
+    expect(host.has("b2")).toBe(false);
+    await turn();
+    expect(closedTabs).toEqual(["b2"]);
+  });
+
+  it("leaves a page that already closed itself alone wherever a waiting page is closed", () => {
+    // Closing it again throws "Object has been destroyed": from the unclaimed timer that is an uncaught
+    // exception in main, and in destroyAll it stops the window's other views going.
+    // THE MUTANTS: call close() unguarded in the timer, in destroy, or in destroyAll.
+    vi.useFakeTimers();
+    try {
+      const { host, views, tabs } = makeHost();
+      host.create("b1", "", null, P);
+      const hooks = views.get("b1")!.getHooks();
+      hooks.openTab("https://example.com/a", false, closedPage(), false);
+      expect(() => vi.advanceTimersByTime(UNCLAIMED_TAB_MS)).not.toThrow();
+      hooks.openTab("https://example.com/b", true, closedPage(), false);
+      host.claimTab(tabs[1]!.page, "b2");
+      expect(() => host.destroy("b2")).not.toThrow();
+      hooks.openTab("https://example.com/c", true, closedPage(), false);
+      hooks.openTab("https://example.com/d", true, closedPage(), false);
+      host.claimTab(tabs[3]!.page, "b3");
+      expect(() => host.destroyAll()).not.toThrow();
+      expect(alive(views.get("b1")!)).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("closes no tab for a page whose view Realm had already closed", () => {
+    // A window closing tears its views down too, and its tabs stay in the layout it saves. THE MUTANT:
+    // close the tab of any page that goes, and quitting empties every pane of its pages.
+    const { host, views, closedTabs } = makeHost();
+    host.create("b1", "https://example.com", null, P);
+    host.destroyAll();
+    views.get("b1")!.getHooks().pageClosed();
+    expect(closedTabs).toEqual([]);
+  });
+
+  it("closes no tab for a page that went as its window went", async () => {
+    // The order that would empty the panes: a page's view goes with nothing asking, and its window is
+    // gone by the time the close is due. THE MUTANTS: send the close at once, or without asking whether
+    // the window is gone, and the closing window's layout loses the tab.
+    let gone = false;
+    const { host, views, closedTabs } = makeHost(2, { windowGone: () => gone });
+    host.create("b1", "https://example.com", null, P);
+    views.get("b1")!.getHooks().pageClosed();
+    gone = true;
+    await turn();
+    expect(closedTabs).toEqual([]);
+    expect(host.has("b1")).toBe(false);
+  });
+
+  it("tells whoever asks for the page next which tabs it opened, once, waiting for one still being made", async () => {
+    // What an agent's next act or snapshot is told (browser-agent-host.ts): the click opened a tab
+    // rather than doing nothing. THE MUTANT: never record the claim, and the agent hears nothing.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, livePage(), false);
+    const told = host.takeOpenedTabs("b1", 1_000);
+    host.claimTab(tabs[0]!.page, "b2");
+    expect(await told).toEqual([{ browserId: "b2", url: "https://example.com/a" }]);
+    expect(await host.takeOpenedTabs("b1", 0)).toEqual([]);
+    expect(await host.takeOpenedTabs("b2", 0)).toEqual([]);
+  });
+
+  it("closes every page still waiting for a tab when the window goes", () => {
+    // THE MUTANT: clear the waiting pages without closing them, and they run on with no window.
+    const { host, views, tabs } = makeHost();
+    host.create("b1", "", null, P);
+    const unclaimed = livePage();
+    const claimed = livePage();
+    views.get("b1")!.getHooks().openTab("https://example.com/a", false, unclaimed, false);
+    views.get("b1")!.getHooks().openTab("https://example.com/b", true, claimed, false);
+    host.claimTab(tabs[1]!.page, "b2");
+    host.destroyAll();
+    expect(unclaimed.close).toHaveBeenCalled();
+    expect(claimed.close).toHaveBeenCalled();
   });
 
   it("says which popups a view's page has open, and none for a view it does not have", () => {

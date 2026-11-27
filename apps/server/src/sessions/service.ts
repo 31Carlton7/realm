@@ -13,6 +13,7 @@ import type { EnvironmentsStore } from "../store/environments";
 import type { SpacesStore } from "../store/spaces";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
+import type { Answerer } from "../browsers/permissions";
 import { NotFoundError, RpcError } from "../store/rows";
 import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
@@ -29,6 +30,7 @@ import type { SkillsService } from "../skills/service";
 import type { McpGateway } from "../mcp/gateway";
 import { capabilitiesContext } from "../mcp/capabilities";
 import type { MemoryService } from "../memory/service";
+import { indexQuery } from "../memory/context-budget";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { AppViewRef, MemorySources } from "@realm/contracts";
@@ -326,7 +328,7 @@ export class SessionService {
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
-    browserPermissions?: { owns(requestId: string): boolean; skippedUnderBypass(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void };
+    browserPermissions?: { owns(requestId: string): boolean; skippedUnderBypass(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string, by?: Answerer): boolean; release(sessionId: string): void };
     /** Computer use granted by a mention, per session (`computer/session-grants.ts`): what an
      *  `@Messages` in a delivered message writes, and what a deleted session takes with it. Optional —
      *  a harness without it treats an app mention as text and grants nothing. */
@@ -894,7 +896,7 @@ export class SessionService {
     // the conversation in the mode the old one could not switch to.
     if (this.restartOwed.delete(id)) void this.reap(id);
     await this.reaping.get(id);
-    const handle = this.ensureLive(id);
+    const handle = this.ensureLive(id, undefined, msg.text);
     // A start that carried a restore's fork can be refused at fork time, before the model sees a word
     // of this message — so the message is held until that boot proves itself, and re-sent plainly if it
     // does not. Only on this path: `deliverInterjection` and `resendTurn` do their own bookkeeping, and
@@ -965,7 +967,7 @@ export class SessionService {
     if (!this.d.sessions.get(id)) return; // deleted while a backoff was pending
     await this.ensurePorts(id);
     await this.reaping.get(id);
-    const handle = this.ensureLive(id);
+    const handle = this.ensureLive(id, undefined, msg.text);
     this.noteRealmTurn(id);
     this.written.add(id);
     if (msg.byPerson === true) this.personTurns.add(id); else this.personTurns.delete(id);
@@ -1086,7 +1088,7 @@ export class SessionService {
     const wasLive = this.live.has(id);
     await this.ensurePorts(id);
     await this.reaping.get(id);
-    const handle = this.ensureLive(id);
+    const handle = this.ensureLive(id, undefined, msg.text);
     const interrupted = wasLive && opts.interruptFirst;
     if (interrupted) await this.interruptAndSettle(id, handle);
     // After the interrupt, not before: the turn it stopped is measured from that settle, and this
@@ -1114,7 +1116,7 @@ export class SessionService {
     this.d.failover?.cancel(id);
     await this.live.get(id)?.handle.interrupt();
   }
-  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): void {
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers, by: Answerer = "process"): void {
     this.get(id);
     // A masked answer is remembered BEFORE it goes anywhere, so the first event to quote it back — the
     // agent's tool result, often the very next thing on the wire — already finds it scrubbed.
@@ -1125,7 +1127,10 @@ export class SessionService {
     // BEFORE the live-handle check: the prompt blocks an MCP call inside the gateway, which stays
     // answerable even if the adapter process died while the card sat unanswered. Questions Realm
     // asks itself (`ui_ask`, an MCP server's elicitation) ride the same route, answers and all.
-    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision, answers, id); return; }
+    if (this.d.browserPermissions?.owns(requestId)) {
+      if (!this.d.browserPermissions.resolve(requestId, decision, answers, id, by)) throw new RpcError("FORBIDDEN", "only the person at Realm can answer this card");
+      return;
+    }
     const l = this.live.get(id);
     if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
     l.handle.respondPermission(requestId, decision, answers);
@@ -1393,6 +1398,19 @@ export class SessionService {
     this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
     this.d.rpc.broadcast("items.changed", { spaceId });
     return updated;
+  }
+
+  /**
+   * Keep a quick chat (`sessions.keep`). The session was created `unlisted`, so it has no item and
+   * `moveToSpace` has none to carry: this moves it and then makes the item `create` would have made.
+   */
+  keep(id: string, spaceId: string): { session: Session; itemId: string } {
+    const session = this.moveToSpace(id, spaceId);
+    const listed = this.d.items.findByRefId(id);
+    if (listed) return { session, itemId: listed.id };
+    const item = this.d.items.create({ spaceId, kind: "session", title: session.title, refId: id });
+    this.d.rpc.broadcast("items.changed", { spaceId });
+    return { session, itemId: item.id };
   }
 
   /**
@@ -2301,8 +2319,17 @@ export class SessionService {
     return sandboxWrapFor(this.d.sandbox, { spaceId: s.spaceId, extraWritableRoots: memoryDir ? [s.cwd, memoryDir] : [s.cwd] });
   }
 
-  /** `at` starts it somewhere other than the row's environment — a move's boot, before the row moves. */
-  private ensureLive(id: string, at?: Environment): AgentHandle {
+  /** Start the session's engine before anything is sent to it, so its first message does not wait on
+   *  a cold start. The quick chat's spare is the caller (`QuickChatEngines`). */
+  async warm(id: string): Promise<void> {
+    await this.ensurePorts(id);
+    this.ensureLive(id);
+  }
+
+  /** `at` starts it somewhere other than the row's environment — a move's boot, before the row moves.
+   *  `sending` is the message this start is for, which is the session's first prompt when it has none
+   *  stored yet. */
+  private ensureLive(id: string, at?: Environment, sending?: string): AgentHandle {
     const existing = this.live.get(id); if (existing) return existing.handle;
     // The load-bearing refusal of a drain (Plan 26 Phase 8). A handle that is ALREADY running is
     // fine: the child has exec'd, and the inode survives `install-local.mjs` deleting the bundle
@@ -2348,7 +2375,12 @@ export class SessionService {
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
     // isolation on, so the re-injection can never disagree with it.
     // Frozen per session (`contextForSession`): a restart gets the bytes the first start did.
-    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    // The stored first prompt before this message: a start after a server restart ranks the indexes
+    // as the first start did, so the frozen bytes come out the same.
+    const first = this.d.events.listOfTypes(id, ["user_message"], { afterSeq: 0, limit: 1 })[0]?.event;
+    const firstPrompt = first?.type === "user_message" ? first.payload.text : sending;
+    const query = indexQuery(firstPrompt, s.title === DEFAULT_TITLE ? null : s.title);
+    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined, query });
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
@@ -2403,9 +2435,11 @@ export class SessionService {
       // A teammate's home chat is compacted well short of a 1M window; its task sessions are not.
       ...(compactWindow ? { autoCompactWindow: compactWindow, afterCompaction: () => this.d.teammateHome?.afterCompaction?.(id) } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
-      // under, for a log line or a bug report to read. Nothing reads them back. Then the folder of the
-      // account the session runs on, which is what the CLI signs in with.
-      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), ...this.d.accounts?.envFor(s.agentKind, s.accountId) },
+      // under, for a log line or a bug report to read. Nothing reads them back. Then
+      // `REALM_AGENT_SHELL`, which keeps a dev Realm the agent starts off the screen
+      // (apps/desktop/src/main/quiet-windows.ts), and the folder of the account the session runs on,
+      // which is what the CLI signs in with.
+      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), REALM_AGENT_SHELL: "1", ...this.d.accounts?.envFor(s.agentKind, s.accountId) },
       ...(wrap ? { wrap } : {}),
       ...(fork ? { resumeAt: fork.at, resumeDropsTurn: fork.dropsTurn } : {}),
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`),

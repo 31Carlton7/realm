@@ -43,6 +43,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; i
   const cli: Simctl = {
     devices: async () => { calls.push("devices"); return [{ udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false }]; },
     boot: async (udid) => { calls.push(`boot:${udid}`); return { ok: true, detail: "" }; },
+    springBoardStarted: async () => true,
     available: async () => true,
     apps: async (udid) => { calls.push(`apps:${udid}`); return [{ bundleId: "com.acme.app", name: "Acme" }]; },
     screenshot: async (udid, path) => { calls.push(`screenshot:${udid}:${path}`); return { ok: true, detail: "" }; },
@@ -159,6 +160,28 @@ describe("bringing a simulator up", () => {
     expect(events.map((e) => e.status)).toEqual(["booting", "serving", "running"]);
   });
 
+  it("shows the picture while the device boots, and reads no tree until its boot has finished", async () => {
+    // A read that reaches the device mid-boot can leave it answering 503 for the whole boot — a
+    // fresh serve-sim does not bring it back. THE MUTANT: reading /ax without waiting for SpringBoard.
+    let finish = (_: boolean) => {};
+    let asked = 0;
+    const { service, spaceId, calls } = bring({ simctl: { springBoardStarted: () => { asked++; return new Promise((r) => { finish = r; }); } } });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator" });
+    service.start(simulatorId, "UDID-1");
+    await settle(() => service.stateOf(simulatorId).status === "running");
+    await expect(service.ax(simulatorId)).rejects.toThrow(/still finishing its boot/);
+    expect(calls).not.toContain("ax:UDID-1");
+    finish(true);
+    expect((await service.ax(simulatorId)).app).toBe("Safari");
+    expect(asked).toBe(1);
+    // Booted again, the last boot's answer is not this one's.
+    await service.stop(simulatorId);
+    service.start(simulatorId, "UDID-1");
+    await settle(() => service.stateOf(simulatorId).status === "running");
+    await expect(service.ax(simulatorId)).rejects.toThrow(/still finishing its boot/);
+    expect(asked).toBe(2);
+  });
+
   it("adopts a stream somebody else already started rather than starting a second one", async () => {
     // A device served from a terminal, or by the ios-simulator skill, is one this pane can just
     // show. THE always-start mutant spawns a second daemon for a device that already has one.
@@ -167,6 +190,27 @@ describe("bringing a simulator up", () => {
     service.start(simulatorId, "UDID-1");
     await settle(() => service.stateOf(simulatorId).status === "running");
     expect(calls).not.toContain("start:UDID-1");
+  });
+
+  it("adopts a stream started on this boot, and replaces one left from an earlier boot (#638)", async () => {
+    // serve-sim's daemon outlives `simctl shutdown` and `--list` still names it, but booted again the
+    // device never publishes its tree through it. THE MUTANTS: adopt it anyway, or replace every one.
+    const udid = "D94F0FDE-7C84-42F1-A328-97EF12A91866";
+    const at = 1_800_000_000_000;
+    const table = (daemonAt: number | null) => async () => [
+      { pid: 700, ppid: 1, tty: null, residentBytes: 1, startedAt: at, command: `launchd_sim /U/Library/Developer/CoreSimulator/Devices/${udid}/data/var/run/launchd_bootstrap.plist` },
+      ...(daemonAt === null ? [] : [{ pid: 99, ppid: 1, tty: null, residentBytes: 1, startedAt: daemonAt, command: "node serve-sim --detach -q" }]),
+    ];
+    const replaced = ["find", `kill:${udid}`, `start:${udid}`, "screen"];
+    // Started on this boot; started on an earlier one; and gone from the process table altogether.
+    for (const [daemonAt, expected] of [[at + 5_000, ["find", "screen"]], [at - 30 * 60_000, replaced], [null, replaced]] as const) {
+      const { service, spaceId, calls } = bring({ serveSim: { find: async () => { calls.push("find"); return STREAM; } } });
+      Object.assign((service as unknown as { d: object }).d, { processes: table(daemonAt) });
+      const { simulatorId } = service.create({ spaceId, name: "Simulator" });
+      service.start(simulatorId, udid);
+      await settle(() => service.stateOf(simulatorId).status === "running");
+      expect(calls.filter((c) => c !== `boot:${udid}`)).toEqual(expected);
+    }
   });
 
   it("waits for a frame rather than showing a 0×0 screen", async () => {

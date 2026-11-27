@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { SimulatorAxElement, SimulatorAxTree, SimulatorCameraSource, SimulatorEvent, SimulatorScreen, SimulatorUiState } from "@realm/contracts";
 
 /**
@@ -22,6 +22,31 @@ export function serveSimCommand(env: NodeJS.ProcessEnv = process.env): { bin: st
   const override = env.REALM_SERVE_SIM_BIN?.trim();
   if (override) return { bin: override, prefix: [] };
   return { bin: "npx", prefix: ["--yes", "serve-sim@latest"] };
+}
+
+/** How long a tree read waits for the daemon. */
+export const AX_READ_TIMEOUT_MS = 8_000;
+
+/** A tree read the daemon did not answer in time. Unlike a 503 this is not "not yet": asking again
+ *  waits the whole timeout again. */
+export class AxReadTimedOut extends Error {
+  constructor() { super(`serve-sim did not answer the accessibility tree read within ${AX_READ_TIMEOUT_MS / 1000} s`); }
+}
+
+/** How long the binary npx resolved is used before npx is asked again for the latest. */
+const RESOLVED_FOR_MS = 24 * 60 * 60 * 1000;
+/** After npx could not name a binary, how long every call goes through npx before asking again. */
+const UNRESOLVED_FOR_MS = 60 * 1000;
+
+/**
+ * The path of the `serve-sim` binary in npx's cache, installing the latest first if it has to — or
+ * null when npx could not say. `npx serve-sim@latest` asks the registry on every call (0.9 s on an
+ * idle Mac, 2.5–3.3 s on a busy one); the binary itself answers `--list` in under 0.1 s.
+ */
+async function resolveServeSimBin(exec: ServeSimExec): Promise<string | null> {
+  const r = await exec("npx", ["--yes", "--package", "serve-sim@latest", "--call", "command -v serve-sim"], 180_000);
+  const path = r.stdout.trim().split("\n").pop()?.trim() ?? "";
+  return r.code === 0 && isAbsolute(path) ? path : null;
 }
 
 /** One running stream, as `--list` describes it. The URLs are loopback and already inside the
@@ -188,11 +213,16 @@ export function parseScreen(body: string): SimulatorScreen | null {
   } catch { return null; }
 }
 
-const run = (bin: string, args: string[], timeout: number): Promise<{ code: number; stdout: string; stderr: string }> =>
+/** One run of a command. `missing` is a binary that is not there at all, which for a cached
+ *  serve-sim means npx's cache was cleared under it. */
+export type ServeSimExec = (bin: string, args: string[], timeout: number) => Promise<{ code: number; stdout: string; stderr: string; missing?: boolean }>;
+
+const run: ServeSimExec = (bin, args, timeout) =>
   new Promise((resolve) => {
     execFile(bin, args, { timeout, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
       const code = err && typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : err ? 1 : 0;
-      resolve({ code, stdout: stdout ?? "", stderr: (stderr ?? "") || (err ? String(err.message) : "") });
+      const missing = (err as { code?: unknown } | null)?.code === "ENOENT";
+      resolve({ code, stdout: stdout ?? "", stderr: (stderr ?? "") || (err ? String(err.message) : ""), missing });
     });
   });
 
@@ -226,7 +256,8 @@ export type ServeSim = {
   /** A CoreAnimation debug overlay on or off. */
   caDebug(udid: string, option: string, on: boolean): Promise<{ ok: boolean; detail: string }>;
   /** The foreground app's accessibility tree — what is actually on screen, by name rather than by
-   *  pixel. Null when the daemon has no answer yet (the AX framework warms up after a boot). */
+   *  pixel. Null when the daemon has no answer yet (the AX framework warms up after a boot); an
+   *  `AxReadTimedOut` when it gave no answer at all in time. */
   ax(stream: ServeSimStream, udid: string): Promise<SimulatorAxTree | null>;
   /** Grant, revoke or reset one permission for one app. */
   permission(udid: string, action: string, permission: string, bundleId: string): Promise<{ ok: boolean; detail: string }>;
@@ -248,11 +279,36 @@ const cameraArgs = (source: SimulatorCameraSource): string[] => {
   return [];
 };
 
-export function serveSim(env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof fetch = fetch): ServeSim {
-  const { bin, prefix } = serveSimCommand(env);
+export function serveSim(env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof fetch = fetch, exec: ServeSimExec = run): ServeSim {
+  const named = serveSimCommand(env);
+  /* Without a binary named, npx is asked once where its copy is, and that copy is run from then on.
+     Shared, so the calls that arrive while npx is still installing wait for the one answer. */
+  let command: { at: number; for: number; answer: Promise<{ bin: string; prefix: string[] }> } | null = null;
+  const current = () => {
+    if (named.bin !== "npx") return Promise.resolve(named);
+    if (!command || Date.now() - command.at > command.for) {
+      const asked = { at: Date.now(), for: RESOLVED_FOR_MS, answer: Promise.resolve(named) };
+      asked.answer = resolveServeSimBin(exec).then((bin) => {
+        if (bin) return { bin, prefix: [] };
+        asked.for = UNRESOLVED_FOR_MS;
+        return named;
+      });
+      command = asked;
+    }
+    return command.answer;
+  };
+  const cli = async (args: string[], timeout: number) => {
+    const { bin, prefix } = await current();
+    const r = await exec(bin, [...prefix, ...args], timeout);
+    if (!r.missing || bin === named.bin) return r;
+    // npx's cache was cleared since the binary was found: npx again, which installs it again.
+    command = null;
+    const again = await current();
+    return exec(again.bin, [...again.prefix, ...args], timeout);
+  };
   return {
     async find(udid) {
-      const r = await run(bin, [...prefix, "--list", udid], 60_000);
+      const r = await cli(["--list", udid], 60_000);
       return r.code === 0 ? parseStream(r.stdout) : NOTHING;
     },
     async claims() {
@@ -265,12 +321,12 @@ export function serveSim(env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof
     },
     async start(udid) {
       // `-q` is JSON-only: the banner is what a human reads and what a parser trips over.
-      const r = await run(bin, [...prefix, "--detach", "-q", udid], 180_000);
+      const r = await cli(["--detach", "-q", udid], 180_000);
       const stream = parseStream(r.stdout);
       return { stream, detail: stream.streamUrl ? "" : `${r.stdout}${r.stderr}`.trim() || `serve-sim exited ${r.code}` };
     },
     async kill(udid) {
-      await run(bin, [...prefix, "--kill", udid], 60_000);
+      await cli(["--kill", udid], 60_000);
     },
     async screen(stream, udid) {
       if (!stream.url) return null;
@@ -280,22 +336,22 @@ export function serveSim(env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof
       } catch { return null; }
     },
     async ui(udid) {
-      const r = await run(bin, [...prefix, "ui", "status", "--json", "-d", udid], 60_000);
+      const r = await cli(["ui", "status", "--json", "-d", udid], 60_000);
       return r.code === 0 ? parseUiState(r.stdout) : null;
     },
     async setUi(udid, option, value) {
-      const r = await run(bin, [...prefix, "ui", option, value, "-d", udid], 60_000);
+      const r = await cli(["ui", option, value, "-d", udid], 60_000);
       // The CLI prints its own accepted set on a bad value; that sentence is better than any
       // paraphrase, so it travels to the pane whole.
       const detail = r.code === 0 ? "" : `${r.stdout}${r.stderr}`.trim().split("\n")[0] ?? `serve-sim exited ${r.code}`;
       return { ok: r.code === 0, state: await this.ui(udid), detail };
     },
     async memoryWarning(udid) {
-      const r = await run(bin, [...prefix, "memory-warning", "-d", udid], 60_000);
+      const r = await cli(["memory-warning", "-d", udid], 60_000);
       return { ok: r.code === 0, detail: r.code === 0 ? "" : `${r.stdout}${r.stderr}`.trim() || `serve-sim exited ${r.code}` };
     },
     async caDebug(udid, option, on) {
-      const r = await run(bin, [...prefix, "ca-debug", option, on ? "on" : "off", "-d", udid], 60_000);
+      const r = await cli(["ca-debug", option, on ? "on" : "off", "-d", udid], 60_000);
       return { ok: r.code === 0, detail: r.code === 0 ? "" : `${r.stdout}${r.stderr}`.trim() || `serve-sim exited ${r.code}` };
     },
     async ax(stream, udid) {
@@ -303,38 +359,41 @@ export function serveSim(env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof
       try {
         // Scoped to the device, like `/config`: the unscoped `/ax` answers with an SSE keepalive and
         // no tree, which reads as "no elements" rather than as "wrong route".
-        const res = await fetchImpl(`${stream.url}/helper/${encodeURIComponent(udid)}/ax`, { signal: AbortSignal.timeout(8_000) });
+        const res = await fetchImpl(`${stream.url}/helper/${encodeURIComponent(udid)}/ax`, { signal: AbortSignal.timeout(AX_READ_TIMEOUT_MS) });
         return res.ok ? parseAxTree(await res.text()) : null;
-      } catch { return null; }
+      } catch (e) {
+        if (e instanceof Error && e.name === "TimeoutError") throw new AxReadTimedOut();
+        return null;
+      }
     },
     async permission(udid, action, permission, bundleId) {
-      const r = await run(bin, [...prefix, "permissions", action, permission, bundleId, "-d", udid], 60_000);
+      const r = await cli(["permissions", action, permission, bundleId, "-d", udid], 60_000);
       return { ok: r.code === 0, detail: r.code === 0 ? "" : `${r.stdout}${r.stderr}`.trim() || `serve-sim exited ${r.code}` };
     },
     async camera(udid, bundleId, source) {
       // Minutes, not seconds: the first run builds the injector dylib, and a timeout here would
       // leave the build running with nobody waiting for it.
-      const r = await run(bin, [...prefix, "camera", bundleId, ...cameraArgs(source), "-d", udid], 300_000);
+      const r = await cli(["camera", bundleId, ...cameraArgs(source), "-d", udid], 300_000);
       return { ok: r.code === 0, detail: r.code === 0 ? "" : `${r.stdout}${r.stderr}`.trim() || `serve-sim exited ${r.code}` };
     },
     async cameraSwitch(udid, source) {
       const arg = source.kind === "file" ? source.path : source.kind === "webcam" ? (source.name ?? "webcam") : "placeholder";
-      const r = await run(bin, [...prefix, "camera", "switch", arg, "-d", udid], 60_000);
+      const r = await cli(["camera", "switch", arg, "-d", udid], 60_000);
       return { ok: r.code === 0, detail: r.code === 0 ? "" : `${r.stdout}${r.stderr}`.trim() || `serve-sim exited ${r.code}` };
     },
     async cameraStop(udid) {
-      const r = await run(bin, [...prefix, "camera", "--stop-webcam", "-d", udid], 60_000);
+      const r = await cli(["camera", "--stop-webcam", "-d", udid], 60_000);
       return { ok: r.code === 0, detail: r.code === 0 ? "" : `${r.stdout}${r.stderr}`.trim() || `serve-sim exited ${r.code}` };
     },
     async webcams() {
-      const r = await run(bin, [...prefix, "camera", "--list-webcams"], 60_000);
+      const r = await cli(["camera", "--list-webcams"], 60_000);
       if (r.code !== 0) return [];
       // One name per line, minus the CLI's own furniture: a bullet, a heading, npx's noise.
       return r.stdout.split("\n").map((l) => l.replace(/^[\s•*-]+/, "").trim())
         .filter((l) => l && !/^(usage|host camera|npm|serve-sim)/i.test(l));
     },
     async eventLog(udid, limit) {
-      const r = await run(bin, [...prefix, "event-log", "--json", "-n", String(limit), "-d", udid], 60_000);
+      const r = await cli(["event-log", "--json", "-n", String(limit), "-d", udid], 60_000);
       return r.code === 0 ? parseEvents(r.stdout) : [];
     },
   };

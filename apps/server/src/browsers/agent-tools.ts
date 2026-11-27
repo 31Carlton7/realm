@@ -1,10 +1,11 @@
 import { z } from "zod";
 import {
+  AGENT_SIGNINS_CARD, AGENT_SIGNINS_CARD_TITLE, AGENT_SIGNINS_OFF, AGENT_SIGNINS_OFFER, agentFillNote, sessionEvent,
   BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema, refineKeyAction,
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
   PANE_SHOW_WIRE_NAME, SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin, paneNotOpenError,
-  type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type SiteCredential, type BrowserDescribeResult,
+  type AgentFillKind, type SessionEvent, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type SiteCredential, type BrowserDescribeResult,
   type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserFillCredentialResult,
   type BrowserNavigateResult, type BrowserReadResult, type BrowserScreenshotResult,
   BrowserSnapshotScopeSchema, SNAPSHOT_SCOPE_PROPERTIES, type BrowserSnapshotResult, type BrowserUploadResult, type Browser,
@@ -84,8 +85,10 @@ export type BrowserAgentToolsDeps = {
   browserService: Pick<BrowserService, "open">;
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
-  broker: Pick<BrowserPermissionBroker, "gate">;
+  broker: Pick<BrowserPermissionBroker, "gate" | "invite">;
   rpc: Pick<RpcServer, "broadcast">;
+  /** A line on the calling session's transcript: every agent fill, by site and kind. */
+  transcript?: { note(sessionId: string, ev: SessionEvent): void };
   /**
    * Plan 11 W5: per-session mutation constraints — a delegated browser-agent child's
    * `allowedOrigins`/`maxActs` (see `BrowserAgentService.checkMutation`). Consulted before every
@@ -166,7 +169,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "browser_snapshot",
-    description: "The primary way to read a page for acting on it: a fused DOM+accessibility snapshot of the visible, interactive elements — each line is one element with a stable [ref=N] to use with browser_act. Elements changed since your previous snapshot are marked [new]. A long page lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them. Read-only.",
+    description: "The primary way to read a page for acting on it: a fused DOM+accessibility snapshot of the visible, interactive elements — each line is one element with a stable [ref=N] to use with browser_act. A control with no name says what it shows instead: icon:<name> or img:<name>, and in:\"…\" quotes the row or card it sits in when two lines would otherwise read the same. Elements changed since your previous snapshot are marked [new], and diff: true lists only those, plus what went away. A run of offscreen elements shares one line, flagged {offscreen} once and separated by \" · \". A long page lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them. Read-only.",
     inputSchema: { type: "object", properties: { browserId: { type: "string" }, ...SNAPSHOT_SCOPE_PROPERTIES }, required: ["browserId"], additionalProperties: false },
   },
   {
@@ -177,11 +180,11 @@ const TOOLS: Tool[] = [
   {
     name: "browser_screenshot",
     description: "Screenshot the pane's current viewport. Prefer browser_snapshot for acting; use this to check visual state. Password, card and security-code fields, and any field Realm filled a password or code into, are painted over in grey. A screenshot is also attached automatically to any failed browser_act. Read-only.",
-    inputSchema: { type: "object", properties: { browserId: { type: "string" } }, required: ["browserId"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { browserId: { type: "string" }, annotate: { type: "boolean", description: 'number a box over each on-screen element browser_snapshot lists, with a legend "[N] ref=… role \\"name\\"" — for icon-only buttons, canvas and layout' } }, required: ["browserId"], additionalProperties: false },
   },
   {
     name: "browser_act",
-    description: "Act on a page element by its [ref=N] from browser_snapshot: click, type, press a key, or scroll. Coordinates are re-resolved from the ref at act time. Asks the user for permission. Typing into password fields is always refused — hand those to the user.",
+    description: "Act on a page element by its [ref=N] from browser_snapshot: click, type, press a key, or scroll. Coordinates are re-resolved from the ref at act time. Asks the user for permission. Typing into password fields is always refused — fill one with browser_fill_credential.",
     inputSchema: {
       type: "object",
       properties: {
@@ -243,7 +246,7 @@ const TOOLS: Tool[] = [
     description:
       "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
       "Both work the same way: Realm checks the pane's current origin, refuses if it is not the site the sign-in belongs to, asks the user to approve this specific fill (they may answer Always allow on this site), and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
-      "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). A code the site then sends by text or email is browser_fill_code; a push (Duo, Okta) or an authenticator app's code is the user's.",
+      "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). For a second step, prefer a code by text or email (choose it under 'Other options' / 'Try another way'), then browser_fill_code. A push (Duo, Okta) or an authenticator app is the last resort: switch method first, and stop only if none is offered.",
     inputSchema: {
       type: "object",
       properties: {
@@ -271,7 +274,7 @@ const TOOLS: Tool[] = [
     description:
       "Fill the one-time security code a site just sent by text or email into its code field, without ever seeing the code. Give the [ref=N] of the code field (or the first of its single-digit boxes). " +
       "Realm asks the user to approve this fill every time, then reads the newest code that arrived in their Messages or Mail in the last 5 minutes, on this Mac only, and types it. You are never told the code and the field's value stays out of your snapshots: the answer is only filled, declined, or why nothing was filled. " +
-      "Works only while the user has Settings ▸ Sign-ins ▸ Security codes on; if it is off, ask them to type the code or turn it on. Call it after the page says it sent the code.",
+      "Works only while the user has Settings ▸ Sign-ins ▸ Security codes on; when it is off, Realm asks the user to turn on agent sign-ins, and you never ask them for the code. Call it once, after the page says it sent the code; it waits for the code to arrive.",
     inputSchema: {
       type: "object",
       properties: {
@@ -352,6 +355,7 @@ const OpenArgs = z.object({ url: z.string().min(1) });
 const NavigateArgs = z.object({ browserId: z.string().min(1), url: z.string().min(1) });
 const BrowserIdArgs = z.object({ browserId: z.string().min(1) });
 const SnapshotArgs = BrowserIdArgs.merge(BrowserSnapshotScopeSchema);
+const ScreenshotArgs = BrowserIdArgs.extend({ annotate: z.boolean().optional() });
 const ReadArgs = z.object({ browserId: z.string().min(1), kind: BrowserReadKindSchema.default("text"), offset: z.number().int().min(1).default(1) });
 /** `intent` is optional, as it is on `computer_act`: required, every call from an agent that has not
  *  learned the field would become a refusal — a change to the act path for a feature that promises
@@ -467,7 +471,7 @@ const HANDLERS: Record<string, Handler> = {
     // What the agent is shown is what its next act chooses from, and the page its last act left.
     if (d.observe) d.reads.remember(ctx.sessionId, row.value.id, (snap.elements ?? []).map((e) => observedOf(walkElementOf(e))));
     if (snap.loadError) return ok(loadErrorReport(snap.loadError, snap.page?.loading === true));
-    const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; changed-since-last-snapshot lines end with [new].`;
+    const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; ${scope.diff ? "only what changed since your last snapshot is listed" : "changed-since-last-snapshot lines end with [new]"}.`;
     return ok(`${head}\n${fenceUntrusted(`title: ${snap.title}\n${snap.text}`)}`);
   },
 
@@ -486,12 +490,16 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_screenshot: async (d, ctx, rawArgs) => {
-    const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(ScreenshotArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
-    const shot = (await d.bridge.call("screenshot", { browserId: row.value.id })) as BrowserScreenshotResult;
+    const shot = (await d.bridge.call("screenshot", { browserId: row.value.id, annotate: args.value.annotate === true })) as BrowserScreenshotResult;
     const image = { type: "image" as const, data: shot.data, mimeType: shot.mimeType };
     // The picture is of the empty document a failed load leaves, so the words go first.
     if (shot.loadError) return { content: [{ type: "text", text: loadErrorReport(shot.loadError, false) }, image], isError: false };
+    if (shot.legend !== undefined) {
+      const legend = shot.legend ? fenceUntrusted(shot.legend) : "(no listed element is on screen, so nothing is numbered)";
+      return { content: [{ type: "text", text: `Numbered boxes in the picture, by ref:\n${legend}` }, image], isError: false };
+    }
     return { content: [image], isError: false };
   },
 
@@ -608,14 +616,15 @@ const HANDLERS: Record<string, Handler> = {
       const title =
         `Create a new saved password for ${origin}${named ? ` — the agent labels it "${named}"` : ""} and fill it into the page on ${hostOf(live?.url)}. `
         + GENERATED_CREDENTIAL_NOTE;
-      // The same always-prompt gate as an enrolled fill, for the same reason: a secret is entering a
-      // page. That the user has never seen this one does not make the card optional — it is the only
-      // place they learn an account is about to exist with a password only Realm will hold.
+      // Carded every time unless the person let agents finish sign-ins: the card is where they learn an
+      // account is about to exist with a password only Realm will hold. With that on, the transcript
+      // line after the fill tells them instead.
+      const finishing = await signinsOn(d, ctx);
       const gate = await d.broker.gate(
         ctx.sessionId, "browser_fill_credential", title,
         // `always: false`: the card offers no "Always allow" for a password that does not exist yet.
         { browserId: row.value.id, ref: args.value.ref, origin, username: generate.username, label: generate.label, generate: true, always: false },
-        "browser_fill_credential", { alwaysPrompt: true },
+        "browser_fill_credential", finishing ? { preapproved: true } : { alwaysPrompt: true },
       );
       if (!gate.allowed) return err(gate.reason);
 
@@ -623,10 +632,11 @@ const HANDLERS: Record<string, Handler> = {
         // The profile of the calling session's space, as the enrolled route sends: the new row joins
         // that profile's sign-ins, and main refuses a pane whose cookie jar is another profile's.
         const result = (await d.bridge.call("fillCredential", {
-          browserId: row.value.id, ref: args.value.ref, origin, generate, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId,
+          browserId: row.value.id, ref: args.value.ref, origin, generate, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId, sessionId: ctx.sessionId,
         })) as BrowserFillCredentialResult;
         // No screenshot on failure here either: the field may hold what was typed into it.
         if (!result.ok) return err(`no password was generated or filled: ${result.error}`);
+        noteFill(d, ctx, "generated", origin);
         return ok(
           `${result.detail}${result.credentialId ? `, as credentialId ${result.credentialId}` : ""}. `
           + "Use that id to fill the same password again — a confirm-password field takes the same call. "
@@ -652,21 +662,29 @@ const HANDLERS: Record<string, Handler> = {
     /* How the card stands, and nothing else gets past it:
        - on a page of the password's own site: the card, which offers "Always allow on this site".
          That answer is kept in main for THIS password on THIS exact origin, and after it the card is
-         skipped there — never the unlock, which main still asks for on every fill;
-       - on any other page: the card on every fill (`alwaysPrompt`);
+         skipped there — never the unlock, which main still asks for on every fill. With "Let agents
+         finish sign-ins" on, no card here at all; the unlock still runs. Off, the card offers to turn
+         it on in place of "Always allow", and only a person may answer it (`personOnly`);
+       - on any other page: the card on every fill (`alwaysPrompt`), whatever the person turned on:
+         a password going into another site's page is how a phishing page would get it;
        - `bypassPermissions` skips none of it (`promptUnderBypass`): a secret entering a page is not an
          ordinary action. A read-only mode refuses before any of this. */
     const standing = pageOrigin !== null;
+    // On its own site with sign-ins off, the fill card itself offers to turn them on, so no
+    // invitation goes up beside it.
+    const finishing = await signinsOn(d, ctx, { invite: !standing });
+    const offersSignins = standing && !finishing && onSite?.agentAllowed !== true;
     const allowKey = `browser_fill_credential:${credential.id}@${pageOrigin ?? ""}`;
     const gate = await d.broker.gate(
       ctx.sessionId, standing ? allowKey : "browser_fill_credential", title,
       // The input echoed onto the permission event — the card's "what was asked for" detail. Origin,
       // username and label, exactly as the spec requires, and structurally nothing else.
-      { browserId: row.value.id, ref: args.value.ref, origin: credential.origin, username: credential.username, label: credential.label, ...(standing ? { page: pageOrigin } : { always: false }) },
+      { browserId: row.value.id, ref: args.value.ref, origin: credential.origin, username: credential.username, label: credential.label, ...(standing ? { page: pageOrigin } : { always: false }), ...(offersSignins ? { [AGENT_SIGNINS_OFFER]: true } : {}) },
       "browser_fill_credential",
       standing ? {
         promptUnderBypass: true,
-        preapproved: onSite?.agentAllowed === true,
+        personOnly: offersSignins,
+        preapproved: finishing || onSite?.agentAllowed === true,
         onAlwaysAllow: () => { void d.bridge.call("credentialAllow", { profileId: profileIdOf(d, ctx), credentialId: credential.id, origin: pageOrigin }).catch(() => {}); },
       }
       : { alwaysPrompt: true },
@@ -675,23 +693,23 @@ const HANDLERS: Record<string, Handler> = {
 
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("fillCredential", {
-        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId,
+        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId, sessionId: ctx.sessionId,
         // The page the card named. Main fills only if the live page is exactly this origin.
         ...(pageOrigin ? { pageOrigin } : {}),
       })) as BrowserActResult;
       // No screenshot on failure, unlike `runAct`. A shot taken microseconds after a fill can contain
       // the filled field, and some sites render the value in plain text on the way to masking it.
       if (!result.ok) return err(`the sign-in was not filled: ${result.error}`);
+      noteFill(d, ctx, "password", pageOrigin ?? credential.origin);
       return ok(`${result.detail}. ${CREDENTIAL_2FA_NOTE}`);
     });
   },
 
   /**
-   * The security code a site just sent, typed into its field by Electron main (`fillCode`), after the
-   * user approves this one fill. The same gate as a credential fill on a page that is not its own:
-   * a card every time, which `bypassPermissions` does not skip and "Always allow" does not satisfy,
-   * because what enters the page is read from the person's messages. The code is read only after the
-   * card is answered, and nothing about it — not its value, length or sender — comes back here.
+   * The security code a site just sent, typed into its field by Electron main (`fillCode`). Only with
+   * "Let agents finish sign-ins" on, and then with no card (Plan and Ask still refuse); off, Realm asks
+   * the person once to turn it on and fills nothing. Nothing about the code — not its value, length or
+   * sender — comes back here. Main waits up to `SECURITY_CODE_WAIT_MS` for a code to arrive.
    */
   browser_fill_code: async (d, ctx, rawArgs) => {
     const args = parseArgs(FillCodeArgs, rawArgs); if ("error" in args) return args.error;
@@ -700,23 +718,29 @@ const HANDLERS: Record<string, Handler> = {
     const live = await describeSafe(d, row.value.id);
     const origin = normalizeOrigin(live?.url ?? "");
     if (!origin) return err("refused: this pane is not on an http(s) page, so there is no site to fill a code into.");
-    // Before the card: a card for a fill the switch would refuse asks the user a question with one answer.
+    if (!(await signinsOn(d, ctx))) return err(AGENT_SIGNINS_OFF);
     const switched = (await d.bridge.call("codesEnabled", {}).catch(() => null)) as { enabled?: boolean } | null;
     if (switched?.enabled !== true) {
-      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Sign-ins ▸ Security codes. Ask them to type the code into the pane, or to turn that on.");
+      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Sign-ins ▸ Security codes. Nothing was filled.");
     }
     const title = `Fill the security code from Messages or Mail into the page on ${hostOf(live?.url)}`;
+    // Preapproved by the switch, and still a gate: Plan and Ask refuse it there.
     const gate = await d.broker.gate(
       ctx.sessionId, "browser_fill_code", title,
-      // `always: false`, as on a credential fill off its own site: no answer on this card outlasts the fill.
       { browserId: row.value.id, ref: args.value.ref, origin, always: false },
-      "browser_fill_code", { alwaysPrompt: true },
+      "browser_fill_code", { preapproved: true },
     );
     if (!gate.allowed) return err(`declined: ${gate.reason}`);
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
-      const result = (await d.bridge.call("fillCode", { browserId: row.value.id, ref: args.value.ref, origin })) as BrowserActResult;
+      // Main waits for the code to arrive; a cancelled call (the turn was interrupted) stops that wait.
+      const cancel = () => { void d.bridge.call("fillCodeCancel", { browserId: row.value.id }).catch(() => {}); };
+      ctx.signal?.addEventListener("abort", cancel, { once: true });
+      ctx.progress?.("waiting for the code to arrive by text or email");
+      const result = (await d.bridge.call("fillCode", { browserId: row.value.id, ref: args.value.ref, origin, sessionId: ctx.sessionId })
+        .finally(() => ctx.signal?.removeEventListener("abort", cancel))) as BrowserActResult;
       // No screenshot on failure, as for a credential: the field may hold what was typed.
       if (!result.ok) return err(`not filled: ${result.error}`);
+      noteFill(d, ctx, "code", origin);
       return ok("filled");
     });
   },
@@ -938,6 +962,23 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
  * broadcast comes AFTER settle, whatever the outcome: a throw is reported as `ok: false` and then
  * rethrown for the provider's error path.
  */
+/**
+ * Whether the person let agents finish sign-ins: main's switch, asked on every fill. Off, the person
+ * gets one card per session asking them to turn it on, which the agent cannot answer for them: it
+ * opens Settings, and the switch is main's.
+ */
+async function signinsOn(d: Deps, ctx: ProviderCallContext, o: { invite: boolean } = { invite: true }): Promise<boolean> {
+  const r = (await d.bridge.call("signinsEnabled", {}).catch(() => null)) as { enabled?: boolean } | null;
+  if (r?.enabled === true) return true;
+  if (o.invite) d.broker.invite(ctx.sessionId, AGENT_SIGNINS_CARD, AGENT_SIGNINS_CARD_TITLE, { opens: "settings:signins" });
+  return false;
+}
+
+/** The transcript's line for one agent fill: the site and the kind, never the value. */
+function noteFill(d: Deps, ctx: ProviderCallContext, kind: AgentFillKind, site: string): void {
+  d.transcript?.note(ctx.sessionId, sessionEvent("signin_filled", { site, kind, note: agentFillNote(kind, hostOf(site)) }));
+}
+
 async function runTracked(d: Deps, spaceId: string, browserId: string, text: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
   d.rpc.broadcast("browser.driving", { spaceId, browserId, driving: true });
   let ok = false;
@@ -959,7 +1000,7 @@ async function runAct(d: Deps, browserId: string, action: BrowserAction): Promis
   const result = (await d.bridge.call("act", { browserId, action })) as BrowserActResult;
   if (result.ok) return ok(result.detail);
   if (result.refused === "password") {
-    return err("refused: that element is a password field. Realm never types into password fields in any mode — tell the user what to enter and let them do it in the pane.");
+    return err("refused: that element is a password field. Realm never types into password fields in any mode — fill it with browser_fill_credential, which types a saved or generated password without you seeing it.");
   }
   const content: CallToolResult["content"] = [{ type: "text", text: `act failed: ${result.error}` }];
   try {

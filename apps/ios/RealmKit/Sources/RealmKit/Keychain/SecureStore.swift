@@ -9,8 +9,22 @@ public protocol SecureStore: Sendable {
     func delete(_ account: String) throws
 }
 
-public struct KeychainError: Error, Equatable, Sendable {
+public struct KeychainError: LocalizedError, Equatable, Sendable {
     public let status: OSStatus
+
+    public init(status: OSStatus) {
+        self.status = status
+    }
+
+    /// What the phone says. The status itself goes to the log, never the screen.
+    public var errorDescription: String? {
+        status == errSecMissingEntitlement
+            ? "This copy of Realm wasn't signed to open its keychain. Install Realm from TestFlight."
+            : KeychainError.unreadable
+    }
+
+    /// Any keychain read that failed for a reason the phone can't name.
+    public static let unreadable = "Realm couldn't read this iPhone's keychain. Close Realm and open it again."
 }
 
 /// Generic-password items, readable after the first unlock and never leaving this device (no backup,
@@ -30,8 +44,15 @@ public struct KeychainStore: SecureStore {
 
     /// The shared group as the build resolved it, or nil when the build did not.
     public static func sharedAccessGroup(bundle: Bundle = .main) -> String? {
-        guard let group = bundle.object(forInfoDictionaryKey: accessGroupInfoKey) as? String,
-              !group.isEmpty, !group.contains("$(") else { return nil }
+        sharedAccessGroup(bundle.object(forInfoDictionaryKey: accessGroupInfoKey) as? String)
+    }
+
+    /// A group is only the shared one with the team ID in front of it, as in `FY9QB79VAP.co…shared`. A
+    /// build signed outside Xcode can leave `$(AppIdentifierPrefix)` unresolved or empty, and a device
+    /// refuses that group outright. With no group, the keychain uses the app's first
+    /// `keychain-access-groups` entry, which the signing did resolve, and that is the shared group.
+    static func sharedAccessGroup(_ group: String?) -> String? {
+        guard let group, group.wholeMatch(of: /[A-Z0-9]{10}\..+/) != nil else { return nil }
         return group
     }
 

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserLoadError, type BrowserSnapshotResult, type PaneHealth } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 import { SNAPSHOT_STYLES } from "./browser-agent";
+import type { CodeWait } from "./security-codes";
 
 const SECRET = "correct horse battery staple";
 /** What the fake store "generates". A distinct string so a test can tell the two values apart in the
@@ -35,10 +36,14 @@ function setup(opts: {
   loadError?: BrowserLoadError;
   /** The popup windows the page has open, as `BrowserPane.pageState` carries them. */
   popups?: string[];
+  /** The tabs the page opened since the agent was last told, as `BrowserPaneHost.takeOpenedTabs` answers them. */
+  openedTabs?: { browserId: string; url: string }[];
   now?: () => number;
   screenshotTimeoutMs?: number;
   /** Run while the page is being captured — something the page does mid-snapshot. */
   duringCapture?: () => void;
+  /** Let agents finish sign-ins: the switch, and the log the host writes each agent fill to. */
+  signins?: { enabled: boolean; fills: { site: string; kind: string; sessionId: string | null }[] };
   /** Answers that depend on the params — consulted first, `undefined` falls through to the rest. */
   respond?: (method: string, params?: Record<string, unknown>) => unknown;
   /** The page being brought back from a discard: settles when it has loaded. */
@@ -90,6 +95,8 @@ function setup(opts: {
       ...(opts.loadError ? { error: opts.loadError } : {}),
       ...(opts.popups ? { popups: opts.popups } : {}),
     } : null),
+    ...(opts.openedTabs ? { takeOpenedTabs: async () => opts.openedTabs!.splice(0) } : {}),
+    ...(opts.signins ? { signins: { enabled: () => opts.signins!.enabled, record: (fill) => { opts.signins!.fills.push(fill); } } } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.screenshotTimeoutMs !== undefined ? { screenshotTimeoutMs: opts.screenshotTimeoutMs } : {}),
     secrets: opts.credentials === undefined ? undefined : {
@@ -340,6 +347,60 @@ describe("BrowserAgentHost", () => {
     expect(await host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "c2NyZWVu", mimeType: "image/jpeg" });
   });
 
+  describe("an annotated screenshot", () => {
+    // One button, ref 42. Its snapshot rect is in device pixels, as a 2× display reports it; its quads
+    // are the CSS pixels the page draws in.
+    const strings = ["BUTTON", "", "https://x/", "T"];
+    const snapshot = {
+      documents: [{ documentURL: 2, title: 3, nodes: { parentIndex: [-1], nodeType: [1], nodeName: [0], nodeValue: [1], backendNodeId: [42], attributes: [[]], isClickable: { index: [0] } }, layout: { nodeIndex: [0], bounds: [[20, 20, 40, 20]], styles: [[1, 1, 1, 1, 1]], paintOrders: [1] } }],
+      strings,
+    };
+    const page = (more: Parameters<typeof setup>[0] = {}) => setup({ responses: { "DOMSnapshot.captureSnapshot": snapshot, "Accessibility.getFullAXTree": { nodes: [] }, "Page.getLayoutMetrics": { cssVisualViewport: { clientWidth: 800, clientHeight: 600 } } }, ...more });
+    const steps = (calls: { method: string; params?: Record<string, unknown> }[]) => calls.flatMap((c) => {
+      const expr = String(c.params?.expression ?? "");
+      if (c.method === "Page.captureScreenshot") return ["capture"];
+      if (c.method === "Runtime.evaluate" && expr.includes("attachShadow")) return ["draw"];
+      if (c.method === "Runtime.evaluate" && expr.includes('[data-realm-agent-highlight=\\"refs\\"]') && !expr.includes("attachShadow")) return ["remove"];
+      return [];
+    });
+
+    it("draws nothing into the page unless asked", async () => {
+      // THE MUTANT: boxes on every screenshot — including the one a failed act attaches.
+      const { host, calls } = page();
+      expect(await host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "c2NyZWVu", mimeType: "image/jpeg" });
+      expect(steps(calls)).toEqual(["capture"]);
+      expect(calls.some((c) => c.method === "DOMSnapshot.captureSnapshot")).toBe(false);
+    });
+
+    it("draws the boxes before the capture, takes them off after it, and answers the legend", async () => {
+      const { host, calls } = page();
+      expect(await host.handleOp("screenshot", { browserId: "b1", annotate: true })).toEqual({ data: "c2NyZWVu", mimeType: "image/jpeg", legend: "[1] ref=42 button" });
+      // THE MUTANT: no removal, and the boxes stay on the page.
+      expect(steps(calls)).toEqual(["draw", "capture", "remove"]);
+      // Placed by the quads (10,10 → 30,20), never by the snapshot's device-pixel rect (20,20 40×20).
+      const draw = calls.find((c) => String(c.params?.expression).includes("attachShadow"))!;
+      expect(String(draw.params?.expression)).toContain('[{"n":1,"left":10,"top":10,"width":20,"height":10}]');
+    });
+
+    it("takes the boxes off a page whose capture failed", async () => {
+      const { host, calls } = page({ screenshotTimeoutMs: 20, respond: (m) => (m === "Page.captureScreenshot" ? new Promise(() => {}) : undefined) });
+      await expect(host.handleOp("screenshot", { browserId: "b1", annotate: true })).rejects.toThrow("is not being drawn");
+      expect(steps(calls)).toEqual(["draw", "capture", "remove"]);
+    });
+
+    it("leaves the pane's last snapshot alone, so [new] still compares with the agent's own read", async () => {
+      const name = { value: "Save" };
+      const { host } = page({ respond: (m) => (m === "Accessibility.getFullAXTree" ? { nodes: [{ backendDOMNodeId: 42, role: { value: "button" }, name }] } : undefined) });
+      await host.handleOp("snapshot", { browserId: "b1" });
+      name.value = "Saving";
+      expect(await host.handleOp("screenshot", { browserId: "b1", annotate: true })).toMatchObject({ legend: '[1] ref=42 button "Saving"' });
+      name.value = "Save";
+      const again = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+      expect(again.text).toContain('button "Save"');
+      expect(again.text).not.toContain("[new]");
+    });
+  });
+
   it("a screenshot of a page that never paints gives up, naming pane_show, instead of waiting out the bridge", async () => {
     // THE MUTANT: no deadline on the capture. A view that is not on screen never produces a frame,
     // and the call sat until the server's 60-second bridge timeout (13 times in the call log).
@@ -397,6 +458,22 @@ describe("createBridgeCore", () => {
     expect(sent[1]).toMatchObject({ method: "browserHost.result", params: { callId: "c1", ok: true, result: { got: "snapshot" } } });
     await core.onMessage(JSON.stringify({ event: "browserHost.op", payload: { callId: "c2", op: "boom", params: {} } }));
     expect(sent[2]).toMatchObject({ method: "browserHost.result", params: { callId: "c2", ok: false, error: "no view" } });
+  });
+
+  // Mutant: run every op whatever its deadline. Main stopped behind a modal alert (#562) reads a
+  // backlog of ops when it wakes, each of which the server had already failed back to its agent.
+  it("never runs an op the server has stopped waiting for", async () => {
+    const ran: string[] = [];
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    const core = createBridgeCore(async (op) => { ran.push(op); return {}; }, (json) => sent.push(JSON.parse(json)));
+    const deadline = Date.now();
+    vi.useFakeTimers({ now: deadline + 1 });
+    try {
+      await core.onMessage(JSON.stringify({ event: "browserHost.op", payload: { callId: "late", op: "navigate", params: {}, deadline } }));
+      await core.onMessage(JSON.stringify({ event: "browserHost.op", payload: { callId: "due", op: "snapshot", params: {}, deadline: deadline + 60_000 } }));
+    } finally { vi.useRealTimers(); }
+    expect(ran).toEqual(["snapshot"]);
+    expect(sent.map((m) => m.params)).toMatchObject([{ callId: "late", ok: false }, { callId: "due", ok: true }]);
   });
 
   it("ignores RPC responses, other events, and garbage without replying", async () => {
@@ -527,6 +604,16 @@ describe("BrowserAgentHost — fillCredential", () => {
       expect(r).toMatchObject({ ok: false, refused: "origin_mismatch" });
       expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
     });
+  });
+
+  it("logs an agent fill for Settings, by site, kind and session, and answers the switch", async () => {
+    const signins = { enabled: true, fills: [] as { site: string; kind: string; sessionId: string | null }[] };
+    const { host } = setup({ credentials: [cred], signins });
+    expect(await host.handleOp("signinsEnabled", {})).toEqual({ enabled: true });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork", sessionId: "sess1" });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "ghost", profileId: "pWork", sessionId: "sess1" });
+    expect(signins.fills).toEqual([{ site: "https://example.com", kind: "password", sessionId: "sess1" }]);
+    expect(JSON.stringify(signins.fills)).not.toContain(SECRET);
   });
 
   it("fills on a matching origin and logs exactly timestamp/origin/credentialId/outcome", async () => {
@@ -1034,6 +1121,26 @@ describe("file-chooser interception", () => {
     expect(snap.text).not.toContain("page-written"); // the path is the page's to write; the note is Realm's
   });
 
+  it("a tab the page opened is named, by browser id and address, in the act that opened it and only there", async () => {
+    // A new tab is a browser of its own, so this page's tree does not change: the click looks like it
+    // did nothing. THE MUTANT that drops the note leaves an agent clicking the link again.
+    const openedTabs = [{ browserId: "b9", url: "https://example.com/docs" }];
+    const { host } = setup({ openedTabs });
+    const act = (await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } })) as { ok: boolean; detail: string };
+    expect(act.detail).toContain("opened a new tab, browser b9, on https://example.com/docs");
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).not.toContain("new tab");
+  });
+
+  it("a tab the page opened after the act is named in the next snapshot", async () => {
+    // THE MUTANT: name it in acts alone, and a tab a page opens on a timer is never mentioned.
+    const openedTabs: { browserId: string; url: string }[] = [];
+    const { host } = setup({ openedTabs });
+    openedTabs.push({ browserId: "b9", url: "https://example.com/later" });
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).toContain("opened a new tab, browser b9, on https://example.com/later");
+  });
+
   it("a snapshot with no popup open says nothing about one", async () => {
     // The mutant that writes the note whenever the list exists, empty or not.
     const { host } = setup({ popups: [] });
@@ -1367,7 +1474,7 @@ describe("BrowserAgentHost — annotate", () => {
 describe("BrowserAgentHost — fillCode", () => {
   const CODE = "482913";
   /** A page whose ref 7 is a code field of `boxes` inputs (0 = not a code field). */
-  function codePage(opts: { enabled?: boolean; code?: string | null; boxes?: number; page?: string; respond?: (method: string, params?: Record<string, unknown>) => unknown; coverShot?: (jpeg: string, fields: { vw: number; vh: number; rects: number[][] }) => string | null } = {}) {
+  function codePage(opts: { enabled?: boolean; code?: string | null; wait?: (signal?: AbortSignal) => Promise<CodeWait>; signins?: unknown[]; boxes?: number; page?: string; respond?: (method: string, params?: Record<string, unknown>) => unknown; coverShot?: (jpeg: string, fields: { vw: number; vh: number; rects: number[][] }) => string | null } = {}) {
     const reads: string[] = [];
     const typed: string[] = [];
     let emit: ((method: string, params: unknown) => void) | null = null;
@@ -1395,12 +1502,17 @@ describe("BrowserAgentHost — fillCode", () => {
       typed: (id) => typed.push(id),
       codes: {
         enabled: () => opts.enabled ?? true,
-        latest: async (origin) => { reads.push(origin); return opts.code === null ? null : { code: opts.code ?? CODE, source: "Messages" }; },
+        waitFor: async (origin, o) => {
+          reads.push(origin);
+          if (opts.wait) return opts.wait(o.signal);
+          return opts.code === null ? { found: null, cancelled: false, miss: { Messages: "quiet", Mail: "quiet", Notifications: "quiet" } } : { found: { code: opts.code ?? CODE, source: "Messages" } };
+        },
       },
       ...(opts.coverShot ? { coverShot: opts.coverShot } : {}),
+      ...(opts.signins ? { signins: { enabled: () => true, record: (fill) => { opts.signins!.push(fill); } } } : {}),
     });
     const keys = () => calls.filter((c) => c.method === "Input.dispatchKeyEvent" && c.params?.type === "keyDown").map((c) => c.params?.text).join("");
-    return { host, calls, reads, typed, keys, emit: (method: string, params: unknown) => emit?.(method, params) };
+    return { host, calls, reads, typed, keys, fills: opts.signins ?? [], emit: (method: string, params: unknown) => emit?.(method, params) };
   }
   const fill = (host: BrowserAgentHost) => host.handleOp("fillCode", { browserId: "b1", ref: 7, origin: "https://example.com" }) as Promise<{ ok: boolean; detail?: string; error?: string; refused?: string }>;
 
@@ -1412,6 +1524,15 @@ describe("BrowserAgentHost — fillCode", () => {
     expect(p.reads).toEqual(["https://example.com"]);
     expect(p.typed).toEqual(["b1"]);
     expect(JSON.stringify(r)).not.toContain(CODE);
+  });
+
+  it("logs the fill for Settings by site and session, and only a fill that happened", async () => {
+    const filled = codePage({ signins: [] });
+    await filled.host.handleOp("fillCode", { browserId: "b1", ref: 7, origin: "https://example.com", sessionId: "sess1" });
+    expect(filled.fills).toEqual([{ site: "https://example.com", kind: "code", sessionId: "sess1" }]);
+    const missed = codePage({ code: null, signins: [] });
+    await missed.host.handleOp("fillCode", { browserId: "b1", ref: 7, origin: "https://example.com", sessionId: "sess1" });
+    expect(missed.fills).toEqual([]);
   });
 
   it("types one digit per box into a split field", async () => {
@@ -1441,9 +1562,30 @@ describe("BrowserAgentHost — fillCode", () => {
     expect(p.keys()).toBe("");
   });
 
-  it("says so when no code arrived, and types nothing", async () => {
+  it("says which source was empty when no code arrived, and types nothing", async () => {
     const p = codePage({ code: null });
-    expect(await fill(p.host)).toMatchObject({ ok: false, error: expect.stringContaining("last 5 minutes") });
+    expect(await fill(p.host)).toMatchObject({ ok: false, error: expect.stringMatching(/^no security code arrived in \d+ s.*Text Message Forwarding.*Mail may not be fetching/) });
+    expect(p.keys()).toBe("");
+  });
+
+  it("stops waiting when the call is cancelled, and types nothing", async () => {
+    const p = codePage({ wait: (signal) => new Promise((resolve) => signal?.addEventListener("abort", () => resolve({ found: null, cancelled: true }))) });
+    const pending = fill(p.host);
+    await vi.waitFor(() => expect(p.reads).toHaveLength(1));
+    expect(await p.host.handleOp("fillCodeCancel", { browserId: "b1" })).toEqual({ cancelled: true });
+    expect(await pending).toMatchObject({ ok: false, error: expect.stringContaining("cancelled") });
+    expect(p.keys()).toBe("");
+  });
+
+  it("finds the field again after the wait, and refuses one that is no longer a code field", async () => {
+    // THE MUTANT: the nodes found before a minute and a half of waiting typed into after it.
+    let codeField = true;
+    const p = codePage({
+      wait: async () => { codeField = false; return { found: { code: CODE, source: "Mail" } }; },
+      respond: (method, params) => (!codeField && method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("codeGroupOf")
+        ? { result: params?.returnByValue ? { value: null } : { subtype: "null" } } : undefined),
+    });
+    expect(await fill(p.host)).toMatchObject({ ok: false, error: expect.stringContaining("not a one-time-code field") });
     expect(p.keys()).toBe("");
   });
 
@@ -1531,6 +1673,23 @@ describe("BrowserAgentHost — fillCode", () => {
     expect((await fill(p.host)).ok).toBe(true);
     expect(await p.host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "Y292ZXJlZA==", mimeType: "image/jpeg" });
     expect(covered).toEqual([{ jpeg: "c2NyZWVu", rects: [[10, 20, 40, 40], [10, 20, 40, 40]] }]);
+  });
+
+  it("covers the code fields in an annotated screenshot too", async () => {
+    const covered: number[][][] = [];
+    const rects = { vw: 800, vh: 600, rects: [[10, 20, 40, 40]] };
+    const p = codePage({
+      boxes: 6,
+      respond: (method, params) => {
+        if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
+        if (method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("getBoundingClientRect")) return { result: { value: rects } };
+        return undefined;
+      },
+      coverShot: (_jpeg, fields) => { covered.push(fields.rects); return "Y292ZXJlZA=="; },
+    });
+    expect((await fill(p.host)).ok).toBe(true);
+    expect(await p.host.handleOp("screenshot", { browserId: "b1", annotate: true })).toMatchObject({ data: "Y292ZXJlZA==", legend: "" });
+    expect(covered).toEqual([[[10, 20, 40, 40], [10, 20, 40, 40]]]);
   });
 
   it("takes no screenshot of a code field it cannot cover", async () => {

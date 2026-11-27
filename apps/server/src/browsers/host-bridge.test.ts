@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
+import { SECURITY_CODE_WAIT_MS } from "@realm/contracts";
 import type { RpcServer } from "../rpc/server";
 import { BrowserHostBridge, HOST_HUNG_ERROR, PANE_GONE_ERROR, PANE_NOT_RESPONDING_ERROR, PANE_RESTARTED_ERROR } from "./host-bridge";
 
@@ -64,6 +65,17 @@ describe("BrowserHostBridge", () => {
     expect(sent[0]!.payload.op).toBe("snapshot");
     bridge.handleResult({ callId: sent[0]!.payload.callId, ok: true, result: { text: "snap" } });
     expect(await p).toEqual({ text: "snap" });
+  });
+
+  // Mutant: leave `deadline` off the op. Main then runs, when it wakes from a modal alert (#562), every
+  // op that queued while it was stopped, each already failed back to its agent.
+  it("tells main when it stops waiting for each op", () => {
+    const { ws, rpc, sent, close } = fakeHost();
+    const bridge = new BrowserHostBridge({ rpc, now: () => 1_000 });
+    bridge.register(ws);
+    void bridge.call("navigate", {}).catch(() => {});
+    expect(sent[0]!.payload).toMatchObject({ op: "navigate", deadline: 61_000 });
+    close();
   });
 
   it("a host-reported failure rejects with its message", async () => {
@@ -134,6 +146,24 @@ describe("BrowserHostBridge", () => {
       const assertion = expect(p).rejects.toThrow(/timed out/);
       vi.advanceTimersByTime(60_001);
       await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives a code fill the length of its wait, not the minute every other op gets", async () => {
+    vi.useFakeTimers();
+    try {
+      const { ws, rpc } = fakeHost();
+      const bridge = new BrowserHostBridge({ rpc });
+      bridge.register(ws);
+      let failed: unknown = null;
+      const p = bridge.call("fillCode", { browserId: "b1", ref: 4, origin: "https://example.com" }).catch((e: unknown) => { failed = e; });
+      await vi.advanceTimersByTimeAsync(SECURITY_CODE_WAIT_MS + 1_000);
+      expect(failed).toBeNull();
+      await vi.advanceTimersByTimeAsync(60_000);
+      await p;
+      expect(String(failed)).toMatch(/timed out/);
     } finally {
       vi.useRealTimers();
     }

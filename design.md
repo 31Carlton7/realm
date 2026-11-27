@@ -311,7 +311,9 @@ Rules:
 - Glass is a material a person chooses, once, for the whole app: Settings > Appearance > Controls,
   Plain by default (the owner, 11-17: he turned the prompter's glass on, saw nothing, and asked for it
   "throughout the app"). It goes on what floats or is pressed: the prompter, its pickers, the
-  selection bar, the selected segment of a segmented control and a switch's knob. What is read stays
+  selection bar, the selected segment of a segmented control and a switch's knob. The knob is solid
+  white in both faces, as macOS draws it, and its glass is the rim round it: at 60% white the accent
+  came through and the knob read pale blue (11-20). What is read stays
   plain (a page of settings, a sheet, the transcript, the sidebar, the palette, toasts), because glass
   there costs contrast and shows nothing. Glass is a lens, a slight blur and a highlight, never a fill
   of ours: over a picture it lays no surface and no shadow, only a dim, so it carries the picture's
@@ -367,6 +369,18 @@ Rules:
   are `--surface` with the overlay stack's edge; cards are their fill and lift. Nothing scrolls under
   them, so a blur there has nothing to say. A scrim that dims what is behind a modal is a dim, not a
   material.
+- The quick chat panel is the one window of Realm's that opens over another app, so it behaves as a
+  guest there. It takes the keyboard without becoming the front app and gives it back when it goes,
+  it comes with no Realm window behind it, and Escape puts it away and deletes nothing: a key
+  pressed to get out of the way never costs a conversation. It is the quick chat's card with the
+  window as its edge, so in Plain it is the card's surface, and in Glass its ground thins over the
+  window's own material, which is macOS's and not a fill of ours. It thins only to the panes'
+  reading point, because the app behind it is a desktop nobody chose, and a white one took the
+  dark face's hints to nothing at the thinner ground it first had. Until it is saved its bar says
+  Quick chat, never a session's placeholder; saved, it says the name it has in that space. What
+  Settings says about hiding it from screen sharing is what was measured and no more: left out of
+  screenshots and screen recordings on this Mac, still listed without a name, and a call seen from
+  the other side unchecked.
 - The window is a frame with sheets set into it. The rail and the top row across the whole window
   are one ground, a step off the sidebar's, and the sidebar's toggle, the panes' bars and the side
   panel's tabs all stand in that strip (the owner, 11-11: the outer colour on the top strip and the
@@ -639,6 +653,14 @@ a control that moves onto the ladder moves onto the painter as well. `styles.tes
 painted corner off the ladder, and the count of controls still on the old fixed corner may only go
 down.
 
+A segmented control stands on that ladder twice: its track takes its own height times the control
+ratio, and its chosen segment takes the track's corner less the gap between them, both on the
+control's curve. A glass segment's corner is a blur, which only its own border box can cut, so there
+Chromium draws the curve (`--corner-ctl`, the painter's exponent written as a `superellipse()`), and
+the rim takes the curve along with the radius. With the radius alone the rim traced a circle round the
+squircle, lit unevenly and doubled at each corner, inside a track whose corner was not concentric
+with it (the owner, 11-19). `styles.test.ts` holds every track and segment to this.
+
 The large composer squircle is a product signature, and its role is broader than the composer. It
 belongs on any surface that is a **panel the eye rests in** rather than a row it scans past: the
 composer, a fenced code block, a commit or review card, an install card. What it does not belong on
@@ -661,6 +683,15 @@ outside it, under half a pixel at the card rung. So the background clip never sh
 corner, and everything else a box does — its `box-shadow` lift, the clip of what it holds, a focus
 outline — follows the curve with no filter and no extra layer, which matters when a transcript or a
 Library holds dozens of cards. `styles.test.ts` works the containment out rather than trusting it.
+A card that draws on its own edge is the exception: the documents grid's card, with its lit edge and
+lift, the Library's tile, with its shadow and the picture it clips, and a saved turn, with its
+shadow. On screen that circle traced a tighter corner than the painted fill, so a hovered card
+showed two contours and its well followed neither (the owner, 11-19: "Fix the corners here too"),
+and a saved turn cast its shadow from the circle rather than the edge it painted. Their box states
+the card's curve itself (`corner-shape: squircle` at the card rung), which draws on the worklet's
+curve. A well inside one takes the card's corner less the card's padding, and a control in the
+well's corner takes the well's corner less its gap, on the same curve. `styles.test.ts` holds every
+file card to this.
 
 `corner-shape: squircle` was inert in Electron 37's Chromium 138 and draws from 139, but the
 signature curve is the paint worklet's, so a surface that declares it must also be listed in the
@@ -778,6 +809,16 @@ acronym that is uppercase anyway (a file extension on a tile).
   its own mark from one family (a shield that asks, one that has said yes, one that warns), the
   menu's rows wear the same marks, and only the rung that removes a gate keeps a tone: on its ink,
   never as a resting fill, because a wash under a warning is a second warning about one setting.
+- A session in a mode other than the ordinary one says so in words beside the permission control:
+  "Plan", "Ask mode", "Goal", plain text at body weight in the row's own ink, no pill and no glyph,
+  and nothing at all in Build: a quiet label, never a loud badge. Ask carries its
+  noun because "Ask each time" is the word beside it. A word that has a way out already (Plan and Ask
+  back to Build) takes the click; a goal's word does not, because its strip holds Pause and Drop one
+  row up. On a narrow row these words yield before the model's name loses a letter, the goal's first,
+  since the card's tint and the strip still say the rest. That tint is the whole of the card's part:
+  the state's tone washed over its ground, held over a picture, and nothing drawn round it. A ring in
+  the mode's colour round the prompter and its tabs was the loudest edge in the window, and the owner found it ugly
+  (11-18); a word plus a wash already say the mode twice.
 - A toggle names its state or carries `aria-pressed`, never both — "Unfocus Two, pressed" is a
   sentence at war with itself. Which one it takes is a fact about the accessible NAME, so it may not
   become a difference in the fill: "this control is on" gets ONE appearance across a bar, or the
@@ -1248,7 +1289,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - What needs you is said where you already look — the session's own row, Needs you at the head of
   the sidebar, the bell's count — and not on a page of its own. An Agents page once ranked every
   session by what it needed and drew the live ones as a wall and an office; it said again what those
-  rows said, from a second place you had to go to, and the owner removed it (10-05). A relay beyond
+  rows said, from a second place you had to go to, and the owner removed it (10-05). A session
+  finishing is told once its WORK is done, not at each turn on the way (the owner, 11-22: "I just
+  wanna know when it's done"): while a sub-agent it started runs, its goal goes on or a message waits
+  in its queue, it is not done, and a sub-agent's finish is its lead's news. A failure is told
+  whenever it happens, and "After every turn" stays a choice for whoever wants each step. A relay beyond
   the Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
   open condition is sent once. A sub-agent's request is said on its lead's row, as a count with the
   waiting dot, and answered on its card in the lead's Agents tab, because the person started the lead
@@ -1621,7 +1666,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   shorter than it should be has to say why. The toolbar rides under the page's head, in the column,
   and scrolls away with it.
 - A documents pane with nothing open is a home, not a void: what this session made and was given,
-  then the Library's, under one search that also reaches the checkout's own names, and a New that
+  then the space's meetings, then the Library's, under one search that also reaches the checkout's
+  own names, and a New that
   says what every kind it writes is — a code file among them, since nothing else on screen says a
   `.py` is a document the pane can write. Finding a file is that search; a palette that found one
   and opened it somewhere else was a second door to the same room.

@@ -1,13 +1,22 @@
 import type { VoiceAudio } from "./audio-io";
 import type { HelperEvent, SpeechHelper } from "./protocol";
-import { DEFAULT_TURN, TurnTaker } from "./turn-taking";
 
-/** The silence after speech that ends dictation on its own: long enough to think mid-sentence. */
-export const DICTATION_PAUSE_MS = 2_500;
 /** A tenth of a second of audio per message to the helper. */
 const BATCH_SAMPLES = 1_600;
-/** Each dictation starts its own helper, so it is only ever the helper's first utterance. */
-const TURN = 1;
+/** A recogniser that ends this soon after it was started again is broken, not done with a pause. */
+const QUICK_END_MS = 1_000;
+/** Ends in a row, each this quick, after which dictation stops with a problem instead of trying again:
+ *  about three seconds of retrying, short enough that the person is not left talking to nothing. */
+const QUICK_ENDS = 3;
+
+/**
+ * `text` without a full stop the recogniser adds on its own after a long pause, to a sentence it
+ * has already ended and settled (#551).
+ */
+function withoutStrayStop(text: string, settled: number): string {
+  const kept = text.slice(0, settled);
+  return /[.!?]$/.test(kept) && /^\s*[.!?]+$/.test(text.slice(settled)) ? kept : text;
+}
 
 export type DictationEvents = {
   /** Everything heard so far, as the recogniser has it now. Its first `settled` characters are final. */
@@ -19,22 +28,32 @@ export type DictationEvents = {
   level(rms: number): void;
   /** What was said, once dictation has stopped. Empty when nothing was. */
   done(text: string): void;
-  /** Dictation could not start, or broke. */
-  problem(message: string): void;
+  /** Dictation could not start, or broke. `heard` is what it had heard by then, as the recogniser
+   *  had it, and empty when nothing was. */
+  problem(message: string, heard: string): void;
 };
 
 /**
- * Speech typed into the prompter: one utterance from the click that starts it to the click, Esc or
- * long pause that ends it, through this Mac's own on-device recogniser. Nothing here sends anything
- * anywhere but the helper on this Mac; clean-up, if it is on, is the prompter's next step, and is
- * handed only the words.
+ * Speech typed into the prompter, from the click that starts it to the click or Esc that ends it,
+ * through this Mac's own on-device recogniser. When the recogniser ends an utterance on its own, it
+ * is started on the next one and the words carry over, so no pause ends dictation. Nothing here
+ * sends anything anywhere but the helper on this Mac; clean-up, if it is on, is the prompter's next
+ * step, and is handed only the words.
  */
 export class Dictation {
-  private readonly pause = new TurnTaker({ ...DEFAULT_TURN, endOfTurnMs: DICTATION_PAUSE_MS });
   private offs: (() => void)[] = [];
   private outgoing: Int16Array[] = [];
   private outgoingSize = 0;
+  /** Each dictation starts its own helper, so its utterances count from 1. */
+  private turn = 0;
+  /** The words of the utterances the recogniser has already ended. */
+  private kept = "";
+  /** The kept words and the last partial: what was heard, should the helper break before a final. */
   private heard = "";
+  /** How much of this utterance the recogniser has settled, as of its last partial. */
+  private settled = 0;
+  private listenedAt = 0;
+  private quickEnds = 0;
   private listening = false;
   private ending = false;
   private finished = false;
@@ -56,10 +75,10 @@ export class Dictation {
       this.fail(ready.t === "unavailable" ? ready.reason : "This Mac has no speech recognition for its language.");
       return;
     }
-    helper.command({ t: "listen", turn: TURN });
+    this.listen();
     this.listening = true;
     try {
-      await audio.start((level, samples) => this.onFrame(level, samples));
+      await audio.start((level, samples) => this.onFrame(level, samples), () => this.stop());
     } catch (e) {
       this.fail(`The microphone did not start: ${(e as Error).message}`);
       return;
@@ -91,11 +110,17 @@ export class Dictation {
     this.outgoing.push(samples);
     this.outgoingSize += samples.length;
     if (this.outgoingSize >= BATCH_SAMPLES) this.flush();
-    // Only the pause after words ends it: someone gathering their thoughts before the first word
-    // is not done.
-    for (const e of this.pause.frame(level, this.now())) {
-      if (e.type === "end" && this.heard) this.stop();
-    }
+  }
+
+  private listen(): void {
+    this.turn += 1;
+    this.settled = 0;
+    this.listenedAt = this.now();
+    this.deps.helper.command({ t: "listen", turn: this.turn });
+  }
+
+  private withKept(text: string): string {
+    return [this.kept, text].filter(Boolean).join(" ");
   }
 
   private flush(): void {
@@ -110,12 +135,23 @@ export class Dictation {
 
   private onHelper(e: HelperEvent): void {
     if (this.finished) return;
-    if (e.t === "error") { this.fail(e.message); return; }
+    if (e.t === "error") { this.fail(e.message, this.heard); return; }
     if (e.t === "fetching") { this.deps.events.fetching(e.progress ?? null); return; }
-    if ((e.t !== "partial" && e.t !== "final") || e.turn !== TURN) return;
-    this.heard = e.text;
-    if (e.t === "partial") { this.deps.events.partial(e.text, Math.min(e.settled ?? 0, e.text.length)); return; }
-    this.finish(e.text);
+    if ((e.t !== "partial" && e.t !== "final") || e.turn !== this.turn) return;
+    if (e.t === "partial") this.settled = Math.min(e.settled ?? 0, e.text.length);
+    const text = withoutStrayStop(e.text, this.settled);
+    const words = this.withKept(text);
+    this.heard = words;
+    if (e.t === "partial") {
+      this.deps.events.partial(words, this.settled ? words.length - text.length + this.settled : this.kept.length);
+      return;
+    }
+    if (this.ending) { this.finish(words); return; }
+    this.quickEnds = this.now() - this.listenedAt < QUICK_END_MS ? this.quickEnds + 1 : 0;
+    if (this.quickEnds >= QUICK_ENDS) { this.fail("Dictation stopped: this Mac's recogniser keeps stopping as soon as it starts.", words); return; }
+    this.kept = words;
+    this.listen();
+    this.deps.events.partial(this.kept, this.kept.length);
   }
 
   private finish(text: string): void {
@@ -123,9 +159,9 @@ export class Dictation {
     this.deps.events.done(text.trim());
   }
 
-  private fail(message: string): void {
+  private fail(message: string, heard = ""): void {
     this.teardown();
-    this.deps.events.problem(message);
+    this.deps.events.problem(message, heard.trim());
   }
 
   private teardown(): void {

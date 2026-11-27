@@ -643,7 +643,7 @@ function SignInSwitch({ spaceId }: { spaceId: string }) {
   if (enabled === null) return null;
   return (
     <div className="field">
-      <span>Finishing sign-ins</span>
+      <span>Approve agent CLI logins</span>
       <p className="settings-hint">
         When an agent CLI is signed out, Realm can open a terminal, run its login command and open the
         sign-in page in a pane. It stops there: approving the sign-in is yours. Turn this on and Realm
@@ -651,7 +651,7 @@ function SignInSwitch({ spaceId }: { spaceId: string }) {
         a few minutes.
       </p>
       <label className="mcp-enable">
-        <input type="checkbox" role="switch" className="switch" aria-label="Let Realm finish sign-ins in this space"
+        <input type="checkbox" role="switch" className="switch" aria-label="Approve agent CLI logins in this space"
           checked={enabled}
           onChange={(e) => {
             const next = e.target.checked;
@@ -661,7 +661,7 @@ function SignInSwitch({ spaceId }: { spaceId: string }) {
               catch (err) { setEnabled(!next); throw err; } // put the switch back rather than lie
             });
           }} />
-        Let Realm finish sign-ins it started
+        Approve logins Realm started
       </label>
     </div>
   );

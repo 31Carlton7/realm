@@ -1,8 +1,11 @@
 import { KEY_COMMANDS, type KeybindingsFile } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { capabilities } from "../../platform";
 import { rpc } from "../../rpc/client";
 import { useApp } from "../../state/store";
+import { QuickChatHideRow, QuickChatShortcutRow } from "./QuickChatPanelSettings";
+import { GlobalKeysRows } from "./GlobalKeysSection";
 import {
   commandEntries, describeRules, filterEntries, groupEntries, type CommandEntry, type RuleView,
 } from "./keybindings-model";
@@ -55,6 +58,20 @@ export function KeybindingsPanel() {
           </p>
           <p className="settings-hint" data-tone="danger">{file.error}</p>
         </>
+      )}
+
+      {/* Ahead of the list: the keys here that work outside Realm. One group read top to bottom: how the
+          quick chat is opened from another app, then who can see it once it is open, then the assistant's keys. */}
+      {(capabilities().quickChatPanel || capabilities().accessibility) && (
+        <div className="field">
+          <span>From anywhere</span>
+          <ul className="settings-list">
+            {capabilities().quickChatPanel && <QuickChatShortcutRow />}
+            {capabilities().accessibility
+              ? <GlobalKeysRows afterDoubleTap={capabilities().quickChatPanel && <QuickChatHideRow />} />
+              : capabilities().quickChatPanel && <QuickChatHideRow />}
+          </ul>
+        </div>
       )}
 
       <div className="field" data-setting="keys">

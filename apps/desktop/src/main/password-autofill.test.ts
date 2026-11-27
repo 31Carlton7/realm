@@ -25,7 +25,7 @@ function credential(over: Partial<SiteCredential> = {}): SiteCredential {
 function harness(over: Partial<AutofillDeps> & { rows?: SiteCredential[]; choice?: string | null; url?: string } = {}) {
   const sent: { method: string; params?: Record<string, unknown> }[] = [];
   let emit: (method: string, params: unknown) => void = () => {};
-  const page = { url: over.url ?? "https://example.com/login", history: "https://example.com/login" };
+  const page = { url: over.url ?? "https://example.com/login", history: "https://example.com/login", inFront: true };
   const cdp = {
     send: async (method: string, params?: Record<string, unknown>) => {
       sent.push({ method, params });
@@ -40,6 +40,7 @@ function harness(over: Partial<AutofillDeps> & { rows?: SiteCredential[]; choice
       return {};
     },
     onEvent: (cb: (method: string, params: unknown) => void) => { emit = cb; },
+    inFront: () => page.inFront,
   };
   const calls = { filled: [] as [string, number][], menus: [] as unknown[], values: [] as string[], offers: [] as PasswordSaveOffer[], withdrawn: [] as string[], saved: [] as unknown[], never: [] as string[], settings: 0, audit: [] as unknown[] };
   let clock = 1_000;
@@ -235,6 +236,65 @@ describe("saving", () => {
     h.autofill.release("b1");
     expect(h.calls.withdrawn).toEqual(["offer-1"]);
     expect(h.autofill.answer("offer-1", "save", "b1")).toBe(false);
+  });
+});
+
+describe("a pane whose page changes (#543)", () => {
+  // A page that opens a window with no press waits behind it (`adoptInPlace`), and main releases the
+  // pane each time the page in front changes.
+
+  it("a page back in front from behind another opens its own menu, and fills it", async () => {
+    // THE MUTANT: look the page up by its pane's id, as the passkey broker did, and the release on
+    // the way back leaves the opener's reports going nowhere.
+    const h = harness();
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.page.inFront = false;
+    h.autofill.release("b1");
+    h.page.inFront = true;
+    h.autofill.release("b1");
+    h.report(7, h.field());
+    await flush(); await flush(); await flush();
+    expect(h.calls.menus).toHaveLength(1);
+    expect(h.typed()).toBe(`ada${SECRET}`);
+  });
+
+  it("a page waiting behind opens no menu", async () => {
+    // THE MUTANT: let its reports through, and a page nobody can see puts a menu over the one in front.
+    const h = harness();
+    await h.autofill.install("b1", h.cdp);
+    h.context(7);
+    h.page.inFront = false;
+    h.report(7, h.field());
+    await flush(); await flush(); await flush();
+    expect(h.calls.menus).toEqual([]);
+    expect(h.typed()).toBe("");
+  });
+
+  it("a page waiting behind offers no form it sent, before or after it was covered", async () => {
+    // A script can submit a form in a page off screen; the bar would sit over the page in front. THE
+    // MUTANTS: take its "sent" report, or offer a form it sent while it was in front once it navigates
+    // behind.
+    const hidden = harness();
+    await hidden.autofill.install("b1", hidden.cdp);
+    hidden.context(7);
+    hidden.page.inFront = false;
+    hidden.report(7, { t: "sent", username: "ada", password: SECRET });
+    await flush();
+    hidden.page.inFront = true;
+    hidden.emit("Page.frameNavigated", { frame: { id: "main" } });
+    await flush();
+    expect(hidden.calls.offers).toEqual([]);
+
+    const covered = harness();
+    await covered.autofill.install("b1", covered.cdp);
+    covered.context(7);
+    covered.report(7, { t: "sent", username: "ada", password: SECRET });
+    await flush();
+    covered.page.inFront = false;
+    covered.emit("Page.frameNavigated", { frame: { id: "main" } });
+    await flush();
+    expect(covered.calls.offers).toEqual([]);
   });
 });
 

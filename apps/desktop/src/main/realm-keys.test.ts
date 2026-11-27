@@ -1,0 +1,645 @@
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { execFileSync, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { PassThrough } from "node:stream";
+import type { GlobalKeysEvent, GlobalKeysState } from "@realm/contracts";
+import { tempDir } from "@realm/test-utils";
+import { CHORD_KEY_CODES, parseKeysLine, RealmKeys, RESTART_AFTER_MS, RESTART_GIVES_UP_WITHIN_MS } from "./realm-keys";
+
+describe("the RealmKeys helper's lines", () => {
+  it("reads ready, a double-tap, a chord's key code and the held key, and nothing else", () => {
+    expect(parseKeysLine('{"ready":true,"active":true}')).toEqual({ ready: true, active: true });
+    expect(parseKeysLine('{"ready":true,"active":false}')).toEqual({ ready: true, active: false });
+    expect(parseKeysLine('{"t":"doubleTap"}')).toEqual({ t: "doubleTap" });
+    expect(parseKeysLine('{"t":"chord","code":37}')).toEqual({ t: "chord", code: 37 });
+    expect(parseKeysLine('{"t":"hold","down":true}')).toEqual({ t: "hold", down: true });
+    for (const bad of ['{"ready":true}', '{"t":"chord","code":"L"}', '{"t":"chord","code":1.5}', '{"t":"hold","down":1}', '{"t":"key","code":37}', "{}", "not json", ""]) {
+      expect(parseKeysLine(bad)).toBeNull();
+    }
+  });
+});
+
+/** A helper that never runs: what main wrote to it, and a way to make it speak or exit. */
+function fakeHelper() {
+  const child = new EventEmitter() as ChildProcessWithoutNullStreams & { stdout: PassThrough; written: string[] };
+  const written: string[] = [];
+  const stdin = new PassThrough();
+  stdin.on("data", (d: Buffer) => written.push(...d.toString().split("\n").filter(Boolean)));
+  Object.assign(child, { stdin, stdout: new PassThrough(), stderr: new PassThrough(), written });
+  child.kill = vi.fn(() => true);
+  return child;
+}
+
+function setup() {
+  const helpers: ReturnType<typeof fakeHelper>[] = [];
+  /** Each start, by whether main asked for a helper that can swallow. */
+  const starts: boolean[] = [];
+  const doubleTaps = vi.fn();
+  const watched: GlobalKeysEvent[] = [];
+  const states: GlobalKeysState[] = [];
+  const keys = new RealmKeys({
+    start: (swallow) => { starts.push(swallow); helpers.push(fakeHelper()); return helpers.at(-1)!; },
+    onDoubleTap: doubleTaps,
+    onWatched: (event) => watched.push(event),
+    onState: (state) => states.push(state),
+  });
+  const lastConfig = () => JSON.parse(helpers.at(-1)!.written.at(-1)!);
+  const says = (line: string) => helpers.at(-1)!.stdout.write(`${line}\n`);
+  return { keys, helpers, starts, doubleTaps, watched, states, lastConfig, says };
+}
+
+describe("RealmKeys", () => {
+  it("does not start the helper until something needs it, and ends it when nothing does", () => {
+    const { keys, helpers, states } = setup();
+    keys.setHoldKey("rightOption");
+    expect(helpers).toHaveLength(0);
+    expect(keys.state).toBe("off");
+
+    keys.setDoubleTap(true);
+    expect(helpers).toHaveLength(1);
+    expect(keys.state).toBe("starting");
+
+    keys.setDoubleTap(false);
+    expect(helpers[0]!.kill).toHaveBeenCalled();
+    expect(helpers[0]!.stdin.writableEnded).toBe(true);
+    expect(states).toEqual(["starting", "off"]);
+  });
+
+  it("says whether the double-tap is on, which is what main makes the quick chat panel ahead for", () => {
+    const { keys } = setup();
+    expect(keys.doubleTapOn).toBe(false);
+    keys.setDoubleTap(true);
+    expect(keys.doubleTapOn).toBe(true);
+    keys.setDoubleTap(false);
+    expect(keys.doubleTapOn).toBe(false);
+  });
+
+  it("runs for a registered chord or a watching page alone, and stops when the last reason goes", () => {
+    const { keys, helpers } = setup();
+    const giveBack = keys.registerChord("L", () => {});
+    expect(helpers).toHaveLength(1);
+    giveBack();
+    expect(helpers[0]!.kill).toHaveBeenCalled();
+    expect(keys.state).toBe("off");
+
+    keys.setWatchers(1);
+    expect(helpers).toHaveLength(2);
+    keys.setWatchers(0);
+    expect(helpers[1]!.kill).toHaveBeenCalled();
+    expect(keys.state).toBe("off");
+  });
+
+  it("starts the helper able to swallow only while a chord is registered", () => {
+    const { keys, helpers, starts } = setup();
+    keys.setDoubleTap(true);
+    keys.setWatchers(1);
+    expect(starts).toEqual([false]);
+
+    const giveBackL = keys.registerChord("L", () => {});
+    expect(starts).toEqual([false, true]);
+    expect(helpers[0]!.kill).toHaveBeenCalled();
+    const giveBackSpace = keys.registerChord("Space", () => {});
+    giveBackL();
+    expect(starts).toEqual([false, true]);
+
+    giveBackSpace();
+    expect(starts).toEqual([false, true, false]);
+    expect(helpers[1]!.kill).toHaveBeenCalled();
+    expect(helpers[2]!.kill).not.toHaveBeenCalled();
+  });
+
+  it("sends the timings, the held key and only the chords somebody registered", () => {
+    const { keys, lastConfig } = setup();
+    keys.setDoubleTap(true);
+    expect(lastConfig()).toEqual({ doubleTap: true, command: "left", maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false });
+
+    keys.setHoldKey("rightCommand");
+    const giveBack = keys.registerChord("L", () => {});
+    keys.registerChord("Space", () => {});
+    expect(lastConfig()).toMatchObject({ hold: "rightCommand", chords: [CHORD_KEY_CODES.L, CHORD_KEY_CODES.Space] });
+
+    giveBack();
+    expect(lastConfig().chords).toEqual([CHORD_KEY_CODES.Space]);
+  });
+
+  it("sends the Command key the double-tap is read on, Left until it is changed", () => {
+    const { keys, helpers, lastConfig } = setup();
+    keys.setDoubleTap(true);
+    expect(lastConfig().command).toBe("left");
+    keys.setCommandSide("right");
+    expect(lastConfig().command).toBe("right");
+    keys.setCommandSide("either");
+    expect(lastConfig().command).toBe("either");
+    expect(helpers).toHaveLength(1);
+  });
+
+  it("says which tap the helper got", () => {
+    const { keys, says } = setup();
+    keys.setDoubleTap(true);
+    says('{"ready":true,"active":false}');
+    expect(keys.state).toBe("listening");
+    says('{"ready":true,"active":true}');
+    expect(keys.state).toBe("active");
+  });
+
+  it("opens the quick chat on a double-tap only while the setting is on", () => {
+    const { keys, says, doubleTaps, watched, lastConfig } = setup();
+    keys.setWatchers(1);
+    // The helper reports it for the watching page; the setting is what acts on it.
+    expect(lastConfig()).toMatchObject({ doubleTap: true, reportHold: true });
+    says('{"t":"doubleTap"}');
+    expect(doubleTaps).not.toHaveBeenCalled();
+    expect(watched).toEqual([{ t: "doubleTap" }]);
+
+    keys.setDoubleTap(true);
+    says('{"t":"doubleTap"}');
+    expect(doubleTaps).toHaveBeenCalledTimes(1);
+  });
+
+  it("is wired in main to the quick chat panel: a double-tap opens it, or puts it away", () => {
+    // Read as text: importing main would start an Electron app.
+    const main = readFileSync(join(__dirname, "index.ts"), "utf8");
+    expect(main).toContain("onDoubleTap: () => openQuickChat(),");
+    expect(main).toMatch(/function openQuickChat\(\): void \{\s*assistantKeys\.openChat\(\);\s*\}/);
+    expect(main).toMatch(/panel: \{\s*isOpen: \(\) => quickChatPanel\.isOpen\(\),\s*open: \(\) => quickChatPanel\.open\(\),/);
+    expect(main).toMatch(/\bclose: \(\) => quickChatPanel\.close\(\),/);
+  });
+
+  it("tells a watching page about the held key, and nobody when no page watches", () => {
+    const { keys, says, watched } = setup();
+    keys.setDoubleTap(true);
+    says('{"t":"hold","down":true}');
+    says('{"t":"doubleTap"}');
+    expect(watched).toEqual([]);
+    keys.setWatchers(1);
+    says('{"t":"hold","down":true}');
+    says('{"t":"hold","down":false}');
+    expect(watched).toEqual([{ t: "hold", down: true }, { t: "hold", down: false }]);
+  });
+
+  it("runs a chord's own handler by its key code, split across reads", () => {
+    const { keys, helpers } = setup();
+    const onL = vi.fn();
+    const onSpace = vi.fn();
+    keys.registerChord("L", onL);
+    keys.registerChord("Space", onSpace);
+    helpers[0]!.stdout.write('{"t":"chord","co');
+    helpers[0]!.stdout.write('de":37}\n{"t":"chord","code":5}\n');
+    expect(onL).toHaveBeenCalledTimes(1);
+    expect(onSpace).not.toHaveBeenCalled();
+  });
+
+  it("reports a helper macOS refused as denied, and does not start it again on its own", () => {
+    const { keys, helpers } = setup();
+    keys.setDoubleTap(true);
+    helpers[0]!.emit("exit", 2);
+    expect(keys.state).toBe("denied");
+    expect(helpers).toHaveLength(1);
+
+    keys.recheck();
+    expect(helpers).toHaveLength(2);
+    expect(keys.state).toBe("starting");
+  });
+
+  it("reports Accessibility without Input Monitoring as its own state, and recheck starts the helper again from it", () => {
+    const { keys, helpers, states } = setup();
+    keys.setDoubleTap(true);
+    helpers[0]!.emit("exit", 3);
+    expect(keys.state).toBe("needsInputMonitoring");
+    expect(states).toEqual(["starting", "needsInputMonitoring"]);
+    expect(helpers).toHaveLength(1);
+
+    keys.recheck();
+    expect(helpers).toHaveLength(2);
+    expect(keys.state).toBe("starting");
+  });
+
+  it("recheck restarts a helper that is only listening, and leaves one that swallows alone", () => {
+    const { keys, helpers, says } = setup();
+    keys.setDoubleTap(true);
+    says('{"ready":true,"active":false}');
+    keys.recheck();
+    expect(helpers).toHaveLength(2);
+    expect(helpers[0]!.kill).toHaveBeenCalled();
+
+    says('{"ready":true,"active":true}');
+    keys.recheck();
+    expect(helpers).toHaveLength(2);
+  });
+
+  it("ignores a helper it has already replaced", () => {
+    const { keys, helpers, doubleTaps } = setup();
+    keys.setDoubleTap(true);
+    helpers[0]!.stdout.write('{"ready":true,"active":false}\n');
+    keys.recheck();
+    helpers[0]!.stdout.write('{"t":"doubleTap"}\n');
+    helpers[0]!.emit("exit", 0);
+    expect(doubleTaps).not.toHaveBeenCalled();
+    expect(keys.state).toBe("starting");
+  });
+
+  it("is missing where there is no helper, or it cannot be spawned", () => {
+    const states: GlobalKeysState[] = [];
+    const none = new RealmKeys({ start: () => null, onDoubleTap: () => {}, onWatched: () => {}, onState: (s) => states.push(s) });
+    none.setDoubleTap(true);
+    expect(none.state).toBe("missing");
+
+    const { keys, helpers } = setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    keys.setDoubleTap(true);
+    helpers[0]!.emit("error", new Error("spawn ENOENT"));
+    expect(keys.state).toBe("missing");
+    warn.mockRestore();
+  });
+});
+
+describe("RealmKeys, when the helper stops unasked", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const started = () => {
+    vi.useFakeTimers();
+    const all = setup();
+    all.keys.setDoubleTap(true);
+    all.says('{"ready":true,"active":true}');
+    return all;
+  };
+
+  it("starts it again once, a second later, with the same config", () => {
+    const { keys, helpers, starts, lastConfig } = started();
+    helpers[0]!.emit("exit", 1);
+    expect(keys.state).toBe("missing");
+    vi.advanceTimersByTime(RESTART_AFTER_MS - 1);
+    expect(helpers).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(helpers).toHaveLength(2);
+    expect(starts).toEqual([false, false]);
+    expect(keys.state).toBe("starting");
+    expect(lastConfig()).toMatchObject({ doubleTap: true, chords: [] });
+    // A helper ended by a signal has no exit code, and is started again the same way.
+    vi.advanceTimersByTime(RESTART_GIVES_UP_WITHIN_MS);
+    helpers[1]!.emit("exit", null);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(3);
+  });
+
+  it("does not start again a helper macOS refused", () => {
+    for (const code of [2, 3]) {
+      const { keys, helpers } = started();
+      helpers[0]!.emit("exit", code);
+      vi.advanceTimersByTime(60_000);
+      expect(helpers).toHaveLength(1);
+      expect(keys.state).not.toBe("missing");
+    }
+  });
+
+  it("does not start a second one beside a helper that replaced it", () => {
+    const { keys, helpers } = started();
+    helpers[0]!.emit("exit", 1);
+    keys.recheck();
+    expect(helpers).toHaveLength(2);
+    const written = helpers[1]!.written.length;
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(2);
+    expect(helpers[1]!.written).toHaveLength(written);
+    // The replacement was not a restart, so when it stops it is still owed one.
+    helpers[1]!.emit("exit", 1);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(3);
+  });
+
+  it("does not start it again once nothing needs it", () => {
+    const { keys, helpers } = started();
+    helpers[0]!.emit("exit", 1);
+    keys.setDoubleTap(false);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(1);
+    expect(keys.state).toBe("off");
+    // Nothing was restarted, so a helper wanted a moment later is still owed its one restart.
+    keys.setDoubleTap(true);
+    helpers[1]!.emit("exit", 1);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(3);
+  });
+
+  it("does not loop: a restarted helper that stops inside ten seconds stays stopped", () => {
+    const { keys, helpers } = started();
+    helpers[0]!.emit("exit", 1);
+    vi.advanceTimersByTime(RESTART_AFTER_MS);
+    expect(helpers).toHaveLength(2);
+    vi.advanceTimersByTime(RESTART_GIVES_UP_WITHIN_MS - 1);
+    helpers[1]!.emit("exit", 1);
+    vi.advanceTimersByTime(60_000);
+    expect(helpers).toHaveLength(2);
+    expect(keys.state).toBe("missing");
+
+    // A change of what is needed still starts one, as it did before.
+    keys.setWatchers(1);
+    expect(helpers).toHaveLength(3);
+  });
+});
+
+// Modifier flags as a tap reads them: the side-less mask, and which side (IOKit's device bits).
+const NONE = 0x100;
+const LEFT_COMMAND = 0x100008;
+const RIGHT_COMMAND = 0x100010;
+const SHIFT = 0x20002;
+const LEFT_OPTION = 0x80020;
+const RIGHT_OPTION = 0x80040;
+const FN = 0x800000;
+const KEY = { leftCommand: 55, rightCommand: 54, shift: 56, leftOption: 58, rightOption: 61, fn: 63, c: 8, tab: 48, l: 37, j: 38, rightArrow: 124 };
+
+const swiftc = process.platform === "darwin" && spawnSync("xcrun", ["-f", "swiftc"]).status === 0;
+
+/**
+ * The helper's own decisions, asked of the Swift that ships: `realmkeys decide` runs the tap's
+ * decider on a script of events and makes no tap. Built here from the source, so a stale binary in
+ * native/bin cannot answer for it.
+ */
+describe.runIf(swiftc)("what the helper decides", () => {
+  let bin: string;
+  beforeAll(() => {
+    bin = join(tempDir("realmkeys-test-"), "realmkeys");
+    execFileSync("swiftc", ["-o", bin, join(__dirname, "../../native/RealmKeys.swift")], { stdio: "inherit" });
+  }, 120_000);
+
+  type Decision = { swallow: boolean; out: { t: string; code?: number; down?: boolean }[] };
+  const config = (over: object = {}) => JSON.stringify({ doubleTap: true, command: "either", maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false, ...over });
+  /** Every event's decision, in order. Config lines print nothing. */
+  const decide = (lines: string[]): Decision[] =>
+    execFileSync(bin, ["decide"], { input: `${lines.join("\n")}\n`, encoding: "utf8" }).trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  const doubleTaps = (events: string[], over: object = {}) =>
+    decide([config(over), ...events]).filter((d) => d.out.some((o) => o.t === "doubleTap")).length;
+
+  /** A Command key down at `t` and up `held` later. */
+  const tap = (t: number, key = KEY.leftCommand, held = 0.06) => [
+    `flags ${t} ${key} ${key === KEY.leftCommand ? LEFT_COMMAND : RIGHT_COMMAND}`,
+    `flags ${(t + held).toFixed(3)} ${key} ${NONE}`,
+  ];
+  /** Command held round one other key: Command-C, Command-Tab. */
+  const shortcut = (t: number, key: number) => [
+    `flags ${t} ${KEY.leftCommand} ${LEFT_COMMAND}`, `down ${t + 0.04} ${key} ${LEFT_COMMAND}`, `up ${t + 0.05} ${key} ${LEFT_COMMAND}`,
+    `flags ${t + 0.08} ${KEY.leftCommand} ${NONE}`,
+  ];
+
+  describe("a double-tap of Command", () => {
+    it("fires on the second release, for either key while Either is chosen", () => {
+      const twice = decide([config(), ...tap(0), ...tap(0.18)]);
+      expect(twice.map((d) => d.out.length)).toEqual([0, 0, 0, 1]);
+      expect(twice[3]).toEqual({ swallow: false, out: [{ t: "doubleTap" }] });
+      expect(doubleTaps([...tap(0, KEY.rightCommand), ...tap(0.18, KEY.rightCommand)])).toBe(1);
+      expect(doubleTaps([...tap(0), ...tap(0.18, KEY.rightCommand)])).toBe(1);
+    });
+
+    describe("on the Command key main chose", () => {
+      const left = [...tap(0), ...tap(0.18)];
+      const right = [...tap(0, KEY.rightCommand), ...tap(0.18, KEY.rightCommand)];
+      const mixed = [...tap(0), ...tap(0.18, KEY.rightCommand)];
+
+      it("reads Left Command alone when main names no key", () => {
+        const unnamed = (events: string[]) =>
+          decide([JSON.stringify({ doubleTap: true, maxHold: 0.25, maxGap: 0.3, hold: "fn", chords: [], reportHold: false }), ...events])
+            .filter((d) => d.out.some((o) => o.t === "doubleTap")).length;
+        expect(unnamed(left)).toBe(1);
+        expect(unnamed(right)).toBe(0);
+      });
+
+      it("Left: two taps of Left Command fire, and Right Command opens nothing", () => {
+        expect(doubleTaps(left, { command: "left" })).toBe(1);
+        expect(doubleTaps(right, { command: "left" })).toBe(0);
+        expect(doubleTaps(mixed, { command: "left" })).toBe(0);
+      });
+
+      it("Right: two taps of Right Command fire, and Left Command opens nothing", () => {
+        expect(doubleTaps(right, { command: "right" })).toBe(1);
+        expect(doubleTaps(left, { command: "right" })).toBe(0);
+        expect(doubleTaps(mixed, { command: "right" })).toBe(0);
+      });
+
+      it("a tap of the other key between two of the chosen one ends the pair", () => {
+        const between = [...tap(0), ...tap(0.12, KEY.rightCommand), ...tap(0.24)];
+        expect(doubleTaps(between, { command: "left" })).toBe(0);
+        expect(doubleTaps([...between, ...tap(0.36)], { command: "left" })).toBe(1);
+      });
+
+      it("follows a new choice from main at once", () => {
+        const again = [...tap(1, KEY.rightCommand), ...tap(1.18, KEY.rightCommand)];
+        const fired = decide([config({ command: "left" }), ...right, config({ command: "right" }), ...again]).map((d) => d.out.length);
+        expect(fired).toEqual([0, 0, 0, 0, 0, 0, 0, 1]);
+      });
+    });
+
+    it("fires once for three taps", () => {
+      expect(doubleTaps([...tap(0), ...tap(0.18), ...tap(0.36)])).toBe(1);
+    });
+
+    it("does not fire around a shortcut", () => {
+      expect(doubleTaps([...shortcut(0, KEY.c), ...tap(0.2)])).toBe(0);
+      expect(doubleTaps([...tap(0), ...shortcut(0.18, KEY.c)])).toBe(0);
+      expect(doubleTaps([...shortcut(0, KEY.tab), ...shortcut(0.2, KEY.tab)])).toBe(0);
+    });
+
+    it("does not fire when either press is a hold", () => {
+      expect(doubleTaps([...tap(0, KEY.leftCommand, 0.6), ...tap(0.72)])).toBe(0);
+      expect(doubleTaps([...tap(0), ...tap(0.18, KEY.leftCommand, 0.6)])).toBe(0);
+    });
+
+    it("holds the two timings at their edges", () => {
+      // Released at 0.06: a second press 0.30 later counts, 0.31 later does not.
+      expect(doubleTaps([...tap(0), ...tap(0.36)])).toBe(1);
+      expect(doubleTaps([...tap(0), ...tap(0.37)])).toBe(0);
+      expect(doubleTaps([...tap(0), ...tap(0.56)])).toBe(0);
+      expect(doubleTaps([...tap(0, KEY.leftCommand, 0.25), ...tap(0.4, KEY.leftCommand, 0.25)])).toBe(1);
+      expect(doubleTaps([...tap(0, KEY.leftCommand, 0.26), ...tap(0.4)])).toBe(0);
+    });
+
+    it("takes its timings from main", () => {
+      expect(doubleTaps([...tap(0), ...tap(0.56)], { maxGap: 0.5 })).toBe(1);
+      expect(doubleTaps([...tap(0, KEY.leftCommand, 0.2), ...tap(0.3)], { maxHold: 0.1 })).toBe(0);
+    });
+
+    it("does not fire with another modifier in it", () => {
+      const commandShift = [
+        `flags 0 ${KEY.leftCommand} ${LEFT_COMMAND}`, `flags 0.02 ${KEY.shift} ${LEFT_COMMAND | SHIFT}`,
+        `flags 0.04 ${KEY.shift} ${LEFT_COMMAND}`, `flags 0.06 ${KEY.leftCommand} ${NONE}`,
+      ];
+      expect(doubleTaps([...commandShift, ...tap(0.18)])).toBe(0);
+      const bothCommands = [
+        `flags 0 ${KEY.leftCommand} ${LEFT_COMMAND}`, `flags 0.03 ${KEY.rightCommand} ${LEFT_COMMAND | RIGHT_COMMAND}`,
+        `flags 0.06 ${KEY.rightCommand} ${LEFT_COMMAND}`, `flags 0.09 ${KEY.leftCommand} ${NONE}`,
+      ];
+      expect(doubleTaps(bothCommands)).toBe(0);
+    });
+
+    it("does not fire across a click or a scroll: Command-click, Command-scroll", () => {
+      const during = [`flags 0 ${KEY.leftCommand} ${LEFT_COMMAND}`, "pointer 0.03", `flags 0.06 ${KEY.leftCommand} ${NONE}`];
+      expect(doubleTaps([...during, ...tap(0.18)])).toBe(0);
+      expect(doubleTaps([...tap(0), "pointer 0.1", ...tap(0.18)])).toBe(0);
+      expect(doubleTaps([...tap(0), `flags 0.18 ${KEY.leftCommand} ${LEFT_COMMAND}`, "pointer 0.2", `flags 0.24 ${KEY.leftCommand} ${NONE}`])).toBe(0);
+    });
+
+    it("is not reported while main has it off", () => {
+      expect(doubleTaps([...tap(0), ...tap(0.18)], { doubleTap: false })).toBe(0);
+    });
+
+    it("is never swallowed", () => {
+      expect(decide([config(), ...tap(0), ...tap(0.18)]).some((d) => d.swallow)).toBe(false);
+    });
+  });
+
+  describe("a chord on the held key", () => {
+    const fnDown = `flags 0 ${KEY.fn} ${FN}`;
+    const fnUp = (t: number) => `flags ${t} ${KEY.fn} ${NONE}`;
+
+    it("swallows nothing when no chord is registered", () => {
+      const all = decide([config(), fnDown, `down 0.1 ${KEY.l} ${FN}`, `up 0.2 ${KEY.l} ${FN}`, fnUp(0.3)]);
+      expect(all).toEqual(Array(4).fill({ swallow: false, out: [] }));
+    });
+
+    it("swallows a registered key's down and up, and reports it once", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, `down 0.2 ${KEY.l} ${FN} repeat`, `up 0.3 ${KEY.l} ${FN}`, fnUp(0.4)]);
+      expect(all).toEqual([
+        { swallow: false, out: [] },
+        { swallow: true, out: [{ t: "chord", code: KEY.l }] },
+        { swallow: true, out: [] },
+        { swallow: true, out: [] },
+        { swallow: false, out: [] },
+      ]);
+    });
+
+    it("passes an unregistered key pressed with the held key", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.j} ${FN}`, `up 0.2 ${KEY.j} ${FN}`]);
+      expect(all.slice(1)).toEqual([{ swallow: false, out: [] }, { swallow: false, out: [] }]);
+    });
+
+    it("passes a registered key typed without the held key", () => {
+      const all = decide([config({ chords: [KEY.l] }), `down 0 ${KEY.l} ${NONE}`, `up 0.1 ${KEY.l} ${NONE}`]);
+      expect(all).toEqual([{ swallow: false, out: [] }, { swallow: false, out: [] }]);
+    });
+
+    it("goes by Fn's own key, not the Fn flag an arrow carries", () => {
+      const all = decide([config({ chords: [KEY.rightArrow, KEY.l] }), `down 0 ${KEY.rightArrow} ${FN}`, `down 0.1 ${KEY.l} ${FN}`]);
+      expect(all).toEqual([{ swallow: false, out: [] }, { swallow: false, out: [] }]);
+    });
+
+    it("passes a registered key when another modifier is held too", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN | SHIFT}`, `down 0.2 ${KEY.l} ${FN | LEFT_COMMAND}`]);
+      expect(all.slice(1)).toEqual([{ swallow: false, out: [] }, { swallow: false, out: [] }]);
+    });
+
+    it("swallows the up of a key whose down it swallowed, after the held key lifts", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, fnUp(0.2), `up 0.3 ${KEY.l} ${NONE}`, `down 0.4 ${KEY.l} ${NONE}`]);
+      expect(all.map((d) => d.swallow)).toEqual([false, true, false, true, false]);
+    });
+
+    it("swallows the repeats of a key it swallowed, after the held key lifts", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, fnUp(0.2),
+        `down 0.6 ${KEY.l} ${NONE} repeat`, `down 0.7 ${KEY.l} ${NONE} repeat`, `up 0.8 ${KEY.l} ${NONE}`, `down 0.9 ${KEY.l} ${NONE} repeat`]);
+      expect(all.map((d) => d.swallow)).toEqual([false, true, false, true, true, true, false]);
+      expect(all.flatMap((d) => d.out)).toEqual([{ t: "chord", code: KEY.l }]);
+    });
+
+    it("after the tap missed events, swallows no up it thought it was owed", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, "missed 0.2", `up 0.5 ${KEY.l} ${NONE}`, `down 0.6 ${KEY.l} ${FN}`]);
+      expect(all.map((d) => d.swallow)).toEqual([false, true, false, false]);
+    });
+
+    it("a press that passes ends what an earlier swallowed press of that key was owed", () => {
+      // The swallowed press's up never arrived. The key typed again alone is an ordinary key, up included.
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.1 ${KEY.l} ${FN}`, fnUp(0.2), `down 1 ${KEY.l} ${NONE}`, `up 1.1 ${KEY.l} ${NONE}`]);
+      expect(all.map((d) => d.swallow)).toEqual([false, true, false, false, false]);
+    });
+
+    it("passes a registered key typed alone after a release it never saw", () => {
+      const all = decide([config({ chords: [KEY.l] }), fnDown, `down 0.5 ${KEY.l} ${NONE}`]);
+      expect(all[1]).toEqual({ swallow: false, out: [] });
+    });
+
+    it("uses Right Option or Right Command when chosen, and never the left one", () => {
+      const rightOption = decide([config({ hold: "rightOption", chords: [KEY.l] }),
+        `flags 0 ${KEY.rightOption} ${RIGHT_OPTION}`, `down 0.1 ${KEY.l} ${RIGHT_OPTION}`, `up 0.2 ${KEY.l} ${RIGHT_OPTION}`, `flags 0.3 ${KEY.rightOption} ${NONE}`,
+        `flags 1 ${KEY.leftOption} ${LEFT_OPTION}`, `down 1.1 ${KEY.l} ${LEFT_OPTION}`,
+        fnDown, `down 2 ${KEY.l} ${FN}`]);
+      expect(rightOption.map((d) => d.swallow)).toEqual([false, true, true, false, false, false, false, false]);
+
+      const rightCommand = decide([config({ hold: "rightCommand", chords: [KEY.l] }),
+        `flags 0 ${KEY.rightCommand} ${RIGHT_COMMAND}`, `down 0.1 ${KEY.l} ${RIGHT_COMMAND}`, `up 0.2 ${KEY.l} ${RIGHT_COMMAND}`, `flags 0.3 ${KEY.rightCommand} ${NONE}`,
+        `flags 1 ${KEY.leftCommand} ${LEFT_COMMAND}`, `down 1.1 ${KEY.l} ${LEFT_COMMAND}`]);
+      expect(rightCommand.map((d) => d.swallow)).toEqual([false, true, true, false, false, false]);
+    });
+
+    it("passes the right key held with its left twin", () => {
+      const all = decide([config({ hold: "rightOption", chords: [KEY.l] }),
+        `flags 0 ${KEY.leftOption} ${LEFT_OPTION}`, `flags 0.1 ${KEY.rightOption} ${LEFT_OPTION | RIGHT_OPTION}`, `down 0.2 ${KEY.l} ${LEFT_OPTION | RIGHT_OPTION}`]);
+      expect(all[2]).toEqual({ swallow: false, out: [] });
+    });
+
+    it("says when the held key goes down and up only while a page watches, and never swallows it", () => {
+      const quiet = decide([config(), fnDown, fnUp(0.2)]);
+      expect(quiet).toEqual([{ swallow: false, out: [] }, { swallow: false, out: [] }]);
+      const watching = decide([config({ reportHold: true }), fnDown, fnUp(0.2), `flags 0.3 ${KEY.rightOption} ${RIGHT_OPTION}`]);
+      expect(watching).toEqual([
+        { swallow: false, out: [{ t: "hold", down: true }] },
+        { swallow: false, out: [{ t: "hold", down: false }] },
+        { swallow: false, out: [] },
+      ]);
+    });
+  });
+
+  describe("which taps it makes", () => {
+    const keyAndPointer = { options: "listenOnly", keys: true, pointer: true };
+    const activeKeys = { options: "default", keys: true, pointer: false };
+    const pointerOnly = { options: "listenOnly", keys: false, pointer: true };
+    const plan = () => execFileSync(bin, ["plan"], { encoding: "utf8" }).trim().split("\n").map((l) => JSON.parse(l));
+    const planFor = (accessibility: boolean, inputMonitoring: boolean, swallow: boolean) => {
+      const { taps, exit } = plan().find((p) => p.accessibility === accessibility && p.inputMonitoring === inputMonitoring && p.swallow === swallow);
+      return { taps, exit };
+    };
+
+    it("answers for every case of the two grants and --swallow", () => {
+      expect(plan()).toHaveLength(8);
+    });
+
+    it("with neither grant makes no tap and exits 2, asked to swallow or not", () => {
+      expect(planFor(false, false, false)).toEqual({ taps: [], exit: 2 });
+      expect(planFor(false, false, true)).toEqual({ taps: [], exit: 2 });
+    });
+
+    it("with Input Monitoring alone makes one listen-only tap, asked to swallow or not", () => {
+      expect(planFor(false, true, false)).toEqual({ taps: [keyAndPointer] });
+      expect(planFor(false, true, true)).toEqual({ taps: [keyAndPointer] });
+    });
+
+    it("with both grants makes one listen-only tap until asked to swallow", () => {
+      expect(planFor(true, true, false)).toEqual({ taps: [keyAndPointer] });
+    });
+
+    it("with both grants and --swallow makes an active key tap and keeps the pointer on a listen-only one", () => {
+      expect(planFor(true, true, true)).toEqual({ taps: [activeKeys, pointerOnly] });
+    });
+
+    it("with Accessibility alone and no --swallow makes no tap and exits 3", () => {
+      expect(planFor(true, false, false)).toEqual({ taps: [], exit: 3 });
+    });
+
+    it("with Accessibility alone and --swallow makes an active tap on keys only", () => {
+      expect(planFor(true, false, true)).toEqual({ taps: [activeKeys] });
+    });
+
+    it("never makes an active tap without --swallow", () => {
+      const without = plan().filter((p) => !p.swallow);
+      expect(without).toHaveLength(4);
+      expect(without.flatMap((p) => p.taps).filter((t: { options: string }) => t.options !== "listenOnly")).toEqual([]);
+    });
+  });
+
+  it("reports and swallows nothing before main has sent a config", () => {
+    const all = decide([...tap(0), ...tap(0.18), `flags 1 ${KEY.fn} ${FN}`, `down 1.1 ${KEY.l} ${FN}`]);
+    expect(all).toEqual(Array(6).fill({ swallow: false, out: [] }));
+  });
+
+  it("keeps the last good config when a line is not one", () => {
+    const all = decide([config({ chords: [KEY.l] }), '{"hold":"capsLock","chords":[38]}', `flags 0 ${KEY.fn} ${FN}`, `down 0.1 ${KEY.l} ${FN}`]);
+    expect(all).toEqual([{ error: "config" }, { swallow: false, out: [] }, { swallow: true, out: [{ t: "chord", code: KEY.l }] }]);
+  });
+});

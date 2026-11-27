@@ -33,7 +33,7 @@
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-meta-branch, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
-.files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
+.files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw, .meeting-notes-path,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .memory-path, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
 .msg-error pre, .space-folder-made, .empty-state-path, .empty-state-note code, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-hint code, .settings-note code, .settings-row-desc code, .install-reason code,
@@ -1180,7 +1180,7 @@ input.sb-space-name { flex: 1; }
    moment it costs legibility it has stopped being the cleaner thing to do.
    It is the app's one drawing of a key: the permission and question cards' chords and footer keys
    wear the same chip, because a key is the same kind of thing in a card as in a menu. */
-.menu-kbd, .permission-num, .permission-option-kbd, .permission-hints kbd, .question-hints kbd {
+.menu-kbd, .permission-num, .permission-option-kbd, .permission-hints kbd, .question-hints kbd, .keys-try kbd {
   padding: 1px 5px; border-radius: var(--r-chip);
   background: var(--hover-2); color: var(--rl-text-dim); font: 11px var(--font-ui); letter-spacing: .02em; }
 .menu-kbd { flex: none; margin-left: auto; }
@@ -1204,7 +1204,7 @@ input.sb-space-name { flex: 1; }
    (`usePickerScroller`). The skill picker's depth, for the reason it has the model picker's. */
 .mention-list { flex: 1; min-height: 0; max-height: min(40vh, 280px); overflow-y: auto; padding: 6px;
   --fade-h: 28px; --fade-top-h: 28px; scroll-padding-block: 28px; }
-.mention-row { display: flex; align-items: center; gap: 8px; min-height: var(--picker-row-h); padding: 0 8px; line-height: 16px; border-radius: var(--r-ctl); corner-shape: squircle;
+.mention-row { display: flex; align-items: center; gap: 8px; min-height: var(--picker-row-h); padding: 0 8px; line-height: 16px; --btn-h: var(--picker-row-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);
   transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
 /* The `@` list's rows (mention-sources.ts): a mark — an app's own icon, a file's type, a skill's
@@ -1429,7 +1429,9 @@ input.sb-space-name { flex: 1; }
   --fade-h: 28px; --fade-top-h: 28px; scroll-padding-block: 28px; }
 .skill-picker-group + .skill-picker-group { margin-top: 6px; }
 .skill-picker-group-label { padding: 5px 8px 3px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
-.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
+/* The corner is worked out from a one-line picker row's height, so it matches the model, @ and / rows;
+   a two-line row at its own height would come out a pill. */
+.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; --btn-h: var(--picker-row-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);
   transition: background-color var(--dur-hover) ease; }
 .skill-picker-row[data-active] { background: var(--hover); }
 .skill-picker-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -1606,7 +1608,7 @@ input.sb-space-name { flex: 1; }
 .mp-group-label { padding: 8px 8px 4px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
 /* One line per model. The name is the row's one unbounded item and takes the slack; everything at
    the end is fixed and drawn only when it has something to say. */
-.mp-row { display: flex; align-items: center; gap: 9px; height: var(--picker-row-h); padding: 0 6px 0 8px; --btn-h: var(--picker-row-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+.mp-row { display: flex; align-items: center; gap: 9px; height: var(--picker-row-h); padding: 0 6px 0 8px; --btn-h: var(--picker-row-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-row[data-active] { background: var(--hover); }
 .mp-row-mark { flex: none; }
@@ -1664,12 +1666,12 @@ input.sb-space-name { flex: 1; }
    step of the theme's grey, so they show whatever the panel stands on (11-18). */
 .mp-account { display: flex; flex-direction: column; gap: 4px; }
 .mp-account-well { display: grid; grid-template-columns: 62px minmax(0, 1fr); column-gap: 8px; align-items: start; min-width: 0;
-  padding: 2px 2px 2px 10px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--well-tint); }
+  --seg-h: 32px; padding: var(--seg-pad) var(--seg-pad) var(--seg-pad) 10px; border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--well-tint); }
 .mp-account-well > .mp-seg-label { width: auto; line-height: 28px; }
 /* Opened, the list is the well's whole width, its rows' words on the label's edge. */
 .mp-account-list { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 2px; margin-left: -8px; }
 .mp-account-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 28px; padding: 0 8px; border: 0; background: none;
-  font: inherit; color: var(--rl-text-bright); text-align: left; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; }
+  font: inherit; color: var(--rl-text-bright); text-align: left; border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl); }
 .mp-account-row:hover { background: var(--row-tint); }
 .mp-account-row:focus-visible { outline-offset: -2px; }
 .mp-account-name { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
@@ -1703,8 +1705,8 @@ input.sb-space-name { flex: 1; }
 .mp-seg-label { flex: none; width: 72px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 /* One row, always, in equal columns: the widest label sets the width and nothing wraps. */
 .mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
-  padding: 2px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--hover); }
-.mp-seg-opt { padding: 3px 2px; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; border: 0; background: none; font: inherit;
+  --seg-h: 30px; min-height: var(--seg-h); padding: var(--seg-pad); border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--hover); }
+.mp-seg-opt { padding: 3px 2px; border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl); border: 0; background: none; font: inherit;
   font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
@@ -1719,7 +1721,7 @@ input.sb-space-name { flex: 1; }
 .mp-run-level[data-unset] { color: var(--rl-text-dim); }
 .mp-run-model { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .mp-bolt, .mp-run-reset { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; --btn-h: 28px;
-  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; background: transparent; color: var(--rl-text-dim);
+  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: transparent; color: var(--rl-text-dim);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-bolt:hover, .mp-run-reset:hover { background: var(--hover); color: var(--rl-text-bright); }
 /* Asked for: the bolt takes the accent the way a pressed segment would, on its own tint. */
@@ -2592,6 +2594,30 @@ button.panel-title:hover { background: var(--rl-hover); }
 .quick-chat:hover { box-shadow: 0 0 0 var(--hairline-w) var(--window-ring-hover), var(--shadow-overlay); }
 /* From the corner it opens in, and only a little: it is a small window arriving, not a sheet. */
 @keyframes rl-quick-chat-in { from { translate: 0 10px; scale: 0.98; opacity: 0; } to { translate: 0 0; scale: 1; opacity: 1; } }
+/* The quick chat panel (main/quick-chat-panel.ts) is the same card in a window of its own, and there
+   the window is the card: it has the place, the corner, the shadow and the entrance, so the card
+   fills it and gives those up. The place is set inline by the card's own drag (QuickChat.tsx), which
+   is why it is overridden rather than restated. In Plain the card is the surface it always was; in
+   Glass its ground thins and the window's material, which is macOS's own, shows through it.
+   It thins to the panes' reading point and no further, 84% and the light face's 92% (tokens.css):
+   whatever app is behind it is the desktop a pane is measured against, and at 62% the dark face's
+   body ink came to 4.0:1 over a white window and its hints to 1.1:1. */
+:root[data-surface="quick-chat"] .quick-chat { inset: 0 !important; width: auto !important; height: auto !important;
+  border-radius: 0; box-shadow: none; animation: none; }
+:root[data-surface="quick-chat"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 84%, transparent); }
+:root[data-surface="quick-chat"][data-mode="light"][data-glass] .quick-chat { background: color-mix(in srgb, var(--surface) 92%, transparent); }
+/* The prompter is the window's foot, so it stands on the window's ground and paints none of its own.
+   Its solid `--surface` read as a slab under a panel thinned in Glass. The ink keeps the solid
+   card's, since `--prompter-thin` is read on the dock and the ground is at the reading point. */
+:root[data-surface="quick-chat"] .quick-chat .composer { --prompter-alpha: 0%; }
+/* The bar moves the window there, through the system, so a drag never reaches the card's own. */
+:root[data-surface="quick-chat"] .quick-chat-bar { -webkit-app-region: drag; }
+:root[data-surface="quick-chat"] .quick-chat-bar :is(button, label) { -webkit-app-region: no-drag; }
+/* The card fills the panel at its own z-index, so a sheet opened in the panel (the meeting
+   assistant's first-run sheet) stands over it rather than under it. */
+:root[data-surface="quick-chat"] .sheet-backdrop { z-index: 80; }
+.quick-chat-panel-note { position: fixed; inset: 0; display: grid; place-items: center; margin: 0; padding: 0 24px;
+  text-align: center; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); background: var(--surface); -webkit-app-region: drag; }
 /* The bar IS the handle, so it takes the grab cursor and gives up text selection — a drag across a
    title that highlighted the title behind the moving window would look like a broken drag. */
 .quick-chat-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 4px 0 12px;
@@ -2603,6 +2629,27 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The armed delete, in the row's own width. It states its target rather than turning the trash red
    and hoping — "Delete this chat?" is the sentence design.md asks for before a destructive step. */
 .quick-chat-confirm { flex: none; color: var(--rl-danger); font-size: 12px; white-space: nowrap; }
+.quick-chat-closing { flex: none; display: flex; align-items: center; gap: 2px; min-width: 0; }
+.quick-chat-closing > .btn-quiet { white-space: nowrap; }
+/* The Save row, under the prompter and on the window's own ground. The names are the part of
+   unbounded length, so they give way first and equally; "Save to" and "Other…" keep their width.
+   The row stops short of the window's bottom corners, whose curve would otherwise cut its ends. */
+.quick-chat-save { flex: none; display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 34px; padding: 0 10px 2px;
+  font-size: 12px; color: var(--rl-text-dim); user-select: none; -webkit-user-select: none; }
+.quick-chat-save-label { flex: none; margin-right: 4px; }
+.quick-chat-save-chip { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.quick-chat-save-chip > :first-child { flex: none; }
+.quick-chat-save-chip > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-chat-save-other { flex: none; margin-left: auto; }
+.quick-chat-save[data-kept] { gap: 4px; }
+.quick-chat-saved { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.quick-chat-saved > svg { flex: none; }
+.quick-chat-save[data-kept] > [aria-hidden] { margin-left: 4px; }
+.quick-chat-save[data-kept] > .btn-quiet { flex: none; }
+/* Where its files still land, when that is not the space it was saved to. It is the row's one
+   sentence that must be read, so it takes the secondary ink and the room that is left. */
+.quick-chat-save-note { flex: 1 1 0; min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 /* The empty state, centred in the space the transcript will take. Two lines: what this is, and the
    one consequence worth knowing before you have typed into it rather than after. */
 .quick-chat-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px;
@@ -2707,6 +2754,57 @@ button.panel-title:hover { background: var(--rl-hover); }
   box-shadow: var(--shadow-card);
 }
 
+
+/* The meeting assistant, the quick chat panel's other view (meeting/MeetingAssistantView.tsx).
+   The red mark is a state, so it takes the state's red: a dot and the word, beside the bar's title,
+   in either view, for as long as it listens. */
+.meeting-mark { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+  font-weight: var(--fw-label); color: var(--rl-text-bright); white-space: nowrap; }
+.meeting-auto { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+  color: var(--rl-text-dim); white-space: nowrap; }
+.meeting-mark-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+.meeting-empty { padding: 0 32px; }
+/* The words, as they come: one column read top to bottom, the speaker and the time beside each line. */
+.meeting-feed { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 10px;
+  --fade-top-h: 16px; --fade-h: 20px; }
+.meeting-context { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: var(--r-panel);
+  background: var(--stripe); font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.meeting-context > p { margin: 0; }
+.meeting-lines { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.meeting-line { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; column-gap: 8px; align-items: baseline;
+  font-size: 13px; line-height: 18px; }
+.meeting-who { font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.meeting-line[data-source="me"] .meeting-who { color: var(--rl-text-bright); }
+.meeting-words { min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.meeting-line[data-partial] .meeting-words { color: var(--rl-text-dim); }
+.meeting-time { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+/* A question he typed: his own words, in the column with the call's, set off by a tint. */
+.meeting-asked { align-self: flex-end; max-width: 85%; padding: 6px 10px; border-radius: var(--r-panel); background: var(--stripe);
+  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.meeting-stopped { margin: 0; font-size: 12px; color: var(--rl-text-dim); text-align: center; }
+/* The live answer, under the words rather than among them, so it stays in view while they move. */
+.meeting-answer { flex: none; position: relative; margin: 0 14px 6px; padding: 8px 32px 8px 10px; border-radius: var(--r-panel);
+  background: var(--stripe); }
+.meeting-answer-text { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); white-space: pre-wrap; }
+.meeting-answer[data-state="failed"] .meeting-answer-text { color: var(--rl-danger); }
+.meeting-answer-dismiss { position: absolute; top: 2px; right: 2px; }
+/* Where Stop put the notes: a quiet line, the path in mono because it is one, and it opens the file. */
+.meeting-notes { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; row-gap: 2px; margin: 0; padding: 4px 14px 6px;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.meeting-notes-path { padding: 0; border: 0; background: none; font: inherit; font-family: var(--font-mono); color: var(--accent-ink);
+  text-align: left; overflow-wrap: anywhere; }
+.meeting-notes-path:hover { text-decoration: underline; }
+.meeting-problem { flex: none; margin: 0; padding: 6px 14px; font-size: 12px; line-height: 16px; color: var(--rl-danger); }
+.meeting-notice { flex: none; margin: 0; padding: 6px 14px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+/* Past 20,000 characters of custom info: said once, beside the prompter, and nothing is refused. */
+.meeting-long { flex: none; margin: 0; padding: 0 14px 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+/* Over the prompter, on the window's own ground: what it sends, then the notice and Start or Stop. */
+.meeting-strip { flex: none; display: flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 10px; }
+.meeting-tell { flex: none; margin-left: auto; }
+.meeting-start, .meeting-stop { flex: none; }
+.meeting-stop { color: var(--rl-danger); }
+.meeting-consent { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0 0 0 18px;
+  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
 
 /* No ground of its own. The pane's shows through — the one translucent sheet `.main` lays under every
    pane, the transcript included — so a shell reads as the same surface as the chat beside it, where
@@ -5527,35 +5625,27 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift); }
 /* ── The prompter wears its mode ─────────────────────────────────────────
    Ask and Plan both mean "the agent will not change anything on disk", which is the single most
-   consequential fact about the next send. It was said by one chip in a row of chips; it is said by
-   the whole card now.
+   consequential fact about the next send. The row says it in words beside the permission chip; the
+   card says it under them, as a wash of the state's tone, so the mode is still there when a narrow
+   row has given the word up.
 
-   Green for Ask and orange for Plan, from the state ramp — these ARE states, which is the one job
+   Green for Ask and orange for Plan, from the state ramp: these ARE states, which is the one job
    colour has here. Build is the default and stays exactly as it was: a colour that is always on is
    a colour that says nothing.
 
-   The tint is a hairline ring plus a wash at the ~6% the app uses everywhere it tints a surface by
-   state, and the mode chip's own fill follows it, so the two agree instead of competing. Never
-   colour alone: the chip beside it still reads "Ask" / "Plan" in words. */
-.composer[data-mode="ask"] { background: color-mix(in srgb, color-mix(in srgb, var(--rl-success) 6%, var(--surface)) var(--prompter-alpha), transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 34%, transparent), var(--shadow-card); }
-.composer[data-mode="ask"]:focus-within {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 60%, transparent), var(--shadow-card); }
-.composer[data-mode="plan"] { background: color-mix(in srgb, color-mix(in srgb, var(--rl-warning) 6%, var(--surface)) var(--prompter-alpha), transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-warning) 34%, transparent), var(--shadow-card); }
-.composer[data-mode="plan"]:focus-within {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-warning) 60%, transparent), var(--shadow-card); }
-/* The chip that names the mode takes the same tone, so the card and its label are one statement. */
+   The wash is the ~6% the app uses everywhere it tints a surface by state, and nothing runs round
+   the card: a ring in the mode's colour was the loudest edge in the window, and the owner found it
+   ugly (11-18). The tone is mixed in AFTER the card's own alpha, so
+   it stays the same 6% of the state's colour over a pane thinned to nothing and over a picture, where
+   the card has no fill of its own to carry it. */
+.composer[data-mode="ask"] { background: color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(--rl-success) 6%); }
+.composer[data-mode="plan"] { background: color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(--rl-warning) 6%); }
 /* The painted card reads its fill from a custom property, not from `background`, so the worklet path
-   needs the same three tones or the tint would vanish the moment the squircle gate turns on. */
+   needs the same tones or the tint would vanish the moment the squircle gate turns on. */
 :root[data-squircle] .composer[data-mode="ask"] {
-  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--rl-success) 6%, var(--surface)) var(--prompter-alpha), transparent);
-  --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent); }
-:root[data-squircle] .composer[data-mode="ask"]:focus-within { --sq-ring: color-mix(in srgb, var(--rl-success) 60%, transparent); }
+  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(--rl-success) 6%); }
 :root[data-squircle] .composer[data-mode="plan"] {
-  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--rl-warning) 6%, var(--surface)) var(--prompter-alpha), transparent);
-  --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); }
-:root[data-squircle] .composer[data-mode="plan"]:focus-within { --sq-ring: color-mix(in srgb, var(--rl-warning) 60%, transparent); }
+  --sq-fill: color-mix(in srgb, color-mix(in srgb, var(--surface) var(--prompter-alpha), transparent), var(--rl-warning) 6%); }
 /* The provider's limit warning, above the queue: it is about whether the next message will be
    served at all, which outranks what is already waiting to go. Wears the attachment note's shape
    rather than a card — it is one sentence, and a bordered box for it would shout. */
@@ -6139,20 +6229,42 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    pane; without the level it fits to 380 with the mode's long word, and to 328 with its short one. */
 @container (max-width: 440px) { .composer-actions .model-chip :is(.chip-effort, .chip-fast) { display: none; } }
 @container (max-width: 380px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
+/* The session's mode in words beside the permission chip: plain text at body weight, a step quieter
+   than the chip's medium, in the same readable ink. It yields before anything else on the row, the
+   goal's word first (its strip above says it), then the mode's, each at the width where it would start
+   to cut the model's name (measured on the built app, Opus 5.5 at High). The card's tint and the "+"
+   menu still say the mode in a pane that narrow. */
+.composer-mode-label { padding: 0 6px; font-weight: var(--fw-body); }
+@container (max-width: 520px) { .composer-mode-label[data-mode="goal"] { display: none; } }
+@container (max-width: 480px) { .composer-mode-label[data-mode="ask"] { display: none; } }
+@container (max-width: 464px) { .composer-mode-label[data-mode="plan"] { display: none; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
-/* Listening: the mic in the accent, over a tinted disc that swells with the voice (`--mic-level`,
-   0–1, written each frame) inside the button's own box, never past it. At rest in a silent room it
-   is the disc at its smallest, which already says the mic is open. Under Reduce motion nothing
-   writes the level and the disc stands at its full size. */
-.composer-dictate { position: relative; }
-.composer-dictate > svg { position: relative; }
-.composer-dictate-ring { position: absolute; inset: 2px; border-radius: 999px; background: var(--accent-tint);
-  opacity: 0; scale: .7; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-fade), scale var(--dur-drag) linear; }
-.composer-dictate[aria-pressed="true"], .composer-dictate[aria-pressed="true"]:hover { background: none; color: var(--rl-accent); }
-.composer-dictate[aria-pressed="true"] .composer-dictate-ring { opacity: 1; scale: calc(.7 + var(--mic-level, 0) * .3); }
+/* Listening, the mic button itself becomes the recorder: it grows on the spring into a red pill (the
+   destructive fill, white on it) holding four level bars and a stop square, and a press anywhere on
+   it stops. Its right edge stays put against send, so the stop square lands where the mic was and the
+   model chip beside it is the one thing that moves, 20px left on the same spring; the "+" group never
+   moves. The height and the corner are the icon button's, so the pill stays on the control rung.
+   Each bar's level (`--mic-level`, 0-1) is written onto it each frame; the stop square and the bars
+   come in on the icon swap. Under Reduce motion the width and the swap cut, and the bars follow the
+   level alone. The hovered and pressed states keep the width on the spring: a press is what starts it. */
+.composer-actions .composer-dictate { width: 28px;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, width var(--dur-base) var(--spring-smooth); }
+.composer-actions .composer-dictate:is(:hover, :active, [data-press-tracking]) { transition-duration: 0s, 0s, var(--dur-base); }
+.composer-actions .composer-dictate[aria-pressed="true"] { width: 48px; background: var(--rl-danger-fill); color: var(--rl-danger-contrast); }
+.composer-actions .composer-dictate[aria-pressed="true"]:hover { background: var(--rl-danger-fill-hover); color: var(--rl-danger-contrast); }
+.composer-actions .composer-dictate[aria-pressed="true"]:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-danger-press); color: var(--rl-danger-contrast); }
+.dictate-live { display: flex; align-items: center; gap: 2px; justify-self: end; padding-right: 8px; pointer-events: none; }
+/* In a silent room each bar rests at a height of its own, so a quiet stretch still reads as a meter
+   that is listening, never as a row of dots that has stopped. Still, not looped: the pill and its stop
+   square are what say it is on. */
+.dictate-bar { --bar-rest: .3; width: 2px; height: 14px; border-radius: 1px; background: currentColor;
+  scale: 1 calc(var(--bar-rest) + var(--mic-level, 0) * (1 - var(--bar-rest))); transition: scale var(--dur-drag) linear; }
+.dictate-bar:nth-child(2) { --bar-rest: .5; }
+.dictate-bar:nth-child(3) { --bar-rest: .4; }
+.dictate-stop { width: 9px; height: 9px; margin: 0 1.5px 0 5.5px; border-radius: 2px; background: currentColor; }
 @media (prefers-reduced-motion: reduce) {
-  .composer-dictate[aria-pressed="true"] .composer-dictate-ring { scale: 1; }
+  .composer-actions .composer-dictate, .composer-dictate > *, .dictate-bar { transition: none; }
 }
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
    §6 forbids animating during an active drag, so this is a static swap — no transition here, and the
@@ -6896,6 +7008,11 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 /* The two objects in the family keep an object's lift, which a card no longer has. */
 :root[data-squircle] .saved-turn-open,
 :root[data-squircle] .library-tile { box-shadow: var(--rl-object-shadow); }
+/* The file cards draw on their own edge (the documents card's lit edge and lift, the tile's shadow and
+   the picture it clips, the saved turn's shadow), and the half-curve circle every other card keeps traced
+   a tighter corner than the painted fill: a hovered card showed two contours, with its well following
+   neither. So their box states the card's curve itself, and every layer of them is on it. */
+:root[data-squircle] :is(.docs-card, .library-tile, .saved-turn-open) { border-radius: var(--r-squircle-card); corner-shape: squircle; }
 :root[data-squircle] .stat-tile,
 :root[data-squircle] .usage-card,
 :root[data-squircle] .usage-figures,
@@ -6915,8 +7032,10 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
    painted card keeps, as every card's lift does. */
 :root[data-squircle] .docs-card { --sq-fill: var(--doc-card-fill); background: var(--doc-card-sheen), paint(rl-squircle);
   box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
-:root[data-squircle] .docs-card:hover { --sq-fill: var(--doc-card-fill-hover); box-shadow: var(--doc-card-edge), var(--doc-card-lift-hover); }
-:root[data-squircle] .docs-card:is([data-pressed], :active:focus-visible) { --sq-fill: var(--doc-card-fill-press); box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
+:root[data-squircle] .docs-card:hover { --sq-fill: var(--doc-card-fill-hover); background: var(--doc-card-sheen), paint(rl-squircle);
+  box-shadow: var(--doc-card-edge), var(--doc-card-lift-hover); }
+:root[data-squircle] .docs-card:is([data-pressed], :active:focus-visible) { --sq-fill: var(--doc-card-fill-press); background: var(--doc-card-sheen), paint(rl-squircle);
+  box-shadow: var(--doc-card-edge), var(--doc-card-lift); }
 :root[data-squircle] .docs-card:focus-visible { outline: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px; }
 /* The marketplace's card is a well the page is cut into, not a card standing on it: the curve, with
    no lift. */
@@ -7000,49 +7119,6 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --sq-radius-bottom: 0px;
 }
 
-/* The mode reaches the whole band, not just the card.
-   `.composer[data-mode]` re-colours the card's ring — warning for plan, success for ask — and the
-   strips above it are the same object seen higher up: same fill, same inset, one continuous edge. Left
-   neutral they drew a `--card-ring` line up each side of a band whose bottom was warning-coloured, and
-   the join showed as a notch at either edge, exactly where the card's own top corners sit 10px inside
-   the strip. `:has(~ …)` because the strips are EARLIER siblings and the mode lives on the card: there
-   is no parent to hang it off, and copying the mode onto every strip in the renderer would be four more
-   props to keep in step. Spelled out rather than wrapped in `:is()` so each part is a selector on its
-   own, which is how the rest of this band is written and what styles.test.ts reads. */
-:root[data-squircle] .composer-goal:has(~ .composer[data-mode="plan"]),
-:root[data-squircle] .composer-todos:has(~ .composer[data-mode="plan"]),
-:root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="plan"]) {
-  --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent);
-  box-shadow: none;
-}
-:root[data-squircle] .composer-goal:has(~ .composer[data-mode="ask"]),
-:root[data-squircle] .composer-todos:has(~ .composer[data-mode="ask"]),
-:root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="ask"]) {
-  --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent);
-  box-shadow: none;
-}
-/* The under-strip is the same object seen below the card, so the mode reaches it too: left on the
-   neutral ring, its sides ran grey into a card ringed in the mode's colour, the notch the band above
-   was given the mode to remove. It is a LATER sibling of the card, so it needs no `:has`. */
-:root[data-squircle] .composer[data-mode="plan"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); box-shadow: none; }
-:root[data-squircle] .composer[data-mode="ask"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent); box-shadow: none; }
-/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing.
-   ONLY without it — the `box-shadow: none` above is what keeps it so. A box-shadow under the gate is
-   drawn on the border box, which the painter has squared to radius 0, and it drew a second ring round
-   every strip: square, out past the painted corners, and straight across the band where two strips
-   meet — the seam the stacked strips' open-topped ring exists to avoid. */
-.composer-goal:has(~ .composer[data-mode="plan"]),
-.composer-todos:has(~ .composer[data-mode="plan"]),
-.composer-overstrip:has(~ .composer[data-mode="plan"]) {
-  box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent);
-}
-.composer-goal:has(~ .composer[data-mode="ask"]),
-.composer-todos:has(~ .composer[data-mode="ask"]),
-.composer-overstrip:has(~ .composer[data-mode="ask"]) {
-  box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent);
-}
-.composer[data-mode="plan"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent); }
-.composer[data-mode="ask"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent); }
 /* …but only the tab that IS the band's top keeps the corners and the top edge. Every strip arriving
    under another gives up its top corners, and its ring leaves the top OPEN (`--sq-ring-open`): a ring
    across a middle tab would trace a hairline straight across the band where the two meet — a second
@@ -7097,7 +7173,8 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --rl-text-faint: color-mix(in oklab, var(--ink-2) var(--prompter-thin), var(--ink-3));
   --rl-text-dim: color-mix(in oklab, var(--ink) calc(var(--prompter-thin) / 2), var(--ink-2)); }
 /* Quick chat floats on its own surface and the viewer's ground is opaque, so their prompters stay
-   solid; so does code review's question box. */
+   solid; so does code review's question box. The quick chat panel's card has no fill over its
+   window's ground, and keeps this for its ink. */
 .quick-chat, .media-viewer, .cr-ask, :is(.quick-chat, .media-viewer, .cr-ask) .session-pane:has(> .hero-backdrop) { --prompter-alpha: 100%; }
 /* Over a picture or a loop the prompter's ground is the picture (tokens.css, `--picture-ground`): its
    fill is gone (`--prompter-alpha` is 0% there) and the layer that cast its lift blurs and dims what is
@@ -7152,14 +7229,13 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 /* The rim is light caught by the bezel, brightest where it faces the light (top left) and again where
    it leaves (bottom right), as macOS 26 draws it all the way round: a ring of the specular light,
    masked to the box's edge so it follows the corner. A knob is a pseudo-element already, so it takes
-   the same two sides as inset light (`--glass-rim`). */
+   the same two sides as inset light (`--glass-rim`). The ring takes the box's curve as well as its
+   radius: with the radius alone it traced a circle round a squircle, lit unevenly at each corner and
+   doubled where the two curves part (the owner, 11-19, on the chosen segment). */
 :root[data-glass] :is(.composer-glass, .model-picker, .mention-picker, .skill-picker, .selection-bar, .documents-modes button[aria-pressed="true"], .seg-opt[data-selected], .settings-tabs > .settings-tab[data-selected], .mp-seg-opt[aria-pressed="true"])::before {
-  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit;
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; corner-shape: inherit;
   padding: var(--glass-rim-w); background: var(--glass-specular);
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
-/* The prompter's rim takes the card's curve as well as its radius, or it would trace a circle of the
-   painted radius round the squircle under it. */
-:root[data-glass] .composer-glass::before { corner-shape: inherit; }
 :root[data-glass] .session-pane:has(> .hero-backdrop) :is(.composer-goal, .composer-todos, .composer-overstrip, .composer-understrip) { backdrop-filter: var(--glass-frost); }
 /* A picker over a pane of words floods the pane's ground under them before it frosts, so they soften
    rather than reading through; over a picture the canvas is opaque already and the flood changes
@@ -7187,7 +7263,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 :root[data-glass] .model-picker :is(.mp-row[data-active], .mp-account-row:hover, .mp-bolt:hover, .mp-run-reset:hover) { background: var(--row-tint); }
 :root[data-glass] .model-picker .mp-row[data-active] { position: relative; }
 :root[data-glass] .model-picker .mp-row[data-active]::before {
-  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; opacity: .6;
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; corner-shape: inherit; opacity: .6;
   padding: var(--glass-rim-w); background: var(--glass-specular);
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
 /* Opened, the account's well grows up out of the row that opened it, on the popovers' own entrance
@@ -7201,7 +7277,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --glass-bezel: var(--glass-control-bezel); --glass-bend: var(--glass-control-bend); --glass-frost-px: var(--glass-control-blur);
   position: relative; background: var(--glass-bead); box-shadow: none;
   backdrop-filter: var(--glass-lens, saturate(1)) saturate(var(--glass-saturate)); }
-/* A switch's knob is a drop of glass over its track: lit, it bends the accent and carries it. */
+/* A switch's knob is solid white, as macOS's glass switch draws it, with the glass rim round it. */
 :root[data-glass] .switch { --glass-bezel: var(--glass-control-bezel); --glass-bend: var(--glass-control-bend); --glass-frost-px: 0px; }
 :root[data-glass] .switch::after {
   background: var(--glass-knob); box-shadow: var(--glass-rim), 0 1px 2px #0000003d;
@@ -7436,7 +7512,7 @@ select { appearance: none; padding-right: 22px;
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
-  .transcript, .md pre, .msg-error pre, .tool-well, .tool-panel-text, .tool-body pre, .permission-details pre, .app-view-request-well,
+  .transcript, .meeting-feed, .md pre, .msg-error pre, .tool-well, .tool-panel-text, .tool-body pre, .permission-details pre, .app-view-request-well,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display, .ui-block-scroll, .ui-diagram,
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
@@ -7697,12 +7773,13 @@ select { appearance: none; padding-right: 22px;
    it read as one glyph turning over rather than two crossing past each other, and the control keeps
    ONE glyph box and ONE accessible name throughout: a swap is a change of state, not of control. */
 .icon-swap { display: grid; place-items: center; }
-.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .msg-action .copy-icon, .msg-action .copied-icon, .composer-send svg, .chip-sigil > .chip-mark { grid-area: 1 / 1;
+.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .msg-action .copy-icon, .msg-action .copied-icon, .composer-send svg, .chip-sigil > .chip-mark, .composer-dictate > * { grid-area: 1 / 1;
   transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
 .icon-swap:not([data-on]) .swap-on, .icon-swap[data-on] .swap-off,
 .tool-copy:not([data-copied]) .copied-icon, .tool-copy[data-copied] .copy-icon,
 .msg-action:not([data-copied]) .copied-icon, .msg-action[data-copied] .copy-icon,
-.composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon {
+.composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon,
+.composer-dictate[aria-pressed="true"] .dictate-mic, .composer-dictate[aria-pressed="false"] .dictate-live {
   opacity: 0; transform: scale(.25); filter: blur(4px); }
 
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
@@ -7763,7 +7840,7 @@ select { appearance: none; padding-right: 22px;
    are hundreds of elements per window against the handful of singleton surfaces it draws now. The
    radii above are what make the difference visible in the meantime. */
 .btn, .icon-btn, .ghost-chip, .composer-chip, .msg-action, .tool-copy,
-.item-row, .seg-opt, .mp-seg-opt,
+.item-row,
 .permission-option, .question-option, .question-skip, .palette-opt, .menu [role^="menuitem"],
 /* `.switch` is deliberately NOT here. A squircle is a corner treatment, and a pill has no corners —
    applying one to `border-radius: 999px` clamps the superellipse to half the box and turns the
@@ -8158,10 +8235,11 @@ select { appearance: none; padding-right: 22px;
 /* ── Space settings, W5: the skills / connections / memory tabs ───────────── */
 /* Tabs are native radios in segmented-control clothing (the onboarding idiom: arrows move, one tab
    stop, checked state for free). Selected ≠ outlined — §2.7's translucent fill + bright text. */
-.settings-tabs { display: flex; gap: 2px; margin: 0 0 12px; padding: 2px; border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-hover); }
+.settings-tabs { --seg-h: 36px; display: flex; gap: 2px; margin: 0 0 12px; min-height: var(--seg-h); padding: var(--seg-pad); border: none;
+  border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--rl-hover); }
 /* One line per option, always: a fieldset sizes to its min-content in a flex row, so a segment free to
    wrap broke "For 5 minutes" over two lines beside a label that had the room to give. */
-.settings-tab { flex: 1; text-align: center; padding: 6px 12px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 13px; white-space: nowrap; color: var(--rl-text-dim); }
+.settings-tab { flex: 1; text-align: center; padding: 6px 12px; border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl); font-size: 13px; white-space: nowrap; color: var(--rl-text-dim); }
 .settings-tab:hover { color: var(--rl-text-bright); }
 .settings-tab[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: var(--fw-label); }
 .settings-tab input { position: absolute; opacity: 0; pointer-events: none; }
@@ -8169,6 +8247,15 @@ select { appearance: none; padding-right: 22px;
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .settings-panel { min-width: 0; }
+/* Keys ▸ From anywhere ▸ Try it: a key and whether Realm has seen it. The key is lit while it is held
+   (a double-tap, which is never held, for a moment), and the word beside it says the same.
+   The chip's fill is a tint of its own ink: on a settings card the menus' `--hover-2` is the card's
+   colour on the light face, and the key read as bare text there. */
+.keys-try { flex: none; display: flex; gap: 16px; font-size: 13px; color: var(--rl-text-dim); }
+.keys-try-key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.keys-try kbd { background: color-mix(in srgb, currentColor 12%, transparent); }
+.keys-try-key[data-lit] { color: var(--rl-text-bright); }
+.keys-try-key[data-lit] kbd { background: color-mix(in srgb, currentColor 24%, transparent); color: var(--rl-text-bright); }
 /* The two kinds of prose here: a NOTE is a disclosure the panel exists to make (always visible, dim,
    set off by a left tick); a HINT is auxiliary fine print (faint). */
 .settings-note { margin: 0; padding: 6px 10px; border-left: 2px solid var(--rl-line-strong); font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
@@ -8740,7 +8827,10 @@ select { appearance: none; padding-right: 22px;
   .env-actions { grid-column: 1; grid-row: auto; flex-wrap: wrap; }
   .settings-row, .engines-head { flex-wrap: wrap; } /* .settings-source-row and .scope-confirm already wrap */
   .settings-row > .settings-row-main { flex-basis: 100%; }
-  .settings-tabs { overflow-x: auto; scrollbar-width: none; }
+  /* A fieldset, as the rail is: `min-inline-size: 0` beats the UA's `min-content`, so the strip can be
+     held to its row and scroll there. Without it the strip stays as wide as its tabs, runs past the
+     column and scrolls nothing. Where its tabs fit it keeps its own width. */
+  .settings-tabs { min-inline-size: 0; max-inline-size: 100%; overflow-x: auto; scrollbar-width: none; }
   .settings-tabs .settings-tab { flex: none; white-space: nowrap; }
 }
 /* ── A space's page: its head and its General tab ──────────────────────────────────────────────
@@ -9358,10 +9448,10 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-filter { --btn-h: 32px; width: var(--btn-h); height: var(--btn-h); }
 /* Lit while it narrows something — the state the toolbar would otherwise hide behind a menu. */
 .library-filter[data-on] { background: var(--rl-active); color: var(--rl-text-bright); }
-.library-view { padding: 2px; }
 /* Three classes so the page's own segment scale (`.page .seg-opt`, later) cannot pad an icon-only
    segment out of its 30px. */
-.library-toolbar .library-view .seg-opt { display: grid; place-items: center; width: 30px; height: 24px; padding: 0; }
+.library-toolbar .library-view.seg { --seg-h: 28px; }
+.library-toolbar .library-view .seg-opt { display: grid; place-items: center; width: 30px; padding: 0; }
 /* The search field wears its glyph inside its own curve, as Codex's does. */
 .library-search { position: relative; display: block; width: 240px; }
 .library-search > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--rl-text-faint); pointer-events: none; }
@@ -9584,7 +9674,9 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-file { position: relative; }
 .library-file-more { position: absolute; z-index: 1; opacity: 0; transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .library-file:is(:hover, :focus-within) > .library-file-more, .library-file-more[aria-expanded="true"] { opacity: 1; transition-duration: 0s; }
-.library-grid .library-file-more { top: 8px; right: 8px; background: var(--surface); box-shadow: var(--rl-object-shadow); }
+/* In the tile's corner, cut from the tile's corner less the gap between them, on the same curve. */
+.library-grid .library-file-more { --more-gap: 8px; top: var(--more-gap); right: var(--more-gap);
+  border-radius: calc(var(--r-squircle-card) - var(--more-gap)); corner-shape: squircle; background: var(--surface); box-shadow: var(--rl-object-shadow); }
 .library-grid .library-file-more:hover { background: var(--hover); }
 .library-rows .library-file-more { top: 50%; right: 8px; translate: 0 -50%; }
 .library-rows .library-file:is(:hover, :focus-within) .library-row-time,
@@ -9977,10 +10069,10 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .documents-state[data-state="conflict"], .documents-state[data-state="missing"] { color: var(--rl-warning); }
 /* The view toggle sits at the far right of the head — a segmented control on the field fill, the
    same shape the rest of the app uses for a two-way choice. */
-.documents-modes { display: inline-flex; gap: 2px; flex: none; margin-left: auto; padding: 2px;
-  border-radius: var(--r-ctl); background: var(--field); box-shadow: var(--shadow-hairline); }
+.documents-modes { --seg-h: 30px; display: inline-flex; gap: 2px; flex: none; margin-left: auto; min-height: var(--seg-h); padding: var(--seg-pad);
+  border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--field); box-shadow: var(--shadow-hairline); }
 .documents-modes button {
-  padding: 3px 9px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim);
+  padding: 3px 9px; border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl); font-size: 12px; color: var(--rl-text-dim);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .documents-modes button:hover { color: var(--rl-text-bright); }
@@ -10130,7 +10222,8 @@ span.documents-name:hover { background: none; }
   .docs-home-search { flex-basis: 100%; }
   .docs-home-view { margin-right: auto; }
 }
-.docs-home-view .seg-opt { display: grid; place-items: center; width: 30px; height: 26px; padding: 0; }
+.docs-home-view.seg { --seg-h: 30px; }
+.docs-home-view .seg-opt { display: grid; place-items: center; width: 30px; padding: 0; }
 /* The grid: equal columns that reflow 12px apart, from two in a side pane to as many as a wide one
    holds. Every card is one height — the preview's ratio and a name held to two lines — so a row of
    them lines up whatever the names are. `CARD_MIN` and `CARD_GAP` in DocumentsHome.tsx are these
@@ -10186,12 +10279,16 @@ span.documents-name:hover { background: none; }
 .docs-card-detail { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docs-card-time { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
 /* The card's "add to the next message" sits over the preview's corner, shown on the pointer or the
-   keyboard as the row's is, on the preview's own ground so it reads over a picture. */
-.docs-card-cell > .docs-home-attach { top: calc(var(--doc-card-inset) + 4px); right: calc(var(--doc-card-inset) + 4px); translate: none;
-  background: color-mix(in srgb, var(--surface) 86%, transparent); }
+   keyboard as the row's is, on the preview's own ground so it reads over a picture. Its corner is the
+   preview's less the gap between them, on the same curve, and it rises with the card so the gap holds. */
+.docs-card-cell > .docs-home-attach { --attach-gap: 4px; top: calc(var(--doc-card-inset) + var(--attach-gap)); right: calc(var(--doc-card-inset) + var(--attach-gap));
+  border-radius: max(6px, calc(var(--r-squircle-card) - var(--doc-card-inset) - var(--attach-gap))); corner-shape: squircle; translate: none;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease, translate var(--dur-move) var(--spring-smooth); }
+.docs-card-cell:has(> .docs-card:hover:not([data-pressed], :active:focus-visible)) > .docs-home-attach { translate: 0 -1px; }
 .docs-card-cell:is(:hover, :focus-within) > .docs-home-attach { opacity: 1; transition-duration: 0s; }
 @media (prefers-reduced-motion: reduce) {
-  .docs-card:hover { translate: none; }
+  .docs-card:hover, .docs-card-cell:has(> .docs-card:hover:not([data-pressed], :active:focus-visible)) > .docs-home-attach { translate: none; }
 }
 .new-doc-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
 /* "Code file…": a name, the languages that set its extension, and what the name will open as. */
@@ -11087,20 +11184,25 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 
 /* A segmented control: one row of radios wearing a shared track — the same track and the same lit
    segment as Settings' `.settings-tabs`, so a control is drawn one way wherever it stands. Usage once
-   ringed its own in a hairline on the frame's fill, a third skin on the page that has two. */
-.seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: none;
-  border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-hover); }
+   ringed its own in a hairline on the frame's fill, a third skin on the page that has two. A track's
+   height is a floor, not a size: its labels scale with the UI text size, and at 18px a fixed 26px track
+   left them hanging out of their segments. Its corner is still worked out from the floor. The segment
+   holds the floor too: a fieldset's min-height does not reach the box its segments are laid out in, so
+   an icon-only segment (Library, Documents home) would shrink to its glyph. */
+.seg { --seg-h: 26px; display: inline-flex; gap: 2px; margin: 0; min-height: var(--seg-h); padding: var(--seg-pad); border: none;
+  border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl)); corner-shape: var(--corner-ctl); background: var(--rl-hover); }
 /* No transition: a segment is a choice, and a choice changes instantly both ways (design.md). This
    rule comes after the instant list, so a `transition` here handed the fade back to every segment. */
 .seg-opt {
-  padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
-  border-radius: var(--r-chip); corner-shape: squircle; white-space: nowrap;
+  min-height: calc(var(--seg-h) - 2 * var(--seg-pad)); padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
+  border-radius: calc(var(--seg-h) * var(--sq-ratio-ctl) - var(--seg-pad)); corner-shape: var(--corner-ctl); white-space: nowrap;
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
 .seg-opt:hover { color: var(--rl-text-bright); }
 .seg-opt[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
 .seg-opt:has(input:focus-visible) { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
 /* On a page a segment is read beside 14px labels, so it takes the page's scale. */
+.page .seg { --seg-h: 30px; }
 .page .seg-opt { padding: 4px 10px; font-size: 13px; line-height: 18px; }
 
 /* ——— stat tiles ——— */

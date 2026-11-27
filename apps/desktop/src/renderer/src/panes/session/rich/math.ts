@@ -1,5 +1,6 @@
-import type { MarkedExtension, TokenizerAndRendererExtension, Tokens } from "marked";
+import type { MarkedExtension } from "marked";
 import { katexIfLoaded } from "./rich-libs";
+import { mathSyntax } from "./math-syntax";
 
 /** TeX in assistant prose, rendered by KaTeX (Plan 24 W1).
  *
@@ -52,45 +53,4 @@ const render = (tex: string, display: boolean): string => {
   return display ? `<div class="math-display">${html}</div>` : html;
 };
 
-/* `$…$` guards, in the order they matter:
- *  - no whitespace just inside either delimiter, so "costs $5, sells for $9" is not one expression
- *    spanning the comma;
- *  - the closer is not followed by a digit, so "$5 and $10" does not read as `5 and ` in math;
- *  - the opener is not itself escaped (`\$`) or doubled (`$$`, which is the display tokenizer's).
- *  A `$` that fails any of them is left as the literal character it almost always is. */
-const INLINE_DOLLAR = /^\$(?![\s$])((?:\\[\s\S]|[^$\\])+?)(?<![\s\\])\$(?!\d)/;
-const INLINE_PAREN = /^\\\(([\s\S]+?)\\\)/;
-const BLOCK_DOLLAR = /^\$\$((?:[^$]|\$(?!\$))+?)\$\$(?:\n+|$)/;
-const BLOCK_BRACKET = /^\\\[([\s\S]+?)\\\](?:\n+|$)/;
-
-const blockMath: TokenizerAndRendererExtension = {
-  name: "blockMath",
-  level: "block",
-  start: (src: string) => {
-    const m = /\$\$|\\\[/.exec(src);
-    return m ? m.index : undefined;
-  },
-  tokenizer(src: string) {
-    const m = BLOCK_DOLLAR.exec(src) ?? BLOCK_BRACKET.exec(src);
-    if (!m) return undefined;
-    return { type: "blockMath", raw: m[0], text: m[1]!.trim() };
-  },
-  renderer: (token: Tokens.Generic) => render(String(token["text"]), true),
-};
-
-const inlineMath: TokenizerAndRendererExtension = {
-  name: "inlineMath",
-  level: "inline",
-  start: (src: string) => {
-    const m = /\$(?![\s$])|\\\(/.exec(src);
-    return m ? m.index : undefined;
-  },
-  tokenizer(src: string) {
-    const m = INLINE_DOLLAR.exec(src) ?? INLINE_PAREN.exec(src);
-    if (!m) return undefined;
-    return { type: "inlineMath", raw: m[0], text: m[1]!.trim() };
-  },
-  renderer: (token: Tokens.Generic) => render(String(token["text"]), false),
-};
-
-export const mathExtension: MarkedExtension = { extensions: [blockMath, inlineMath] };
+export const mathExtension: MarkedExtension = mathSyntax(render);

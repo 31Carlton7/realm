@@ -335,6 +335,38 @@ describe("gate({ preapproved, onAlwaysAllow })", () => {
  * tap; a grant that leaks to another device or another session; a plain "Allow" written down as if
  * it had been "always"; and a read-only session let through on the strength of a grant.
  */
+describe("gate({ personOnly })", () => {
+  const opts = { promptUnderBypass: true, personOnly: true } as const;
+
+  it("refuses an Allow answered from in process, and keeps the card up for the person", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    let settled = false;
+    const gate = broker.gate("s1", "browser_fill_credential:cred-1@https://example.com", "Fill", {}, "browser_fill_credential", opts);
+    void gate.then(() => { settled = true; });
+    const requestId = requestIdOf(events);
+    expect(broker.resolve(requestId, "allow", undefined, "s1")).toBe(false);
+    expect(broker.resolve(requestId, "allow_always", undefined, "s1", "process")).toBe(false);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(events.some((e) => e.ev.type === "permission_response")).toBe(false);
+    expect(broker.resolve(requestId, "allow", undefined, "s1", "person")).toBe(true);
+    expect(await gate).toEqual({ allowed: true });
+  });
+
+  it("takes a Deny from anyone, so a session that goes still takes its card down", async () => {
+    const { broker, events } = setup();
+    const gate = broker.gate("s1", "k", "Fill", {}, "browser_fill_credential", opts);
+    expect(broker.resolve(requestIdOf(events), "deny", undefined, "s1", "process")).toBe(true);
+    expect(await gate).toEqual({ allowed: false, reason: "the user denied this action" });
+  });
+
+  it("is not one Full access answers for the person", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    void broker.gate("s1", "k", "Fill", {}, "browser_fill_credential", opts);
+    expect(broker.skippedUnderBypass(requestIdOf(events))).toBe(false);
+  });
+});
+
 describe("gate({ perSession })", () => {
   const opts = { perSession: true } as const;
   const ask = (broker: BrowserPermissionBroker, sessionId: string, key: string) =>
@@ -571,5 +603,44 @@ describe("the cards Full access does not skip", () => {
     expect(broker.skippedUnderBypass(requestIdOf(events))).toBe(false);
     broker.resolve(requestIdOf(events), "deny");
     expect((await gate).allowed).toBe(false);
+  });
+});
+
+/**
+ * `invite`: a card nothing waits on — "Let agents finish sign-ins? Opens Settings". Its mutants: a card
+ * per call instead of one per session, a session left waiting on a card no tool is waiting for, and an
+ * answer that marks an idle session running.
+ */
+describe("BrowserPermissionBroker.invite", () => {
+  it("raises its card once per session, and never sets the session waiting", () => {
+    const { broker, events } = setup();
+    expect(broker.invite("s1", "agent_signins", "Let agents finish sign-ins? Opens Settings")).toBe(true);
+    expect(broker.invite("s1", "agent_signins", "Let agents finish sign-ins? Opens Settings")).toBe(false);
+    expect(broker.invite("s2", "agent_signins", "Let agents finish sign-ins? Opens Settings")).toBe(true);
+    expect(events.map((e) => [e.sessionId, e.ev.type])).toEqual([["s1", "permission_request"], ["s2", "permission_request"]]);
+  });
+
+  it("is taken down by an answer, and the answer says nothing about the session's status", () => {
+    const { broker, events } = setup();
+    broker.invite("s1", "agent_signins", "Let agents finish sign-ins? Opens Settings");
+    broker.resolve(requestIdOf(events), "allow", undefined, "s1");
+    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "permission_response"]);
+  });
+
+  it("does not hold a session waiting after a real card beside it is answered", async () => {
+    const { broker, events } = setup();
+    broker.invite("s1", "agent_signins", "Let agents finish sign-ins? Opens Settings");
+    const gated = broker.gate("s1", "browser_act", "Click X", {});
+    const gateRequest = events.filter((e) => e.ev.type === "permission_request").at(-1)!.ev as Extract<SessionEvent, { type: "permission_request" }>;
+    broker.resolve(gateRequest.payload.requestId, "allow");
+    expect(await gated).toEqual({ allowed: true });
+    expect(events.at(-1)!.ev).toMatchObject({ type: "status", payload: { status: "running" } });
+  });
+
+  it("asks again in a session that ended and came back", () => {
+    const { broker } = setup();
+    broker.invite("s1", "agent_signins", "t");
+    broker.release("s1");
+    expect(broker.invite("s1", "agent_signins", "t")).toBe(true);
   });
 });

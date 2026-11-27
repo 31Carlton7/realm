@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BrowserCredentialEdit, KeychainPasswordsStatus, SecurityCodesStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
-import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
+import type { BrowserCredentialEdit, CalendarAccess, KeychainPasswordsStatus, QuickChatShortcutState, SecurityCodesStatus, AgentSigninsStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
+import type { BackgroundImage, BackgroundsAdded, BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp, GlobalKeysEvent, GlobalKeysState, HoldKey, CommandSide, AssistantPageAction } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { BackdropState } from "../main/backdrop-state";
@@ -30,6 +30,58 @@ contextBridge.exposeInMainWorld("realm", {
   /** The space a window brought back after a relaunch lands on: the one it showed, which can differ
    *  from the one it was opened for. Undefined for a window opened now. */
   landSpaceId: arg("realm-land") || undefined,
+  /** "quick-chat" in the quick chat panel's page, which draws the Quick Chat and nothing else
+   *  (main/quick-chat-panel.ts); undefined in a Realm window. */
+  surface: arg("realm-surface") || undefined,
+  /** The quick chat panel's meeting assistant (main/listening-mark.ts): the menu bar's red mark while
+   *  it listens, and the Stop on the mark's menu. Answered only for the panel's own page. */
+  meetingAssistant: {
+    setListening: (on: boolean): void => ipcRenderer.send("meeting-assistant:listening", on),
+    onStop: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("meeting-assistant:stop", handler);
+      return () => ipcRenderer.removeListener("meeting-assistant:stop", handler);
+    },
+    /** The assistant's chords (main/assistant-keys.ts). Main holds a key pressed before this listens,
+     *  and gives it once `keysReady` says it does. */
+    onKey: (cb: (action: AssistantPageAction) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, action: AssistantPageAction) => cb(action);
+      ipcRenderer.on("meeting-assistant:key", handler);
+      return () => ipcRenderer.removeListener("meeting-assistant:key", handler);
+    },
+    keysReady: (): void => ipcRenderer.send("meeting-assistant:keys-ready"),
+    /** Which view is up, so main knows whether a key opens the panel on it or puts it away. */
+    setShown: (on: boolean): void => ipcRenderer.send("meeting-assistant:shown", on),
+  },
+  /** The quick chat panel and its system-wide shortcut (main/quick-chat-panel.ts). */
+  quickChatPanel: {
+    /** Put the panel away. Answered only for the panel's own page. */
+    hide: (): void => ipcRenderer.send("quick-chat-panel:hide"),
+    /** Whether the panel was opened while its page loaded, rather than made ahead of a press. */
+    opening: (): Promise<boolean> => ipcRenderer.invoke("quick-chat-panel:opening"),
+    /** The panel has just been opened, with the keyboard or without it. */
+    onShown: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("quick-chat-panel:shown", handler);
+      return () => ipcRenderer.removeListener("quick-chat-panel:shown", handler);
+    },
+    shortcut: (): Promise<QuickChatShortcutState> => ipcRenderer.invoke("quick-chat-panel:shortcut"),
+    /** Register this chord in place of the one held, or none for null. The answer says whether the
+     *  system took it. */
+    setShortcut: (chord: string | null): Promise<QuickChatShortcutState> => ipcRenderer.invoke("quick-chat-panel:set-shortcut", chord),
+    setHideFromSharing: (on: boolean): void => ipcRenderer.send("quick-chat-panel:set-hide-from-sharing", on),
+    /** Put the panel away and bring a Realm window forward on a session the chat was saved as. */
+    openInRealm: (target: { sessionId: string; spaceId: string }): void => ipcRenderer.send("quick-chat-panel:open-in-realm", target),
+    /** Put the panel away and bring a Realm window forward on a file of a space (a meeting's notes). */
+    openDocument: (target: { spaceId: string; path: string }): void => ipcRenderer.send("quick-chat-panel:open-document", target),
+    /** This page opened, deleted or moved the quick chat: every other page reads the setting again. */
+    chatChanged: (): void => ipcRenderer.send("quick-chat:changed"),
+    onChatChanged: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("quick-chat:changed", handler);
+      return () => ipcRenderer.removeListener("quick-chat:changed", handler);
+    },
+  },
   /** The window's page zoom (⌘+/⌘−/⌘0, Chromium's own through the View menu). 1 at 100%.
    *
    *  A getter rather than a subscription because Chromium fires no zoom event, and a value rather
@@ -66,18 +118,67 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.invoke("app-pick:capture", rect, ground, name),
   },
   /** Settings ▸ General ▸ Links: tells main where a clicked link opens, and hears the links main
-   *  sends back to open in a Realm Browser tab. */
+   *  sends back to open in a Realm Browser tab — a browser pane's new tabs among them. */
   links: {
     setOpenIn: (pref: string): void => ipcRenderer.send("links:open-in", pref),
-    onOpenInRealm: (cb: (url: string) => void): (() => void) => {
-      const handler = (_e: IpcRendererEvent, url: string) => cb(url);
+    onOpenInRealm: (cb: (url: string, opts: { background: boolean }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, url: string, opts?: { background: boolean }) => cb(url, { background: !!opts?.background });
       ipcRenderer.on("links:open-in-realm", handler);
       return () => ipcRenderer.removeListener("links:open-in-realm", handler);
+    },
+    /** A browser pane's page asked for a new tab (a target=_blank link, a ⌘- or middle-click). `page`
+     *  names the page Chromium already made for it, which `claimTab` gives to the new tab's browser;
+     *  `focus` is whether the page that asked had the keyboard. */
+    onOpenTab: (cb: (m: { browserId: string; url: string; background: boolean; focus: boolean; page: string }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string; url: string; background: boolean; focus: boolean; page: string }) => cb(m);
+      ipcRenderer.on("links:open-tab", handler);
+      return () => ipcRenderer.removeListener("links:open-tab", handler);
+    },
+    claimTab: (page: string, browserId: string): void => ipcRenderer.send("links:claim-tab", page, browserId),
+    /** A browser pane's page closed itself (`window.close()`): its tab closes, as in Chrome. */
+    onCloseTab: (cb: (m: { browserId: string }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string }) => cb(m);
+      ipcRenderer.on("links:close-tab", handler);
+      return () => ipcRenderer.removeListener("links:close-tab", handler);
     },
   },
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
   power: {
     preventSleep: (on: boolean): Promise<void> => ipcRenderer.invoke("power:prevent-sleep", on),
+  },
+  /** Settings ▸ General ▸ Meetings. Main reads the calendar; `askForCalendar` is the one call here
+   *  that makes macOS ask, and only the page's button makes it. */
+  meetings: {
+    setOpenWhenStarts: (on: boolean): Promise<void> => ipcRenderer.invoke("meetings:open-when-starts", on),
+    setStartAssistantWithCall: (on: boolean): Promise<void> => ipcRenderer.invoke("meetings:start-assistant-with-call", on),
+    calendarAccess: (): Promise<CalendarAccess | null> => ipcRenderer.invoke("meetings:calendar-access"),
+    askForCalendar: (): Promise<void> => ipcRenderer.invoke("meetings:ask-for-calendar"),
+    openCalendarSettings: (): Promise<void> => ipcRenderer.invoke("meetings:open-calendar-settings"),
+    onCalendarAccess: (cb: (access: CalendarAccess | null) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, access: CalendarAccess | null) => cb(access);
+      ipcRenderer.on("realm:calendar-access", handler);
+      return () => ipcRenderer.removeListener("realm:calendar-access", handler);
+    },
+  },
+  /** Settings ▸ Keys ▸ From anywhere: the keys Realm answers from any app (main/realm-keys.ts). */
+  keys: {
+    state: (): Promise<GlobalKeysState> => ipcRenderer.invoke("keys:state"),
+    setDoubleTap: (on: boolean): Promise<void> => ipcRenderer.invoke("keys:set-double-tap", on),
+    setDoubleTapSide: (side: CommandSide): Promise<void> => ipcRenderer.invoke("keys:set-double-tap-side", side),
+    setHold: (key: HoldKey): Promise<void> => ipcRenderer.invoke("keys:set-hold", key),
+    setAssistant: (on: boolean): Promise<void> => ipcRenderer.invoke("keys:set-assistant", on),
+    /** While a page watches, main says when it sees a double-tap or the held key (`onEvent`). */
+    watch: (on: boolean): void => ipcRenderer.send("keys:watch", on),
+    onEvent: (cb: (event: GlobalKeysEvent) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, event: GlobalKeysEvent) => cb(event);
+      ipcRenderer.on("keys:event", handler);
+      return () => ipcRenderer.removeListener("keys:event", handler);
+    },
+    onState: (cb: (state: GlobalKeysState) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, state: GlobalKeysState) => cb(state);
+      ipcRenderer.on("keys:state", handler);
+      return () => ipcRenderer.removeListener("keys:state", handler);
+    },
   },
   /** The apps installed on this Mac and their icons, for the prompter's `@` list. `icons` answers only
    *  for bundles main's own scan found; any other path is simply absent from the answer. */
@@ -174,6 +275,9 @@ contextBridge.exposeInMainWorld("realm", {
     finderIcon: (): Promise<string | null> => ipcRenderer.invoke("files:finder-icon"),
     /** Copy it where the user points; the saved path, or null when they cancelled. */
     saveCopy: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-copy", path),
+    /** Typeset a text file the documents pane opens as a PDF, and save it where the user points; the
+     *  saved path, or null when nothing was saved (main/print-pdf.ts). */
+    savePdf: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-pdf", path),
     /** macOS's Quick Look panel for the file — what Space does in the Finder (main/file-actions.ts). */
     quickLook: (path: string, base?: string): Promise<void> => ipcRenderer.invoke("files:quick-look", path, base),
     /** Hand a PDF to Preview — which prints it, fills its forms and signs it, none of which Realm's own
@@ -250,6 +354,21 @@ contextBridge.exposeInMainWorld("realm", {
       const handler = (_e: IpcRendererEvent, event: unknown) => cb(event);
       ipcRenderer.on("realm:voice", handler);
       return () => ipcRenderer.removeListener("realm:voice", handler);
+    },
+  },
+  /** A meeting's transcript (main/voice-helper.ts's TranscriptHelper): "me" is the window's
+   *  microphone, sent as `audio("me", …)`; `systemAudio` hears "them" from this Mac's sound output
+   *  only where System Audio Recording is already granted, and never asks. */
+  transcript: {
+    start: (): Promise<unknown> => ipcRenderer.invoke("transcript:start"),
+    command: (command: Record<string, unknown>): void => ipcRenderer.send("transcript:command", command),
+    audio: (source: string, pcm: Uint8Array): void => ipcRenderer.send("transcript:audio", source, pcm),
+    systemAudio: (): void => ipcRenderer.send("transcript:system-audio"),
+    stop: (): void => ipcRenderer.send("transcript:stop"),
+    onEvent: (cb: (event: unknown) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, event: unknown) => cb(event);
+      ipcRenderer.on("realm:transcript", handler);
+      return () => ipcRenderer.removeListener("realm:transcript", handler);
     },
   },
   /** Settings page's macOS Permissions tab (Plan 12 W6). `probe` never triggers a TCC prompt —
@@ -365,9 +484,11 @@ contextBridge.exposeInMainWorld("realm", {
     focusProfile: (profileId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-profile", profileId),
     setProfile: (profileId: string | null): void => ipcRenderer.send("window:set-profile", profileId),
     openSpace: (spaceId: string): Promise<void> => ipcRenderer.invoke("window:open-space", spaceId),
-    focusSpace: (spaceId: string, sessionId?: string): Promise<boolean> => ipcRenderer.invoke("window:focus-space", spaceId, sessionId ?? null),
+    focusSpace: (spaceId: string, sessionId?: string, by?: "agent"): Promise<boolean> =>
+      ipcRenderer.invoke("window:focus-space", spaceId, sessionId ?? null, by ?? "person"),
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
+    drawn: (): void => ipcRenderer.send("window:drawn"),
   },
   /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
    *  page rather than to the menu (main/app-menu.ts). */
@@ -384,6 +505,12 @@ contextBridge.exposeInMainWorld("realm", {
     const handler = (_e: IpcRendererEvent, target: { sessionId: string; spaceId: string | null }) => cb(target);
     ipcRenderer.on("realm:open-session", handler);
     return () => ipcRenderer.removeListener("realm:open-session", handler);
+  },
+  /** A space's file asked for from the quick chat panel, which has no panes to open it in. */
+  onOpenDocument: (cb: (target: { spaceId: string; path: string }) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, target: { spaceId: string; path: string }) => cb(target);
+    ipcRenderer.on("realm:open-document", handler);
+    return () => ipcRenderer.removeListener("realm:open-document", handler);
   },
   /**
    * Settings → Sign-ins: the ONLY enrollment path for a browser credential.
@@ -433,6 +560,10 @@ contextBridge.exposeInMainWorld("realm", {
      *  Realm can read. Never a code. */
     codesStatus: (): Promise<SecurityCodesStatus | null> => ipcRenderer.invoke("codes:status"),
     setCodes: (enabled: boolean): Promise<SecurityCodesStatus | null> => ipcRenderer.invoke("codes:set-enabled", enabled),
+    /** Settings ▸ Sign-ins ▸ Let agents finish sign-ins (main/agent-signins.ts): the switch and the
+     *  last agent fills (site, kind, time, session). Never a value. */
+    signinsStatus: (): Promise<AgentSigninsStatus | null> => ipcRenderer.invoke("signins:status"),
+    setSignins: (enabled: boolean): Promise<AgentSigninsStatus | null> => ipcRenderer.invoke("signins:set-enabled", enabled),
     neverList: (profileId: string): Promise<string[]> => ipcRenderer.invoke("credentials:never-list", profileId),
     setNever: (profileId: string, origin: string, never: boolean): Promise<string[]> => ipcRenderer.invoke("credentials:set-never", profileId, origin, never),
     fillAllows: (profileId: string): Promise<PasswordFillAllow[]> => ipcRenderer.invoke("credentials:fill-allows", profileId),

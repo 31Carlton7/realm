@@ -34,7 +34,7 @@ import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
 import { createWorkspaceProvider } from "./workspace/agent-tools";
 import { createSessionOpenTools } from "./workspace/session-open";
-import { createSpacesTools } from "./workspace/spaces";
+import { createSpacesTools, pickFolder } from "./workspace/spaces";
 import { createSettingsTools } from "./workspace/settings";
 import { createCatalogTools } from "./workspace/catalog";
 import { harnessFakeScript } from "./harness-fake-script";
@@ -54,6 +54,8 @@ import { TextExtractor } from "./documents/text-extract";
 import { namedInRoot } from "./documents/paths";
 import { revealInFinder } from "./documents/reveal";
 import { LectureService } from "./school/lectures";
+import { MeetingNotesService } from "./meetings/service";
+import { quickChatSummariser } from "./meetings/summary-turn";
 import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
@@ -100,6 +102,8 @@ import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
+import { QuickChatEngines } from "./sessions/quick-chat";
+import { LiveAnswers } from "./meetings/live-answers";
 import { TabContextReader } from "./sessions/tab-context";
 import { RECAP_AFTER_IDLE_MS, SessionSummaryService } from "./sessions/summary";
 import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
@@ -107,7 +111,7 @@ import { ToolResultFiles } from "./mcp/tool-results";
 import { AccountsService, type AccountsDeps } from "./accounts/service";
 import { AccountsStore } from "./store/accounts";
 import { PlanLimitsService } from "./limits/service";
-import type { MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
+import type { LiveAnswerModel, MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
 import { UserCommandsService } from "./commands/service";
 import { ScriptService } from "./scripts/service";
@@ -119,7 +123,7 @@ import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub, type HubElicit } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
-import type { AgentKind, McpServerStatus } from "@realm/contracts";
+import type { AgentKind, McpServerStatus, PressureIdleMinutes } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { CLAUDE_BACKFILL_EVERY_MS, ClaudeMemoryBackfill } from "./memory/claude-backfill";
 import { AgentMemoryFolders } from "./memory/claude-redirect";
@@ -147,6 +151,8 @@ import { RunsStore } from "./store/runs";
 import { RunService } from "./runs/service";
 import { ScheduleService } from "./schedules/service";
 import { createScheduleAgentProvider } from "./schedules/agent-tools";
+import { createProjectTools } from "./workspace/projects";
+import { openProject } from "./workspace/open-project";
 import { SchedulesStore } from "./store/schedules";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, endProbes, fakeStandIn, type AdapterRegistry } from "@realm/adapters";
 import { FAKE_BLOCK_SCRIPT } from "./ui/fake-blocks";
@@ -182,6 +188,8 @@ import { userFirstName } from "./user-name";
 import { TeammatesService } from "./teammates/service";
 import { TeammatesStore } from "./teammates/store";
 import { createTeammatesProvider } from "./teammates/agent-tools";
+import { TeamManageTools } from "./teammates/manage";
+import { CrossSpaceTeamTools } from "./teammates/cross-space";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
@@ -795,6 +803,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number; graceMs?: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
   /** How long a teammate's clock turn may run before it is stopped (`TEAMMATE_CLOCK_TURN_MS`), shortened by suites. */
   teammates?: { clockTurnMs?: number };
+  /** How long the quick chat's spare engine waits before it is stopped (`QUICK_CHAT_WARM_MS`), shortened by suites. */
+  quickChat?: { warmMs?: number };
   /** Plan 13 W3: the same knobs for the reviewer recipe. `fallbackKind` (the reviewer's kind when the
    *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
    *  `browserAgent`'s. */
@@ -839,6 +849,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  A billed call, but one the person asks for by turning the switch on and talking, so `main.ts`
    *  passes it even with the scripted agent on; a test passes a fake, or none. */
   dictationCleanup?: DictationCleanup;
+  /** A meeting's live answers. Unset, `meetings.answer` says they are not available. */
+  liveAnswers?: LiveAnswerModel;
   /** One call answering BOTH of a settle's model-written fields — the summary and the prompter's
    *  hint. Omitted on any build that must not make a billed call: without it the panes show the
    *  derived line and the prompter keeps its deterministic ladder. */
@@ -929,7 +941,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Space names for the relay line: with no window anywhere, that line is all a person gets, and a
     // session title alone does not say which space to open.
     spaces: { get: (id: string) => spaces.get(id) },
-    sessions: { get: (id: string) => sessionsStore.get(id) ?? null },
+    sessions: { get: (id: string) => sessionsStore.get(id) ?? null, listDispatchedBy: (id: string) => sessionsStore.listDispatchedBy(id) },
+    // Late-bound: the goal loop and the session service's queue are built further down.
+    goals: { get: (id: string) => goals.get(id) },
+    queued: (id: string) => (sessionService?.queuedFor(id).length ?? 0) > 0,
     relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line),
       phone: { wants: () => phonePushes?.wants() ?? false, send: (n) => phonePushes?.send(n) } }) });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
@@ -1008,7 +1023,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* The resource service, built further down once every service it asks exists; the idle windows read
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
-  const adaptIdle = (minutes: number): number => resourcesLate?.adapt(minutes) ?? minutes;
+  const adaptIdle = (minutes: number, windows?: PressureIdleMinutes): number => resourcesLate?.adapt(minutes, windows) ?? minutes;
   const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), frontApp: async () => (await machineProbe.frontApp?.()) ?? null, home: opts.home, adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
@@ -1288,7 +1303,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onChange: () => laya.recordingChanged(),
   });
   const laya = new LayaService({
-    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder, adaptIdle,
+    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder, pressure: () => resourcesLate?.pressure() ?? "unknown",
     publish: (status) => {
       rpc.broadcast("laya.changed", status);
       const listed = layaAssist?.gate().available ?? false;
@@ -1428,6 +1443,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       const s = sessionsStore.get(sessionId);
       return s && mcpGateway.realmProvidersFor(sessionId, s.spaceId).includes(GOAL_PROVIDER_NAME) ? goalToolWireName(s.agentKind) : null;
     },
+    stopped: (sessionId) => notifications.goalStopped(sessionId),
     log: (line) => console.log(line),
   });
   // Read once, for system.info and the Move sheet both.
@@ -1563,6 +1579,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     documents: { rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } } },
     // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
     profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
+    transcript: { note: (sessionId, ev) => sessionService?.publishServerEvent(sessionId, ev) },
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is never a valid asker, and a target only for the session that started it once its run is
@@ -1591,6 +1608,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const agentRunsForUi = agentRuns;
   mcpGateway.registerProvider(createUiAgentProvider({
     mcp, broker: browserBroker, session: (id) => sessions.get(id), models: (id) => agentRunsForUi.catalogFor(id), branches: listBranches,
+    folder: (path) => pickFolder({ userHome, realmHome: opts.home }, path),
   }));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, grants: computerGrants, observe: layaShadow.observe, assist: layaAssist }));
@@ -1670,6 +1688,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       turnOrigin: (id) => team?.turnOrigin(id) ?? "something other than the person",
       turnOf,
     }),
+    createProjectTools({
+      spaces, projects, sessions, broker: browserBroker, rpc, userHome, realmHome: opts.home,
+      turnOrigin: (id) => team?.turnOrigin(id) ?? "something other than the person",
+      open: (input) => openProject({ profiles, spaces, projects, environments }, input),
+    }),
     createSettingsTools({ settings, themes, broker: browserBroker, rpc }),
     // `machine_status`: the Mac's memory and what of Realm's is heavy, read before heavy work.
     createMachineStatusTools({
@@ -1736,7 +1759,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      rather than only from the Schedules page. Registered HERE and not up with the other providers
      because it wraps the service declared on the line above; the gateway's per-space enablement is
      what decides whether a session actually sees the tools. */
-  mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
+  mcpGateway.registerProvider(createScheduleAgentProvider({
+    schedules, mcp, sessions, broker: browserBroker,
+    turnOrigin: (id) => team?.turnOrigin(id) ?? "something other than the person",
+  }));
   /* Teammates (teammates/service.ts): permanent agents in a space, each with its own chat, kept in the
      table the first Teams' roles were. `realm-team` is listed in every session of a space that has one. */
   const teammatesStore = new TeammatesStore(db);
@@ -1748,7 +1774,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     toolsChanged: () => mcpGateway.notifyToolsChanged(),
     requestedMode: (id) => agentRuns?.record(id)?.mode?.requested,
   });
-  mcpGateway.registerProvider(createTeammatesProvider({ store: teammatesStore, teammates: team, mcp }));
+  mcpGateway.registerProvider(createTeammatesProvider({
+    store: teammatesStore, teammates: team, mcp,
+    manage: new TeamManageTools({
+      team, schedules, sessions, broker: browserBroker, userHome, realmHome: opts.home,
+      defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
+    }),
+    across: new CrossSpaceTeamTools({ team, spaces, sessions, broker: browserBroker }),
+  }));
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — which every profile has unless its repo was detached. Every engine saves and searches
      through them; the index itself travels in each session's context. A save repaints every open memory
@@ -1884,9 +1917,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** The remote listener, once it is up (below, after the loopback socket). */
   let access: Access | null = null;
   const owner = opts.owner ?? "app";
+  const quickChats = new QuickChatEngines({ sessions, settings, registered: Object.keys(adapterRegistry) as AgentKind[], ...(opts.quickChat?.warmMs ? { warmMs: opts.quickChat.warmMs } : {}) });
+  const liveAnswers = new LiveAnswers({ model: () => quickChats.model(), engine: opts.liveAnswers ?? null });
+  const meetingNotes = new MeetingNotesService({ documents, rpc, summarise: quickChatSummariser({
+    adapters: adapterRegistry, model: () => quickChats.model(), probes: () => sessions.probeCached()?.rows ?? [],
+    // One fixed folder for every summary turn: an agent CLI remembers each folder it is started in.
+    cwd: join(opts.home, "meeting-summary"),
+  }) });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, quickChats, liveAnswers, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, meetingNotes, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
@@ -1915,6 +1955,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   sessions.markStaleOnBoot();
   await sessions.recoverMoves();
+  await quickChats.dropLeftover();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
   runs.recoverOnBoot();
@@ -2039,6 +2080,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // a gigabyte of weights — and any install in flight.
     await layaShadow.close();
     await laya.close();
+    await quickChats.stop();
+    liveAnswers.close();
+    meetingNotes.close();
     await sessions.closeAll();
     // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
     // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.

@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { Item } from "@realm/contracts";
 import type { MenuItem } from "../../components/Menu";
 import { canShare, shareFile } from "../../components/file-actions";
+import { downloadPdfItems } from "../../components/file-menu";
 import { capabilities } from "../../platform";
 
 /** Whether this Mac's bridge can hand a PDF to Preview (main/file-actions.ts). Here rather than in
@@ -45,7 +46,7 @@ export function useDocumentsMenuItems(item: Item): MenuItem[] {
   const file = useSyncExternalStore(subscribe, () => (item.kind === "documents" ? shown.get(item.id) ?? null : null));
   if (!file) return [];
   const reveal: MenuItem[] = canReveal() ? [{ label: `Reveal in ${capabilities().fileManager}`, onSelect: () => revealPath(file.path) }] : [];
-  if (file.kind !== "pdf") return reveal;
+  if (file.kind !== "pdf") return [...reveal, ...downloadPdfItems(file.path)];
   return [
     ...(canOpenInPreview() ? [{ label: "Open in Preview", title: "Print, fill in or sign it there", onSelect: () => openInPreview(file.path) }] : []),
     // Under the document's name, the control nearest to what is being shared.

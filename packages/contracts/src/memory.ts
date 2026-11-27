@@ -180,8 +180,9 @@ export const MEMORY_REPO_INDEX_FILE = "MEMORY.md";
 /** What a new repo's `MEMORY.md` starts as — the spec skill's own seed, byte for byte. */
 export const MEMORY_REPO_INITIAL_INDEX = "# Memory\n\n## Index\n";
 
-/** Cap on the `MEMORY.md` content injected into one session. The spec asks for a short file; a long one
- *  is cut here, with a pointer to `memory_read`, so it can never crowd the space's own document out. */
+/** Cap on the `MEMORY.md` content `memory_index` returns. The spec asks for a short file; a long one is
+ *  cut here, with a pointer to `memory_read`. What a session starts with is fitted to its own budget
+ *  (the server's `context-budget.ts`). */
 export const MEMORY_REPO_INDEX_MAX = 20_000;
 
 /** Cap on one entry. An entry is one line of one fact, and a paragraph is a topic file. */
@@ -436,7 +437,7 @@ export type MemoryEdit =
   | { op: "remove"; match: string };
 
 export type MemoryEditResult =
-  | { ok: true; content: string; changed: boolean }
+  | { ok: true; content: string; changed: boolean; old?: string }
   | { ok: false; error: string };
 
 /**
@@ -447,7 +448,7 @@ export type MemoryEditResult =
  *   needs) and at the end of any other file. A fact already there word for word is not added twice.
  * - `replace` and `remove` find the ONE entry whose text is `match` exactly, or failing that the one
  *   whose text contains it. None, or more than one, is an error that says which, so the agent can
- *   quote more rather than change the wrong line.
+ *   quote more rather than change the wrong line. `old` is the line they replaced or removed.
  */
 export function applyMemoryEdit(content: string, edit: MemoryEdit, o: { isIndex: boolean; title: string }): MemoryEditResult {
   const lines = content === "" ? [] : content.replace(/\n$/, "").split("\n");
@@ -478,10 +479,11 @@ export function applyMemoryEdit(content: string, edit: MemoryEdit, o: { isIndex:
   if (hits.length === 0) return { ok: false, error: `no entry matches "${wanted}"` };
   if (hits.length > 1) return { ok: false, error: `${hits.length} entries match "${wanted}" — quote more of the one you mean:\n${hits.map((h) => lines[h.i]).join("\n")}` };
   const i = hits[0]!.i;
+  const old = lines[i]!;
   if (edit.op === "remove") {
     lines.splice(i, 1);
     // The last fact of a run leaves the blank lines that framed it; keep one.
     if (i > 0 && lines[i - 1]?.trim() === "" && lines[i]?.trim() === "") lines.splice(i, 1);
   } else lines[i] = formatMemoryEntry(edit.entry);
-  return { ok: true, content: lines.length > 0 ? `${lines.join("\n")}\n` : "", changed: true };
+  return { ok: true, content: lines.length > 0 ? `${lines.join("\n")}\n` : "", changed: true, old };
 }

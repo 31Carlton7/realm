@@ -3,7 +3,7 @@ import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@r
 import type { z } from "zod";
 import type { CallContext, RpcServer } from "./server";
 import type { ServerOwner } from "./cli-methods";
-import { REMOTE_RELAY_KEY, TERMINALS_HISTORY_KEY } from "@realm/contracts";
+import { LIVE_SETTINGS, REMOTE_RELAY_KEY, TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
 /** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
@@ -58,6 +58,8 @@ import { pngSize } from "../machines/qmp-driver";
 import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
+import type { QuickChatEngines } from "../sessions/quick-chat";
+import type { LiveAnswers } from "../meetings/live-answers";
 import type { NotificationsService } from "../notifications/service";
 import type { UsageService } from "../usage/service";
 import type { GraphifyService } from "../graphify/service";
@@ -78,6 +80,7 @@ import type { ForkService } from "../sessions/fork";
 import type { FailoverService } from "../sessions/failover";
 import type { ImportService } from "../import/service";
 import type { LectureService } from "../school/lectures";
+import type { MeetingNotesService } from "../meetings/service";
 import type { PlynnService } from "../school/plynn";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
@@ -105,7 +108,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; tabContext: TabContextReader; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService; dictation: DictationCleaner;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; quickChats: QuickChatEngines; liveAnswers: LiveAnswers; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; tabContext: TabContextReader; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; meetingNotes: MeetingNotesService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService; dictation: DictationCleaner;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -331,8 +334,26 @@ export function registerMethods(d: Deps): void {
   reg("accounts.remove", async (p) => { await d.accounts.remove(p.id); return { ok: true as const }; });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("dictation.clean", (p) => d.dictation.clean(p.text));
+  // A meeting's live answers are the app's alone: the owner's `token:<id>` socket on another machine
+  // may not start an engine, cancel an answer or end the meeting here. Raw `rpc.register` for the
+  // answer, like `browserHost.register`: it streams to the asking socket alone, so no other window,
+  // phone or CLI ever receives the words.
+  const fromTheApp = (ctx: CallContext) => {
+    if (!ctx.client || ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only Realm's own app can ask for live answers");
+    return ctx.client;
+  };
+  rpc.register("meetings.answer", Methods["meetings.answer"].params, async (p, ctx) => {
+    const client = fromTheApp(ctx);
+    return d.liveAnswers.ask(p, (e) => { if (!rpc.sendTo(client, "meetings.answer", e) && e.t !== "cancelled") d.liveAnswers.cancel(); });
+  });
+  reg("meetings.cancelAnswer", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.cancel(); return { ok: true as const }; });
+  reg("meetings.prepareAnswers", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.prepare(); return { ok: true as const }; });
+  reg("meetings.stopAnswers", (_p, ctx) => { fromTheApp(ctx); d.liveAnswers.stop(); return { ok: true as const }; });
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
+    // A setting windows apply live is announced, as `settings_set` announces it: a value written by a
+    // script, the CLI or another window would otherwise reach a window only at its next reload.
+    if (LIVE_SETTINGS.has(p.key)) rpc.broadcast("settings.changed", { key: p.key, value: p.value });
     // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output
     // on disk is not an off switch, and the thing being kept is whatever a shell printed.
     if (p.key === TERMINALS_HISTORY_KEY && p.value !== true) d.terminals.purgeHistory();
@@ -755,6 +776,8 @@ export function registerMethods(d: Deps): void {
     const opened = openProject({ profiles: d.profiles, spaces: d.spaces, projects: d.projects, environments: d.environments }, p);
     if (opened.createdSpace) rpc.broadcast("spaces.changed", {});
     rpc.broadcast("items.changed", { spaceId: opened.space.id });
+    // The checkout is what the workspace selector lists, and the window refreshes it on its own event.
+    rpc.broadcast("environments.changed", { spaceId: opened.space.id });
     return { space: opened.space, project: opened.project, environment: opened.environment };
   });
   reg("projects.delete", (p) => { const pr = d.projects.get(p.id); d.projects.delete(p.id); if (pr) rpc.broadcast("items.changed", { spaceId: pr.spaceId }); return { ok: true as const }; });
@@ -1018,6 +1041,9 @@ export function registerMethods(d: Deps): void {
   reg("documents.progressStorage", (p) => d.documents.progressStorage(p));
   reg("lectures.start", (p) => d.lectures.start(p));
   reg("lectures.list", async (p) => ({ lectures: await d.lectures.list(p.spaceId) }));
+  reg("meetings.saveNotes", (p) => d.meetingNotes.save(p));
+  reg("meetings.cancelSummary", (p) => ({ cancelled: d.meetingNotes.cancelSummary(p.meetingId) }));
+  reg("meetings.list", (p) => d.meetingNotes.list(p.spaceId));
   reg("plynn.list", () => d.plynn.list());
   reg("plynn.import", (p) => d.plynn.import(p));
 
@@ -1246,6 +1272,7 @@ export function registerMethods(d: Deps): void {
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
   // recorded by the server-side tools that create those children, never over RPC.
   reg("sessions.create", (p) => { refuseWhileDraining("start a session"); return d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }); });
+  reg("sessions.startQuickChat", async (p) => { refuseWhileDraining("start a session"); return { session: await d.quickChats.start(p.spaceId) }; });
   reg("sessions.send", async (p) => {
     // A teammate named in the message is passed it in its own chat first, so the message this agent
     // reads already says it was (`TeammatesService.passMentioned`).
@@ -1271,7 +1298,13 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("session.saved", { sessionId: p.id, seqs });
     return { seqs };
   });
-  reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
+  // A person answers on a socket (Realm's window, the owner's other Mac) or from their phone; a call
+  // made in process is Realm's own code, which may not answer Allow on a card kept for a person.
+  reg("sessions.respondPermission", (p, ctx) => {
+    const by = ctx.client !== null || ctx.principal.startsWith("phone:") ? "person" : "process";
+    d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers, by);
+    return { ok: true as const };
+  });
   // A model, level or mode picked on a teammate's chat is the teammate's from then on, and a mode
   // reaches its task sessions before this returns. The desktop composer and the phone's
   // `session.configure` both set the chip through here.
@@ -1318,6 +1351,7 @@ export function registerMethods(d: Deps): void {
   });
   reg("sessions.setEnvironment", (p) => d.sessions.setEnvironment(p.id, p.environmentId));
   reg("sessions.moveToSpace", (p) => d.sessions.moveToSpace(p.id, p.spaceId));
+  reg("sessions.keep", (p) => { const kept = d.sessions.keep(p.id, p.spaceId); d.quickChats.kept(p.id); return kept; });
   reg("sessions.moveOptions", (p) => d.sessions.moveOptions(p.id));
   reg("sessions.move", (p) => d.sessions.move(p.id, { to: p.to, keepSourceChanges: p.keepSourceChanges, when: p.when }));
   reg("sessions.cancelMove", (p) => ({ cancelled: d.sessions.cancelMove(p.id) }));
@@ -1328,5 +1362,5 @@ export function registerMethods(d: Deps): void {
   // ancestor transcript as text. The service broadcasts environments.changed; sessions.create's own
   // items.changed already rode out of createSession.
   reg("sessions.fork", (p) => d.forks.fork(p.checkpointId, p.agentKind));
-  reg("sessions.delete", async (p) => { await d.sessions.delete(p.id); return { ok: true as const }; });
+  reg("sessions.delete", async (p) => { await d.sessions.delete(p.id); await d.quickChats.deleted(p.id); return { ok: true as const }; });
 }

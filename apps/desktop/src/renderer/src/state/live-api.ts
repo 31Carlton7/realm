@@ -27,7 +27,7 @@ export const liveApi = (): Api => ({
   },
   openProfileWindow: async (profileId) => { await window.realm.windows?.openProfile(profileId); },
   openSpaceWindow: async (spaceId) => { await window.realm.windows?.openSpace(spaceId); },
-  focusSpaceWindow: async (spaceId, sessionId) => (await window.realm.windows?.focusSpace(spaceId, sessionId)) ?? false,
+  focusSpaceWindow: async (spaceId, sessionId, by) => (await window.realm.windows?.focusSpace(spaceId, sessionId, by)) ?? false,
   newWindow: async () => (await window.realm.windows?.newWindow()) ?? false,
   focusProfileWindow: async (profileId) => (await window.realm.windows?.focusProfile(profileId)) ?? false,
   listSpaces: () => rpc().call("spaces.list", {}),
@@ -76,6 +76,7 @@ export const liveApi = (): Api => ({
   writeGuideStorage: (documentsId, path, storage) => rpc().call("documents.progressStorage", { documentsId, path, storage }),
   startLecture: (spaceId, title) => rpc().call("lectures.start", { spaceId, title }),
   listLectures: async (spaceId) => (await rpc().call("lectures.list", { spaceId })).lectures,
+  listMeetingNotes: (spaceId) => rpc().call("meetings.list", { spaceId }),
   plynnList: () => rpc().call("plynn.list", {}),
   plynnImport: (spaceId, files) => rpc().call("plynn.import", { spaceId, files }),
   updateItem: (input) => rpc().call("items.update", input),
@@ -105,12 +106,12 @@ export const liveApi = (): Api => ({
   getSession: (id) => rpc().call("sessions.get", { id }),
   /* The wire's `itemId` is nullable because `unlisted` exists; a plain create never asks for one, so
      the non-null it always returns is asserted here rather than at four call sites that cannot get
-     null. `createUnlistedSession` is the one that can, and it does not read `itemId` at all. */
+     null. `startQuickChat` is the one that can, and it returns no `itemId` at all. */
   createSession: async (input) => {
     const { session, itemId } = await rpc().call("sessions.create", input);
     return { session, itemId: itemId! };
   },
-  createUnlistedSession: (input) => rpc().call("sessions.create", { ...input, unlisted: true }),
+  startQuickChat: (spaceId) => rpc().call("sessions.startQuickChat", { spaceId }),
   deleteSession: async (id) => { await rpc().call("sessions.delete", { id }); },
   forkSession: (checkpointId, agentKind) => rpc().call("sessions.fork", { checkpointId, ...(agentKind ? { agentKind } : {}) }),
   listSkills: (spaceId) => rpc().call("skills.list", { spaceId }),
@@ -190,6 +191,7 @@ export const liveApi = (): Api => ({
   layaDeleteRecordings: () => rpc().call("laya.deleteRecordings", {}),
   setSessionEnvironment: (id, environmentId) => rpc().call("sessions.setEnvironment", { id, environmentId }),
   moveSessionToSpace: (id, spaceId) => rpc().call("sessions.moveToSpace", { id, spaceId }),
+  keepSession: (id, spaceId) => rpc().call("sessions.keep", { id, spaceId }),
   sessionMoveOptions: (id) => rpc().call("sessions.moveOptions", { id }),
   moveSession: (id, to, keepSourceChanges, when) => rpc().call("sessions.move", { id, to, keepSourceChanges, when }),
   cancelSessionMove: (id) => rpc().call("sessions.cancelMove", { id }),
@@ -263,6 +265,12 @@ export const liveApi = (): Api => ({
   setBadgeCount: (count) => window.realm.notify.badge(count),
   setReducedMotion: (pref) => window.realm.motion?.set(pref) ?? Promise.resolve(),
   setPreventSleep: (on) => window.realm.power?.preventSleep(on) ?? Promise.resolve(),
+  setOpensMeetings: (on) => window.realm.meetings?.setOpenWhenStarts(on) ?? Promise.resolve(),
+  setStartsAssistant: (on) => window.realm.meetings?.setStartAssistantWithCall?.(on) ?? Promise.resolve(),
+  calendarAccess: () => window.realm.meetings?.calendarAccess() ?? Promise.resolve(null),
+  onCalendarAccess: (cb) => window.realm.meetings?.onCalendarAccess(cb) ?? (() => {}),
+  askForCalendar: () => window.realm.meetings?.askForCalendar() ?? Promise.resolve(),
+  openCalendarSettings: () => window.realm.meetings?.openCalendarSettings() ?? Promise.resolve(),
   setLinksOpenIn: (pref) => window.realm.links?.setOpenIn(pref),
   installedApps: () => window.realm.apps?.list() ?? Promise.resolve([]),
   appIcons: (paths) => window.realm.apps?.icons(paths) ?? Promise.resolve({}),

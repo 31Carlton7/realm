@@ -71,10 +71,86 @@ export function quietElectronBinary() {
   return binary;
 }
 
-/** Quiet mode, and the app's RPC token written to `<home>/live-app-token` for the check to dial
- *  with (`lib/daemon-token.mjs`). */
+/**
+ * A stand-in for the `meetingwatch` helper. Main starts `meetingwatch calendar` at launch, and the
+ * real one reads the calendar of whoever runs the check. This one says access was never asked for,
+ * then waits for its stdin to close as the helper does, so Settings' "Ask macOS" goes nowhere.
+ */
+export function noCalendarHelper() {
+  const helper = path.join(desktopRoot, "node_modules/.cache/realm-live-app/meetingwatch");
+  fs.mkdirSync(path.dirname(helper), { recursive: true });
+  const staging = `${helper}.tmp-${process.pid}`;
+  fs.writeFileSync(staging, `#!/bin/bash\necho '{"access":"notDetermined"}'\ncat > /dev/null\n`, { mode: 0o755 });
+  fs.renameSync(staging, helper);
+  return helper;
+}
+
+/**
+ * A stand-in for the `realmkeys` helper. The real one makes an event tap on the keys of whoever is at
+ * the Mac, an active one under `--swallow`. This one says it is ready with no tap, reports nothing,
+ * and waits for its stdin to close as the helper does.
+ */
+export function noKeysHelper() {
+  const helper = path.join(desktopRoot, "node_modules/.cache/realm-live-app/realmkeys");
+  fs.mkdirSync(path.dirname(helper), { recursive: true });
+  const staging = `${helper}.tmp-${process.pid}`;
+  fs.writeFileSync(staging, `#!/bin/bash\necho '{"ready":true,"active":false}'\ncat > /dev/null\n`, { mode: 0o755 });
+  fs.renameSync(staging, helper);
+  return helper;
+}
+
+/** Quiet mode, the app's RPC token written to `<home>/live-app-token` for the check to dial with
+ *  (`lib/daemon-token.mjs`), and no calendar and no key tap unless `env` names a helper of its own. */
 export function quietEnv(env = process.env) {
-  return { ...env, REALM_QUIET_WINDOWS: "1", REALM_LIVE_APP_TOKEN: "1" };
+  return {
+    ...env, REALM_MEETINGWATCH_BIN: env.REALM_MEETINGWATCH_BIN || noCalendarHelper(), REALM_KEYS_BIN: env.REALM_KEYS_BIN || noKeysHelper(),
+    REALM_QUIET_WINDOWS: "1", REALM_LIVE_APP_TOKEN: "1",
+  };
+}
+
+/** What `spawnLiveElectron` starts the app with: `quietEnv`, less quiet mode for a check that is seen.
+ *  An agent's shell would force quiet mode too (`REALM_AGENT_SHELL`), so a seen check drops that as well. */
+export function liveEnv(env, seen) {
+  const out = { ...quietEnv(env), REALM_QUIET_MAIN: quietMain };
+  if (seen) {
+    delete out.REALM_QUIET_WINDOWS;
+    delete out.REALM_AGENT_SHELL;
+  }
+  return out;
+}
+
+/* ── The away gate ────────────────────────────────────────────────────────────────────────── */
+
+export const AWAY_SECONDS = 300;
+
+/** Seconds since the last keyboard, mouse or trackpad input (HIDIdleTime, in ns), or null when it
+ *  cannot be read. */
+export function hidIdleSeconds(ioreg = () => execFileSync("ioreg", ["-c", "IOHIDSystem", "-d", "4"], { encoding: "utf8" })) {
+  try {
+    const m = /"HIDIdleTime" = (\d+)/.exec(ioreg());
+    return m ? Number(m[1]) / 1e9 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Throws (code `LIVE_NOT_AWAY`) unless a check that is seen on screen may run now: the Mac has been
+ *  idle for `AWAY_SECONDS`, or `REALM_LIVE_SEEN_OK` says why it may run anyway. */
+export function awayGate(why, { env = process.env, idleSeconds = hidIdleSeconds } = {}) {
+  const ok = env.REALM_LIVE_SEEN_OK?.trim();
+  if (ok && !/^(1|true|yes)$/i.test(ok)) {
+    process.stderr.write(`[live-app] seen while the Mac may be in use: ${ok}\n`);
+    return;
+  }
+  const idle = idleSeconds();
+  if (idle !== null && idle >= AWAY_SECONDS) return;
+  const last = idle === null ? "it cannot tell when the Mac was last used" : `the Mac was last used ${Math.floor(idle)} s ago`;
+  const error = new Error(
+    `this check is seen on screen (${why}), and ${last}. It runs once nobody has touched the Mac for ` +
+    `${AWAY_SECONDS / 60} min, or now with REALM_LIVE_SEEN_OK="<why it may>".`,
+  );
+  error.code = "LIVE_NOT_AWAY";
+  throw error;
 }
 
 /* ── Teardown ─────────────────────────────────────────────────────────────────────────────── */
@@ -142,17 +218,26 @@ function hookExit() {
  * (a `screencapture` of native material or a native panel). The reason is printed, so a run that
  * takes the screen says so.
  *
+ * `frontApp: "<why>"` is for a stand-in that has to really become the front app, to hear what a page
+ * in front is told when something else opens over it. It runs on the quiet Electron, so it is never
+ * a Dock app, but without quiet mode's patches, which keep an app from ever being in front: the
+ * script hushes its own window and hands the front back. The reason is printed.
+ *
+ * Either one throws instead of starting while someone is using the Mac (`awayGate`); `idleSeconds`
+ * stands in for the Mac's idle time.
+ *
  * Quiet mode is preloaded (`-r`), ahead of the script's own wrapper: a wrapper that stands in for
  * the hand on a menu or a dialog patches Electron before it imports Realm's main, and main installing
  * quiet mode after that would put the quiet stubs back over the wrapper's.
  */
-export function spawnLiveElectron(args, { visible, ...options } = {}) {
+export function spawnLiveElectron(args, { visible, frontApp, idleSeconds, ...options } = {}) {
+  if (visible || frontApp) awayGate(visible || frontApp, { env: options.env ?? process.env, idleSeconds });
   if (visible) process.stderr.write(`[live-app] this check is seen on screen: ${visible}\n`);
-  const env = { ...quietEnv(options.env ?? process.env), REALM_QUIET_MAIN: quietMain };
-  if (visible) delete env.REALM_QUIET_WINDOWS;
+  if (frontApp) process.stderr.write(`[live-app] this check is the front app for a moment: ${frontApp}\n`);
+  const env = liveEnv(options.env ?? process.env, Boolean(visible || frontApp));
   const child = visible
     ? spawn(electronBinary(), args, { ...options, env })
-    : spawn(quietElectronBinary(), ["-r", quietPreload, ...args], { ...options, env });
+    : spawn(quietElectronBinary(), frontApp ? args : ["-r", quietPreload, ...args], { ...options, env });
   launched.push({ child, ports: portsOf(args, env), home: env.REALM_HOME });
   hookExit();
   return child;

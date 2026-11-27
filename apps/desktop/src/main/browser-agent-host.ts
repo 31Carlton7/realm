@@ -5,10 +5,10 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential, type AgentFillKind } from "@realm/contracts";
 import { isAbsolute } from "node:path";
-import type { LatestCode } from "./security-codes";
-import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
+import { missedCodeError, type CodeWait } from "./security-codes";
+import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, REMOVE_REF_BOXES_JS, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, refBoxes, refBoxesScript, refLegend, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { credentialSiteMatch } from "./password-match";
 import { bothReads, readSecretRects, type SecretFields } from "./phone-frame";
@@ -106,6 +106,9 @@ export type BrowserAgentHostDeps = {
    *  the page is still loading (`isLoading()`, the pane's own spinner), why it did not load, and the
    *  addresses of the popup windows it has open (a sign-in, mostly). */
   pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null; popups?: string[] } | null;
+  /** The new tabs the page opened since it was last asked, waiting up to `waitMs` for one still being
+   *  made (`BrowserPaneHost.takeOpenedTabs`). Absent, a page is taken to open none. */
+  takeOpenedTabs?(browserId: string, waitMs: number): Promise<{ browserId: string; url: string }[]>;
   /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
   now?: () => number;
   /** How long a screenshot waits for the page to paint. A test seam; `SCREENSHOT_TIMEOUT_MS` otherwise. */
@@ -186,18 +189,26 @@ export type BrowserAgentHostDeps = {
    * Security codes (`security-codes.ts`), for the `codesEnabled` and `fillCode` ops alone. Absent is
    * the same answer as the switch being off: nothing is read and nothing is filled.
    */
-  codes?: { enabled(): boolean; latest(origin: string): Promise<LatestCode | null> };
+  codes?: { enabled(): boolean; waitFor(origin: string, o: { signal?: AbortSignal }): Promise<CodeWait> };
   /**
    * Paint `fields` over in a JPEG screenshot (base64), as the phone's picture is covered; null when it
    * cannot. Absent is the same answer: a screenshot with a secret field in it is then not taken.
    */
   coverShot?(jpeg: string, fields: SecretFields): string | null;
+  /** Let agents finish sign-ins (`agent-signins.ts`): the switch, and the log of agent fills Settings
+   *  lists. Absent is the switch off, with nothing logged. */
+  signins?: { enabled(): boolean; record(fill: { site: string; kind: AgentFillKind; sessionId: string | null }): void };
 };
 
 /** Who a fill was for, as realm-server named it: the asking session's space. */
 type FillWho = { spaceId?: string };
 function fillWho(params: Record<string, unknown>): FillWho {
   return typeof params.spaceId === "string" && params.spaceId ? { spaceId: params.spaceId } : {};
+}
+
+/** The agent's session a fill was for, as realm-server named it, for the log Settings lists. */
+function fillSession(params: Record<string, unknown>): string | null {
+  return typeof params.sessionId === "string" && params.sessionId ? params.sessionId : null;
 }
 
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
@@ -224,6 +235,8 @@ const REQUESTS_MAX = 500;
  *  enough to be invisible to a person and to a twenty-step batch; long enough for the renderer to
  *  dispatch the click handler and for the CDP event to cross the debugger. */
 const CHOOSER_SETTLE_MS = 150;
+/** How long an act waits for a tab its click asked for to be made, so the act's answer can name it. */
+const TAB_SETTLE_MS = 2_000;
 /** How long a screenshot waits for a frame. A page on screen captures in well under a second; one that
  *  is not on screen never does, and this is how long it takes to say so. */
 const SCREENSHOT_TIMEOUT_MS = 5_000;
@@ -294,6 +307,8 @@ export class BrowserAgentHost {
    *  taken out (`hideCodes`): the page may draw the code as text, submit it in a URL or log it, and an
    *  agent may copy it into a field of its own. */
   private readonly filledCodes = new Map<string, Set<string>>();
+  /** Per view, the fill waiting for its code to arrive, so an interrupted turn can stop it. */
+  private readonly codeWaits = new Map<string, AbortController>();
 
   /**
    * The theme accent every mark this host draws inside a page is painted in — the action ring, the
@@ -606,6 +621,8 @@ export class BrowserAgentHost {
         if (popups.length > 0) {
           wire.text = `${wire.text}\n(this page has a popup window open over it, on ${popups.join(" and ")} — a sign-in, usually. Browser tools reach this page, not the popup, so what happens in it is for the person to do; when it is done it closes itself and this page carries on.)`;
         }
+        const tabs = await this.openedTabsNote(browserId, 0);
+        if (tabs) wire.text = `${wire.text}\n(this page opened ${tabs})`;
         return this.hideFilledCodes(browserId, wire);
       }
       case "read":
@@ -641,7 +658,10 @@ export class BrowserAgentHost {
         const result = await performAct(entry.binding.send, action);
         // Whatever the method: inserted text sends no key event for the keyboard's own record to hear.
         if (result.ok && (action.kind === "type" || action.kind === "key")) this.d.typed?.(browserId);
-        return this.withChooserNote(entry, result);
+        const acted = await this.withChooserNote(entry, result);
+        if (!acted.ok || (action.kind !== "click" && action.kind !== "key")) return acted;
+        const tabs = await this.openedTabsNote(browserId, TAB_SETTLE_MS);
+        return tabs ? { ...acted, detail: `${acted.detail} — that opened ${tabs}` } : acted;
       }
       /**
        * Attach files to a page (Plan 26). The gate, the path resolution, the symlink check, the
@@ -692,6 +712,8 @@ export class BrowserAgentHost {
        *  is off without a card being raised for a fill that could not happen. Reads no message. */
       case "codesEnabled":
         return { enabled: this.d.codes?.enabled() ?? false };
+      case "signinsEnabled":
+        return { enabled: this.d.signins?.enabled() ?? false };
       /**
        * Type the security code that just arrived into the code field at `ref` — after the person
        * approved this fill on its card, which is the only way realm-server sends this op. The code is
@@ -711,17 +733,34 @@ export class BrowserAgentHost {
         if (!origin) return { ok: false, refused: "origin_mismatch", error: "this pane is not on an http(s) page, so nothing was filled" } satisfies BrowserActResult;
         const entry = this.ensure(browserId);
         const send = entry.binding.send;
+        const notCodeField = { ok: false, error: `ref=${ref} is not a one-time-code field, and Realm fills a code only into one — take a fresh browser_snapshot` } satisfies BrowserActResult;
+        if (!(await codeTargets(send, ref))) return notCodeField;
+        this.codeWaits.get(browserId)?.abort();
+        const waiting = new AbortController();
+        this.codeWaits.set(browserId, waiting);
+        const started = Date.now();
+        const wait = await codes.waitFor(origin, { signal: waiting.signal }).catch(() => null)
+          .finally(() => { if (this.codeWaits.get(browserId) === waiting) this.codeWaits.delete(browserId); });
+        if (!wait) return { ok: false, error: "Realm could not read Messages or Mail, so nothing was filled" } satisfies BrowserActResult;
+        if (!wait.found) {
+          return { ok: false, error: wait.cancelled ? "the wait for a code was cancelled, so nothing was filled" : missedCodeError(wait.miss, Date.now() - started) } satisfies BrowserActResult;
+        }
+        const found = wait.found;
+        // The page had up to a minute and a half to redraw its field: found again, not reused.
         const targets = await codeTargets(send, ref);
-        if (!targets) return { ok: false, error: `ref=${ref} is not a one-time-code field, and Realm fills a code only into one — take a fresh browser_snapshot` } satisfies BrowserActResult;
-        const found = await codes.latest(origin).catch(() => null);
-        if (!found) return { ok: false, error: "no security code arrived by Messages or Mail in the last 5 minutes, so nothing was filled" } satisfies BrowserActResult;
+        if (!targets) return notCodeField;
         const result = await performCodeFill(send, targets.objectIds, { origin, code: found.code });
         if (result.ok) {
+          this.d.signins?.record({ site: origin, kind: "code", sessionId: fillSession(params) });
           this.codeFilled(browserId, targets.backendNodeIds, found.code);
           this.d.typed?.(browserId);
         }
         return result;
       }
+      /** The fill's turn was interrupted: stop waiting for its code. Fills nothing, reads nothing. */
+      case "fillCodeCancel":
+        this.codeWaits.get(browserId)?.abort();
+        return { cancelled: true };
       case "dismissDialog": {
         const entry = this.ensure(browserId);
         const pending = this.takePendingChooser(entry);
@@ -870,7 +909,10 @@ export class BrowserAgentHost {
           return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
         this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error", who);
-        if (result.ok) this.d.typed?.(browserId);
+        if (result.ok) {
+          this.d.typed?.(browserId);
+          this.d.signins?.record({ site: origin, kind: generate ? "generated" : "password", sessionId: fillSession(params) });
+        }
         // The id travels back only for a generated fill, and only as metadata: it is how the agent
         // fills this same new password into a confirm field without ever being told what it is.
         return result.ok && generate && credentialId
@@ -915,7 +957,7 @@ export class BrowserAgentHost {
         );
       }
       case "screenshot":
-        return this.screenshot(browserId);
+        return this.screenshot(browserId, params.annotate === true);
       default:
         throw new Error(`unknown browser host op "${op}"`);
     }
@@ -941,20 +983,38 @@ export class BrowserAgentHost {
    * just after the capture. A page with such a field that cannot be covered — the page would not say
    * where its fields are while Realm had filled one, or the picture would not repaint — is not
    * pictured. A secret field inside another site's frame is not found, and not covered.
+   *
+   * `annotate` draws a numbered box over each element a fresh snapshot lists on screen, for this one
+   * capture, and answers the legend that goes with them. The boxes are taken off the page before this
+   * returns, whether the capture worked or not. The snapshot is not kept as the pane's last one, so
+   * the agent's next snapshot still marks `[new]` against its own previous read.
    */
-  private async screenshot(browserId: string): Promise<BrowserScreenshotResult> {
+  private async screenshot(browserId: string, annotate = false): Promise<BrowserScreenshotResult> {
     const entry = this.ensure(browserId);
     const send = entry.binding.send;
     const filled = [...this.filledSecrets.get(browserId) ?? []];
-    const before = await readSecretRects(send, filled);
-    // A view that is not on screen never paints, and the capture waits for a frame that never
-    // comes; give up while the agent can still do something else (`paneNotPaintingError`).
-    let timer: NodeJS.Timeout | undefined;
-    const unpainted = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(paneNotPaintingError(browserId))), this.d.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS);
-    });
-    const shot = (await Promise.race([send("Page.captureScreenshot", { format: "jpeg", quality: 70 }), unpainted])
-      .finally(() => clearTimeout(timer))) as { data?: string };
+    let legend: string | undefined;
+    let before: Awaited<ReturnType<typeof readSecretRects>>;
+    let shot: { data?: string };
+    try {
+      if (annotate) {
+        const snap = await buildSnapshot(send, entry.lastSnapshot, {}, this.filledSecrets.get(browserId));
+        const boxes = await refBoxes(send, snap.elements ?? [], snap.viewport ?? { width: Infinity, height: Infinity });
+        legend = this.hideFilledCodes(browserId, refLegend(boxes));
+        await send("Runtime.evaluate", { expression: refBoxesScript(boxes, this.accent), awaitPromise: true, silent: true });
+      }
+      before = await readSecretRects(send, filled);
+      // A view that is not on screen never paints, and the capture waits for a frame that never
+      // comes; give up while the agent can still do something else (`paneNotPaintingError`).
+      let timer: NodeJS.Timeout | undefined;
+      const unpainted = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(paneNotPaintingError(browserId))), this.d.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS);
+      });
+      shot = (await Promise.race([send("Page.captureScreenshot", { format: "jpeg", quality: 70 }), unpainted])
+        .finally(() => clearTimeout(timer))) as { data?: string };
+    } finally {
+      if (annotate) await send("Runtime.evaluate", { expression: REMOVE_REF_BOXES_JS, silent: true }).catch(() => {});
+    }
     if (!shot.data) throw new Error("screenshot produced no data");
     const fields = bothReads(before, await readSecretRects(send, filled));
     let data: string | null = shot.data;
@@ -963,7 +1023,7 @@ export class BrowserAgentHost {
       if (!data) throw new Error("Realm could not cover the password or security code fields on this page, so it took no screenshot — use browser_snapshot to see the page");
     }
     const failed = this.d.pageState(browserId)?.error ?? null;
-    return { data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) };
+    return { data, mimeType: "image/jpeg", ...(legend !== undefined ? { legend } : {}), ...(failed ? { loadError: failed } : {}) };
   }
 
   /* ------------------------------ file choosers ------------------------------ */
@@ -1059,6 +1119,15 @@ export class BrowserAgentHost {
         `${result.detail} — that opened a file chooser, which Realm intercepted, so no macOS panel appeared. ` +
         "Call browser_upload with this same ref and the paths to attach, or browser_dismiss_dialog to cancel it.",
     };
+  }
+
+  /** What to tell an agent about the tabs this page opened since it was last told — a tab is a browser
+   *  of its own, so nothing in this page shows it, and the click looks like it did nothing. */
+  private async openedTabsNote(browserId: string, waitMs: number): Promise<string | null> {
+    const tabs = (await this.d.takeOpenedTabs?.(browserId, waitMs)) ?? [];
+    if (tabs.length === 0) return null;
+    const named = tabs.map((t) => `browser ${t.browserId}, on ${t.url}`).join("; ");
+    return `${tabs.length === 1 ? "a new tab" : `${tabs.length} new tabs`}, ${named}; this page stayed as it was. Pass a tab's browserId to the browser tools to work in it`;
   }
 
   /** One audit line per fill attempt: timestamp, origin, credentialId, outcome — and never the

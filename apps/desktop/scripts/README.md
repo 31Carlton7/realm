@@ -41,13 +41,18 @@ How quiet mode works, and what it records instead of showing (`quietWindowsLog`)
 - Secrets are sealed with the mock Keychain, because the real one asks for the login password
   when a binary it has not seen reads an item. A check of the Keychain itself sets
   `REALM_QUIET_KEYCHAIN=real` and names its own item (`profiles-live.mjs`).
+- The calendar is never read. The launcher points `REALM_MEETINGWATCH_BIN` at a stand-in that
+  says access was never asked for, on the seen paths too. A check of the helper itself passes its
+  own (`meeting-watch-live.mjs`).
 - `Page.captureScreenshot` is the DOM only. For a native pane, capture the view's own
   `webContents.capturePage()` through `app.main`.
 
 ## The checks that are seen
 
-Some evidence only exists on the real screen. These opt out with `visible: "<why>"`, which prints
-the reason when they run. Run them when nobody is using the Mac.
+Some evidence only exists on the real screen. These opt out with `visible: "<why>"` (or
+`frontApp: "<why>"`), which prints the reason when they run. They refuse to start until nobody has
+touched the Mac for 5 minutes (`HIDIdleTime` from `ioreg`). `REALM_LIVE_SEEN_OK="<why it may>"` runs
+one anyway, for a run the person asked to see.
 
 | Check | Why |
 | --- | --- |
@@ -58,3 +63,29 @@ the reason when they run. Run them when nobody is using the Mac.
 | `browser-pane-live.cjs` | check 6 samples the screen where the native view composites over the DOM |
 | `power-audit.mjs` | it prices drawing the window on screen |
 | `unlock-policy-live.mjs` | step 4 raises macOS's own device-owner prompt (its window is quiet) |
+
+## The browser benchmark
+
+`browser-bench-live.mjs` measures what the realm-browser tools cost an agent. It calls them through
+a session's own gateway on the pages in `fixtures/browser-bench/`, as a model would. A change to the
+snapshot, the acts or the tool descriptions reruns it and puts the numbers in its PR:
+
+```sh
+pnpm build
+node apps/desktop/scripts/browser-bench-live.mjs
+```
+
+It prints a table that sets each number against `fixtures/browser-bench/baseline.json`, and writes
+the full JSON to `$TMPDIR/realm-browser-bench.json` (`--out` puts it somewhere else). Each task is
+run three times on a fresh load (`--runs`). Timings are the median of those runs. `--dump <dir>`
+writes what every call of the first run returned, one file a call.
+
+Tokens are `ceil(chars / 4)`, because no tokenizer is in the repo's dependencies, so compare chars.
+Chars move a little between runs. A ref is the node's backendNodeId, and those grow as one pane
+loads page after page, so the same catalog lists longer refs on its third load than on its first.
+`[new]` marks depend on the snapshot before. Compare like with like: a full run against the
+baseline. The read after an act passes `diff: true`; a build from before that option drops the
+argument and answers with the whole list, so the same harness measures both.
+
+When a change is meant to move the numbers, write a new baseline in the same PR:
+`--out apps/desktop/scripts/fixtures/browser-bench/baseline.json`.

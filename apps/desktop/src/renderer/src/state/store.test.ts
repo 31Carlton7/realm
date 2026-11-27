@@ -1371,7 +1371,7 @@ describe("app store", () => {
       expect(e.lastSeq).toBe(2500);
       expect(e.t.blocks).toHaveLength(2500);
       expect(e.t.earlier).toBeUndefined();
-      expect(api.calls.filter((c) => /^sessionEventsBefore:se1:[^:]*$/.test(c))).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:1501", "sessionEventsBefore:se1:501"]);
+      expect(api.calls.filter((c) => /^sessionEventsBefore:se1:[^:]*$/.test(c))).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:2351", "sessionEventsBefore:se1:1351", "sessionEventsBefore:se1:351"]);
     });
 
     it("openSession lists the session's commands with its checkout, whose .claude/commands are the repo's", async () => {
@@ -1554,6 +1554,24 @@ describe("app store", () => {
       expect(reply()).toEqual([expect.objectContaining({ text: "Reading the fixtures and the rest", streaming: true })]);
       store.getState().applySessionEvent({ ...stored("se1", 2, sessionEvent("assistant_text", { messageId: "m2", text: "Reading the fixtures and the rest" })), ephemeral: false });
       expect(reply()).toEqual([expect.objectContaining({ text: "Reading the fixtures and the rest", streaming: false })]);
+    });
+
+    it("a session at rest opens without asking what it is streaming, and still takes a reply that starts during the read", async () => {
+      api = fakeApi({
+        items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+        sessions: [session("se1", "s1", { status: "idle" })],
+        sessionEvents: { se1: [stored("se1", 1, sessionEvent("user_message", { text: "read the tests", attachments: [] }))] },
+      });
+      api.delays["sessionEvents:se1"] = 20;
+      const store = createAppStore(api); await store.getState().boot();
+      // THE MUTANT: ask `sessions.streaming` whatever the status, a second round trip on every open.
+      const streaming = vi.spyOn(api, "sessionStreaming");
+      const p = store.getState().openSession("se1");
+      store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m2", delta: "Starting", at: 5 })), ephemeral: true });
+      await p;
+      expect(streaming).not.toHaveBeenCalled();
+      const reply = store.getState().transcripts.se1!.t.blocks.filter((b) => b.kind === "assistant");
+      expect(reply).toEqual([expect.objectContaining({ messageId: "m2", text: "Starting", streaming: true })]);
     });
 
     it("applySessionStatus updates the status map and the cached session", async () => {

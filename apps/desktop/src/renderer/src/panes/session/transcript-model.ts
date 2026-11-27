@@ -88,6 +88,8 @@ export type Block =
   | { kind: "access_changed"; teammateId: string; handle: string; by: string | null; from: string; to: string; note: string; latest: boolean; ts: number }
   /** An agent's `space_create` made a space (`space_made`), with an Open that moves the window there. */
   | { kind: "space_made"; spaceId: string; name: string; note: string; ts: number }
+  /** Realm filled a sign-in for an agent (`signin_filled`): the site and the kind, never the value. */
+  | { kind: "signin_filled"; note: string; ts: number }
   /**
    * The session moved to another checkout, and runs there from here on. The fourth seam: everything
    * above it ran at `from`, and its paths are under that root.
@@ -115,7 +117,7 @@ export type Block =
    * A question put to the user — by any agent or server, on the card Realm wrote for it — and, once
    * it has one, its answer: the persisted `permission_response.answers`, masked ones already a mark.
    *
-   * It takes the place of the call that asked it (Claude's `AskUserQuestion`, `realm-ui`'s `ui_ask`)
+   * It takes the place of the call that asked it (Claude's `AskUserQuestion`, `realm-ui`'s `ui_ask` and `ui_choose_folder`)
    * rather than sitting beside it: a generic tool row above "Codex asked: Which branch? — main" says
    * the same thing twice, the second time as JSON. `toolUseId` is that call's, kept so its result can
    * find nothing to land on. Drawn only once answered; while it waits, the live card is the question.
@@ -229,8 +231,8 @@ export const blockKey = (b: Block, i: number): string =>
 /** The question a request carries (`@realm/view`, where Realm Mobile's rows read it too). */
 export { questionOf } from "@realm/view";
 
-/** A call that asks the user: Claude's own tool, or realm-ui's under whichever prefix the harness gives it. */
-const ASKING_TOOL = /^AskUserQuestion$|realm-ui__ui_ask$/;
+/** A call that asks the user: Claude's own tool, or realm-ui's two under whichever prefix the harness gives them. */
+const ASKING_TOOL = /^AskUserQuestion$|realm-ui__ui_(ask|choose_folder)$/;
 /** Inputs as the same call's two halves report them — key order is the only thing allowed to differ. */
 const sameInput = (a: unknown, b: unknown): boolean => stable(a) === stable(b);
 const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) =>
@@ -469,6 +471,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     }
     case "space_made":
       return { ...t, blocks: [...blocks, { kind: "space_made", spaceId: e.payload.spaceId, name: e.payload.name, note: e.payload.note, ts: e.ts }] };
+    case "signin_filled":
+      return { ...t, blocks: [...blocks, { kind: "signin_filled", note: e.payload.note, ts: e.ts }] };
     case "retrying": {
       // Replace rather than stack: attempt 2 says what attempt 1 said, one number later, and a
       // transcript that keeps both is a transcript reporting the wait instead of the work.

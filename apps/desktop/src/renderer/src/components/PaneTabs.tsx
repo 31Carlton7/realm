@@ -5,7 +5,7 @@ import { useApp, useAppStore } from "../state/store";
 import { REALM_ITEM_TYPE } from "./drag-types";
 import { Menu } from "./Menu";
 import { SIDE_TOOLS, openSideTool, sideToolChord, sideToolReady } from "./side-tools";
-import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
+import { DELETES_ON_CLOSE, PAGE_KINDS, closeTab } from "./pane-close";
 import { ItemIcon } from "./PageIcon";
 import { terminalTitle, useTerminalPrograms } from "./ProgramMark";
 import { ScrollFadesX } from "./ScrollFades";
@@ -132,10 +132,9 @@ export function PaneTabs({ leafId, tabs, activeId, owners, onRename }: {
           const whose = owner ? ownerTitle(owner) : "";
           const deletes = DELETES_ON_CLOSE.has(t.kind);
           const close = () => {
-            if (!deletes) { run(() => closeFromLayout(t.id)); return; }
-            if (confirmDelete && !PAGE_KINDS.has(t.kind) && arming !== t.id) { setArming(t.id); return; }
-            setArming(null);
-            run(() => deleteItem(t.id));
+            if (deletes && confirmDelete && !PAGE_KINDS.has(t.kind) && arming !== t.id) { setArming(t.id); return; }
+            if (deletes) setArming(null);
+            run(() => closeTab(t, { deleteItem, closeFromLayout }));
           };
           /* Where a drop on this tab lands: before it, or after it when the pointer is on its far half
              — the only way to reach the end of a run that another session's run follows. */

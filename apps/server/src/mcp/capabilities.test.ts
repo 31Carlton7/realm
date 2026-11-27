@@ -80,13 +80,24 @@ describe("capabilitiesContext", () => {
     expect(text).toContain("before you say it cannot");
     expect(text).toContain("work that belongs to later is `schedule_create`");
     // …and the true human-only steps, so "finish it yourself" never reads as "type the password".
-    expect(text).toContain("typing a password or a one-time code, approving a payment or purchase");
+    expect(text).toContain("Stop only for what is the user's alone: approving a payment or purchase");
     expect(text).toContain("anything outward and irreversible");
+    // THE MUTANT: the old stop list back. An agent reads "a one-time code" as the user's and stops at
+    // the code screen instead of calling browser_fill_code.
+    const stopList = text.slice(text.indexOf("Stop only for"));
+    expect(stopList).not.toContain("one-time code");
+    expect(stopList).not.toContain("typing a password");
+    expect(text).toContain("Sign-ins are yours: fill passwords with `browser_fill_credential`, codes with `browser_fill_code`");
+    expect(text).toContain("you never ask the user to paste one into chat");
+    expect(text).toContain("never read one yourself with `mac messages`, `mac mail` or a screenshot");
     // A session without the browser is not pointed at one to sign in with.
     const docsOnly = capabilitiesContext([DOCS_PROVIDER_NAME]);
     expect(docsOnly).toContain("## Finishing without the user");
     expect(docsOnly).not.toContain("browser pane");
     expect(docsOnly).not.toContain("check whether a tool here takes it");
+    // Nor told to fill sign-ins with tools it does not have.
+    expect(docsOnly).toContain("Stop only for what is the user's alone");
+    expect(docsOnly).not.toContain("Sign-ins are yours");
     expect(capabilitiesContext([])).not.toContain("## Finishing without the user");
   });
 
@@ -186,6 +197,32 @@ describe("capabilitiesContext", () => {
     const text = capabilitiesContext([BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME])!;
     expect(text).not.toContain("simulator_open");
     expect(text).not.toContain("serve-sim");
+  });
+});
+
+describe("keeping agents off the user's screen", () => {
+  // THE MUTANT for each: delete the sentence. Nothing else tells an agent that its own shell's
+  // `open` puts a window, the user's browser or Simulator.app in front of the user's work.
+  it("tells every session, tools or none, how to start apps and binaries without coming to the front", () => {
+    for (const text of [capabilitiesContext([]), capabilitiesContext([DOCS_PROVIDER_NAME])]) {
+      expect(text).toContain("## Staying off the user's screen");
+      expect(text).toContain("Open a Mac app with `open -g -j`, never a bare `open X.app`.");
+      expect(text).toContain(
+        "Never run a binary under `~/Desktop`, `~/Documents` or `~/Downloads` as its own responsible process " +
+        "(launched with `open`, or with its responsibility disclaimed): macOS asks the user for that folder in a " +
+        "dialog that stays up after the process is killed. Copy it out of those folders first.");
+    }
+  });
+
+  it("sends a dev server to the browser pane and a device to the simulator pane, only where the session has them", () => {
+    const both = capabilitiesContext([BROWSER_PROVIDER_NAME, SIMULATOR_PROVIDER_NAME]);
+    expect(both).toContain(
+      "Open a dev server here with `browser_open http://localhost:…`, never `open <url>`, which hands it to the " +
+      "user's own browser and brings that to the front.");
+    expect(both).toContain("and never run `open -a Simulator`: the pane already streams the device.");
+    const neither = capabilitiesContext([DOCS_PROVIDER_NAME]);
+    expect(neither).not.toContain("open <url>");
+    expect(neither).not.toContain("open -a Simulator");
   });
 });
 

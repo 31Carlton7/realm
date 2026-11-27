@@ -1,5 +1,12 @@
 import { EventEmitter } from "node:events";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { DaemonState } from "@realm/contracts";
+import { tempDir } from "@realm/test-utils";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { ensureDaemon, type Probe } from "./daemon";
+import { readDaemonState } from "./daemon-state";
+import { decideHandoff } from "./handoff-policy";
 
 const switches: string[] = [];
 const appEvents = new EventEmitter();
@@ -30,6 +37,7 @@ class FakeWindow extends EventEmitter {
   constructor() { super(); FakeWindow.all.push(this); app.emit("browser-window-created", {}, this); }
   show() { this.calls.push("show"); this.visible = true; }
   showInactive() { this.calls.push("showInactive"); this.visible = true; }
+  hide() { this.calls.push("hide"); this.visible = false; }
   focus() { this.calls.push("focus"); }
   blur() { this.calls.push("blur"); }
   isFocused() { return true; }
@@ -54,9 +62,11 @@ const dialog = { showMessageBox: vi.fn(), showMessageBoxSync: vi.fn(), showOpenD
 const systemPreferences = { askForMediaAccess: vi.fn(async () => true) };
 class FakeMenu { popup = vi.fn(); }
 const webContents = { getFocusedWebContents: (): unknown => "the real one" };
+const registered: string[] = [];
+const globalShortcut = { register: (accelerator: string, _press?: () => void) => { registered.push(accelerator); return true; } };
 
-vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents }));
-const { installQuietWindows, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
+vi.mock("electron", () => ({ app, BrowserWindow: FakeWindow, Notification: FakeNotification, shell, dialog, systemPreferences, Menu: FakeMenu, webContents, globalShortcut }));
+const { agentHome, agentUserData, installQuietWindows, quietKeyable, quietWindowsLog, quietWindowsOn } = await import("./quiet-windows");
 
 describe("quietWindowsOn", () => {
   it("is on only for an unpackaged app asked for it", () => {
@@ -64,6 +74,94 @@ describe("quietWindowsOn", () => {
     expect(quietWindowsOn({ packaged: true, env: { REALM_QUIET_WINDOWS: "1" } })).toBe(false);
     expect(quietWindowsOn({ packaged: false, env: {} })).toBe(false);
     expect(quietWindowsOn({ packaged: false, env: { REALM_QUIET_WINDOWS: "true" } })).toBe(false);
+  });
+
+  it("is on for an unpackaged app an agent started, and never for a packaged one", () => {
+    expect(quietWindowsOn({ packaged: false, env: { REALM_AGENT_SHELL: "1" } })).toBe(true);
+    expect(quietWindowsOn({ packaged: true, env: { REALM_AGENT_SHELL: "1" } })).toBe(false);
+    expect(quietWindowsOn({ packaged: true, env: { REALM_AGENT_SHELL: "1", REALM_QUIET_WINDOWS: "1" } })).toBe(false);
+    expect(quietWindowsOn({ packaged: false, env: { REALM_AGENT_SHELL: "0" } })).toBe(false);
+  });
+});
+
+describe("agentUserData", () => {
+  const unpackaged = {
+    packaged: false, env: { REALM_AGENT_SHELL: "1" }, appPath: "/src/realm-a/apps/desktop",
+    userData: "/Library/Application Support/Realm", defaultUserData: "/Library/Application Support/Realm", tmpDir: "/tmp",
+  };
+
+  it("gives an unpackaged app an agent started a folder of its own under the temp folder, one per checkout", () => {
+    const a = agentUserData(unpackaged)!;
+    expect(a.startsWith("/tmp/realm-agent-shell/")).toBe(true);
+    expect(agentUserData(unpackaged)).toBe(a);
+    expect(agentUserData({ ...unpackaged, appPath: "/src/realm-b/apps/desktop" })).not.toBe(a);
+  });
+
+  it("leaves the folder alone for a packaged app, one no agent started, and one whose folder was already chosen", () => {
+    expect(agentUserData({ ...unpackaged, packaged: true })).toBeNull();
+    expect(agentUserData({ ...unpackaged, env: {} })).toBeNull();
+    expect(agentUserData({ ...unpackaged, env: { REALM_QUIET_WINDOWS: "1" } })).toBeNull();
+    expect(agentUserData({ ...unpackaged, userData: "/tmp/live-check/userData" })).toBeNull();
+  });
+});
+
+describe("agentHome", () => {
+  const DEFAULT_HOME = "/home/someone/Realm";
+  const unpackaged = { packaged: false, env: { REALM_AGENT_SHELL: "1" } as Record<string, string | undefined>, appPath: "/src/realm-a/apps/desktop", tmpDir: "/tmp", defaultHome: DEFAULT_HOME };
+
+  it("gives an unpackaged app an agent started a home beside its user-data folder, one per checkout", () => {
+    const a = agentHome(unpackaged)!;
+    expect(a).toBe(join(agentUserData({ ...unpackaged, userData: "x", defaultUserData: "x" })!, "home"));
+    expect(agentHome(unpackaged)).toBe(a);
+    expect(agentHome({ ...unpackaged, appPath: "/src/realm-b/apps/desktop" })).not.toBe(a);
+  });
+
+  it("does not take the default home an agent's shell inherits from the server that started it", () => {
+    const a = agentHome(unpackaged);
+    expect(agentHome({ ...unpackaged, env: { REALM_AGENT_SHELL: "1", REALM_HOME: DEFAULT_HOME } })).toBe(a);
+    expect(agentHome({ ...unpackaged, env: { REALM_AGENT_SHELL: "1", REALM_HOME: `${DEFAULT_HOME}/` } })).toBe(a);
+  });
+
+  it("leaves the home alone for a packaged app, one no agent started, and one given a home of its own", () => {
+    expect(agentHome({ ...unpackaged, packaged: true })).toBeNull();
+    expect(agentHome({ ...unpackaged, packaged: true, env: { REALM_AGENT_SHELL: "1", REALM_HOME: DEFAULT_HOME } })).toBeNull();
+    expect(agentHome({ ...unpackaged, env: {} })).toBeNull();
+    expect(agentHome({ ...unpackaged, env: { REALM_HOME: DEFAULT_HOME } })).toBeNull();
+    expect(agentHome({ ...unpackaged, env: { REALM_AGENT_SHELL: "1", REALM_HOME: "/tmp/realm-check-live-1/home" } })).toBeNull();
+  });
+
+  it("keeps an agent's Realm off the owner's idle server recorded in the default home", async () => {
+    const defaultHome = tempDir("realm-agent-home-test-");
+    const owners: DaemonState = {
+      version: 1, pid: process.pid, bootId: "owners-boot", port: 8790, token: "t", home: defaultHome, protocol: 1,
+      bundleId: "owners:bundle", entry: "/Applications/Realm.app/server/main.js", startedAt: 1, state: "running",
+    };
+    writeFileSync(join(defaultHome, "daemon.json"), JSON.stringify(owners));
+    const tmpDir = join(defaultHome, "tmp");
+    const replace = vi.fn(async (_state: DaemonState) => {});
+    const probe = vi.fn(async (): Promise<Probe> => ({ bootId: "owners-boot", protocol: 1 }));
+    const spawned: string[] = [];
+    for (const env of [{ REALM_AGENT_SHELL: "1" }, { REALM_AGENT_SHELL: "1", REALM_HOME: defaultHome }]) {
+      const home = agentHome({ packaged: false, env, appPath: "/src/realm-a/apps/desktop", tmpDir, defaultHome }) ?? env.REALM_HOME ?? defaultHome;
+      const handle = ensureDaemon({
+        home, ourBundleId: "dev:bundle", readState: readDaemonState, probe, ownToken: () => "t",
+        bundleOnDisk: () => owners.bundleId, pidAlive: (pid) => pid === process.pid,
+        // What main does for an idle server: nothing is working, so it is restarted unasked.
+        onHandoff: async (state, why) => {
+          if (decideHandoff({ why, work: { working: 0, activeRuns: 0 } }).kind !== "restart") return { kind: "adopt", stale: "bundle" };
+          await replace(state);
+          return { kind: "replaced" };
+        },
+        replace,
+        spawn: (h) => { spawned.push(h); throw new Error("spawned"); },
+      });
+      await expect(handle).rejects.toThrow("spawned");
+    }
+    expect(probe).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    const [first, second] = spawned;
+    expect(second).toBe(first);
+    expect(first?.startsWith(join(tmpDir, "realm-agent-shell"))).toBe(true);
   });
 });
 
@@ -82,10 +180,11 @@ describe("installQuietWindows", () => {
     expect(dock.hide).toHaveBeenCalled();
     await app.dock.show();
     app.dock.bounce();
-    app.focus();
+    app.focus({ steal: true });
     expect(realDockShow).not.toHaveBeenCalled();
     expect(realBounce).not.toHaveBeenCalled();
     expect(realFocus).not.toHaveBeenCalled();
+    expect(quietWindowsLog).toContainEqual({ what: "app focus", detail: { steal: true } });
   });
 
   it("shows every window inactive, transparent, unfocusable, click-through and never covered", () => {
@@ -96,6 +195,37 @@ describe("installQuietWindows", () => {
     expect(w.calls).toEqual(expect.arrayContaining(["opacity 1", "shadow false", "focusable false", "ignore mouse true", "on top true screen-saver", "all spaces true"]));
     expect(w.calls.indexOf("opacity 1")).toBeLessThan(w.calls.indexOf("showInactive"));
     w.close();
+  });
+
+  it("takes no key from the system, except the one a check names", () => {
+    expect(globalShortcut.register("Control+Alt+Space", () => {})).toBe(true);
+    expect(registered).toEqual([]);
+    expect(quietWindowsLog).toContainEqual({ what: "global shortcut", detail: "Control+Alt+Space" });
+    vi.stubEnv("REALM_QUIET_GLOBAL_SHORTCUT", "Control+Alt+Shift+F19");
+    globalShortcut.register("Control+Alt+Shift+F19", () => {});
+    globalShortcut.register("Control+Alt+Space", () => {});
+    vi.unstubAllEnvs();
+    expect(registered).toEqual(["Control+Alt+Shift+F19"]);
+  });
+
+  it("lets a marked window really take the keyboard, only while the check asks", () => {
+    const w = new FakeWindow();
+    quietKeyable(w as never);
+    w.show();
+    w.focus();
+    expect(w.calls).not.toContain("focus");
+    expect(w.calls).not.toContain("focusable true");
+    vi.stubEnv("REALM_QUIET_REAL_KEY", "1");
+    const plain = new FakeWindow();
+    plain.show();
+    plain.focus();
+    w.show();
+    w.focus();
+    vi.unstubAllEnvs();
+    expect(plain.calls).not.toContain("focus");
+    expect(w.calls).toEqual(expect.arrayContaining(["focusable true", "focus", "opacity 1", "ignore mouse true"]));
+    w.close();
+    plain.close();
   });
 
   it("makes the window shown or focused last the key one, as AppKit would", () => {
@@ -118,6 +248,19 @@ describe("installQuietWindows", () => {
     expect(b.isFocused()).toBe(true);
     b.close();
     expect((FakeWindow as unknown as { getFocusedWindow(): FakeWindow | null }).getFocusedWindow()).toBeNull();
+  });
+
+  it("takes key from a window it hides, as AppKit does, so a panel shown inactive after is not key", () => {
+    const main = new FakeWindow();
+    const panel = new FakeWindow();
+    main.show();
+    panel.show();
+    panel.hide();
+    expect([main.isFocused(), panel.isFocused()]).toEqual([true, false]);
+    panel.showInactive();
+    expect(panel.isFocused()).toBe(false);
+    main.close();
+    panel.close();
   });
 
   it("never goes full screen or flashes the Dock", () => {

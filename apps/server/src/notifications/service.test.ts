@@ -1,12 +1,13 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { sessionEvent, NOTIFICATIONS_DISABLED_KEY, type Notification, type Session } from "@realm/contracts";
+import { sessionEvent, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SESSION_DONE_KEY, type Goal, type Notification, type Session } from "@realm/contracts";
 import { openDatabase, type Db } from "../db/database";
 import { NotificationsStore } from "../store/notifications";
 import { SettingsStore } from "../store/settings";
 import { NotificationsService, LAST_PROBE_KEY } from "./service";
 import type { RpcServer } from "../rpc/server";
+import type { NotificationRelay, RelayedNotification } from "./relay";
 
 let db: Db; let store: NotificationsStore; let settings: SettingsStore; let svc: NotificationsService;
 let broadcasts: { event: string; payload: { notification: Notification | null; unread: number } }[];
@@ -40,7 +41,7 @@ describe("NotificationsService — permissions", () => {
     // THE MUTANT: the bare child title — "Dark-mode toggle" in a toast names nothing the person made.
     const lead = session({ id: "01ARZ3NDEKTSV4RRFFQ69G5FA1", title: "Dark mode" });
     const child = session({ title: "Dark-mode toggle", dispatchedBy: { kind: "agent_run", sessionId: lead.id } });
-    svc = new NotificationsService({ store, settings, rpc: { broadcast: () => {} } as unknown as RpcServer, sessions: { get: (id) => (id === lead.id ? lead : null) } });
+    svc = new NotificationsService({ store, settings, rpc: { broadcast: () => {} } as unknown as RpcServer, sessions: { get: (id) => (id === lead.id ? lead : null), listDispatchedBy: () => [] } });
     svc.handleSessionEvent(child, sessionEvent("permission_request", { requestId: "req-c", toolName: "Bash", input: {}, title: "Run tests", suggestions: [] }));
     expect(feed()[0]!.title).toBe("Dark mode › Dark-mode toggle");
     // A fork names the session it came from and is nobody's sub-agent: its own title stands.
@@ -267,5 +268,139 @@ describe("NotificationsService — list/markRead and the ONE unread count", () =
   it("markRead of nothing new broadcasts nothing (no phantom changes)", () => {
     svc.markRead({ ids: [], all: true });
     expect(broadcasts).toHaveLength(0);
+  });
+});
+
+describe("NotificationsService — when the work is done", () => {
+  const LEAD = "01ARZ3NDEKTSV4RRFFQ69G5FL1";
+  const CHILD = "01ARZ3NDEKTSV4RRFFQ69G5FC1";
+  let rows: Record<string, Session>;
+  let goal: Goal["status"] | null;
+  let queued: boolean;
+  let relayed: RelayedNotification[];
+
+  const lead = (status: Session["status"]) => (rows[LEAD] = session({ id: LEAD, title: "Ship the release", status }));
+  const child = (status: Session["status"]) =>
+    (rows[CHILD] = session({ id: CHILD, title: "Write the changelog", status, dispatchedBy: { kind: "agent_run", sessionId: LEAD } }));
+  /** A settle as SessionService reports it: the row as it stood before, then the event. */
+  const settle = (s: Session, to: "idle" | "error" | "ended", extra: { interrupted?: boolean } = {}) =>
+    svc.handleSessionEvent(s, sessionEvent("status", { status: to, ...extra }));
+  const done = () => feed().filter((n) => n.category === "session_done");
+
+  beforeEach(() => {
+    rows = {}; goal = null; queued = false; relayed = [];
+    svc = new NotificationsService({ store, settings, rpc: { broadcast: () => {} } as unknown as RpcServer,
+      relay: { send: (n: RelayedNotification) => relayed.push(n) } as unknown as NotificationRelay,
+      sessions: { get: (id) => rows[id] ?? null, listDispatchedBy: (id) => Object.values(rows).filter((s) => s.dispatchedBy?.sessionId === id) },
+      goals: { get: (id) => (id === LEAD && goal ? { status: goal } as Goal : null) },
+      queued: (id) => id === LEAD && queued });
+  });
+
+  it("is the default: a lead settling while its sub-agent runs says nothing, and nothing leaves the Mac", () => {
+    child("running");
+    settle(lead("running"), "idle");
+    expect(done()).toHaveLength(0);
+    expect(relayed).toHaveLength(0);
+  });
+
+  it("the sub-agent finishing under an idle lead is the lead's work done: one row, for the lead", () => {
+    child("running");
+    settle(lead("running"), "idle");
+    lead("idle");
+    settle(rows[CHILD]!, "idle");
+    expect(done().map((n) => n.sessionId)).toEqual([LEAD]);
+    expect(relayed.map((n) => n.sessionId)).toEqual([LEAD]);
+  });
+
+  it("a sub-agent's own settle is quiet, and its lead says done once it settles after it", () => {
+    child("running");
+    lead("running");
+    settle(rows[CHILD]!, "idle");
+    expect(done()).toHaveLength(0);
+    child("idle");
+    settle(rows[LEAD]!, "idle");
+    expect(done().map((n) => n.sessionId)).toEqual([LEAD]);
+    expect(relayed).toHaveLength(1);
+  });
+
+  it("a goal still in progress holds the row until the goal stops", () => {
+    goal = "active";
+    settle(lead("running"), "idle");
+    expect(done()).toHaveLength(0);
+    // The loop closed it after that settle (a GOAL COMPLETE line, a stall): the session is idle now.
+    goal = "complete";
+    lead("idle");
+    svc.goalStopped(LEAD);
+    expect(done().map((n) => n.sessionId)).toEqual([LEAD]);
+  });
+
+  it("a goal the agent closed during the turn lets that turn's settle say done", () => {
+    goal = "blocked";
+    settle(lead("running"), "idle");
+    expect(done()).toHaveLength(1);
+    // And the stop is not said twice: a goal stopping under a running turn leaves it to the settle.
+    lead("running");
+    svc.goalStopped(LEAD);
+    expect(done()).toHaveLength(1);
+    expect(relayed).toHaveLength(1);
+  });
+
+  it("a queued message is the next turn, so its settle is not done; a Stop parks the queue, so it is", () => {
+    queued = true;
+    settle(lead("running"), "idle");
+    expect(done()).toHaveLength(0);
+    settle(lead("running"), "idle", { interrupted: true });
+    expect(done()).toHaveLength(1);
+  });
+
+  it("a failure or an end always says so, in both modes, whatever is still going", () => {
+    child("running"); goal = "active"; queued = true;
+    settle(lead("running"), "error");
+    expect(done()[0]).toMatchObject({ sessionId: LEAD, body: "Failed" });
+    store.markRead(done().map((n) => n.id));
+    settle(lead("running"), "ended");
+    // The one unread row, not done()[0]: both rows share a millisecond, and the feed breaks that tie
+    // by a random ULID.
+    expect(done().filter((n) => n.readAt === null)).toMatchObject([{ sessionId: LEAD, body: "Ended" }]);
+    settings.set(NOTIFICATIONS_SESSION_DONE_KEY, "turn");
+    store.markRead(done().map((n) => n.id));
+    settle(lead("running"), "error");
+    expect(done()).toHaveLength(3);
+    expect(relayed).toHaveLength(3);
+  });
+
+  it("a sub-agent's failure is its own row, even in done mode", () => {
+    lead("running");
+    settle(child("running"), "error");
+    expect(done().map((n) => [n.sessionId, n.body])).toEqual([[CHILD, "Failed"]]);
+  });
+
+  it("\"After every turn\" keeps the old behaviour: one row per settle, the sub-agent's own included", () => {
+    settings.set(NOTIFICATIONS_SESSION_DONE_KEY, "turn");
+    child("running"); goal = "active"; queued = true;
+    settle(lead("running"), "idle");
+    expect(done().map((n) => n.sessionId)).toEqual([LEAD]);
+    lead("idle");
+    settle(rows[CHILD]!, "idle");
+    expect(done().map((n) => n.sessionId).sort()).toEqual([CHILD, LEAD].sort());
+    // Every settle has already been said, so a goal stopping adds nothing.
+    store.markRead(done().map((n) => n.id));
+    svc.goalStopped(LEAD);
+    expect(done().filter((n) => n.readAt === null)).toHaveLength(0);
+    expect(relayed).toHaveLength(2);
+  });
+
+  it("the switch off is off in both modes, the lead's done and the goal's stop included", () => {
+    settings.set(NOTIFICATIONS_DISABLED_KEY, ["session_done"]);
+    child("running");
+    settle(lead("running"), "idle");
+    lead("idle");
+    settle(rows[CHILD]!, "idle");
+    goal = "complete";
+    svc.goalStopped(LEAD);
+    settings.set(NOTIFICATIONS_SESSION_DONE_KEY, "turn");
+    settle(lead("running"), "idle");
+    expect(done()).toHaveLength(0);
+    expect(relayed).toHaveLength(0);
   });
 });

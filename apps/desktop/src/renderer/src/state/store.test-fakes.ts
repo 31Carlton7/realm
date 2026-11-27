@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { MoveOptions, PendingMove, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, EditorTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import { type CalendarAccess, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
+import type { MoveOptions, PendingMove, GuideProgress, Lecture, MeetingNotesList, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, EditorTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -188,6 +188,7 @@ export type FakeData = {
   eggsUnlocked?: string[];
   /** Plan 22: lectures per space, Plynn's meetings folder, and guide progress by `documentsId:path`. */
   lectures?: Record<string, Lecture[]>;
+  meetingNotes?: Record<string, MeetingNotesList>;
   plynn?: { available: boolean; folder: string; meetings: PlynnMeeting[] };
   guideProgress?: Record<string, GuideProgress>;
   /** Plan 17 W1: document workspace rows, and an in-memory filesystem per workspace. */
@@ -317,6 +318,8 @@ export type FakeData = {
   /** The code editors `editors.list` reports as installed. None by default — a test that wants the
    *  path menu's editor item says which. */
   editors?: InstalledEditor[];
+  /** Calendar access as main reports it while the Meetings switch is on. Full by default. */
+  calendarAccess?: CalendarAccess;
   /** What main's app scan lists for the `@` list, and the icons it answers by bundle path. None by
    *  default: a test that is not about apps should see no Apps group at all. */
   installedApps?: InstalledApp[];
@@ -511,6 +514,8 @@ export type FakeApi = Api & {
   /** Main's updater changing state on its own — a download's progress, its end, its failure — pushed
    *  to whoever is watching, as `updates:changed` is. Also becomes what `updateStatus` answers. */
   emitUpdateStatus: (status: UpdateStatus) => void;
+  /** macOS answered the calendar prompt, or the grant changed in System Settings. */
+  emitCalendarAccess: (access: CalendarAccess) => void;
   /** Live views of the fake's data (mutable). */
   data: Required<FakeData>;
 };
@@ -636,6 +641,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     refuseUnlock: overrides.refuseUnlock ?? false,
     passkeys: overrides.passkeys ?? [],
     lectures: overrides.lectures ?? {},
+    meetingNotes: overrides.meetingNotes ?? {},
     plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
     guideProgress: overrides.guideProgress ?? {},
     usageSummary: overrides.usageSummary ?? emptyUsageSummary(),
@@ -679,6 +685,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       ],
     },
     updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
+    calendarAccess: overrides.calendarAccess ?? "full",
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
@@ -773,9 +780,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     return r;
   };
   const updateWatchers = new Set<(status: UpdateStatus) => void>();
+  const calendarWatchers = new Set<(access: CalendarAccess | null) => void>();
+  let opensMeetings = true;
   const api: FakeApi = {
     calls, disposed, destroyedBrowserViews, sent, savedScripts, queuedPrompts, planLimitRows, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
     emitUpdateStatus: (status) => { data.updateStatus = status; for (const cb of updateWatchers) cb({ ...status }); },
+    emitCalendarAccess: (access) => { data.calendarAccess = access; for (const cb of calendarWatchers) cb(access); },
     // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
     // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
     // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
@@ -863,6 +873,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { ...r, path };
     },
     listLectures: async (spaceId) => { calls.push(`listLectures:${spaceId}`); return data.lectures[spaceId] ?? []; },
+    listMeetingNotes: async (spaceId) => data.meetingNotes[spaceId] ?? { root: "", notes: [] },
     plynnList: async () => { calls.push("plynnList"); return data.plynn; },
     plynnImport: async (spaceId, files) => {
       calls.push(`plynnImport:${spaceId}:${files.length}`);
@@ -928,9 +939,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     landingSpaceId: () => data.landingSpaceId ?? null,
     openSpaceWindow: async (spaceId) => { calls.push(`openSpaceWindow:${spaceId}`); },
     /** Another window shows the space when the test says one does (`spacesInOtherWindows`). */
-    focusSpaceWindow: async (spaceId, sessionId) => {
+    focusSpaceWindow: async (spaceId, sessionId, by) => {
       const elsewhere = data.spacesInOtherWindows.includes(spaceId);
-      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}${sessionId ? `:${sessionId}` : ""}`);
+      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}${sessionId ? `:${sessionId}` : ""}${by === "agent" ? " by agent" : ""}`);
       return elsewhere;
     },
     newWindow: async () => { calls.push("newWindow"); return data.newWindowOpens; },
@@ -1207,9 +1218,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { session: s, itemId: it.id };
     },
     /** Mirrors the server: no item row at all, so the session appears in no list anywhere. */
-    createUnlistedSession: async (input) => {
-      calls.push(`createUnlistedSession:${input.agentKind}`);
-      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, title: input.title ?? "Fake agent session" });
+    startQuickChat: async (spaceId) => {
+      calls.push(`startQuickChat:${spaceId}`);
+      const s = session(`se${++n}`, spaceId, { agentKind: "claude", model: "claude-haiku-5-5", title: "Fake agent session" });
       data.sessions.push(s);
       return { session: s };
     },
@@ -1688,6 +1699,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       return s;
     },
+    /** Mirrors the server: the move, then the item an unlisted session never had. */
+    keepSession: async (id, spaceId) => {
+      calls.push(`keepSession:${id}=${spaceId}`);
+      const kept = await api.moveSessionToSpace(id, spaceId);
+      const listed = Object.values(data.items).flat().find((it) => it.kind === "session" && it.refId === id);
+      if (listed) return { session: kept, itemId: listed.id };
+      const it = item(`i${++n}`, spaceId, { kind: "session", title: kept.title, refId: id });
+      (data.items[spaceId] ??= []).push(it);
+      return { session: kept, itemId: it.id };
+    },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     // Read as of the moment it answers, as the server's is: the log's last seq, and the reply so far.
     // No timer unless a test asks for one: suites that wait one tick for a transcript to load would
@@ -1842,6 +1863,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
     setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
     setPreventSleep: async (on) => { calls.push(`setPreventSleep:${on}`); },
+    setOpensMeetings: async (on) => { calls.push(`setOpensMeetings:${on}`); opensMeetings = on; },
+    setStartsAssistant: async (on) => { calls.push(`setStartsAssistant:${on}`); },
+    // Main's rule: with the switch off no helper runs, so there is nobody to say.
+    calendarAccess: async () => { calls.push("calendarAccess"); return opensMeetings ? data.calendarAccess : null; },
+    onCalendarAccess: (cb) => { calendarWatchers.add(cb); return () => { calendarWatchers.delete(cb); }; },
+    askForCalendar: async () => { calls.push("askForCalendar"); },
+    openCalendarSettings: async () => { calls.push("openCalendarSettings"); },
     setLinksOpenIn: (pref) => { calls.push(`setLinksOpenIn:${pref}`); },
     listEditors: async () => { calls.push("listEditors"); return [...data.editors]; },
     installedApps: async () => { calls.push("installedApps"); return [...data.installedApps]; },
@@ -1932,7 +1960,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
         newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false, roleId: null,
-        permissionMode: input.permissionMode ?? "bypassPermissions", createdAt: Date.now(), updatedAt: Date.now(),
+        permissionMode: input.permissionMode ?? "bypassPermissions", createdBySession: null, createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];
       return made;

@@ -768,8 +768,8 @@ describe("the prompter wears its mode", () => {
   it("says the mode in WORDS too — the colour is never the only telling", async () => {
     const { store } = await mountFresh();
     act(() => store.setState({ sessions: { ...store.getState().sessions, se1: { ...store.getState().sessions.se1!, permissionMode: "plan" } } }));
-    // In the "+" menu rather than on the row. The card's tint is still the ambient signal; this is
-    // the place the mode is spelled out, and the only place Build — which has no tint — is.
+    // In the "+" menu, and on the row as a word beside the permission chip (mode-label.test.tsx).
+    // The "+" menu is the only place Build, which has neither a tint nor a word, is spelled out.
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     const modes = within(screen.getByRole("menu", { name: "Add" })).getByRole("group", { name: "Mode" });
     expect(within(modes).getByRole("menuitemcheckbox", { checked: true })).toHaveAccessibleName("Plan");

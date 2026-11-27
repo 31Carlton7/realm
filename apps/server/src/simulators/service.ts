@@ -1,4 +1,4 @@
-import { SIMULATOR_IDLE_SHUTDOWN_DEFAULT, SIMULATOR_IDLE_SHUTDOWN_ERROR, SIMULATOR_IDLE_SHUTDOWN_KEY, newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorDevice, type SimulatorEvent, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
+import { SIMULATOR_IDLE_SHUTDOWN_DEFAULT, SIMULATOR_IDLE_SHUTDOWN_ERROR, SIMULATOR_IDLE_SHUTDOWN_KEY, newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorDevice, type SimulatorEvent, type SimulatorScreen, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ import type { PhysicalDevices } from "./physical";
 import type { VideoStop } from "./phone-video";
 import { RunnerError } from "./device-runner";
 import { RunnerUnreachable } from "./runner-client";
+import { pngSize } from "../machines/qmp-driver";
 import { sameBoot, simulatorLaunchd } from "../resources/attribute";
 import type { ProcRow } from "../resources/machine";
 
@@ -24,7 +25,7 @@ import type { ProcRow } from "../resources/machine";
 const slug = (name: string): string =>
   name.normalize("NFKD").replace(/[^\w]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "simulator";
 import { simctl, type Simctl } from "./simctl";
-import { serveSim, type ServeSim, type ServeSimStream } from "./serve-sim";
+import { AX_READ_TIMEOUT_MS, AxReadTimedOut, serveSim, type ServeSim, type ServeSimStream } from "./serve-sim";
 
 /**
  * Owns a simulator's pair — DB row + sidebar item — and the live state of its stream.
@@ -130,8 +131,17 @@ type RealmBoot = { name: string; at: number; home: string | null; streamPid: num
  *  capture engine has a frame, and a freshly booted device can take a few seconds to produce one. */
 const SCREEN_TIMEOUT_MS = 20_000;
 const SCREEN_POLL_MS = 400;
+/** How long a read waits to hear SpringBoard is up before saying the device is still booting. A booted
+ *  device answers in a fraction of this. */
+const SPRINGBOARD_WAIT_MS = 1_000;
 /** A cold AVD is slow — MEASURED at over a minute to `sys.boot_completed` on an M4. */
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
+
+/** A tree read that waited the whole timeout for the daemon. A step does not ask again, as it does
+ *  for a 503: another read would wait as long, for the same answer. */
+export class TreeReadTimedOut extends RpcError {
+  constructor() { super("UNAVAILABLE", `the device's accessibility tree did not arrive within ${AX_READ_TIMEOUT_MS / 1000} s, so Realm stopped waiting for it. Try again in a moment.`); }
+}
 
 const OFF = (simulatorId: string, udid: string | null, physical = false): SimulatorState =>
   ({ simulatorId, status: "off", udid, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical });
@@ -156,10 +166,19 @@ export class SimulatorService {
   /** Which start is the one anyone is still waiting for. A second press while the first is booting
    *  must not have the first one's failure land on top of the second one's stream. */
   private readonly token = new Map<string, number>();
+  /** Whether each iOS simulator's SpringBoard has finished starting up, asked once per walk. An `/ax`
+   *  read that reaches a device before then can leave it answering 503 for the rest of that boot —
+   *  MEASURED, and neither a fresh serve-sim nor a respring brings it back — so no read is sent until
+   *  this says SpringBoard is up. */
+  private readonly springBoards = new Map<string, Promise<boolean>>();
   /** The last stream each simulator was shown, kept because `/ax` is asked of the daemon's own base
    *  URL — which is not in `SimulatorState` (the pane needs the stream and the socket, not the root)
    *  and must not be re-derived by string surgery on the stream URL. */
   private readonly served = new Map<string, ServeSimStream>();
+  /** Each simulator's screen in points as its last tree stated it, by udid, with what the stream's
+   *  `/config` said at the time. Only a tree states the size in points, and reading one costs
+   *  0.4–0.9 s, so a point step measures against this while `/config` still says the same. */
+  private readonly sizes = new Map<string, { points: { width: number; height: number }; frame: SimulatorScreen }>();
   private readonly cli: Simctl;
   private readonly stream: ServeSim;
   private readonly droid: Android;
@@ -527,12 +546,108 @@ export class SimulatorService {
       return tree;
     }
     const stream = this.served.get(simulatorId);
-    if (!row.udid || !stream) throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
-    const tree = await this.stream.ax(stream, row.udid);
+    if (!row.udid || !stream) {
+      const { status } = this.stateOf(simulatorId);
+      if (status === "booting" || status === "serving") throw new RpcError("UNAVAILABLE", "the simulator's stream is still starting");
+      throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
+    }
+    const up = await this.springBoardUp(row.udid);
+    let tree: SimulatorAxTree | null = null;
+    let timedOut = false;
+    // Asked before the tree: a turn during the read then leaves a frame that no longer matches.
+    const frame = up ? await this.stream.screen(stream, row.udid) : null;
+    try {
+      if (up) tree = await this.stream.ax(stream, row.udid);
+    } catch (e) {
+      if (!(e instanceof AxReadTimedOut)) throw e;
+      timedOut = true;
+    }
+    if (tree) {
+      if (frame) this.sizes.set(row.udid, { points: tree.screen, frame });
+      else this.sizes.delete(row.udid);
+      return tree;
+    }
+    const fit = await this.streamFit(row.udid, stream);
+    if (fit === "down") {
+      this.served.delete(simulatorId);
+      this.set(OFF(simulatorId, row.udid));
+      throw new RpcError("FAILED", "the device was shut down outside Realm, so its pane has stopped streaming it");
+    }
+    if (fit === "stale") {
+      // Never ready, however long it is asked: a fresh stream is the only way to this boot's tree.
+      this.served.delete(simulatorId);
+      this.start(simulatorId);
+      throw new RpcError("UNAVAILABLE", "the pane's stream was from before the device last booted, so Realm is starting a fresh one. Try again in a few seconds.");
+    }
+    if (!up) throw new RpcError("UNAVAILABLE", "the device is still finishing its boot");
+    if (timedOut) throw new TreeReadTimedOut();
     // A 503 from the daemon means the device's AX framework is still warming up after a boot, which
     // is a "not yet" rather than a "cannot" — the pane says so and offers to look again.
-    if (!tree) throw new RpcError("UNAVAILABLE", "the device has not published its accessibility tree yet");
-    return tree;
+    throw new RpcError("UNAVAILABLE", "the device has not published its accessibility tree yet");
+  }
+
+  /**
+   * An iOS simulator's screen in points without reading its tree: the last tree's, as long as the
+   * stream's `/config` (a few ms) says what it said then. Null when that is not known — nothing read
+   * yet, the device turned, a frame of another size — and the caller reads the tree.
+   */
+  async screenSize(simulatorId: string): Promise<{ width: number; height: number } | null> {
+    const row = this.get(simulatorId);
+    if (row.physical || row.platform !== "ios" || !row.udid) return null;
+    const stream = this.served.get(simulatorId);
+    const known = this.sizes.get(row.udid);
+    if (!stream || !known) return null;
+    const frame = await this.stream.screen(stream, row.udid);
+    if (frame && frame.width === known.frame.width && frame.height === known.frame.height && frame.orientation === known.frame.orientation) return known.points;
+    this.sizes.delete(row.udid);
+    return null;
+  }
+
+  /** A screenshot follows the screen as the app turned it, which `/config` does not: one of
+   *  another shape than the kept size means the kept size is wrong. */
+  private sawFrame(udid: string, png: Buffer): void {
+    const known = this.sizes.get(udid);
+    const dims = pngSize(png);
+    if (known && dims && Math.abs(dims.width / dims.height - known.points.width / known.points.height) > 0.02) this.sizes.delete(udid);
+  }
+
+  /** False while the device is still booting. A wait that gave up is no reason to stop reading. */
+  private async springBoardUp(udid: string): Promise<boolean> {
+    const asked = this.springBoards.get(udid) ?? this.askSpringBoard(udid);
+    return Promise.race([asked.then(() => true), new Promise<false>((r) => setTimeout(r, SPRINGBOARD_WAIT_MS, false).unref())]);
+  }
+
+  private askSpringBoard(udid: string): Promise<boolean> {
+    const asked = this.cli.springBoardStarted(udid).catch(() => false);
+    this.springBoards.set(udid, asked);
+    return asked;
+  }
+
+  /** Whether a pane Realm calls running streams a simulator's current boot. False when it cannot tell. */
+  async staleStream(simulatorId: string): Promise<boolean> {
+    const row = this.get(simulatorId);
+    const stream = this.served.get(simulatorId);
+    if (row.physical || row.platform !== "ios" || !row.udid || !stream) return false;
+    const fit = await this.streamFit(row.udid, stream);
+    return fit === "stale" || fit === "down";
+  }
+
+  /**
+   * Whether a serve-sim stream belongs to the device's current boot. The daemon outlives a
+   * `simctl shutdown`, and `--list` keeps naming it, but it stays attached to the boot it started on:
+   * booted again, the device never publishes a tree through it. So a daemon that is gone, or started
+   * before the device's launchd, is `stale`; a device with no launchd is `down`; null is "cannot tell".
+   */
+  private async streamFit(udid: string, stream: ServeSimStream): Promise<"current" | "stale" | "down" | null> {
+    const table = await this.d.processes?.().catch(() => null);
+    if (!table || table.length === 0 || stream.pid === null) return null;
+    const launchd = table.find((p) => simulatorLaunchd(p.command)?.toUpperCase() === udid.toUpperCase());
+    if (!launchd) return "down";
+    const daemon = table.find((p) => p.pid === stream.pid);
+    if (!daemon) return "stale";
+    if (daemon.startedAt === null || launchd.startedAt === null) return null;
+    // Strictly before: a stream wrongly called stale costs one restart, a stale one kept costs the tree.
+    return daemon.startedAt < launchd.startedAt ? "stale" : "current";
   }
 
   /** Everything installed on the device. Asked fresh: an app can be installed while a pane watches. */
@@ -590,6 +705,7 @@ export class SimulatorService {
     }
     const r = await this.cli.screenshot(udid, absolute);
     if (!r.ok) throw new RpcError("FAILED", r.detail || "the screenshot did not happen");
+    if (this.sizes.has(udid)) this.sawFrame(udid, await readFile(absolute));
     return { path: rel, absolute };
   }
 
@@ -616,7 +732,9 @@ export class SimulatorService {
     try {
       const r = await this.cli.screenshot(udid, path);
       if (!r.ok) throw new RpcError("FAILED", r.detail || "the screenshot did not happen");
-      return await readFile(path);
+      const png = await readFile(path);
+      this.sawFrame(udid, png);
+      return png;
     } finally {
       await unlink(path).catch(() => { /* never written */ });
     }
@@ -648,6 +766,8 @@ export class SimulatorService {
     if (this.get(simulatorId).physical) return this.onDevice(() => this.real().act(this.udidOf(simulatorId), act));
     if (this.platformOf(simulatorId) === "android") return this.actAndroid(this.serialOf(simulatorId), act);
     const udid = this.udidOf(simulatorId);
+    // Another app may hold the screen the other way round.
+    if (act.kind === "launch" || act.kind === "open-url") this.sizes.delete(udid);
     switch (act.kind) {
       case "open-url": return this.cli.openUrl(udid, act.url);
       case "install": return this.cli.install(udid, act.path);
@@ -710,6 +830,8 @@ export class SimulatorService {
     if (row.platform === "android") return this.inputAndroid(this.serialOf(simulatorId), input);
     const wsUrl = this.stateOf(simulatorId).wsUrl;
     if (!wsUrl) throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
+    // The home screen of a turned iPhone stays upright while the app it left was turned.
+    if (input.kind === "press" && input.key === "home" && row.udid) this.sizes.delete(row.udid);
     return this.sendInput(wsUrl, iosSteps(input));
   }
 
@@ -957,15 +1079,22 @@ export class SimulatorService {
     const current = () => this.token.get(simulatorId) === token;
     const fail = (error: string, detail: string) => { if (current()) this.set({ ...OFF(simulatorId, udid), status: "failed", error, detail: detail || null }); };
     try {
+      this.sizes.delete(udid);
       const booted = await this.cli.boot(udid);
       // Remembered before anything else can go wrong: the device is up whether or not its stream comes.
       if (booted.ok && booted.booted) this.noteBoot(udid, this.d.simulators.get(simulatorId)?.name ?? udid);
       if (!current()) return;
       if (!booted.ok) return fail("boot_failed", booted.detail);
+      void this.askSpringBoard(udid);
 
       this.set({ ...OFF(simulatorId, udid), status: "serving" });
       let stream = await this.stream.find(udid);
       if (!current()) return;
+      if (stream.streamUrl && (await this.streamFit(udid, stream)) === "stale") {
+        await this.stream.kill(udid).catch(() => {});
+        if (!current()) return;
+        stream = { ...stream, streamUrl: null };
+      }
       if (!stream.streamUrl) {
         const started = await this.stream.start(udid);
         if (!current()) return;

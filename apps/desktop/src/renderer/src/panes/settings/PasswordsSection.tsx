@@ -259,7 +259,7 @@ export function SecurityCodesSwitch() {
             checked={status.enabled} disabled={busy} onChange={() => { void toggle(); }} />
         </div>
       </div>
-      <p className="settings-hint">Realm reads nothing while this is off, keeps nothing it reads, and sends no code anywhere. An agent fills a code only after you approve that fill, and is never told it.</p>
+      <p className="settings-hint">Realm reads nothing while this is off, keeps nothing it reads, and sends no code anywhere. An agent fills one only while Let agents finish sign-ins is on, and is never told it.</p>
     </>
   );
 }
@@ -268,8 +268,13 @@ export function securityCodesLine(status: SecurityCodesStatus): string {
   const reads = "When you click a code field in a browser pane, Realm looks for a code in the messages and emails that reached this Mac in the last 5 minutes.";
   if (!status.enabled || !status.sources) return reads;
   const names = Object.keys(status.sources) as SecurityCodeSourceName[];
-  const denied = names.filter((n) => status.sources![n] === "no_access");
+  // Messages read means Full Disk Access is on, so notifications Realm still can't read are their
+  // database moved or locked, which no switch in System Settings fixes.
+  const fullDisk = status.sources.Messages === "ok";
+  const locked = fullDisk && status.sources.Notifications === "no_access";
+  const denied = names.filter((n) => status.sources![n] === "no_access" && !(locked && n === "Notifications"));
   if (denied.length > 0) return `macOS isn't letting Realm read ${denied.join(" or ")}. Turn on Realm under System Settings ▸ Privacy & Security ▸ Full Disk Access.`;
+  if (locked) return "Realm can't read notifications on this Mac.";
   const readable = names.filter((n) => status.sources![n] === "ok");
   if (readable.length === 0) return "There is no Messages history or mail on this Mac for Realm to read.";
   if (readable.length === 1) return `${reads} Only ${readable[0]} can be read here.`;

@@ -80,6 +80,8 @@ const NAME_MAX = 255;
 export type AutofillCdp = {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
   onEvent(cb: (method: string, params: unknown) => void): void;
+  /** Whether this page is the one its pane shows (passkeys.ts's `PasskeyCdp.inFront`). */
+  inFront(): boolean;
 };
 
 export type AutofillDeps = {
@@ -344,7 +346,8 @@ export class PasswordAutofill {
         if (p?.frameId === pane.mainFrameId) void this.offerSent(paneId, pane);
         return;
       case "Runtime.bindingCalled":
-        if (p?.name !== AUTOFILL_BINDING || typeof p.payload !== "string" || typeof p.executionContextId !== "number") return;
+        // A page waiting behind the one in front reports to nobody: no menu, and no form to offer.
+        if (p?.name !== AUTOFILL_BINDING || typeof p.payload !== "string" || typeof p.executionContextId !== "number" || !pane.cdp.inFront()) return;
         void this.onMessage(paneId, pane, p.payload, p.executionContextId);
         return;
     }
@@ -452,7 +455,7 @@ export class PasswordAutofill {
   private async offerSent(paneId: string, pane: Pane): Promise<void> {
     const sent = pane.sent;
     pane.sent = null;
-    if (!sent || this.d.now() - sent.at > SAVE_CAPTURE_WINDOW_MS) return;
+    if (!sent || !pane.cdp.inFront() || this.d.now() - sent.at > SAVE_CAPTURE_WINDOW_MS) return;
     const kind = this.d.saveOfferFor(paneId, sent.origin, sent.username, sent.value);
     if (!kind) return;
     // One offer per pane: a newer form replaces the one the person has not answered.

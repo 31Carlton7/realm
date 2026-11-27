@@ -1,10 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
-import { findLeafOfItem, sessionEvent, type Environment, type LibraryEntry } from "@realm/contracts";
+import { findLeafOfItem, sessionEvent, type Environment, type LibraryEntry, type MeetingNotesFile } from "@realm/contracts";
 
 // The pane listens on the rpc singleton for file changes, which needs a real server port.
-vi.mock("../../rpc/client", () => ({ rpc: () => ({ on: () => () => {} }) }));
+const rpcListeners = new Map<string, Set<(payload: unknown) => void>>();
+const broadcast = (event: string, payload: unknown) => { for (const cb of rpcListeners.get(event) ?? []) cb(payload); };
+vi.mock("../../rpc/client", () => ({ rpc: () => ({ on: (event: string, cb: (payload: unknown) => void) => {
+  const listeners = rpcListeners.get(event) ?? new Set();
+  rpcListeners.set(event, listeners.add(cb));
+  return () => { listeners.delete(cb); };
+} }) }));
 
 import { DocumentsPane } from "./DocumentsPane";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -31,14 +37,15 @@ const art = (id: string, sessionId: string, path: string, ts: number, extra: Par
 
 /** The pane as a tab of the lead session's side pane — the way its bar's Documents button opens it —
  *  or, with `owned: false`, as a pane of its own. */
-async function mount(o: { artifacts?: LibraryEntry[]; addedProfiles?: Record<string, string>; files?: Record<string, string>; checkout?: string[]; owned?: boolean; settings?: Record<string, unknown> } = {}) {
+async function mount(o: { paneRoot?: string; meetingNotes?: MeetingNotesFile[]; artifacts?: LibraryEntry[]; addedProfiles?: Record<string, string>; files?: Record<string, string>; checkout?: string[]; owned?: boolean; settings?: Record<string, unknown> } = {}) {
   const api = fakeApi({
     items: { s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Pricing page" }), docsItem] },
-    sessions: [session("lead", "s1", { environmentId: ENV.id, cwd: ROOT, title: "Pricing page" })],
-    environments: { s1: [ENV] },
+    sessions: [session("lead", "s1", { environmentId: ENV.id, cwd: o.paneRoot ?? ROOT, title: "Pricing page" })],
+    environments: { s1: [{ ...ENV, path: o.paneRoot ?? ROOT }] },
     documentWorkspaces: { docs1: { id: "docs1", spaceId: "s1", environmentId: ENV.id, openPaths: [], activePath: null, createdAt: 0, updatedAt: 0 } },
     documentFiles: { docs1: { ...o.files } },
     artifacts: o.artifacts ?? [],
+    meetingNotes: { s1: { root: ROOT, notes: o.meetingNotes ?? [] } },
     addedProfiles: o.addedProfiles ?? {},
     projectFiles: { hits: (o.checkout ?? []).map((path) => ({ path, score: 1, segments: [{ text: path, match: false }] })), source: "git", truncated: false },
     ...(o.settings ? { settings: o.settings } : {}),
@@ -62,10 +69,73 @@ const namesIn = async (section: string) => {
 };
 const rowFor = (name: string) => screen.getAllByRole("button").find((b) => b.querySelector(".docs-home-name")?.textContent === name)!;
 
+/* The code editor is split out of the pane's chunk, and its first import is a transform of CodeMirror.
+   Taken once here, so the first test to open a code file times the pane and not the import (#622). */
+beforeAll(() => import("./CodeEditor"), 60_000);
 beforeEach(() => { vi.useRealTimers(); });
 afterEach(() => cleanup());
 
 describe("the documents home", () => {
+  it("lists the space's meetings, newest first, under their own head, and opens one as a tab", async () => {
+    const { api } = await mount({
+      meetingNotes: [{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }, { path: "meetings/2026-11-19 0900 Standup.md", modifiedAt: 1_000 }],
+      artifacts: [art("a1", "other", `${ROOT}/old.md`, 50)],
+      files: { "meetings/2026-11-20 1405 Launch sync.md": "# Launch sync\n" },
+    });
+    // THE MUTANTS: the section dropped, or the list sorted by name ascending.
+    expect(await namesIn("Meetings")).toEqual(["2026-11-20 1405 Launch sync.md", "2026-11-19 0900 Standup.md"]);
+    expect(await namesIn("Library")).toEqual(["old.md"]);
+    fireEvent.click(rowFor("2026-11-20 1405 Launch sync.md"));
+    await waitFor(() => expect(api.calls).toContain("readDocument:docs1:meetings/2026-11-20 1405 Launch sync.md"));
+  });
+
+  it("shows no Meetings head for a space with none, and lists a meeting once when a session also wrote it", async () => {
+    const first = await mount({ artifacts: [art("a1", "other", `${ROOT}/old.md`, 50)] });
+    await namesIn("Library");
+    expect(screen.queryByRole("region", { name: "Meetings" })).toBeNull();
+    first.ui.unmount();
+
+    await mount({
+      meetingNotes: [{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }],
+      artifacts: [art("a1", "lead", "meetings/2026-11-20 1405 Launch sync.md", 300)],
+    });
+    expect(await namesIn("This session")).toEqual(["2026-11-20 1405 Launch sync.md"]);
+    expect(screen.queryByRole("region", { name: "Meetings" })).toBeNull();
+  });
+
+  it("opens a meeting from a pane rooted at a worktree by where the file is, in the space's folder", async () => {
+    const worktree = "/Users/ada/work/worktrees/pricing";
+    const file = `${ROOT}/meetings/2026-11-20 1405 Launch sync.md`;
+    const { api } = await mount({
+      paneRoot: worktree,
+      meetingNotes: [{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }],
+      files: { [file]: "# Launch sync\n" },
+    });
+    expect(await namesIn("Meetings")).toEqual(["2026-11-20 1405 Launch sync.md"]);
+    fireEvent.click(rowFor("2026-11-20 1405 Launch sync.md"));
+    await waitFor(() => expect(api.calls).toContain(`readDocument:docs1:${file}`));
+    expect(api.calls).not.toContain("readDocument:docs1:meetings/2026-11-20 1405 Launch sync.md");
+  });
+
+  it("narrows the meetings to the ones a search names", async () => {
+    await mount({ meetingNotes: [{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }, { path: "meetings/2026-11-19 0900 Standup.md", modifiedAt: 1_000 }] });
+    await namesIn("Meetings");
+    fireEvent.change(screen.getByLabelText("Search files"), { target: { value: "standup" } });
+    await waitFor(async () => expect(await namesIn("Meetings")).toEqual(["2026-11-19 0900 Standup.md"]));
+  });
+
+  it("lists a meeting that ends while the home is up, for its own space only", async () => {
+    const { api } = await mount({ artifacts: [art("a1", "other", `${ROOT}/old.md`, 50)] });
+    await namesIn("Library");
+    const listed = vi.spyOn(api, "listMeetingNotes");
+    listed.mockResolvedValue({ root: ROOT, notes: [{ path: "meetings/2026-11-20 1405 Launch sync.md", modifiedAt: 2_000 }] });
+    act(() => broadcast("meetings.notesProgress", { meetingId: "m1", spaceId: "elsewhere", path: "meetings/x.md", stage: "saved" }));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(screen.queryByRole("region", { name: "Meetings" })).toBeNull();
+    act(() => broadcast("meetings.notesProgress", { meetingId: "m1", spaceId: "s1", path: "meetings/2026-11-20 1405 Launch sync.md", stage: "summarising" }));
+    expect(await namesIn("Meetings")).toEqual(["2026-11-20 1405 Launch sync.md"]);
+  });
+
   it("lists what this session made and was given, then the Library's — each file once", async () => {
     await mount({ artifacts: [
       art("a1", "lead", "notes/plan.md", 100),
@@ -259,6 +329,26 @@ describe("the documents home", () => {
     expect(api.calls.filter((c) => c.startsWith("removeLibraryFiles:"))).toHaveLength(2);
   });
 
+  /* THE mutants: the row missing for a text file, offered for a PDF it cannot typeset, or sent with a
+     path other than the card's. */
+  it("offers Download as PDF after Reveal for a text file, where the bridge has it", async () => {
+    const savePdf = vi.fn(async () => null);
+    vi.stubGlobal("realm", { files: { savePdf } });
+    const scan: LibraryEntry = { id: "f1", sessionId: null, spaceId: null, kind: "added", path: "/realm-home/library/p1/scan.pdf", name: "scan.pdf",
+      ext: "pdf", ts: 90, sessionTitle: null, agentKind: null };
+    await mount({ artifacts: [art("a1", "lead", "notes/plan.md", 100), scan], addedProfiles: { f1: "p1" } });
+    expect(await namesIn("Library")).toEqual(["scan.pdf"]);
+    const labels = (menu: HTMLElement) => within(menu).getAllByRole("menuitem").map((b) => b.querySelector(".menu-label")!.textContent);
+    fireEvent.contextMenu(rowFor("plan.md"));
+    expect(labels(await screen.findByRole("menu", { name: "plan.md" }))).toEqual(["Open", "Reveal in Finder", "Download as PDF…", "Copy path"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Download as PDF/ }));
+    expect(savePdf).toHaveBeenCalledWith(`${ROOT}/notes/plan.md`);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.contextMenu(rowFor("scan.pdf"));
+    expect(labels(await screen.findByRole("menu", { name: "scan.pdf" }))).not.toContain("Download as PDF…");
+    vi.unstubAllGlobals();
+  });
+
   it("in a pane of its own, lists no session and offers nothing to add a file to", async () => {
     await mount({ owned: false, artifacts: [art("a1", "lead", "notes/plan.md", 100)] });
     expect(await namesIn("Library")).toEqual(["plan.md"]);
@@ -401,10 +491,15 @@ function observerByHand() {
     takeRecords() { return []; }
   });
   return {
-    show: (el: Element) => act(() => {
-      const o = watched.get(el);
-      o?.cb([{ isIntersecting: true, target: el } as IntersectionObserverEntry], o);
-    }),
+    // The card starts watching in an effect, which can run after the card is already in the DOM, so
+    // `show` waits for the card to be watched rather than answering an observer nobody has made yet.
+    show: async (el: Element) => {
+      await waitFor(() => expect(watched.has(el)).toBe(true));
+      act(() => {
+        const o = watched.get(el)!;
+        o.cb([{ isIntersecting: true, target: el } as IntersectionObserverEntry], o);
+      });
+    },
   };
 }
 
@@ -455,7 +550,7 @@ describe("the documents home as a grid", () => {
     expect(await cardsIn("This session")).toEqual(["plan.md", "todo.md"]);
     expect(readRange).not.toHaveBeenCalled();
 
-    show(cardFor("plan.md").closest("li")!);
+    await show(cardFor("plan.md").closest("li")!);
     await waitFor(() => expect(cardFor("plan.md").querySelector(".docs-card-page h1")?.textContent).toBe("Plan"));
     expect(readRange.mock.calls).toEqual([[`${ROOT}/notes/plan.md`, 0, TEXT_HEAD]]);
     expect(cardFor("todo.md").querySelector(".docs-card-page")).toBeNull();

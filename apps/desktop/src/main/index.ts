@@ -1,4 +1,5 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents, powerMonitor } from "electron";
+import { logUncaught } from "./uncaught";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents, powerMonitor } from "electron";
 import { BrowserCredentialInputSchema, PasswordSaveAnswerSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -8,7 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
-import { daemonStatePath, forgetDeadServer, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
+import { daemonStatePath, defaultRealmHome, forgetDeadServer, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
 import { appTokenSha256, liveAppTokenFile, mintAppToken, sealAppToken, unsealAppToken } from "./app-token";
 import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type DaemonEndpoint, type HandoffResult, type HandoffWhy } from "./daemon";
 import { SERVER_ENTRY_SUFFIX, STOP_WAIT_MS, realProcessOps, runsServer, stopServerProcess, stopStrayServers, waitForExit } from "./daemon-stop";
@@ -20,11 +21,16 @@ import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
-import { BROWSER_KEEP_HIDDEN_DEFAULT, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { askAppModal, askInSheet } from "./message-box";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, COMMAND_SIDE_DEFAULT, isCommandSide, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { startBackdropState } from "./backdrop-state";
+import { MeetingWatch, meetingWatchPath, startMeetingWatchHelper } from "./meeting-watch";
+import { RealmKeys } from "./realm-keys";
+import { AssistantKeys, onPageGone, PageInbox } from "./assistant-keys";
+import { AssistantAutoStart } from "./assistant-auto-start";
 import { readFileRange, readTextFile } from "./read-text";
 import {
   addBackgrounds, backgroundImageUrl, backgroundLoopFile, listBackgrounds, removeBackground, setBackgroundPoster, updateBackground, type FirstFrame, type Reencode,
@@ -34,7 +40,7 @@ import { shareImage } from "./share-images";
 import { clearBrowserPartition, coverJpeg, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
 import { refuseCapture } from "./capture-guard";
-import { VoiceHelper, voiceHelperPath } from "./voice-helper";
+import { TranscriptHelper, VoiceHelper, voiceHelperPath } from "./voice-helper";
 import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
 import { nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
@@ -49,7 +55,7 @@ import { ComputerUseHost } from "./computer-use-host";
 import { ComputerDrivingIndicator } from "./computer-driving";
 import { ComputerAccess, isComputerAccessId, type ComputerAccessStatus, type ComputerGrantHistory } from "./computer-access";
 import {
-  MAC_CAPABILITIES, MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
+  MAC_CAPABILITIES, MAC_FALLBACK_DIRS, MAC_SETTINGS_URLS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, UPDATER_CACHE_DIR_NAME, pruneInstalledDownload, scheduleUpdateChecks, updaterDecision } from "./updater";
@@ -59,7 +65,10 @@ import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-own
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
 import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
-import { installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietWindowsOn } from "./quiet-windows";
+import { agentHome, agentUserData, installQuietWindows, QUIET_WINDOW_OPTIONS, QUIET_WINDOWS_ENV, quietKeyable, quietTray, quietWindowsOn } from "./quiet-windows";
+import { bringForward, raiseBy, type RaiseBy } from "./bring-forward";
+import { ListeningMark, MeetingListening, listeningDot } from "./listening-mark";
+import { QUICK_CHAT_PANEL_OPTIONS, QUICK_CHAT_SURFACE, QuickChatPanel, QuickChatShortcut, quickChatPanelPlace, quickChatPanelStep, quickChatPanelWaitsForDraw } from "./quick-chat-panel";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -72,24 +81,28 @@ import { registerFullScreenQuery, wireFullScreen } from "./full-screen";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
 import { SecurityCodes, SecurityCodesSetting, codeSourcesFor } from "./security-codes";
+import { AgentSignins } from "./agent-signins";
 import { registerPasswordsIpc } from "./passwords-ipc";
 import { readSecretsFile, setAsideSecretsFile, writeSecretsFile } from "./secrets-file";
 import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
 import { attachTextContextMenu } from "./text-context-menu";
-import { windowOpenTarget } from "./link-open";
+import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
 import { registerFileActions } from "./file-actions";
+import { registerPdfExport } from "./print-pdf";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
 import { titleBarOverlay, windowChrome } from "./window-chrome";
 import { windowArguments } from "./window-args";
 import { registerWhatsNew, WhatsNewState } from "./whats-new";
-import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, KeybindingSchema, QUICK_CHAT_HIDE_FROM_SHARING_KEY, QUICK_CHAT_SHORTCUT_KEY, quickChatShortcutFrom, type Keybinding, type QuickChatShortcutState } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleBackgroundProtocol, handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 import { findFfmpeg, playableCopy } from "./media-proxy";
+
+logUncaught();
 
 /* `realm-media://` has to be declared privileged before `app.ready`, which is why this is a
    top-level statement rather than a line in `whenReady` — Electron ignores the registration
@@ -105,6 +118,19 @@ const platform = platformCapabilities(process.platform);
 const quiet = quietWindowsOn({ packaged: app.isPackaged, env: process.env });
 if (quiet) installQuietWindows();
 else delete process.env[QUIET_WINDOWS_ENV];
+const agentUserDataDir = agentUserData({
+  packaged: app.isPackaged, env: process.env, appPath: app.getAppPath(), tmpDir: tmpdir(),
+  userData: app.getPath("userData"), defaultUserData: join(app.getPath("appData"), app.name),
+});
+if (agentUserDataDir) app.setPath("userData", agentUserDataDir);
+const agentHomeDir = agentHome({ packaged: app.isPackaged, env: process.env, appPath: app.getAppPath(), tmpDir: tmpdir(), defaultHome: defaultRealmHome() });
+if (agentHomeDir) {
+  // Read by `realmHomePath` and passed on to the server, so neither ever looks at the default home.
+  process.env.REALM_HOME = agentHomeDir;
+  // One home per checkout, so Laya installing itself in each would fill the disk (layaAutoInstallOn).
+  process.env.REALM_NO_LAYA_AUTO_INSTALL = "1";
+  console.error(`[home] ${agentHomeDir}: started from an agent's shell, so not the default home, whose server is the owner's`);
+}
 // Windows shows a notification only for an app it can name, and names it by this id — the appId
 // electron-builder registers the Start menu shortcut under.
 if (process.platform === "win32") app.setAppUserModelId("co.charmtechnologies.realm");
@@ -344,6 +370,19 @@ async function readSleepPreference() {
   try {
     const stored = await bridgeClient?.call("settings.get", { key: POWER_PREVENT_SLEEP_KEY });
     sleepGuard.setPreference((stored as { value?: unknown } | null)?.value === true);
+  } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
+}
+
+/** Settings ▸ General ▸ Meetings' switch, read when main (re)connects for the reason the sleep
+ *  preference is. On unless turned off; Linux and Windows have no helper to start. */
+async function readMeetingsPreference() {
+  if (!platformCapabilities(process.platform).meetings) return;
+  try {
+    const stored = await bridgeClient?.call("settings.get", { key: MEETINGS_OPEN_KEY });
+    meetingWatch.setOpensMeetings((stored as { value?: unknown } | null)?.value !== false);
+    const autoStart = (await bridgeClient?.call("settings.get", { key: MEETING_AUTO_START_KEY }) as { value?: unknown } | null)?.value;
+    assistantAutoStart.set(typeof autoStart === "boolean" ? autoStart : MEETING_AUTO_START_DEFAULT);
+    preparePanel();
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
 
@@ -611,11 +650,14 @@ async function createWindow(info: { port: number; home: string; token: string },
   // Every link in the app reaches main as a window request (they are all target="_blank"): denied as
   // a window, and opened where Settings ▸ General ▸ Links says — the default browser, or a Realm
   // Browser tab the renderer makes beside the session.
-  const openInRealm = (url: string) => win.webContents.send("links:open-in-realm", url);
+  const openInRealm = (url: string, background = false) => win.webContents.send("links:open-in-realm", url, { background });
+  // The last press is what tells a middle-click from a ⌘-click: Chromium makes both a background tab.
+  let press: LastPress = "other";
+  win.webContents.on("input-event", (_e, input) => { press = lastPress(input as { type: string; button?: string }, press); });
   win.webContents.setWindowOpenHandler((details) => {
-    const to = windowOpenTarget(details, linksOpenIn);
-    if (to === "realm") openInRealm(details.url);
-    else if (to === "default") void shell.openExternal(details.url);
+    const open = windowOpenTarget(details, linksOpenIn, press);
+    if (open?.to === "realm") openInRealm(details.url, open.background);
+    else if (open?.to === "default") void shell.openExternal(details.url);
     return { action: "deny" };
   });
   // Keep the top frame inside the app: dev server origin in dev, file:// in production.
@@ -669,8 +711,156 @@ async function createWindow(info: { port: number; home: string; token: string },
     presence.check();
     windowPanes.delete(id);
     if (appDriveWindow === id) { appDriveHost.forget(); appDriveWindow = null; }
+    // Electron's `window-all-closed` waits for the quick chat panel too, which is kept hidden
+    // between uses, so the last Realm window closing beside one is said here.
+    if (windows.size === 0 && quickChatPanel.window()) lastWindowClosed();
   });
 }
+
+/**
+ * The quick chat panel (quick-chat-panel.ts): the renderer's Quick Chat alone in a small window that
+ * floats over every app, on every Space. It loads the same bundle as a Realm window and is told it
+ * is the panel on its command line (`window.realm.surface`).
+ */
+function createQuickChatPanelWindow(info: { port: number; home: string; token: string }) {
+  const stateFile = join(app.getPath("userData"), "quick-chat-panel.json");
+  const primary = screen.getPrimaryDisplay();
+  const place = quickChatPanelPlace(readWindowState(stateFile),
+    [primary.workArea, ...screen.getAllDisplays().filter((d) => d.id !== primary.id).map((d) => d.workArea)],
+    screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
+  const win = new BrowserWindow({
+    ...QUICK_CHAT_PANEL_OPTIONS, ...place,
+    // A non-activating panel: it can hold the keyboard while another app stays in front. Its ground
+    // is the system's material, which the page covers in Plain and shows through in Glass.
+    ...(process.platform === "darwin" ? { type: "panel", vibrancy: "popover" as const, visualEffectState: "active" as const, backgroundColor: "#00000000" } : {}),
+    webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
+      ...(quiet ? { backgroundThrottling: false } : {}),
+      additionalArguments: [...windowArguments({ ...info, profileId: null, spaceId: null, land: null }), `--realm-surface=${QUICK_CHAT_SURFACE}`] },
+  });
+  if (quiet) quietKeyable(win);
+  // Above a full-screen app and on every Space, without turning Realm into an agent app to get there.
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  // The page's own <title> would name the window to anything listing windows.
+  win.on("page-title-updated", (e) => e.preventDefault());
+  win.webContents.setWindowOpenHandler((details) => {
+    if (windowOpenTarget(details, "default", "other")) void shell.openExternal(details.url);
+    return { action: "deny" };
+  });
+  const devOrigin = process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : null;
+  win.webContents.on("will-navigate", (e, url) => {
+    const inApp = devOrigin ? url === devOrigin || url.startsWith(`${devOrigin}/`) : url.startsWith("file://");
+    if (!inApp) e.preventDefault();
+  });
+  attachTextContextMenu(win.webContents);
+  trackWindowState(win, stateFile);
+  const ready = process.env.ELECTRON_RENDERER_URL ? win.loadURL(process.env.ELECTRON_RENDERER_URL) : win.loadFile(join(__dirname, "../renderer/index.html"));
+  return { win, ready };
+}
+/** `quickChatPanel.toggle()` opens the panel over whatever is in front, or puts it away, and
+ *  `quickChatPanel.isOpen()` says which. Every key that opens the panel calls those two: the chord
+ *  below, and a native key helper when there is one. */
+const quickChatPanel = new QuickChatPanel(() => (serverInfo ? createQuickChatPanelWindow(serverInfo) : null), process.platform,
+  { waitForDraw: quickChatPanelWaitsForDraw(process.env) });
+
+const quickChatShortcut = new QuickChatShortcut({
+  register: (accelerator, press) => globalShortcut.register(accelerator, press),
+  unregister: (accelerator) => globalShortcut.unregister(accelerator),
+  press: () => openQuickChat(),
+  platform: process.platform,
+});
+/** The panel's two settings, read from the server once it answers: main registers the chord, so it
+ *  cannot wait for a window to be opened to hear what the chord is. */
+async function readQuickChatPanelSettings(): Promise<void> {
+  const read = async (key: string) => ((await bridgeClient?.call("settings.get", { key })) as { value?: unknown } | null | undefined)?.value;
+  try {
+    const [chord, hide] = await Promise.all([read(QUICK_CHAT_SHORTCUT_KEY), read(QUICK_CHAT_HIDE_FROM_SHARING_KEY)]);
+    quickChatShortcut.set(quickChatShortcutFrom(chord));
+    quickChatPanel.setHiddenFromSharing(hide !== false);
+    preparePanel();
+  } catch { /* the bridge dropped; the next connection reads them */ }
+}
+/** The panel's window is made ahead of the first press, hidden, once there is a key that opens it.
+ *  With no chord, no double-tap, no assistant chord and no auto-start there is nothing to open it
+ *  from another app, and a renderer kept for it would be memory spent on nothing. */
+function preparePanel(): void {
+  quickChatPanel.prepareFor(
+    {
+      chord: quickChatShortcut.current().registered, doubleTap: realmKeys.doubleTapOn, assistant: assistantKeys.live,
+      autoStart: assistantAutoStart.enabled,
+    },
+    meetingListening.listening,
+  );
+}
+ipcMain.handle("quick-chat-panel:shortcut", (): QuickChatShortcutState => quickChatShortcut.current());
+ipcMain.handle("quick-chat-panel:set-shortcut", (_e, chord: unknown): QuickChatShortcutState => {
+  const state = quickChatShortcut.set(typeof chord === "string" ? chord : null);
+  preparePanel();
+  return state;
+});
+// Whether the panel's page was loaded to be opened, or made ahead of time and is to wait for a press.
+ipcMain.handle("quick-chat-panel:opening", (e): boolean => e.sender === quickChatPanel.window()?.webContents && quickChatPanel.isOpen());
+ipcMain.on("quick-chat-panel:set-hide-from-sharing", (_e, on: unknown) => quickChatPanel.setHiddenFromSharing(on !== false));
+// Only the panel's own page puts it away: Escape there, or its chat being deleted.
+ipcMain.on("quick-chat-panel:hide", (e) => { if (e.sender === quickChatPanel.window()?.webContents) quickChatPanel.close(); });
+// "Open" on a chat the panel saved to a space: the session opens in a Realm window, as one picked
+// from the menu bar does, and the panel goes.
+ipcMain.on("quick-chat-panel:open-in-realm", (e, target: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  const t = target as { sessionId?: unknown; spaceId?: unknown } | null;
+  if (typeof t?.sessionId !== "string" || typeof t.spaceId !== "string") return;
+  quickChatPanel.close();
+  void reattach({ sessionId: t.sessionId, spaceId: t.spaceId });
+});
+ipcMain.on("quick-chat-panel:open-document", (e, target: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  const t = target as { spaceId?: unknown; path?: unknown } | null;
+  if (typeof t?.spaceId !== "string" || typeof t.path !== "string") return;
+  quickChatPanel.close();
+  void reattach({ spaceId: t.spaceId, path: t.path });
+});
+// The quick chat is one chat wherever it is shown, so a page that opened or deleted it tells the rest.
+ipcMain.on("quick-chat:changed", (e) => {
+  for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send("quick-chat:changed");
+});
+app.on("will-quit", () => quickChatShortcut.release());
+
+/** The menu bar's red mark while the panel's meeting assistant listens (listening-mark.ts). */
+const listeningMark = new ListeningMark({
+  createTray: () => {
+    const { buffer, ...size } = listeningDot();
+    const image = nativeImage.createFromBitmap(buffer, size);
+    // A live check's app keeps the item out of the person's menu bar and says what it would show.
+    if (quiet) return quietTray("listening", image);
+    const tray = new Tray(image);
+    return {
+      setTitle: (t) => tray.setTitle(t),
+      setToolTip: (t) => tray.setToolTip(t),
+      setContextMenu: (template) => tray.setContextMenu(Menu.buildFromTemplate(template)),
+      destroy: () => tray.destroy(),
+    };
+  },
+  actions: {
+    show: () => quickChatPanel.open(),
+    stop: () => meetingListening.stop(),
+  },
+});
+// `transcript`, the meeting transcript's helper, is made further down.
+const meetingListening = new MeetingListening<WebContents>({
+  mark: (on) => {
+    listeningMark.set(on);
+    // A run that ends holds auto-start off for its call (assistant-auto-start.ts).
+    assistantAutoStart.listeningChanged(meetingListening.listening);
+  },
+  stopHelper: (page) => transcript.endRun(page),
+});
+ipcMain.on("meeting-assistant:listening", (e, on: unknown) => {
+  if (e.sender !== quickChatPanel.window()?.webContents) return;
+  meetingListening.set(e.sender, on === true);
+  // The first listen follows the first-run sheet's accept: the assistant's chords may wait on it.
+  if (on === true) void readAssistantConsent();
+});
+app.on("will-quit", () => listeningMark.set(false));
 
 /**
  * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
@@ -797,6 +987,7 @@ const agentHost = new BrowserAgentHost({
   touch: (id) => paneFor(id)?.host.touch(id),
   navigate: (id, url) => paneFor(id)?.host.navigate(id, url) ?? null,
   pageState: (id) => paneFor(id)?.pageState(id) ?? null,
+  takeOpenedTabs: async (id, waitMs) => (await paneFor(id)?.host.takeOpenedTabs(id, waitMs)) ?? [],
   // The fill op's only reach into the store. Passed as an object of bound methods rather than the
   // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
   secrets: {
@@ -820,9 +1011,13 @@ const agentHost = new BrowserAgentHost({
   readFile: async (path) => new Uint8Array(await readFile(path)),
   codes: {
     enabled: () => codes()?.enabled() ?? false,
-    latest: async (origin) => (await codes()?.latest(origin)) ?? null,
+    waitFor: async (origin, o) => (await codes()?.waitFor(origin, o)) ?? { found: null, cancelled: false, miss: { Messages: "missing", Mail: "missing", Notifications: "missing" } },
   },
   coverShot: coverJpeg,
+  signins: {
+    enabled: () => agentSignins()?.enabled() ?? false,
+    record: (fill) => agentSignins()?.record(fill),
+  },
 });
 
 /** The browser a download came from, in whichever window holds its view. */
@@ -877,6 +1072,8 @@ ipcMain.handle("browser:create", async (e, id: string, url: string, allowlist: s
   governBrowserDownloads(owner.partition, downloadPolicy);
   pane.host.create(browserId, url, allowlist, owner.partition);
 });
+/* The renderer made the browser for a page's new tab (`links:open-tab`): its view hosts the page made for it. */
+ipcMain.on("links:claim-tab", (e, page: string, browserId: string) => { senderPane(e.sender)?.host.claimTab(String(page), String(browserId)); });
 /* The browser was closed or deleted: no window keeps a view of it. */
 ipcMain.handle("browser:destroy", (_e, id: string) => { for (const { pane } of windowPanes.values()) pane.host.destroy(String(id)); });
 // The pane went away without the browser being closed — a space or pane-group switch. The view
@@ -1018,7 +1215,7 @@ ipcMain.handle("browser:clear-data", async (e, id: unknown): Promise<{ cleared: 
     profileName: profile?.name ?? "this profile",
     confirm: async (copy) => {
       const options = { type: "warning" as const, buttons: [copy.clear, copy.cancel], defaultId: 1, cancelId: 1, message: copy.message, detail: copy.detail };
-      return (win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)).response;
+      return await askInSheet(win, options) ?? options.cancelId;
     },
     clear: () => clearBrowserPartition(partition),
   });
@@ -1113,6 +1310,23 @@ function codes(): SecurityCodes | null {
 ipcMain.handle("codes:status", async (e) => (e.senderFrame === e.sender.mainFrame ? (await codes()?.status()) ?? null : null));
 ipcMain.handle("codes:set-enabled", async (e, on: unknown) =>
   (e.senderFrame === e.sender.mainFrame ? (await codes()?.setEnabled(on === true)) ?? null : null));
+
+/**
+ * Let agents finish sign-ins (agent-signins.ts): main's file under the home, so no agent can turn it
+ * on. Null only before realm-server has announced its home, which reads as off.
+ */
+let agentSigninsFile: AgentSignins | null = null;
+function agentSignins(): AgentSignins | null {
+  if (agentSigninsFile) return agentSigninsFile;
+  if (!realmHome) return null;
+  agentSigninsFile = new AgentSignins(join(realmHome, "agent-signins.json"));
+  return agentSigninsFile;
+}
+/** Settings ▸ Sign-ins ▸ Let agents finish sign-ins, from the window's own top frame only: the switch
+ *  and the last agent fills. */
+ipcMain.handle("signins:status", (e) => (e.senderFrame === e.sender.mainFrame ? agentSignins()?.status() ?? null : null));
+ipcMain.handle("signins:set-enabled", (e, on: unknown) =>
+  (e.senderFrame === e.sender.mainFrame ? agentSignins()?.setEnabled(on === true) ?? null : null));
 
 /**
  * The secret store, built on first use. Null only before realm-server has announced its home.
@@ -1311,16 +1525,14 @@ registerPasswordsIpc({
       message: `Move ${basename(path)} to the Trash?`,
       detail: "Realm has imported and encrypted these passwords. The file still holds every one of them in plain text.",
     };
-    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
-    if (r.response !== 0) return false;
+    if (await askInSheet(win, options) !== 0) return false;
     await shell.trashItem(path);
     return true;
   },
   showPassword: async (sender, title, value) => {
     const win = BrowserWindow.fromWebContents(sender as WebContents);
     const options = { type: "none" as const, buttons: ["Done", "Copy"], defaultId: 0, cancelId: 0, message: title, detail: value };
-    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
-    return r.response === 1;
+    return await askInSheet(win, options) === 1;
   },
   clipboard: { writeText: (t) => clipboard.writeText(t), readText: () => clipboard.readText(), clear: () => clipboard.clear() },
   setTimer: (fn, ms) => { setTimeout(fn, ms).unref?.(); },
@@ -1488,6 +1700,79 @@ ipcMain.on("voice:command", (e, command: unknown) => voice.command(e.sender, com
 ipcMain.on("voice:audio", (e, pcm: unknown) => { if (pcm instanceof Uint8Array) voice.audio(e.sender, pcm); });
 ipcMain.on("voice:stop", (e) => voice.stop(e.sender));
 app.on("will-quit", () => voice.stop());
+
+// ── Meetings ─────────────────────────────────────────────────────────────────────────────────────
+// Knowing when a meeting or a call starts (meeting-watch.ts). With Settings ▸ General ▸ Meetings on,
+// a meeting's link is opened by the system at its start, with a notification two minutes before.
+// With "Start the assistant when a call starts" on, a call starting starts the panel's assistant.
+const saidMeetingsFile = () => join(app.getPath("userData"), "meetings-said.json");
+// Held so the click still lands: a notification nothing refers to can be collected before it.
+let meetingNotification: Notification | null = null;
+const meetingWatch = new MeetingWatch({
+  startHelper: (mode, onLine) => {
+    const bin = meetingWatchPath(app.getAppPath(), process.resourcesPath);
+    return bin ? startMeetingWatchHelper(bin, mode, onLine) : null;
+  },
+  now: () => Date.now(),
+  at: (time, run) => {
+    const timer = setTimeout(run, Math.max(0, time - Date.now()));
+    return { cancel: () => clearTimeout(timer) };
+  },
+  openLink: (link) => void shell.openExternal(link),
+  notify: (meeting, onClick) => {
+    meetingNotification = new Notification({ title: meeting.title || "Meeting", body: "Starts in 2 minutes" });
+    meetingNotification.on("click", onClick);
+    meetingNotification.show();
+  },
+  loadSaid: () => {
+    try { return JSON.parse(readFileSync(saidMeetingsFile(), "utf8")) as string[]; } catch { return []; }
+  },
+  saveSaid: (keys) => {
+    try { writeFileSync(saidMeetingsFile(), JSON.stringify(keys)); } catch { /* said again after a relaunch at worst */ }
+  },
+  onCalendarAccess: (access) => {
+    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send("realm:calendar-access", access);
+  },
+  ownBundleId: () => readComputerBundleId() ?? "co.charmtechnologies.realm",
+});
+/** The renderer's half of the Meetings switch, as `power:prevent-sleep` is the sleep preference's. */
+ipcMain.handle("meetings:open-when-starts", (_e, on: unknown) => { meetingWatch.setOpensMeetings(on === true); });
+/** "Start the assistant when a call starts" (assistant-auto-start.ts). The page's Start is the one
+ *  the button runs, so the mark goes up the same way. */
+const assistantAutoStart = new AssistantAutoStart({
+  watchCalls: (on) => meetingWatch.watchCalls(on),
+  consented: async () => meetingConsentAccepted((await bridgeClient?.call("settings.get", { key: MEETING_CONSENT_KEY }) as { value?: unknown } | null)?.value),
+  listening: () => meetingListening.listening,
+  panel: quickChatPanel,
+  start: () => assistantInbox.send(quickChatPanel.window()?.webContents ?? null, "autoStart"),
+  now: () => Date.now(),
+});
+meetingWatch.on("meetingStarted", (meeting) => void assistantAutoStart.meetingStarted(meeting));
+meetingWatch.on("callStarted", (app) => void assistantAutoStart.appCallStarted(app));
+meetingWatch.on("callEnded", (app) => assistantAutoStart.appCallEnded(app));
+ipcMain.handle("meetings:start-assistant-with-call", (_e, on: unknown) => { assistantAutoStart.set(on === true); preparePanel(); });
+/** Read again each time it is asked for, so a grant changed in System Settings shows on the page. */
+ipcMain.handle("meetings:calendar-access", () => { meetingWatch.checkCalendar(); return meetingWatch.access; });
+/** The one place Realm asks macOS for the calendar on its own account: the button in Settings. */
+ipcMain.handle("meetings:ask-for-calendar", () => { meetingWatch.askForCalendar(); });
+ipcMain.handle("meetings:open-calendar-settings", () => { void shell.openExternal(MAC_SETTINGS_URLS.calendars); });
+app.on("will-quit", () => meetingWatch.stop());
+
+// ── Meeting transcript ───────────────────────────────────────────────────────────────────────────
+// The same helper in its continuous mode, beside dictation's: "me" from the window's microphone,
+// "them" from this Mac's sound output. Nothing here asks for a permission; the window asks for the
+// microphone through voice:microphone, from a click, and System Audio Recording is only read.
+const transcript = new TranscriptHelper(() => voiceHelperPath(app.getAppPath(), process.resourcesPath));
+const transcriptWindows = new WeakSet<WebContents>();
+ipcMain.handle("transcript:start", (e) => {
+  if (!transcriptWindows.has(e.sender)) { transcriptWindows.add(e.sender); e.sender.once("destroyed", () => transcript.stop(e.sender)); }
+  return transcript.start(e.sender);
+});
+ipcMain.on("transcript:command", (e, command: unknown) => transcript.command(e.sender, command));
+ipcMain.on("transcript:audio", (e, source: unknown, pcm: unknown) => { if (pcm instanceof Uint8Array) transcript.sourceAudio(e.sender, source, pcm); });
+ipcMain.on("transcript:system-audio", (e) => void transcript.systemAudio(e.sender));
+ipcMain.on("transcript:stop", (e) => transcript.stop(e.sender));
+app.on("will-quit", () => transcript.stop());
 
 /** A real iPhone's picture, live. macOS reaches a connected iPhone's screen as a camera, so this raises
  *  the camera prompt — on purpose, and only from a click on the pane's Show live. Answers the status
@@ -1742,9 +2027,8 @@ updater = new RealmUpdater({
   onInstallFailed: (message, { reopen }) => {
     console.error(`[update] the install did not go through: ${message}`);
     if (reopen) { reopenAfterFailedInstall(message); return; }
-    const win = windows.primary();
-    const box = { type: "warning" as const, message: "Realm couldn't install the update", detail: message, buttons: ["OK"] };
-    void (win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box));
+    // A sheet, or nothing when no window is on screen: Settings → General says the same.
+    void askInSheet(BrowserWindow.getFocusedWindow() ?? windows.primary(), { type: "warning", message: "Realm couldn't install the update", detail: message, buttons: ["OK"] });
   },
   onDownloaded: (version) => void (async () => {
     // Restarting stops the server, and every agent working in it, before the installer runs — said
@@ -1755,7 +2039,9 @@ updater = new RealmUpdater({
     const lastTry = previousInstallFailure
       ? ` The last try didn't install (${previousInstallFailure}). If this one doesn't either, download Realm from realm.computer.`
       : "";
-    void dialog.showMessageBox({
+    // A sheet on the window the person is in, or no question at all: the rail's restart button and
+    // Settings → General carry the same choice, and a download finishes whether or not anyone is there.
+    void askInSheet(BrowserWindow.getFocusedWindow(), {
       type: "info",
       title: "Realm update ready",
       message: `Realm v${version} is ready to install.`,
@@ -1763,7 +2049,7 @@ updater = new RealmUpdater({
       buttons: ["Restart and update", "Later"],
       defaultId: 0,
       cancelId: 1,
-    }).then(({ response }) => { if (response === 0) void updater.install(); });
+    }).then((response) => { if (response === 0) void updater.install(); });
   })(),
   // Pushed, not polled: a download's progress has to reach the rail's button while the window sits
   // at the front, which is exactly when nothing else would make the renderer ask.
@@ -1909,6 +2195,116 @@ ipcMain.on("links:open-in", (_e, pref: unknown) => { if (isLinksOpenIn(pref)) li
 /** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
  *  a turn already running rather than at the next status change. */
 ipcMain.handle("power:prevent-sleep", (_e, on: unknown) => { sleepGuard.setPreference(on === true); });
+
+/** The key helper (native/RealmKeys.swift): beside the source in a dev build or a live check, in
+ *  Resources once packaged. A live check never starts the real one, whose tap would answer the keys of
+ *  whoever is at the Mac; it names a stand-in with REALM_KEYS_BIN, which a packaged Realm ignores. */
+function realmKeysPath(): string | null {
+  if (process.platform !== "darwin") return null;
+  if (!app.isPackaged && process.env.REALM_KEYS_BIN) return process.env.REALM_KEYS_BIN;
+  if (quiet) return null;
+  const dev = join(__dirname, "../../native/bin/realmkeys");
+  if (existsSync(dev)) return dev;
+  const packaged = join(process.resourcesPath, "realmkeys");
+  return existsSync(packaged) ? packaged : null;
+}
+
+/**
+ * Opens the quick chat from any app: what a double-tap of Command does. The panel opens over the app
+ * in front, and a double-tap with it open puts it away, as its chord does. This is the one place that
+ * decides where the quick chat opens from outside Realm.
+ */
+function openQuickChat(): void {
+  assistantKeys.openChat();
+}
+
+/** The Settings pages showing what the keyboard sends (Keys ▸ From anywhere ▸ Try it). */
+const keysWatchers = new Set<WebContents>();
+const tellKeysWatchers = (channel: string, value: unknown) => { for (const contents of keysWatchers) if (!contents.isDestroyed()) contents.send(channel, value); };
+const realmKeys = new RealmKeys({
+  start: (swallow) => {
+    const bin = realmKeysPath();
+    return bin ? spawn(bin, swallow ? ["--swallow"] : [], { stdio: ["pipe", "pipe", "pipe"] }) : null;
+  },
+  onDoubleTap: () => openQuickChat(),
+  onWatched: (event) => tellKeysWatchers("keys:event", event),
+  onState: (state) => tellKeysWatchers("keys:state", state),
+});
+app.on("will-quit", () => realmKeys.stop());
+
+/** The assistant's chords (assistant-keys.ts), told to the panel's page once it says it hears them. */
+const assistantInbox = new PageInbox<WebContents>((page, action) => { if (!page.isDestroyed()) page.send("meeting-assistant:key", action); });
+const assistantKeys = new AssistantKeys({
+  register: (key, run) => realmKeys.registerChord(key, run),
+  panel: {
+    isOpen: () => quickChatPanel.isOpen(),
+    open: () => quickChatPanel.open(),
+    openInactive: () => quickChatPanel.openInactive(),
+    close: () => quickChatPanel.close(),
+    move: (direction) => {
+      const win = quickChatPanel.window();
+      if (!win) return;
+      const [x, y] = win.getPosition();
+      win.setPosition(quickChatPanelStep(x!, screen.getDisplayMatching(win.getBounds()).workArea, direction), y!);
+    },
+  },
+  send: (action) => assistantInbox.send(quickChatPanel.window()?.webContents ?? null, action),
+  listening: () => meetingListening.listening,
+  shown: () => assistantInbox.shown(quickChatPanel.window()?.webContents ?? null),
+});
+const assistantPages = new WeakSet<WebContents>();
+ipcMain.on("meeting-assistant:keys-ready", (e) => {
+  const page = e.sender;
+  if (page !== quickChatPanel.window()?.webContents) return;
+  if (!assistantPages.has(page)) {
+    assistantPages.add(page);
+    onPageGone(page, () => assistantInbox.forget(page));
+  }
+  assistantInbox.pageReady(page);
+});
+ipcMain.on("meeting-assistant:shown", (e, on: unknown) => {
+  if (e.sender === quickChatPanel.window()?.webContents) assistantInbox.setShown(e.sender, on === true);
+});
+
+/** The two settings, read from the server when main (re)connects, as the sleep preference is: a
+ *  launch with no window still answers a double-tap. */
+async function readKeysPreferences() {
+  try {
+    const [doubleTap, side, hold, chords, consent] = await Promise.all([KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, KEYS_ASSISTANT_KEY, MEETING_CONSENT_KEY].map((key) => bridgeClient?.call("settings.get", { key }) as Promise<{ value?: unknown } | null>));
+    if (isHoldKey(hold?.value)) realmKeys.setHoldKey(hold.value);
+    realmKeys.setCommandSide(isCommandSide(side?.value) ? side.value : COMMAND_SIDE_DEFAULT);
+    assistantKeys.setConsented(meetingConsentAccepted(consent?.value));
+    assistantKeys.set(typeof chords?.value === "boolean" ? chords.value : KEYS_ASSISTANT_DEFAULT);
+    realmKeys.setDoubleTap(typeof doubleTap?.value === "boolean" ? doubleTap.value : KEYS_DOUBLE_TAP_DEFAULT);
+    preparePanel();
+  } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
+}
+/** The assistant's chords wait on the first-run sheet; this hears it was accepted, with no relaunch. */
+async function readAssistantConsent(): Promise<void> {
+  try {
+    const consent = (await bridgeClient?.call("settings.get", { key: MEETING_CONSENT_KEY })) as { value?: unknown } | null;
+    assistantKeys.setConsented(meetingConsentAccepted(consent?.value));
+    preparePanel();
+  } catch { /* the bridge dropped; the next connect reads it */ }
+}
+ipcMain.handle("keys:state", () => realmKeys.state);
+ipcMain.handle("keys:set-double-tap", (_e, on: unknown) => { realmKeys.setDoubleTap(on === true); preparePanel(); });
+ipcMain.handle("keys:set-double-tap-side", (_e, side: unknown) => { if (isCommandSide(side)) realmKeys.setCommandSide(side); });
+ipcMain.handle("keys:set-hold", (_e, key: unknown) => { if (isHoldKey(key)) realmKeys.setHoldKey(key); });
+ipcMain.handle("keys:set-assistant", (_e, on: unknown) => { assistantKeys.set(on === true); preparePanel(); });
+ipcMain.on("keys:watch", (e, on: unknown) => {
+  const contents = e.sender;
+  if (on !== true) keysWatchers.delete(contents);
+  else {
+    if (!keysWatchers.has(contents)) {
+      keysWatchers.add(contents);
+      contents.once("destroyed", () => { keysWatchers.delete(contents); realmKeys.setWatchers(keysWatchers.size); });
+    }
+    // Said again when the window comes back to the front, perhaps from System Settings with a grant.
+    realmKeys.recheck();
+  }
+  realmKeys.setWatchers(keysWatchers.size);
+});
 /** Settings ▸ General ▸ Open files in, and the transcript's path menu: the editors this Mac has, and
  *  opening a path that exists in one of them. `existingPath` is the gate Reveal in Finder uses, and it
  *  is the right one here for the same reason it is loose there: an editor is handed the path as a
@@ -2064,6 +2460,8 @@ ipcMain.handle("files:reveal", async (_e, path: unknown, base?: unknown): Promis
 ipcMain.handle("files:resolve", (_e, path: unknown, base?: unknown): Promise<string | null> => existingPath(path, base));
 /** Quick Look, Share and drag-out (file-actions.ts), behind the same existence gate as Reveal. */
 registerFileActions({ gate: existingPath });
+/** Download as PDF for the text files the documents pane opens (print-pdf.ts). */
+registerPdfExport();
 /** The Dock icon chosen in Settings ▸ App (app-icon.ts). Only macOS has a Dock to put it on. */
 const appIcons = new AppIconStore(app.getPath("userData"));
 const dock = process.platform === "darwin" && app.dock
@@ -2125,11 +2523,11 @@ async function handOff(state: DaemonState, why: HandoffWhy): Promise<HandoffResu
   if (decision.kind === "confirm") {
     const copy = handoffCopy(decision);
     const buttons = decision.keepable ? [copy.restart, copy.keep] : [copy.restart];
-    const r = await dialog.showMessageBox({
+    const response = await askAppModal({
       type: "question", buttons, defaultId: 0, cancelId: decision.keepable ? 1 : 0,
       message: copy.message, detail: copy.detail,
     });
-    decision = r.response === 0 ? { kind: "restart" } : { kind: "keep" };
+    decision = response === 0 ? { kind: "restart" } : { kind: "keep" };
   }
   if (decision.kind === "keep") return { kind: "adopt", stale: why === "replaced" ? "bundle" : why };
   // Experimental, and off by default: let the old daemon finish what is in flight instead of
@@ -2349,6 +2747,7 @@ app.whenReady().then(async () => {
     powerMonitor.on("lock-screen", () => presence.setLocked(true));
     powerMonitor.on("unlock-screen", () => presence.setLocked(false));
     powerMonitor.on("resume", () => presence.check());
+    powerMonitor.on("resume", () => meetingWatch.wake());
     setInterval(() => presence.check(), PRESENCE_POLL_MS);
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
@@ -2370,7 +2769,7 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       endpoint: () => serverEndpoint() ?? info,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readMeetingsPreference(); void readKeysPreferences(); void readPairedPhones(); void readQuickChatPanelSettings(); presence.reset(); void profileDirectory.refresh(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
       onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); sleepGuard.setWaiting(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
@@ -2450,7 +2849,10 @@ app.whenReady().then(async () => {
  * and this gesture only ever meant the first one — see `quit-policy.ts`. The dock icon goes away and
  * the menu-bar item comes up, so there is always exactly one visible sign that something is running.
  */
-app.on("window-all-closed", () => { if (!quittingForReal) goResident(); });
+function lastWindowClosed(): void {
+  if (!quittingForReal) goResident();
+}
+app.on("window-all-closed", lastWindowClosed);
 
 /** Reopening from the dock, Spotlight, or the tray's *Open Realm*. */
 app.on("activate", () => { void reattach(); });
@@ -2545,7 +2947,7 @@ function goResident() {
 
 /** Bring a window back, optionally landing on one session — in the window showing that session's
  *  profile when one is open, else the window used last, else a new first window. */
-async function reattach(target?: { sessionId: string; spaceId: string | null }) {
+async function reattach(target?: { sessionId: string; spaceId: string | null } | { spaceId: string; path: string }) {
   // Even with a window up: everything it loads lazily from here on would come from the wrong file.
   if (relaunchIfBundleReplaced()) return;
   if (process.platform === "darwin") app.dock?.show();
@@ -2553,22 +2955,21 @@ async function reattach(target?: { sessionId: string; spaceId: string | null }) 
   let win = (target?.spaceId ? windows.windowForSpace(target.spaceId) : null)
     ?? (profileId ? windows.windowFor(profileId) : null) ?? windows.primary();
   if (win && !win.isDestroyed()) {
-    bringForward(win);
+    raiseWindow(win);
   } else if (serverInfo) {
     await restoreWindows(serverInfo);
     win = windows.windowToOpen(target?.spaceId ?? null);
   }
   sessionTray.hide();
   void bridgeClient?.call("browserHost.register", { hasWindow: true }).catch(() => {});
-  if (target) win?.webContents.send("realm:open-session", target);
+  if (target) win?.webContents.send("sessionId" in target ? "realm:open-session" : "realm:open-document", target);
 }
 
-/** Raise a window in front of everything, the app included. */
-function bringForward(win: BrowserWindow): void {
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  if (process.platform === "darwin") app.focus({ steal: true });
+function raiseWindow(win: BrowserWindow, by: RaiseBy = "person"): void {
+  bringForward(win, by, {
+    appActive: BrowserWindow.getFocusedWindow() !== null,
+    activateApp: () => { if (process.platform === "darwin") app.focus({ steal: true }); },
+  });
 }
 
 /** Every space with its profile and name, in the person's order, asked of the server — none when it
@@ -2612,7 +3013,7 @@ ipcMain.handle("window:open-profile", async (_e, profileId: unknown): Promise<vo
   const profile = await profileDirectory.resolve(profileArg(profileId));
   if (!profile || !serverInfo) return;
   const open = windows.windowFor(profile.id);
-  if (open) { bringForward(open); return; }
+  if (open) { raiseWindow(open); return; }
   await createWindow(serverInfo, profile.id);
 });
 /** The switcher's question before it switches a window: is this profile open in ANOTHER window? If so
@@ -2621,7 +3022,7 @@ ipcMain.handle("window:focus-profile", (e, profileId: unknown): boolean => {
   const sender = BrowserWindow.fromWebContents(e.sender);
   const open = windows.windowFor(profileArg(profileId), sender ?? undefined);
   if (!open) return false;
-  bringForward(open);
+  raiseWindow(open);
   return true;
 });
 /** A window's renderer says which profile it shows now. The window is titled by it — what the Window
@@ -2643,7 +3044,7 @@ ipcMain.handle("window:open-space", async (_e, spaceId: unknown): Promise<void> 
   const id = profileArg(spaceId); // an id, shaped as a profile's is
   if (!id || !serverInfo) return;
   const open = windows.windowForSpace(id);
-  if (open) { bringForward(open); return; }
+  if (open) { raiseWindow(open); return; }
   const profileId = await profileOfSpace(id);
   if (profileId) await createWindow(serverInfo, profileId, id);
 });
@@ -2660,17 +3061,19 @@ ipcMain.handle("window:new", async (e): Promise<boolean> => {
 });
 /** A window's question before it switches space: is this space open in ANOTHER window? If so that
  *  window comes forward, and the answer is yes — the asking window stays as it is. */
-ipcMain.handle("window:focus-space", (e, spaceId: unknown, sessionId: unknown): boolean => {
+ipcMain.handle("window:focus-space", (e, spaceId: unknown, sessionId: unknown, by: unknown): boolean => {
   const id = profileArg(spaceId);
   if (!id) return false;
   const open = windows.windowForSpace(id, BrowserWindow.fromWebContents(e.sender) ?? undefined);
   if (!open) return false;
-  bringForward(open);
+  raiseWindow(open, raiseBy(by));
   // A session the asking window was opening: the window that has its space opens it instead.
   const session = profileArg(sessionId);
   if (session) open.webContents.send("realm:open-session", { sessionId: session, spaceId: id });
   return true;
 });
+/** A Realm window's page has booted and drawn its first frame: the panel made ahead waits for it. */
+ipcMain.on("window:drawn", () => quickChatPanel.windowDrawn());
 /** A window's renderer says which space it shows now. The window is titled by it. */
 ipcMain.on("window:set-space", (e, spaceId: unknown) => {
   const win = BrowserWindow.fromWebContents(e.sender);
@@ -2697,11 +3100,11 @@ async function quitAndStopAll() {
   const decision = decideQuit({ trigger: "quit-all", working: working.working });
   if (decision.kind === "confirm") {
     const copy = confirmQuitCopy(decision.working);
-    const r = await dialog.showMessageBox({
+    const response = await askAppModal({
       type: "warning", buttons: [copy.confirm, "Cancel"], defaultId: 1, cancelId: 1,
       message: copy.message, detail: copy.detail,
     });
-    if (r.response !== 0) return;
+    if (response !== 0) return;
   }
   quittingForReal = true;
   app.quit();

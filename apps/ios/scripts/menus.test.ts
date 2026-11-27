@@ -99,6 +99,7 @@ describe("menus on the phone", () => {
       "Views/NewSessionSheet.swift AgentChip",
       "Views/ScreensView.swift ScreensSheet",
       "Views/ScheduledView.swift ScheduledTaskView",
+      "Views/TeamViews.swift TeammateAvatar",
     ]) expect(opened, where).toContain(where);
   });
 });

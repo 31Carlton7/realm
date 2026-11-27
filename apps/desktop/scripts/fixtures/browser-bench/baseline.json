@@ -1,0 +1,224 @@
+{
+  "commit": "642aa74ae8f96d1c425d534f6b855bdc4e64efcb",
+  "ranAt": "2026-11-27T13:07:58.574Z",
+  "runs": 3,
+  "tokenEstimate": "ceil(chars / 4)",
+  "viewport": {
+    "window": {
+      "width": 1440,
+      "height": 900
+    },
+    "pane": {
+      "width": 554,
+      "height": 820
+    },
+    "paneView": {
+      "x": 886,
+      "y": 80,
+      "width": 554,
+      "height": 820
+    },
+    "display": {
+      "id": 3,
+      "label": "Sceptre O34",
+      "scaleFactor": 1
+    }
+  },
+  "toolsList": {
+    "browser": {
+      "tools": 15,
+      "bytes": 14610,
+      "tokens": 3634
+    },
+    "gateway": {
+      "tools": 86,
+      "bytes": 81810,
+      "tokens": 20376
+    }
+  },
+  "tasks": [
+    {
+      "id": "form",
+      "title": "Fill and submit the 12-field sign-up",
+      "success": "2/3",
+      "toolCalls": 15,
+      "snapshotCalls": 2,
+      "snapshotChars": 1508,
+      "snapshotTokens": 377,
+      "largestSnapshotChars": 1025,
+      "returnedChars": 1925,
+      "returnedTokens": 482,
+      "imageBytes": 0,
+      "actMs": 10,
+      "snapshotMs": 8,
+      "taskMs": 602,
+      "snapshotCharsByRun": [
+        1495,
+        1508,
+        1508
+      ],
+      "taskMsByRun": [
+        1190,
+        602,
+        585
+      ],
+      "notes": null,
+      "failures": [
+        "the page did not end where the task wanted"
+      ]
+    },
+    {
+      "id": "catalog",
+      "title": "Add product 250 to the cart (icon-only buttons)",
+      "success": "3/3",
+      "toolCalls": 4,
+      "snapshotCalls": 3,
+      "snapshotChars": 42548,
+      "snapshotTokens": 10637,
+      "largestSnapshotChars": 22276,
+      "returnedChars": 42578,
+      "returnedTokens": 10645,
+      "imageBytes": 0,
+      "actMs": 166,
+      "snapshotMs": 113,
+      "taskMs": 505,
+      "snapshotCharsByRun": [
+        41876,
+        42548,
+        42740
+      ],
+      "taskMsByRun": [
+        518,
+        501,
+        505
+      ],
+      "notes": {
+        "snapshotPages": 2,
+        "unnamedButtons": 266,
+        "cartShown": true
+      },
+      "failures": []
+    },
+    {
+      "id": "docs",
+      "title": "Reach \"Getting started\" in the docs, step by step",
+      "success": "3/3",
+      "toolCalls": 5,
+      "snapshotCalls": 3,
+      "snapshotChars": 2319,
+      "snapshotTokens": 580,
+      "largestSnapshotChars": 863,
+      "returnedChars": 2378,
+      "returnedTokens": 595,
+      "imageBytes": 0,
+      "actMs": 166,
+      "snapshotMs": 7,
+      "taskMs": 346,
+      "snapshotCharsByRun": [
+        2319,
+        2319,
+        2319
+      ],
+      "taskMsByRun": [
+        348,
+        346,
+        341
+      ],
+      "notes": null,
+      "failures": []
+    },
+    {
+      "id": "docs-walk",
+      "title": "Reach \"Getting started\" with one browser_do",
+      "success": "3/3",
+      "toolCalls": 1,
+      "snapshotCalls": 0,
+      "snapshotChars": 0,
+      "snapshotTokens": 0,
+      "largestSnapshotChars": 0,
+      "returnedChars": 1200,
+      "returnedTokens": 300,
+      "imageBytes": 0,
+      "actMs": 440,
+      "snapshotMs": null,
+      "taskMs": 440,
+      "snapshotCharsByRun": [
+        0,
+        0,
+        0
+      ],
+      "taskMsByRun": [
+        440,
+        440,
+        435
+      ],
+      "notes": null,
+      "failures": []
+    },
+    {
+      "id": "dialog",
+      "title": "Snapshot a page under a modal",
+      "success": "3/3",
+      "toolCalls": 1,
+      "snapshotCalls": 1,
+      "snapshotChars": 1082,
+      "snapshotTokens": 271,
+      "largestSnapshotChars": 1082,
+      "returnedChars": 1082,
+      "returnedTokens": 271,
+      "imageBytes": 0,
+      "actMs": null,
+      "snapshotMs": 6,
+      "taskMs": 6,
+      "snapshotCharsByRun": [
+        1082,
+        1082,
+        1082
+      ],
+      "taskMsByRun": [
+        7,
+        6,
+        6
+      ],
+      "notes": {
+        "backgroundListed": 7
+      },
+      "failures": []
+    },
+    {
+      "id": "spa-diff",
+      "title": "Remove a row, then re-snapshot",
+      "success": "3/3",
+      "toolCalls": 3,
+      "snapshotCalls": 2,
+      "snapshotChars": 2083,
+      "snapshotTokens": 521,
+      "largestSnapshotChars": 1381,
+      "returnedChars": 2113,
+      "returnedTokens": 529,
+      "imageBytes": 0,
+      "actMs": 163,
+      "snapshotMs": 9,
+      "taskMs": 180,
+      "snapshotCharsByRun": [
+        2083,
+        2083,
+        2083
+      ],
+      "taskMsByRun": [
+        185,
+        180,
+        176
+      ],
+      "notes": {
+        "linesBefore": 28,
+        "linesAfter": 3,
+        "markedNew": 1,
+        "removalNamed": true,
+        "saveEnabledShown": true,
+        "saveMarkedNew": true
+      },
+      "failures": []
+    }
+  ]
+}

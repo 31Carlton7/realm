@@ -9,7 +9,8 @@ Realm has a **simulator pane**: it boots the device, streams its screen, and put
 session, where the user watches it and can use it. The `realm-simulator` tools are that pane, reached
 from a tool call. Use them. Do not start `serve-sim` yourself, and never open a simulator's stream in
 a browser pane — a stream in a web page is a second, worse copy of the pane, and Realm refuses
-`browser_open` on one.
+`browser_open` on one. Never run `open -a Simulator` either: the device runs without that app, and
+opening it puts a window in front of the user's work.
 
 ## Run an app
 

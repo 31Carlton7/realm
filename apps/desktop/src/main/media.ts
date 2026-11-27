@@ -1,11 +1,12 @@
 import { createReadStream } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 import { realpath, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { protocol } from "electron";
 import {
-  BACKGROUND_SCHEME, MEDIA_SCHEME, expandHome, isPlayablePath, mediaKindFor, mimeForPath, pathFromMediaUrl, type MediaFile,
+  BACKGROUND_SCHEME, MEDIA_SCHEME, expandHome, isImageMime, isPlayablePath, mediaKindFor, mimeForPath, pathFromMediaUrl, spaceImageFromMediaUrl,
+  type MediaFile,
 } from "@realm/contracts";
 import { quickLookThumbnail } from "./attachments";
 import { backgroundLoopFile } from "./backgrounds";
@@ -56,6 +57,30 @@ export async function servablePath(candidate: string, home = homedir()): Promise
     // The LINK's path is returned, not the target's: it is what the user was shown and what the
     // reveal-in-Finder button should select. Both have passed the same gate.
     return path;
+  } catch { return null; }
+}
+
+const isInside = (folder: string, path: string): boolean => path.startsWith(folder.endsWith(sep) ? folder : folder + sep);
+const isImagePath = (path: string): boolean => isImageMime(mimeForPath(path));
+
+/**
+ * The picture a Markdown document in a space shows by relative path (`![x](pic.png)`), or null.
+ *
+ * Narrower than `servablePath`, because what names the file here is the document, and a document is
+ * whatever an agent or a download wrote: it reaches pictures only, and only under the space folder.
+ * Both are checked on the collapsed string and again on the real paths, so neither a `../` nor a
+ * link inside the space pointing out of it gets past.
+ */
+export async function spaceImagePath(root: string, path: string): Promise<string | null> {
+  if (!isAbsolute(root)) return null;
+  const folder = resolve(root);
+  const file = resolve(folder, path);
+  if (!isInside(folder, file) || !isImagePath(file)) return null;
+  try {
+    const [realFolder, realFile] = await Promise.all([realpath(folder), realpath(file)]);
+    if (!isInside(realFolder, realFile) || !isImagePath(realFile)) return null;
+    if (!(await stat(realFile)).isFile()) return null;
+    return file;
   } catch { return null; }
 }
 
@@ -140,8 +165,10 @@ const body = (path: string, start: number, end: number): ReadableStream =>
  *  path that has since moved should fall back to its poster, not raise. */
 export function handleMediaProtocol(home = homedir()): void {
   protocol.handle(MEDIA_SCHEME, async (request) => {
+    const inSpace = spaceImageFromMediaUrl(request.url);
     const candidate = pathFromMediaUrl(request.url);
-    const path = candidate === null ? null : await servablePath(candidate, home);
+    const path = inSpace ? await spaceImagePath(inSpace.root, inSpace.path)
+      : candidate === null ? null : await servablePath(candidate, home);
     if (!path) return new Response(null, { status: 404 });
     try { return await serveFile(path, request.headers.get("range")); } catch { return new Response(null, { status: 404 }); }
   });

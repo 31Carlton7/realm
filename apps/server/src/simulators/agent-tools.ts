@@ -17,7 +17,7 @@ import { SCREENSHOT_MAX_EDGE } from "../machines/driver";
 import { downscale, encodePng } from "../machines/framebuffer";
 import { decodePngToRgba, pngSize } from "../machines/qmp-driver";
 import { RpcError } from "../store/rows";
-import type { SimulatorService } from "./service";
+import { TreeReadTimedOut, type SimulatorService } from "./service";
 import { DEVICE_KEYS, inputRefusal, type DeviceInput, type DevicePoint } from "./device-input";
 import { findLabel, inStatusBar, runPath, tapPoint, type ExecIO, type ExecResult, type ExecStopReason } from "./executor";
 import type { ScreenMotion } from "./screen-motion";
@@ -110,7 +110,7 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 export type SimulatorAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   simulators: Pick<SimulatorService,
-    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "app" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
+    "devices" | "list" | "stateOf" | "staleStream" | "create" | "start" | "ax" | "screenSize" | "apps" | "app" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
   items: Pick<ItemsStore, "findByRefId">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
@@ -599,7 +599,10 @@ const HANDLERS: Record<string, Handler> = {
     // A pane already streaming, or already on its way, is left to it: `start` re-walks from the top,
     // and the pane would flash back to "Booting" for a device that was up.
     const before = d.simulators.stateOf(opened.simulatorId).status;
-    if (before !== "running" && before !== "booting" && before !== "serving") d.simulators.start(opened.simulatorId, device.udid, device.platform, device.physical);
+    // Unless its device was shut down or booted again outside Realm, which leaves a stream that is dead
+    // or attached to the earlier boot.
+    const stale = before === "running" && await d.simulators.staleStream(opened.simulatorId);
+    if (stale || (before !== "running" && before !== "booting" && before !== "serving")) d.simulators.start(opened.simulatorId, device.udid, device.platform, device.physical);
     // Before the wait, not after it: the pane's own progress is the thing worth watching during a
     // cold boot, and it can only be watched once the pane is in the layout.
     d.rpc.broadcast("simulator.agentOpened", { spaceId: ctx.spaceId, simulatorId: opened.simulatorId, itemId: opened.itemId, openedBy: ctx.sessionId });
@@ -1171,6 +1174,10 @@ async function livePoint(c: Call, row: Simulator, p: { x: number; y: number }): 
  * points, and only a tree states it — the stream reports pixels. On Android it is the size the
  * device reported when it came up: pixels are what `adb shell input` takes anyway, and a tree dump
  * there costs seconds for nothing.
+ *
+ * An iOS simulator's size is kept from its last tree (`SimulatorService.screenSize`), so a step
+ * that finds it there reads nothing and hands the observer no elements: the list the agent read
+ * earlier may be a screen ago.
  */
 async function screenOf(c: Call, row: Simulator): Promise<{ size: { width: number; height: number }; elements: readonly SimulatorAxElement[]; app: string | undefined } | { error: CallToolResult }> {
   if (row.platform === "android") {
@@ -1178,6 +1185,8 @@ async function screenOf(c: Call, row: Simulator): Promise<{ size: { width: numbe
     if (!size) return { error: err(`${clip(row.name, 60)} has not reported its screen size yet, so nothing was sent. Try again in a few seconds.`) };
     return { size, elements: lastRead(c, row), app: lastApp(c, row) };
   }
+  const kept = row.physical ? null : await c.d.simulators.screenSize(row.id);
+  if (kept) return { size: kept, elements: [], app: lastApp(c, row) };
   const tree = await liveTree(c, row);
   const elements = tree.elements.slice(0, ELEMENTS_MAX);
   c.reads.settle(c.ctx.sessionId, row.id, elements);
@@ -1192,14 +1201,15 @@ const LIVE_READ_RETRY_MS = 400;
  * The tree a step acts on. A read that lands while a screen is still arriving can get the device's
  * "not yet" — MEASURED, on the read straight after a tap that pushed Settings ▸ General — and the
  * moment after one step is exactly when the next one reads. So "not yet" is asked again, briefly, as
- * the Android driver asks again for its own; anything else is the answer.
+ * the Android driver asks again for its own; anything else is the answer, and so is a read that
+ * timed out, which would only time out again.
  */
 async function liveTree(c: Call, row: Simulator): Promise<SimulatorAxTree> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await c.d.simulators.ax(row.id);
     } catch (e) {
-      if (attempt >= LIVE_READ_ATTEMPTS || !(e instanceof RpcError && e.code === "UNAVAILABLE")) throw e;
+      if (attempt >= LIVE_READ_ATTEMPTS || e instanceof TreeReadTimedOut || !(e instanceof RpcError && e.code === "UNAVAILABLE")) throw e;
       await new Promise((r) => setTimeout(r, LIVE_READ_RETRY_MS));
     }
   }

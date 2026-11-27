@@ -1,7 +1,7 @@
-import type { Asker } from "@realm/contracts";
+import { AGENT_SIGNINS_CARD, AGENT_SIGNINS_OFFER, type Asker } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { PermissionDecision } from "../../state/store";
+import { useAppStoreMaybe, type PermissionDecision } from "../../state/store";
 import type { PendingPermission } from "./transcript-model";
 import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
 import { ToolInputBody } from "./rich/ToolViews";
@@ -13,7 +13,15 @@ import { askerIcon, askerLine } from "./QuestionCard";
  *  selected row is an --rl-active pill, and the footer carries the navigation hints on the left and
  *  the accent Submit pill on the right. Order is deliberate — Allow is first, so it is what the
  *  default selection and a bare Enter mean. */
-const OPTIONS: { decision: PermissionDecision; label: string; kbd: string }[] = [
+type Option = {
+  decision: PermissionDecision; label: string; kbd: string;
+  /** Turn on agent sign-ins in Settings' own IPC first, then answer `decision`. */
+  turnsOnSignins?: true;
+  /** Open Settings ▸ Sign-ins as well as answering. */
+  opensSignins?: true;
+};
+
+const OPTIONS: Option[] = [
   { decision: "allow", label: "Allow", kbd: "↵" },
   { decision: "allow_always", label: "Allow always", kbd: "⇧↵" },
   { decision: "deny", label: "Deny", kbd: "⌘⌫" },
@@ -41,7 +49,25 @@ const alwaysLabel = (toolName: string, input: unknown): string | undefined =>
  *  does not offer one. */
 const NO_ALWAYS = new Set(["browser_fill_code"]);
 
-const optionsFor = (toolName: string, input?: unknown): typeof OPTIONS => {
+/** A password fill on its own site while agent sign-ins are off (`AGENT_SIGNINS_OFFER`): Turn on sign-ins
+ *  stands where Always allow on this site would, and answers Allow once main's switch is on, so the
+ *  fill goes ahead with no second card. */
+const OFFER_OPTIONS: Option[] = [
+  { decision: "allow", label: "Allow once", kbd: "↵" },
+  { decision: "allow", label: "Turn on sign-ins", kbd: "⇧↵", turnsOnSignins: true },
+  { decision: "deny", label: "Deny", kbd: "⌘⌫" },
+];
+
+/** The invitation to turn agent sign-ins on (`AGENT_SIGNINS_CARD`): nothing waits on it, so its
+ *  answers only open Settings or put it away. */
+const INVITE_OPTIONS: Option[] = [
+  { decision: "allow", label: "Open Settings", kbd: "↵", opensSignins: true },
+  { decision: "deny", label: "Not now", kbd: "⌘⌫" },
+];
+
+const optionsFor = (toolName: string, input?: unknown): Option[] => {
+  if (toolName === AGENT_SIGNINS_CARD) return INVITE_OPTIONS;
+  if (toolName === "browser_fill_credential" && (input as Record<string, unknown> | null)?.[AGENT_SIGNINS_OFFER] === true) return OFFER_OPTIONS;
   if (NO_ALWAYS.has(toolName)) return OPTIONS.filter((o) => o.decision !== "allow_always");
   const label = alwaysLabel(toolName, input);
   return label ? OPTIONS.map((o) => (o.decision === "allow_always" ? { ...o, label } : o)) : OPTIONS;
@@ -51,7 +77,8 @@ const optionsFor = (toolName: string, input?: unknown): typeof OPTIONS => {
  *
  *  Keyboard (U-H4): with `autoFocus` (the card sits in the focused pane) the Allow option takes
  *  focus on mount, so a bare Enter answers the hottest question in the app. Inside the card:
- *  Enter = the selected option, ⇧Enter = Allow always, ⌘⌫ = Deny, 1/2/3 pick an option outright,
+ *  Enter = the selected option, ⇧Enter = the second option (Allow always, or Turn on sign-ins), ⌘⌫ =
+ *  Deny, 1/2/3 pick an option outright,
  *  ↑/↓ move the selection, Esc denies. Buttons keep exact accessible names ("Allow", not "Allow 1")
  *  via aria-label; the number chips and footer hints are visual only. */
 export function PermissionCard({ permission, asker, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
@@ -70,7 +97,25 @@ export function PermissionCard({ permission, asker, onDecide, autoFocus = false,
      the JSON is what they check when the drawing surprises them. */
   const preview = toolInputView(permission.toolName, permission.input);
   const options = optionsFor(permission.toolName, permission.input);
-  const offersAlways = options.some((o) => o.decision === "allow_always");
+  /** What ⇧↵ answers: Allow always, or Turn on sign-ins where it stands in that place. */
+  const second = options.find((o) => o.decision === "allow_always" || o.turnsOnSignins);
+  const store = useAppStoreMaybe();
+  const [turning, setTurning] = useState(false);
+  const [turnOnFailed, setTurnOnFailed] = useState(false);
+  const choose = (o: Option) => {
+    if (o.turnsOnSignins) {
+      if (turning) return;
+      setTurning(true);
+      setTurnOnFailed(false);
+      void Promise.resolve(window.realm?.credentials?.setSignins?.(true)).then(
+        (status) => { if (status?.enabled === true) onDecide(o.decision); else setTurnOnFailed(true); },
+        () => setTurnOnFailed(true),
+      ).finally(() => setTurning(false));
+      return;
+    }
+    if (o.opensSignins) store?.getState().openSettingsPage("signins");
+    onDecide(o.decision);
+  };
   const raw = useRef<HTMLPreElement>(null);
   useDissolve(raw);
   const [selected, setSelected] = useState(0);
@@ -94,10 +139,10 @@ export function PermissionCard({ permission, asker, onDecide, autoFocus = false,
       const control = e.target instanceof HTMLElement ? e.target.closest("button, summary") : null;
       // ⇧⏎ is Allow always's chord from anywhere on the card, as ⌘⌫ is Deny's. Allow has focus from
       // the moment the card appears, so a chord that deferred to the focused control never fired.
-      if (e.shiftKey && offersAlways && !(control instanceof HTMLElement && control.tagName === "SUMMARY")) { e.preventDefault(); onDecide("allow_always"); return; }
+      if (e.shiftKey && second && !(control instanceof HTMLElement && control.tagName === "SUMMARY")) { e.preventDefault(); choose(second); return; }
       if (control instanceof HTMLButtonElement) { e.preventDefault(); control.click(); return; }
       if (control) return;
-      e.preventDefault(); onDecide(options[selected]!.decision);
+      e.preventDefault(); choose(options[selected]!);
     } else if (e.key === "Backspace" && e.metaKey) { e.preventDefault(); onDecide("deny"); }
     else if (e.key === "Escape" && ownsEscape) { e.preventDefault(); e.stopPropagation(); onDecide("deny"); }
     else if (e.key === "ArrowDown") { e.preventDefault(); select(selected + 1); }
@@ -105,7 +150,7 @@ export function PermissionCard({ permission, asker, onDecide, autoFocus = false,
     // Bare digits only: ⌘1–9 is the app's switch-space binding, and a permission decision is the
     // last thing that may fire off a modifier chord it does not own.
     else if (e.key >= "1" && e.key <= String(options.length) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault(); onDecide(options[Number(e.key) - 1]!.decision);
+      e.preventDefault(); choose(options[Number(e.key) - 1]!);
     }
   };
 
@@ -136,20 +181,21 @@ export function PermissionCard({ permission, asker, onDecide, autoFocus = false,
       <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre ref={raw}>{prettyJson(permission.input)}</pre></details>
       <div className="permission-options">
         {options.map((o, i) => (
-          <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"
+          <button key={o.label} ref={(el) => { rows.current[i] = el; }} className="permission-option"
             aria-label={o.label} data-selected={i === selected || undefined} data-decision={o.decision}
-            onFocus={() => setSelected(i)} onClick={() => onDecide(o.decision)}>
+            disabled={o.turnsOnSignins && turning} onFocus={() => setSelected(i)} onClick={() => choose(o)}>
             <kbd className="permission-num">{i + 1}</kbd>
             <span className="permission-option-label">{o.label}</span>
             <kbd className="permission-option-kbd">{o.kbd}</kbd>
           </button>
         ))}
       </div>
+      {turnOnFailed && <p className="question-note" role="alert">Realm couldn't turn on sign-ins. Nothing was filled.</p>}
       <div className="permission-footer">
         <div className="permission-hints">
           <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span>{ownsEscape && <span><kbd>esc</kbd> Deny</span>}
         </div>
-        <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(options[selected]!.decision)}>
+        <button className="btn primary permission-submit" aria-label="Submit" onClick={() => choose(options[selected]!)}>
           Submit <kbd>↵</kbd>
         </button>
       </div>

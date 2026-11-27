@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { DEFAULT_KEYBINDINGS, scriptCommandId, type Keybinding, type KeybindingsFile } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, platformCapabilities, scriptCommandId, type Keybinding, type KeybindingsFile } from "@realm/contracts";
 
 /** The page reads `keybindings.get` and writes `keybindings.reset`, and holds no store state of its
  *  own for either — so the socket is the seam. */
@@ -41,6 +41,35 @@ const rowFor = (label: string) => screen.getByText(label).closest(".settings-row
 afterEach(() => { delete (window as any).realm; });
 
 describe("the keybindings panel", () => {
+  it("draws the quick chat panel's two rows on a Mac", async () => {
+    await mount();
+    expect(document.querySelector('[data-setting="quick-chat-shortcut"]')).not.toBeNull();
+    expect(document.querySelector('[data-setting="quick-chat-hide"]')).not.toBeNull();
+  });
+
+  it("keeps the keys that work from another app in one group: how the quick chat opens, then who can see it, then the assistant's keys", async () => {
+    await mount();
+    const group = document.querySelector('[data-setting="quick-chat-shortcut"]')!.closest(".field")!;
+    expect(group.querySelector(":scope > span")).toHaveTextContent("From anywhere");
+    expect([...group.querySelectorAll("[data-setting]")].map((r) => r.getAttribute("data-setting")))
+      .toEqual([
+        "quick-chat-shortcut", "double-tap-command", "double-tap-side", "quick-chat-hide",
+        "assistant-hold-key", "assistant-chords",
+        "assistant-chord:R", "assistant-chord:L", "assistant-chord:G", "assistant-chord:T",
+        "assistant-chord:J", "assistant-chord:K", "assistant-chord:,", "assistant-chord:.",
+        "keys-try",
+      ]);
+    expect([...document.querySelectorAll(".settings-panel > .field > span")].map((s) => s.textContent)).not.toContain("Quick chat");
+  });
+
+  it.each(["linux", "win32"])("draws neither of them on %s, where there is no panel", async (platform) => {
+    (window as any).realm = { platform, capabilities: platformCapabilities(platform) };
+    await mount();
+    expect(document.querySelector('[data-setting="quick-chat-shortcut"]')).toBeNull();
+    expect(document.querySelector('[data-setting="quick-chat-hide"]')).toBeNull();
+    expect([...document.querySelectorAll(".settings-panel > .field > span")].map((s) => s.textContent)).not.toContain("From anywhere");
+  });
+
   it("lists every catalogued command with the chord that currently runs it", async () => {
     await mount();
     expect(within(rowFor("Command palette")).getByText("⌘K")).toBeInTheDocument();

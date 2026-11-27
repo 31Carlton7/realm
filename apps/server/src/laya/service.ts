@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { LAYA_ASSIST_MIN_ACCURACY, LAYA_IDLE_STOP_DEFAULT, LAYA_IDLE_STOP_KEY, LayaModeSchema, type LayaAssistGate, type LayaAutoInstall, type LayaEvalReport, type LayaEvaluation, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus, type LayaTraining } from "@realm/contracts";
+import { LAYA_ASSIST_MIN_ACCURACY, LAYA_IDLE_STOP_DEFAULT, LAYA_IDLE_STOP_KEY, LAYA_PRESSURE_IDLE_MINUTES, LayaModeSchema, RESOURCES_ADAPTIVE_DEFAULT, RESOURCES_ADAPTIVE_KEY, adaptIdleMinutes, type LayaAssistGate, type LayaAutoInstall, type LayaEvalReport, type LayaEvaluation, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus, type LayaTraining, type MemoryPressure } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { LAYA_CHECKPOINT, LayaClient, type LayaHealth } from "./client";
 import type { DecisionLog } from "./log";
@@ -143,8 +143,9 @@ export class LayaService {
     train?: (o: { name: string; signal: AbortSignal; onProgress: (p: TrainProgress) => void }) => Promise<TrainResult>;
     /** Keeps screens while a person uses an app (`recorder.ts`); absent, recording is refused. */
     recorder?: LayaRecorder;
-    /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when memory is short. */
-    adaptIdle?: (minutes: number) => number;
+    /** The Mac's memory pressure (`ResourceService.pressure`). The idle window shrinks with it, and the
+     *  shadow asks nothing while it is "warn" or "critical". */
+    pressure?: () => MemoryPressure;
     /** What the auto-install waits on. Absent — a test, a script, a harness — nothing installs itself. */
     autoInstall?: {
       /** A space exists: first run is behind the person. */
@@ -179,7 +180,12 @@ export class LayaService {
   idleMinutes(): number {
     const raw = this.d.settings.get(LAYA_IDLE_STOP_KEY);
     const m = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : LAYA_IDLE_STOP_DEFAULT;
-    return this.d.adaptIdle?.(m) ?? m;
+    const adaptive = this.d.settings.get(RESOURCES_ADAPTIVE_KEY);
+    return adaptIdleMinutes(m, this.pressure(), typeof adaptive === "boolean" ? adaptive : RESOURCES_ADAPTIVE_DEFAULT, LAYA_PRESSURE_IDLE_MINUTES);
+  }
+
+  pressure(): MemoryPressure {
+    return this.d.pressure?.() ?? "unknown";
   }
 
   /** Whether the process comes and goes with the steps: Shadow, with an idle window set. */

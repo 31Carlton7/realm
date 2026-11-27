@@ -1,5 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, resolve, sep } from "node:path";
+import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { AGENT_META, ASK_QUESTIONS_MAX, AskCardSchema, UiAskInputSchema, type AgentKind, type AskAnswers, type AskCard, type AskOption, type AskQuestion, type DelegableModel, type Session, type UiAskInput } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
@@ -27,6 +28,11 @@ export const UI_PROVIDER_NAME = "realm-ui";
  * so a model the user is offered is one this Mac can run, and a "file" cannot be a path outside the
  * session's folder. A picture is a path in the workspace, resolved and checked here, and drawn by
  * main's thumbnailer; a URL is refused.
+ *
+ * **`ui_choose_folder` hands the choice to the user.** A card with a Choose… button opens the system's
+ * folder panel in front of the person, and the agent is told only the folder they chose, or that they
+ * did not choose one. It never lists, browses or suggests anything on the disk, and the folder chosen
+ * is held to `pickFolder`'s rules before the agent hears it, so the panel cannot be a way to `~/.ssh`.
  */
 export type UiAgentToolsDeps = {
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
@@ -37,6 +43,8 @@ export type UiAgentToolsDeps = {
   /** The checkout's branches, most recently committed first, and the one checked out. Null when the
    *  folder is not a repository. */
   branches: (cwd: string) => Promise<{ branches: string[]; current: string | null } | null>;
+  /** The folder the user chose, as `pickFolder` hands one to an agent, or why it will not. */
+  folder: (path: string) => { path: string } | { error: string };
 };
 
 /** A picture an option may wear: a raster, so that drawing it can never mean running or fetching
@@ -97,16 +105,42 @@ const TOOL: Tool = {
   },
 };
 
+const ChooseFolderArgs = z.object({
+  prompt: z.string().trim().min(1).max(500),
+  message: z.string().trim().max(1000).optional(),
+}).strict();
+
+const CHOOSE_FOLDER: Tool = {
+  name: "ui_choose_folder",
+  description: [
+    "Ask the user to choose a folder on this Mac in the system's folder panel, and wait for their choice.",
+    "Realm shows a card with your prompt and a Choose… button; the panel opens for the user, and you get back the absolute path they chose, or that they did not choose one.",
+    "You see nothing else on the disk. Use it when a folder is needed and the user has not named one, rather than guessing a path; a folder they have named can be passed to a tool as an absolute or ~/ path directly.",
+    "Folders that hold keys, credentials or an agent's own settings (~/.ssh, ~/.aws, ~/.claude and the like), macOS's own, and Realm's home are not handed back.",
+  ].join(" "),
+  inputSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", description: "what the folder is for, as the user should read it, e.g. \"Which folder should this space work in?\"" },
+      message: { type: "string", description: "optional: one line above it saying why you are asking" },
+    },
+    required: ["prompt"],
+    additionalProperties: false,
+  },
+};
+const TOOLS = [TOOL, CHOOSE_FOLDER];
+
 export function createUiAgentProvider(d: UiAgentToolsDeps): RealmToolProvider {
   return {
     name: UI_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
-      return d.mcp.providerEnabled(ctx.spaceId, UI_PROVIDER_NAME) ? [TOOL] : [];
+      return d.mcp.providerEnabled(ctx.spaceId, UI_PROVIDER_NAME) ? TOOLS : [];
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!d.mcp.providerEnabled(ctx.spaceId, UI_PROVIDER_NAME))
         return err(`the ${UI_PROVIDER_NAME} tools are disabled for this space — mcp.setProviderEnabled turns them back on.`);
-      if (tool !== TOOL.name) return err(`unknown tool "${tool}" — this provider has: ${TOOL.name}`);
+      if (tool === CHOOSE_FOLDER.name) return chooseFolder(d, ctx.sessionId, args);
+      if (tool !== TOOL.name) return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
       const parsed = parseArgs(UiAskInputSchema, args ?? {});
       if ("error" in parsed) return parsed.error;
       let card: AskCard;
@@ -116,6 +150,30 @@ export function createUiAgentProvider(d: UiAgentToolsDeps): RealmToolProvider {
       return resultOf(card, outcome);
     },
   };
+}
+
+/** The card with the Choose… button, and what the user chose, held to `pickFolder` before the agent hears it. */
+async function chooseFolder(d: UiAgentToolsDeps, sessionId: string, args: unknown): Promise<CallToolResult> {
+  const parsed = parseArgs(ChooseFolderArgs, args ?? {});
+  if ("error" in parsed) return parsed.error;
+  const { prompt, message } = parsed.value;
+  const session = d.session(sessionId);
+  const card = AskCardSchema.parse({ asker: { kind: "agent", name: AGENT_META[session.agentKind].label, agent: session.agentKind }, mode: "question",
+    ...(message ? { message } : {}), questions: [{ id: "folder", prompt, kind: "folder" }] });
+  const outcome = await d.broker.ask(sessionId, card, { toolName: CHOOSE_FOLDER.name, title: prompt, input: args as Record<string, unknown> });
+  const chosen = outcome.outcome === "answered" ? outcome.answers.folder : undefined;
+  if (typeof chosen !== "string") {
+    const reason = outcome.outcome === "timeout" ? "timeout" : outcome.outcome === "cancelled" ? "cancelled" : "skipped";
+    const why = reason === "timeout" ? "No folder was chosen within 15 minutes, so the card was withdrawn."
+      : reason === "cancelled" ? "The card was withdrawn before a folder was chosen." : "The user did not choose a folder.";
+    return { content: [{ type: "text", text: `${why} Carry on without it, or ask in your reply which folder they mean.` }],
+      structuredContent: { chosen: false, reason }, isError: false };
+  }
+  const picked = d.folder(chosen);
+  if ("error" in picked)
+    return { content: [{ type: "text", text: `The user chose a folder Realm does not hand an agent: ${picked.error} Ask them for another.` }],
+      structuredContent: { chosen: false, reason: "refused" }, isError: false };
+  return { content: [{ type: "text", text: `The user chose ${picked.path}` }], structuredContent: { chosen: true, path: picked.path }, isError: false };
 }
 
 /** An agent's questions as the card Realm draws, with every field filled from Realm's own sources. */

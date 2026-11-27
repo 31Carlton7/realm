@@ -28,7 +28,7 @@ async function connect() {
   const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
   writeFileSync(join(space.folderPath, "notes.md"), "lecture one\nlecture two\n");
   // The team tools are only listed in a space with teammates, the memory tools where it has a repo.
-  app.team.create({ spaceId: space.id, name: "Writer", brief: "Write.", agentKind: "fake" });
+  const writer = app.team.create({ spaceId: space.id, name: "Writer", brief: "Write.", agentKind: "fake", lead: true });
   await new Promise<void>((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${app.port}`);
     ws.once("open", () => ws.send(JSON.stringify({ id: "1", method: "memory.repo.create", params: { scope: "space", ownerId: space.id } })));
@@ -41,7 +41,11 @@ async function connect() {
   const cfg = app.gateway.register(session.id, space.id) as Extract<McpServerConfig, { url: string }>;
   const client = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
-  return { client, sessionId: session.id };
+  // `space_teams` answers only the Lead, in its own chat.
+  const leadCfg = app.gateway.register(writer.homeSessionId!, space.id) as Extract<McpServerConfig, { url: string }>;
+  const lead = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+  await lead.connect(new StreamableHTTPClientTransport(new URL(leadCfg.url), { requestInit: { headers: leadCfg.headers } }));
+  return { client, lead, sessionId: session.id };
 }
 
 /** Every row of every table, hashed: a tool that writes anything changes this. The gateway's own
@@ -55,22 +59,26 @@ function dbFingerprint(): string {
 
 describe("Realm's read-only tools, through the real gateway", () => {
   it("marks exactly the listed tools readOnlyHint, and every listed tool exists", async () => {
-    const { client } = await connect();
+    const { client, lead } = await connect();
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
     for (const t of REALM_READ_ONLY_TOOLS) expect(names, t).toContain(t);
     const marked = tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => t.name);
     expect(marked.sort()).toEqual([...REALM_READ_ONLY_TOOLS].sort());
     await client.close();
+    await lead.close();
   });
 
   it("changes nothing in Realm's database when each one is called", async () => {
-    const { client, sessionId } = await connect();
+    const { client, lead, sessionId } = await connect();
+    const leadOnly = new Set(["realm-team__space_teams"]);
     const args: Record<string, Record<string, unknown>> = {
       "realm-docs__docs_search": { query: "lecture" },
       "realm-docs__docs_read": { path: "notes.md" },
       "realm-workspace__session_read": { sessionId },
       "realm-memory__memory_read": { path: "MEMORY" },
+      "realm-team__teammate_get": { to: "writer" },
+      "realm-team__teammate_sessions": { to: "writer" },
       "realm-memory__memory_search": { query: "memory" },
       "realm-browser__browser_snapshot": { browserId: "b_none" },
       "realm-browser__browser_read": { browserId: "b_none" },
@@ -79,7 +87,7 @@ describe("Realm's read-only tools, through the real gateway", () => {
     const answered = new Map<string, boolean>();
     for (const name of REALM_READ_ONLY_TOOLS) {
       const before = dbFingerprint();
-      const r = await client.callTool({ name, arguments: args[name] ?? {} });
+      const r = await (leadOnly.has(name) ? lead : client).callTool({ name, arguments: args[name] ?? {} });
       expect(dbFingerprint(), name).toBe(before);
       answered.set(name, r.isError === true);
     }
@@ -88,5 +96,6 @@ describe("Realm's read-only tools, through the real gateway", () => {
     const refused = [...answered].filter(([n, isError]) => isError && !n.startsWith("realm-browser__")).map(([n]) => n);
     expect(refused).toEqual([]);
     await client.close();
+    await lead.close();
   });
 });
