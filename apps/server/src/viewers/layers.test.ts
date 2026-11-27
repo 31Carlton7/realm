@@ -337,6 +337,30 @@ describe("viewer layers: screencast lifetime", () => {
   });
 });
 
+describe("viewer layers: secret and origin", () => {
+  function upgrades(url: string, origin?: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const ws = new WebSocket(url, origin === undefined ? {} : { origin });
+      ws.once("open", () => { ws.close(); resolve(true); });
+      ws.once("error", () => resolve(false));
+    });
+  }
+
+  it("refuses a layers socket with a wrong secret, or from a page that is not Realm's renderer", async () => {
+    const app = await fakeRealm();
+    const apps = new HiddenApps();
+    const record = apps.record({ cdpPort: app.port, pid: 1 });
+    const viewers = new ViewerService({ apps, allowedOrigins: ["file://"] });
+    cleanup.push(() => app.close(), () => viewers.closeAll());
+    const viewer = await viewers.open({ kind: "electron", appId: record.id, targetId: "W" });
+    const wrong = viewer.layersUrl.replace(/\/[A-Za-z0-9_-]+\/([0-9A-Z]{26})\//, "/AAAAAAAAAAAAAAAAAAAAAA/$1/");
+    expect(wrong).not.toBe(viewer.layersUrl);
+    expect(await upgrades(wrong)).toBe(false);
+    expect(await upgrades(viewer.layersUrl, "https://evil.example")).toBe(false);
+    expect(await upgrades(viewer.layersUrl, "file://")).toBe(true);
+  });
+});
+
 describe("viewer layers: the server decodes nothing", () => {
   it("has no sharp, nor any other image library, to decode with", () => {
     const root = join(import.meta.dirname, "../..");

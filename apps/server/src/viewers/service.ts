@@ -11,10 +11,10 @@ import type { HiddenApp } from "./hidden-apps";
  * Hidden apps shown as pictures. Each viewer is one live connection to a running process, so they
  * are kept in memory only: nothing about one outlives the app or this server.
  *
- * One loopback HTTP server carries every viewer's picture (`/<secret>/<id>/frames`), its layers socket
- * (`/<secret>/<id>/layers`) and its input socket (`/<secret>/<id>/input`), as `AndroidStream` does for
- * emulators. The secret is in the path because
- * an `<img src>` cannot set headers, and each viewer has its own, so one viewer's URL opens no other.
+ * One loopback HTTP server carries every viewer's picture (`/<secret>/<id>/frames`), layers socket
+ * (`/<secret>/<id>/layers`) and input socket (`/<secret>/<id>/input`), as `AndroidStream` does for
+ * emulators. The secret is in the path because an `<img src>` cannot set headers, and each viewer has
+ * its own, so one viewer's URL opens no other.
  *
  * A viewer opens only on an app Realm's own launcher started (`HiddenApps`), never on a port a caller
  * names, and never on Realm's own DevTools port: CDP input skips the guards Realm's UI puts in front
