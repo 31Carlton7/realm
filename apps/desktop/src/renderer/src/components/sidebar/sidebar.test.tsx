@@ -420,6 +420,19 @@ describe("a session's row", () => {
     expect(store.getState().allItems.map((i) => i.id).sort()).toEqual(["i-a", "i-b", "i-c", "i-term"]);
   });
 
+  it("a session new to the window re-reads its own space, and new spaces re-read every space", async () => {
+    // THE MUTANTS: a session made in another space never reaching the list; a new space's rows never read.
+    const { api, store } = await mount(home());
+    await new Promise((r) => setTimeout(r, ALL_ITEMS_SETTLE_MS + 50));
+    const count = (c: string) => api.calls.filter((x) => x === c).length;
+    const homework = count("listItems:s2"), all = count("listAllItems");
+    act(() => store.setState({ sessionSpace: { ...store.getState().sessionSpace, z: "s2" } }));
+    await waitFor(() => expect(count("listItems:s2")).toBe(homework + 1), { timeout: ALL_ITEMS_SETTLE_MS * 4 });
+    expect(count("listAllItems")).toBe(all);
+    act(() => store.setState({ spaces: [...store.getState().spaces, space("s4", "p1", "Errands")] }));
+    await waitFor(() => expect(count("listAllItems")).toBe(all + 1), { timeout: ALL_ITEMS_SETTLE_MS * 4 });
+  });
+
   it("a change to the room on screen is put into every space's rows as it is, with no read", async () => {
     // The room's own list is already in the window; reading every space's again for it is the waste.
     const { api, store } = await mount(home());
