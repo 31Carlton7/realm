@@ -110,7 +110,10 @@ type SnapshotDoc = {
 };
 type CaptureSnapshot = { documents: SnapshotDoc[]; strings: string[] };
 type AxNode = { backendDOMNodeId?: number; ignored?: boolean; role?: { value?: unknown }; name?: { value?: unknown }; value?: { value?: unknown }; properties?: { name: string; value?: { value?: unknown } }[] };
-type LayoutMetrics = { cssVisualViewport?: { clientWidth?: number; clientHeight?: number; pageLeft?: number; pageTop?: number } };
+type LayoutMetrics = {
+  cssVisualViewport?: { clientWidth?: number; clientHeight?: number; pageLeft?: number; pageTop?: number };
+  visualViewport?: { clientWidth?: number };
+};
 
 const s = (strings: string[], i: number | undefined): string => (i !== undefined && i >= 0 && i < strings.length ? strings[i]! : "");
 const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
@@ -153,13 +156,19 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
     w: metrics.cssVisualViewport?.clientWidth ?? 100000,
     h: metrics.cssVisualViewport?.clientHeight ?? 100000,
   };
+  // The snapshot's bounds and scroll offsets are in device pixels (CSS pixels × the display's scale ×
+  // page zoom); the viewport above, and every rect this returns, are CSS pixels. The ratio is
+  // `visualViewport` (device pixels) over `cssVisualViewport`, which is `devicePixelRatio`.
+  const deviceWidth = metrics.visualViewport?.clientWidth;
+  const cssWidth = metrics.cssVisualViewport?.clientWidth;
+  const scale = deviceWidth && cssWidth ? deviceWidth / cssWidth : 1;
 
   const all: Candidate[] = [];
   const landmarks: Landmark[] = [];
   const layoutByDoc: LayoutInfo[] = [];
   const contextByDoc: ((nodeIndex: number) => string)[] = [];
   for (const [docIndex, doc] of (snap.documents ?? []).entries()) {
-    const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport, filled, codes);
+    const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport, scale, filled, codes);
     all.push(...collected.candidates);
     landmarks.push(...collected.landmarks);
     layoutByDoc.push(collected.layoutInfo);
@@ -404,7 +413,7 @@ async function fillFileInputValues(send: CdpSend, candidates: Candidate[]): Prom
  *  for the ancestor exemption, and the two styles that decide whether a box actually hides things. */
 type LayoutInfo = { rects: Rect[]; paint: number[]; nodeIndexes: number[]; parentIndex: number[]; nodeType: number[]; backendIds: number[]; bg: string[]; boxOpacity: string[] };
 
-function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }, filled: ReadonlySet<number>, codes: ReadonlySet<number>) {
+function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }, scale: number, filled: ReadonlySet<number>, codes: ReadonlySet<number>) {
   const nodes = doc.nodes;
   const layout = doc.layout;
   const nodeType = nodes.nodeType ?? [];
@@ -417,8 +426,12 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
   const inputValues = new Map<number, string>();
   nodes.inputValue?.index.forEach((ni, k) => inputValues.set(ni, s(strings, nodes.inputValue!.value[k])));
   const checkedSet = new Set(nodes.inputChecked?.index ?? []);
-  const scrollX = doc.scrollOffsetX ?? 0;
-  const scrollY = doc.scrollOffsetY ?? 0;
+  const scrollX = (doc.scrollOffsetX ?? 0) / scale;
+  const scrollY = (doc.scrollOffsetY ?? 0) / scale;
+  const rects: Rect[] = layout.nodeIndex.map((_, li) => {
+    const [x = 0, y = 0, w = 0, h = 0] = layout.bounds[li] ?? [];
+    return { x: x / scale, y: y / scale, w: w / scale, h: h / scale };
+  });
 
   // Children lists for the text-content name fallback.
   const children = new Map<number, number[]>();
@@ -497,8 +510,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
   const landmarks: Landmark[] = [];
   layout.nodeIndex.forEach((ni, li) => {
     if (nodeType[ni] !== 1) return; // elements only
-    const bounds = layout.bounds[li] ?? [0, 0, 0, 0];
-    const rect: Rect = { x: bounds[0]!, y: bounds[1]!, w: bounds[2]!, h: bounds[3]! };
+    const rect = rects[li]!;
     if (rect.w <= 0 || rect.h <= 0) return;
     const styles: Record<string, string> = {};
     SNAPSHOT_STYLES.forEach((styleName, k) => { styles[styleName] = s(strings, layout.styles?.[li]?.[k]); });
@@ -563,7 +575,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
   const bgIdx = SNAPSHOT_STYLES.indexOf("background-color");
   const opIdx = SNAPSHOT_STYLES.indexOf("opacity");
   const layoutInfo: LayoutInfo = {
-    rects: layout.nodeIndex.map((_, li) => ({ x: layout.bounds[li]?.[0] ?? 0, y: layout.bounds[li]?.[1] ?? 0, w: layout.bounds[li]?.[2] ?? 0, h: layout.bounds[li]?.[3] ?? 0 })),
+    rects,
     paint: layout.nodeIndex.map((_, li) => layout.paintOrders?.[li] ?? 0),
     nodeIndexes: [...layout.nodeIndex],
     parentIndex: [...parentIndex],
