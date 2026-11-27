@@ -35,7 +35,7 @@ let enabled: boolean;
 
 const row = (input: CreateScheduleInput): Schedule => ({
   id: `sch${rows.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
-  cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints, roleId: null, permissionMode: input.permissionMode ?? null,
+  cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints, roleId: null, permissionMode: input.permissionMode ?? null, createdBySession: null,
   // The real store derives this; the fake mirrors the one property the tools read back — a one-shot
   // resolves to its own moment, and a cron to something ahead.
   nextRunAt: parseOnce(input.cron) ?? Date.parse("2026-10-01T09:00:00Z"),
@@ -71,7 +71,7 @@ beforeEach(() => {
       list: (spaceId: string) => rows.filter((r) => r.spaceId === spaceId),
     } as never,
     mcp: { providerEnabled: () => enabled },
-    sessions: { get: (id: string) => { if (id !== ctx.sessionId || !caller) throw new Error("no such session"); return caller; } },
+    sessions: { get: (id: string) => { if (id !== ctx.sessionId || !caller) throw new Error("no such session"); return caller; }, personStartedTurn: () => true },
   });
 });
 
@@ -231,9 +231,9 @@ describe("the provider's switch", () => {
   });
 
   it("names what it has when asked for a tool it does not", async () => {
-    const res = await call("schedule_delete", {});
+    const res = await call("schedule_history", {});
     expect(res.isError).toBe(true);
-    expect(text(res)).toContain("schedule_create, schedule_list");
+    expect(text(res)).toContain("schedule_create, schedule_list, schedule_update");
   });
 });
 
@@ -247,7 +247,7 @@ describe("one source of truth", () => {
     const spaceId = new SpacesStore(db, home).create({ profileId, name: "Alpha", icon: "folder" }).id;
     const schedules = new ScheduleService({ store: new SchedulesStore(db), runs: { create: () => { throw new Error("no firing here"); }, latestForSchedule: () => null }, rpc: { broadcast: () => {} } });
     const real = createScheduleAgentProvider({ schedules, mcp: { providerEnabled: () => true },
-      sessions: { get: () => ({ agentKind: "fake", model: "fake", effort: null, fastMode: true, permissionMode: "default" }) } });
+      sessions: { get: () => ({ agentKind: "fake", model: "fake", effort: null, fastMode: true, permissionMode: "default" }), personStartedTurn: () => true } });
     const res = await real.call({ sessionId: "sess-1", spaceId }, "schedule_create", { title: "Weekly review", goal: "Write the status update.", cron: "0 16 * * 5" });
     expect(res.isError).toBe(false);
     const [listed] = schedules.list(spaceId);

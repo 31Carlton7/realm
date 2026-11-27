@@ -189,7 +189,13 @@ export class ScheduleService {
 
   list(spaceId: string): Schedule[] { return this.d.store.list(spaceId); }
 
-  create(input: CreateScheduleInput): Schedule {
+  /** The clocks of a space's teammates, which `list` leaves to their pages. */
+  clocks(spaceId: string): Schedule[] { return this.d.store.clocks(spaceId); }
+
+  get(id: string): Schedule | null { return this.d.store.get(id); }
+
+  /** `createdBySession` is the session whose agent asked for it; the person's page passes none. */
+  create(input: CreateScheduleInput, createdBySession: string | null = null): Schedule {
     const parsed = CreateScheduleSchema.parse(input);
     // Validated HERE, not at fire time. A schedule whose expression cannot be parsed would sit in
     // the list looking armed and never fire — the failure would be invisible until someone noticed
@@ -197,7 +203,7 @@ export class ScheduleService {
     if (nextFireOf(parsed.cron, this.now()) === null) throw this.unfireable(parsed.cron);
     // A caller that names no mode gets `default`, never Full access: the person's page names its pick
     // (`schedules.create`), and an agent's tool names its session's.
-    const made = this.d.store.create({ ...parsed, permissionMode: parsed.permissionMode ?? "default" });
+    const made = this.d.store.create({ ...parsed, permissionMode: parsed.permissionMode ?? "default", createdBySession });
     this.announce(made.spaceId);
     return made;
   }

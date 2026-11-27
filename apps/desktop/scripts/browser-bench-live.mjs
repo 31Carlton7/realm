@@ -116,9 +116,10 @@ function startSite(port) {
 
 const text = (r) => (r.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
 const imageBytes = (r) => (r.content ?? []).filter((c) => c.type === "image").reduce((n, c) => n + Buffer.byteLength(c.data ?? "", "base64"), 0);
-/** Each element line of a snapshot: its ref, role, name, and the rest of the line. */
-const linesOf = (snap) => snap.split("\n").map((l) => /^\[ref=(\d+)\] (\S+) "(.*?)"(.*)$/.exec(l)).filter(Boolean)
-  .map(([, ref, role, name, rest]) => ({ ref: Number(ref), role, name, rest }));
+/** Each element line of a snapshot: its ref, role, name, and the rest of the line. A control with
+ *  no name has no quoted name, only its hints (`icon:`, `img:`, `in:`). */
+const linesOf = (snap) => snap.split("\n").map((l) => /^\[ref=(\d+)\] (\S+)(?: "(.*?)")?(.*)$/.exec(l)).filter(Boolean)
+  .map(([, ref, role, name, rest]) => ({ ref: Number(ref), role, name: name ?? "", rest }));
 const lineFor = (snap, name, role) => linesOf(snap).find((l) => l.name.trim().toLowerCase() === name.toLowerCase() && (!role || l.role === role)) ?? null;
 const nextOffset = (snap) => Number(/Snapshot again with offset: (\d+)/.exec(snap)?.[1]) || null;
 
@@ -143,7 +144,6 @@ const TASKS = [
     async run(t) {
       const snap = await t.snapshot();
       for (const [label, value] of FORM) {
-        // The wrapping <label> is listed too, under the same name, as role labeltext: pick the field.
         const line = lineFor(snap, label, "textbox");
         if (!line) return t.fail(`no field "${label}" in the snapshot`);
         await t.act({ kind: "type", ref: line.ref, text: value });

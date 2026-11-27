@@ -1326,4 +1326,8 @@ export const migrations: string[] = [
   INSERT OR IGNORE INTO settings (key, value_json)
     SELECT 'keys.doubleTapSide', '"either"' FROM settings WHERE key = 'keys.doubleTapCommand' AND value_json = 'true';
   `,
+  // The session whose agent made a schedule (`Schedule.createdBySession`). NULL, every row before this,
+  // reads as the person's: nothing recorded which agent made which, so none is an agent's own to change
+  // without a card. A second run fails on the ALTER, inside the migration's transaction.
+  `ALTER TABLE schedules ADD COLUMN created_by_session TEXT;`,
 ];

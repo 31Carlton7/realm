@@ -1960,7 +1960,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
         newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false, roleId: null,
-        permissionMode: input.permissionMode ?? "bypassPermissions", createdAt: Date.now(), updatedAt: Date.now(),
+        permissionMode: input.permissionMode ?? "bypassPermissions", createdBySession: null, createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];
       return made;
