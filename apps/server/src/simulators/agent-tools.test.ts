@@ -87,6 +87,7 @@ function fakeClis(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>
   const simctl: Simctl = {
     devices: async () => IOS,
     boot: async (udid) => { cli.push(`boot:${udid}`); return { ok: true, detail: "" }; },
+    springBoardStarted: async () => true,
     available: async () => true,
     apps: async () => [{ bundleId: "com.acme.app", name: "Acme" }, { bundleId: "com.apple.Preferences", name: "Settings" }],
     screenshot: async (udid, path) => { cli.push(`screenshot:${udid}:${path}`); writeFileSync(path, PHONE_PNG); return { ok: true, detail: "" }; },

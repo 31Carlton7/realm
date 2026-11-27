@@ -130,6 +130,9 @@ type RealmBoot = { name: string; at: number; home: string | null; streamPid: num
  *  capture engine has a frame, and a freshly booted device can take a few seconds to produce one. */
 const SCREEN_TIMEOUT_MS = 20_000;
 const SCREEN_POLL_MS = 400;
+/** How long a read waits to hear SpringBoard is up before saying the device is still booting. A booted
+ *  device answers in a fraction of this. */
+const SPRINGBOARD_WAIT_MS = 1_000;
 /** A cold AVD is slow — MEASURED at over a minute to `sys.boot_completed` on an M4. */
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 
@@ -162,6 +165,11 @@ export class SimulatorService {
   /** Which start is the one anyone is still waiting for. A second press while the first is booting
    *  must not have the first one's failure land on top of the second one's stream. */
   private readonly token = new Map<string, number>();
+  /** Whether each iOS simulator's SpringBoard has finished starting up, asked once per walk. An `/ax`
+   *  read that reaches a device before then can leave it answering 503 for the rest of that boot —
+   *  MEASURED, and neither a fresh serve-sim nor a respring brings it back — so no read is sent until
+   *  this says SpringBoard is up. */
+  private readonly springBoards = new Map<string, Promise<boolean>>();
   /** The last stream each simulator was shown, kept because `/ax` is asked of the daemon's own base
    *  URL — which is not in `SimulatorState` (the pane needs the stream and the socket, not the root)
    *  and must not be re-derived by string surgery on the stream URL. */
@@ -538,10 +546,11 @@ export class SimulatorService {
       if (status === "booting" || status === "serving") throw new RpcError("UNAVAILABLE", "the simulator's stream is still starting");
       throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
     }
+    const up = await this.springBoardUp(row.udid);
     let tree: SimulatorAxTree | null = null;
     let timedOut = false;
     try {
-      tree = await this.stream.ax(stream, row.udid);
+      if (up) tree = await this.stream.ax(stream, row.udid);
     } catch (e) {
       if (!(e instanceof AxReadTimedOut)) throw e;
       timedOut = true;
@@ -559,10 +568,23 @@ export class SimulatorService {
       this.start(simulatorId);
       throw new RpcError("UNAVAILABLE", "the pane's stream was from before the device last booted, so Realm is starting a fresh one. Try again in a few seconds.");
     }
+    if (!up) throw new RpcError("UNAVAILABLE", "the device is still finishing its boot");
     if (timedOut) throw new TreeReadTimedOut();
     // A 503 from the daemon means the device's AX framework is still warming up after a boot, which
     // is a "not yet" rather than a "cannot" — the pane says so and offers to look again.
     throw new RpcError("UNAVAILABLE", "the device has not published its accessibility tree yet");
+  }
+
+  /** False while the device is still booting. A wait that gave up is no reason to stop reading. */
+  private async springBoardUp(udid: string): Promise<boolean> {
+    const asked = this.springBoards.get(udid) ?? this.askSpringBoard(udid);
+    return Promise.race([asked.then(() => true), new Promise<false>((r) => setTimeout(r, SPRINGBOARD_WAIT_MS, false).unref())]);
+  }
+
+  private askSpringBoard(udid: string): Promise<boolean> {
+    const asked = this.cli.springBoardStarted(udid).catch(() => false);
+    this.springBoards.set(udid, asked);
+    return asked;
   }
 
   /** Whether a pane Realm calls running streams a simulator's current boot. False when it cannot tell. */
@@ -1019,6 +1041,7 @@ export class SimulatorService {
       if (booted.ok && booted.booted) this.noteBoot(udid, this.d.simulators.get(simulatorId)?.name ?? udid);
       if (!current()) return;
       if (!booted.ok) return fail("boot_failed", booted.detail);
+      void this.askSpringBoard(udid);
 
       this.set({ ...OFF(simulatorId, udid), status: "serving" });
       let stream = await this.stream.find(udid);
