@@ -171,6 +171,19 @@ describe("teammate_update", () => {
     expect(app.team.get(polish.id).effort).toBe("high");
   });
 
+  it("moves a teammate's folder the way space_create takes one, and refuses one that holds keys", async () => {
+    const { userHome, make, captain } = await boot();
+    mkdirSync(join(userHome, ".ssh"));
+    mkdirSync(join(userHome, "code", "site"), { recursive: true });
+    const scout = make("Scout");
+    await say(captain, "teammate_update", { to: "scout", folder: "~/.ssh" });
+    expect((await answered(captain.homeSessionId!)).content).toContain("which holds keys and credentials. Nothing changed.");
+    expect(app.team.get(scout.id).folder).toBe(scout.folder);
+    await say(captain, "teammate_update", { to: "scout", folder: "~/code/site" });
+    expect((await answered(captain.homeSessionId!, 2)).isError).toBe(false);
+    expect(app.team.get(scout.id).folder).toBe(realpathSync(join(userHome, "code", "site")));
+  });
+
   it("caps at the Lead's own mode when its chat is on more", async () => {
     const { spaceId, captain } = await boot();
     // The Lead's row is on Accept edits; its chat is still on Full access.
