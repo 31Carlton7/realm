@@ -274,7 +274,7 @@ const TOOLS: Tool[] = [
     description:
       "Fill the one-time security code a site just sent by text or email into its code field, without ever seeing the code. Give the [ref=N] of the code field (or the first of its single-digit boxes). " +
       "Realm asks the user to approve this fill every time, then reads the newest code that arrived in their Messages or Mail in the last 5 minutes, on this Mac only, and types it. You are never told the code and the field's value stays out of your snapshots: the answer is only filled, declined, or why nothing was filled. " +
-      "Works only while the user has Settings ▸ Sign-ins ▸ Security codes on; when it is off, Realm asks the user to turn on agent sign-ins, and you never ask them for the code. Call it once, after the page says it sent the code; it waits for the code to arrive.",
+      "Works only while the user has Settings ▸ Passwords ▸ Security codes on; when it is off, Realm asks the user to turn on agent sign-ins, and you never ask them for the code. Call it once, after the page says it sent the code; it waits for the code to arrive.",
     inputSchema: {
       type: "object",
       properties: {
@@ -721,7 +721,7 @@ const HANDLERS: Record<string, Handler> = {
     if (!(await signinsOn(d, ctx))) return err(AGENT_SIGNINS_OFF);
     const switched = (await d.bridge.call("codesEnabled", {}).catch(() => null)) as { enabled?: boolean } | null;
     if (switched?.enabled !== true) {
-      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Sign-ins ▸ Security codes. Nothing was filled.");
+      return err("Security codes are off: Realm reads no messages until the user turns on Settings ▸ Passwords ▸ Security codes. Nothing was filled.");
     }
     const title = `Fill the security code from Messages or Mail into the page on ${hostOf(live?.url)}`;
     // Preapproved by the switch, and still a gate: Plan and Ask refuse it there.

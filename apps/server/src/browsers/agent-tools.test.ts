@@ -654,6 +654,7 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(fillCode).not.toContain("ask them to type the code");
     expect(fillCode).toContain("you never ask them for the code");
     expect(fillCode).toContain("it waits for the code to arrive");
+    expect(fillCode).toContain("Settings ▸ Passwords ▸ Security codes");
   });
 
   it("empty list says so, and is exact about which half of enrollment the agent cannot do", async () => {
@@ -1998,6 +1999,7 @@ describe("browser_fill_code", () => {
     await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("Realm asked the user to turn on agent sign-ins");
+    expect(text(r)).toContain("Settings ▸ Passwords ▸ Let agents finish sign-ins");
     expect(text(r)).not.toMatch(/type the code/i);
     expect(calls.invites).toEqual([{ toolName: "agent_signins", title: "Let agents finish sign-ins? Opens Settings" }]);
     expect(calls.gates).toEqual([]);
@@ -2008,7 +2010,7 @@ describe("browser_fill_code", () => {
     const { call, calls } = setup({ bridgeResults: { ...on, codesEnabled: { enabled: false } } });
     const r = await call("browser_fill_code", { browserId: "b1", ref: 4 });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("Settings ▸ Sign-ins ▸ Security codes");
+    expect(text(r)).toContain("Settings ▸ Passwords ▸ Security codes");
     expect(text(r)).not.toMatch(/type the code/i);
     expect(calls.gates).toEqual([]);
     expect(calls.bridge.map((b) => b.op)).not.toContain("fillCode");
