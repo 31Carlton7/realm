@@ -45,12 +45,12 @@ export function useRowAgents(sessionId: string): RowAgent[] {
   const runs = useApp((s) => s.delegatedRuns[sessionId] ?? NO_RUNS);
   const sessions = useApp((s) => s.sessions);
   const allSessions = useApp((s) => s.allSessions);
-  const refreshSubagents = useApp((s) => s.refreshSubagents);
+  const loadSubagents = useApp((s) => s.loadSubagents);
   const refreshDelegatedRuns = useApp((s) => s.refreshDelegatedRuns);
   const run = useApp((s) => s.run);
   // The list is otherwise read on demand (the Agents tab, a delegation line), and a sub-agent that
   // finished before a relaunch is still one the row owes the person until their next message.
-  useEffect(() => { if (!loaded) run(() => refreshSubagents(sessionId)); }, [loaded, sessionId, refreshSubagents, run]);
+  useEffect(() => { if (!loaded) run(() => loadSubagents(sessionId)); }, [loaded, sessionId, loadSubagents, run]);
   // The runs in flight, which no table holds: the ones that began before this window connected — a
   // reload, a second window, a pane opened ten minutes into a delegation. Every later change arrives
   // on `delegation.changed`.

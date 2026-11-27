@@ -26,12 +26,12 @@ export const LeadSessionContext = createContext<string | null>(null);
 export function DelegationLine({ block, sessionStatus, enter = false }: { block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean }) {
   const lead = useContext(LeadSessionContext);
   const children = useApp((s) => (lead ? s.subagents[lead] : undefined));
-  const refreshSubagents = useApp((s) => s.refreshSubagents);
+  const loadSubagents = useApp((s) => s.loadSubagents);
   const openAgentsTab = useApp((s) => s.openAgentsTab);
   const run = useApp((s) => s.run);
   const loaded = children !== undefined;
   // A transcript opened without its Agents tab has never read the list; the first line asks.
-  useEffect(() => { if (lead && !loaded) run(() => refreshSubagents(lead)); }, [lead, loaded, refreshSubagents, run]);
+  useEffect(() => { if (lead && !loaded) run(() => loadSubagents(lead)); }, [lead, loaded, loadSubagents, run]);
   const ids = delegatedChildIds(block);
   const goal = typeof block.input.goal === "string" ? block.input.goal : "";
   /* By the id its result names — and, for an `agent_run` still blocking (no result yet), by its task:

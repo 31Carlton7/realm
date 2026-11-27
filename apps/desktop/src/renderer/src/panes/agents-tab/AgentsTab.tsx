@@ -49,6 +49,7 @@ export function AgentsTab({ item, visible }: PaneProps) {
   const loaded = useApp((s) => s.subagents[leadId] !== undefined);
   const leadRead = useApp((s) => s.transcripts[leadId] !== undefined);
   const refreshSubagents = useApp((s) => s.refreshSubagents);
+  const loadSubagents = useApp((s) => s.loadSubagents);
   const refreshDelegatedRuns = useApp((s) => s.refreshDelegatedRuns);
   const hydrateAgentsShown = useApp((s) => s.hydrateAgentsShown);
   const shownId = useApp((s) => s.agentsShown[leadId] ?? null);
@@ -58,17 +59,20 @@ export function AgentsTab({ item, visible }: PaneProps) {
   const agents = useSessionSubagents(leadId);
   // Both reads on mount: the list itself, and the engine's live set, which is what tells a child
   // that is about to start from one whose run is gone. Every later change arrives as a broadcast.
-  useEffect(() => { run(() => refreshSubagents(leadId)); run(() => refreshDelegatedRuns(leadId)); }, [leadId, refreshSubagents, refreshDelegatedRuns, run]);
+  useEffect(() => { run(() => loadSubagents(leadId)); run(() => refreshDelegatedRuns(leadId)); }, [leadId, loadSubagents, refreshDelegatedRuns, run]);
   useEffect(() => { run(() => hydrateAgentsShown()); }, [hydrateAgentsShown, run]);
   // And again whenever a child changes state: a wait starting or ending is what moves its spent
   // budget from ticking to held, and only the server knows how long it was held.
   const statuses = useApp((s) => (s.subagents[leadId] ?? NO_CHILDREN).map((c) => s.sessionStatus[c.session.id] ?? "").join(","));
-  const seenStatuses = useRef(statuses);
+  // Counted from the list's arrival, which is a read of its own and not a child changing state.
+  const seenStatuses = useRef(loaded ? statuses : null);
   useEffect(() => {
+    if (!loaded) return;
+    if (seenStatuses.current === null) seenStatuses.current = statuses;
     if (seenStatuses.current === statuses) return;
     seenStatuses.current = statuses;
     run(() => refreshSubagents(leadId));
-  }, [statuses, leadId, refreshSubagents, run]);
+  }, [statuses, loaded, leadId, refreshSubagents, run]);
 
   /* What the tab was opened FOR — a plan to start the composer from. Taken once and cleared, so a
      remount after a space switch does not put back a plan the user has since edited. */
