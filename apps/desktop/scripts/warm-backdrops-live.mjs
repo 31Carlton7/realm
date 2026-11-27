@@ -241,7 +241,7 @@ async function memory(run) {
   await app.page.send("HeapProfiler.collectGarbage").catch(() => {});
   await sleep(3000);
   const m = await app.main.eval(`(() => { const { app, BrowserWindow } = require("electron"); const w = BrowserWindow.getAllWindows().find((x) => x.isResizable()); const pid = w.webContents.getOSProcessId();
-    const row = app.getAppMetrics().find((x) => x.pid === pid); return { pid, workingSetMB: row.memory.workingSetSize / 1024, privateMB: (row.memory.privateBytes ?? 0) / 1024, peakMB: row.memory.peakWorkingSetSize / 1024 }; })()`);
+    const row = app.getAppMetrics().find((x) => x.pid === pid); return { pid, workingSetMB: row.memory.workingSetSize / 1024, peakMB: row.memory.peakWorkingSetSize / 1024 }; })()`);
   const heap = await app.page.send("Runtime.getHeapUsage");
   let footprintMB = null;
   try {
@@ -267,7 +267,8 @@ try {
   try {
     const { made, leaves } = await fill(run, 3);
     const page = run.app.page;
-    check((await page.eval(`document.querySelectorAll('.session-pane').length`)) === 12, "three panes each keep four sessions mounted", await page.eval(`document.querySelectorAll('.session-pane').length`));
+    const mounted = await page.eval(`document.querySelectorAll('.session-pane').length`);
+    check(mounted === 12, "three panes each keep four sessions mounted", mounted);
     results.panel = await openPanel(run);
     console.log("panel", results.panel);
     await sleep(1000);
@@ -286,10 +287,10 @@ try {
 
     // Back to a hidden session in the first pane: its backdrop is built again and draws.
     const back = made[0][1].itemId;
-    const backAt = await page.eval(`(async () => { const s = __live.st(); const t = performance.now(); let first = null;
+    const backAt = await page.eval(`(async () => { const s = __live.st(); const t = performance.now();
       const before = __gl.made; await s.openItem(${JSON.stringify(back)}, ${JSON.stringify(leaves[0])});
       await new Promise((r) => requestAnimationFrame(() => r()));
-      first = __gl.contexts.slice(before).find((c) => c.canvas.isConnected && !c.canvas.closest('[hidden]'));
+      const first = __gl.contexts.slice(before).find((c) => c.canvas.isConnected && !c.canvas.closest('[hidden]'));
       return { drawsInFirstFrame: first?.draws ?? null, ms: performance.now() - t }; })()`);
     await page.eval(`__gl.contexts.forEach((c) => { c.draws = 0; }); true`);
     await sleep(2000);
