@@ -8,8 +8,8 @@
  * a model would be handed. Nothing is billed and nothing leaves 127.0.0.1.
  *
  * The pages are fixtures/browser-bench/*.html, served by this script. Each task is the calls a careful
- * agent makes — read, act by ref, read again to see what the act did — and is run `--runs` times (3) on
- * a fresh load. For each task it records:
+ * agent makes — read, act by ref, read again with `diff: true` to see what the act did — and is run
+ * `--runs` times (3) on a fresh load. For each task it records:
  *   - snapshot chars, and the chars of everything the tools returned into the model
  *   - wall ms of each act, and of each snapshot (medians, then the median across runs)
  *   - tool calls, and whether the task worked, judged by the page or the fixture server, never the tools
@@ -116,9 +116,11 @@ function startSite(port) {
 
 const text = (r) => (r.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
 const imageBytes = (r) => (r.content ?? []).filter((c) => c.type === "image").reduce((n, c) => n + Buffer.byteLength(c.data ?? "", "base64"), 0);
-/** Each element line of a snapshot: its ref, role, name, and the rest of the line. A control with
- *  no name has no quoted name, only its hints (`icon:`, `img:`, `in:`). */
-const linesOf = (snap) => snap.split("\n").map((l) => /^\[ref=(\d+)\] (\S+)(?: "(.*?)")?(.*)$/.exec(l)).filter(Boolean)
+/** Each element of a snapshot: its ref, role, name, and the rest of its line. A control with no name
+ *  has no quoted name, only its hints (`icon:`, `img:`, `in:`). A run of offscreen elements shares
+ *  one line, `{offscreen} [ref=1] … · [ref=2] …`. */
+const linesOf = (snap) => snap.split("\n").flatMap((l) => l.replace(/^\{offscreen\} /, "").split(/ · (?=\[ref=\d+\])/))
+  .map((l) => /^\[ref=(\d+)\] (\S+)(?: "(.*?)")?(.*)$/.exec(l)).filter(Boolean)
   .map(([, ref, role, name, rest]) => ({ ref: Number(ref), role, name: name ?? "", rest }));
 const lineFor = (snap, name, role) => linesOf(snap).find((l) => l.name.trim().toLowerCase() === name.toLowerCase() && (!role || l.role === role)) ?? null;
 const nextOffset = (snap) => Number(/Snapshot again with offset: (\d+)/.exec(snap)?.[1]) || null;
@@ -182,7 +184,7 @@ const TASKS = [
       const button = lines.slice(at + 1).find((l) => l.role === "button");
       if (!button) return t.fail("no button after product 250's link");
       await t.act({ kind: "click", ref: button.ref });
-      const after = await t.snapshot();
+      const after = await t.snapshot({ diff: true });
       return { snapshotPages: pages, unnamedButtons: linesOf(snap).filter((l) => l.role === "button" && l.name === "").length, cartShown: !!lineFor(after, "Cart (1)") };
     },
     check: ({ cartBefore }) => { const added = seen.cart.slice(cartBefore); return added.length === 1 && added[0] === 250; },
@@ -195,12 +197,12 @@ const TASKS = [
         const section = lineFor(snap, "Guides", "button");
         if (!section) return t.fail("no Guides section in the nav");
         await t.act({ kind: "click", ref: section.ref });
-        snap = await t.snapshot();
+        snap = await t.snapshot({ diff: true });
       }
       const link = lineFor(snap, "Getting started");
       if (!link) return t.fail('no "Getting started" link once Guides is open');
       await t.act({ kind: "click", ref: link.ref });
-      await t.snapshot();
+      await t.snapshot({ diff: true });
     },
     check: async ({ pane }) => (await pane(`location.hash + "|" + document.getElementById("title").textContent`)) === "#getting-started|Getting started",
   },
@@ -229,18 +231,19 @@ const TASKS = [
       const remove = lineFor(before, "Remove INV-1007", "button");
       if (!remove) return t.fail("no Remove INV-1007 button");
       await t.act({ kind: "click", ref: remove.ref });
-      const after = await t.snapshot();
+      const after = await t.snapshot({ diff: true });
       t.state.after = after;
       const save = lineFor(after, "Save changes", "button");
       return {
         linesBefore: linesOf(before).length,
         linesAfter: linesOf(after).length,
-        markedNew: after.split("\n").filter((l) => l.endsWith(" [new]")).length,
+        // Without diff, what changed ends with [new]; with it, what changed is all that is listed.
+        markedNew: /\(changes since your previous snapshot/.test(after) ? linesOf(after).length : after.split("\n").filter((l) => l.endsWith(" [new]")).length,
         // Whether the second snapshot says what went away, or leaves the agent to spot the missing line.
         removalNamed: /INV-1007/.test(after),
         saveEnabledShown: !!save && !/disabled/.test(save.rest),
         // The one line whose state changed, against the lines that only moved up a row.
-        saveMarkedNew: !!save && save.rest.endsWith(" [new]"),
+        saveMarkedNew: !!save && (save.rest.endsWith(" [new]") || /^changed:$/m.test(after)),
       };
     },
     check: async ({ state, pane }) => !lineFor(state.after ?? "", "Remove INV-1007") && (await pane(`!document.getElementById("save").disabled && document.querySelectorAll("#rows tr").length === 11`)),

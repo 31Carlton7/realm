@@ -30,7 +30,9 @@ browser and brings it to the front of what they are doing.
 3. **Verify after every act.** Re-snapshot (or `browser_read` for text) and confirm the page moved
    the way you expected — the count changed, the form advanced, the row appeared. An unverified act
    is an act that may not have happened. Elements changed since your previous snapshot are marked
-   `[new]` — check them first.
+   `[new]` — check them first. `diff: true` lists only those, under added/changed/removed, so the
+   check after an act costs a few lines instead of the whole page. Consecutive offscreen elements
+   share one `{offscreen}` line, separated by ` · `; each keeps its ref.
 4. **Screenshot on confusion, not by default.** Snapshots are cheaper and deterministic. Reach for
    `browser_screenshot` when a snapshot makes no sense — an act that failed (a screenshot is
    attached to failures automatically), a layout you cannot reconcile, a page that claims to be

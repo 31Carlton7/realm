@@ -20,8 +20,9 @@ export type CdpSend = (method: string, params?: Record<string, unknown>) => Prom
 
 /* ------------------------------------ snapshot ------------------------------------ */
 
-/** Per-element fingerprints from the previous snapshot, kept per browser by the host. The `*[new]`
- *  diff marks an element whose ref was absent last time OR whose identity/geometry changed. */
+/** Each element's line from the previous snapshot, by ref, kept per browser by the host. `[new]` and
+ *  `diff` compare against it: an element is new when its ref was absent or its line reads differently.
+ *  Where it sits is not part of the line, so an element that only moved is not new. */
 export type SnapshotIndex = Map<number, string>;
 
 /** How many elements one snapshot lists — beyond this a page is better served by a narrower read
@@ -209,25 +210,52 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   // way a textbox's `value=` answers "did the typing land".
   await fillFileInputValues(send, listed.filter(isFileInput).slice(0, FILE_INPUT_READ_MAX));
 
-  // A narrowed snapshot sees part of the page, so it adds to the fingerprints rather than replacing
-  // them — otherwise the next full snapshot would mark everything it left out as [new].
-  const narrowed = offset > 0 || scope.query !== undefined || scope.within !== undefined;
-  const index: SnapshotIndex = narrowed ? new Map(previous ?? []) : new Map();
-  const lines: string[] = [];
+  // Each listed element's fingerprint is its line without the parts that only say where it is — the
+  // box, `{offscreen}` and the `in:` text — so a row that moved up when the one above it went is not
+  // new. The index keeps every element still on the page, listed this time or not: a narrowed or
+  // cut-off snapshot sees part of the page, and the next one must not call the rest new. A page none
+  // of whose refs survive is a different document (a navigation), and nothing on it is "new" to mark.
+  const present = new Set(visible.map((c) => c.backendNodeId));
+  const prior = previous && [...previous.keys()].some((ref) => present.has(ref)) ? previous : null;
+  const index: SnapshotIndex = new Map([...(prior ?? [])].filter(([ref]) => present.has(ref)));
+  const diff = scope.diff === true && prior !== null;
+  const rows: Row[] = [];
+  const added: Row[] = [];
+  const changed: Row[] = [];
   const elements: BrowserSnapshotElement[] = [];
   const sameAs = new Map<string, number>();
   for (const c of listed) sameAs.set(lineKey(c), (sameAs.get(lineKey(c)) ?? 0) + 1);
   for (const c of listed) {
-    const fingerprint = `${c.role}|${c.name}|${c.value ?? ""}|${Math.round(c.rect.x / 8)},${Math.round(c.rect.y / 8)}`;
+    const fingerprint = formatLine({ ...c, offscreen: false }, { isNew: false, context: "", geometry: false });
     index.set(c.backendNodeId, fingerprint);
-    const isNew = previous !== null && previous.get(c.backendNodeId) !== fingerprint;
+    const before = prior?.get(c.backendNodeId);
+    const isNew = prior !== null && before !== fingerprint;
     const ambiguous = sameAs.get(lineKey(c))! > 1 || !c.name && !c.icon && !c.img;
     const context = ambiguous ? contextByDoc[c.docIndex]!(c.nodeIndex) : "";
-    lines.push(formatLine(c, { isNew, context, geometry: scope.detail === "geometry" }));
+    const how = { isNew: isNew && !diff, context, geometry: scope.detail === "geometry" };
+    const row = { line: formatLine(c, how), inRun: c.offscreen ? formatLine({ ...c, offscreen: false }, how) : null };
+    rows.push(row);
+    if (isNew) (before === undefined ? added : changed).push(row);
     elements.push({
       ref: c.backendNodeId, role: c.role, name: c.name, value: c.value, rect: { ...c.rect },
       checked: c.checked, disabled: c.disabled, password: c.password, focused: c.focused, offscreen: c.offscreen,
     });
+  }
+  let lines: string[];
+  if (diff) {
+    const removed = [...prior].filter(([ref]) => !present.has(ref)).map(([, line]) => line);
+    const unchanged = rows.length - added.length - changed.length;
+    lines = added.length + changed.length + removed.length === 0
+      ? [`(nothing changed since your previous snapshot of this page: its ${unchanged} element(s) read as they did then)`]
+      : [
+        `(changes since your previous snapshot of this page: ${added.length} added, ${changed.length} changed, ${removed.length} removed; ${unchanged} unchanged, not repeated)`,
+        ...(added.length ? ["added:", ...collapseOffscreen(added)] : []),
+        ...(changed.length ? ["changed:", ...collapseOffscreen(changed)] : []),
+        ...(removed.length ? ["removed:", ...removed] : []),
+      ];
+  } else {
+    lines = collapseOffscreen(rows);
+    if (scope.diff === true) lines.unshift("(no earlier snapshot of this page to compare with, so this is the whole list)");
   }
   const notes = budgetNotes({ scope, withinFound, ranked, listed: listed.length, ancestry, landmarks });
   if (coveredCount > 0) notes.push(`(${coveredCount} interactive element(s) hidden behind overlays — not actionable, not listed)`);
@@ -246,6 +274,21 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
 }
 
 const nodeKey = (docIndex: number, nodeIndex: number): string => `${docIndex}:${nodeIndex}`;
+
+/** A listed element's line, and for an offscreen one the same line without the flag. */
+type Row = { line: string; inRun: string | null };
+
+/** Consecutive offscreen rows share one line, flagged once: `{offscreen} [ref=1] … · [ref=2] …`. */
+function collapseOffscreen(rows: Row[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < rows.length;) {
+    let j = i + 1;
+    if (rows[i]!.inRun !== null) while (j < rows.length && rows[j]!.inRun !== null) j++;
+    out.push(j - i > 1 ? `{offscreen} ${rows.slice(i, j).map((r) => r.inRun).join(" · ")}` : rows[i]!.line);
+    i = j;
+  }
+  return out;
+}
 
 /** What a line says about its control, before any `in:` — two controls with the same key read alike. */
 const lineKey = (c: Candidate): string => `${c.role}|${c.name}|${c.icon}|${c.img}`;
