@@ -341,7 +341,8 @@ export function PaneHost(p: PaneHostProps) {
                 thinking blocks, …) never leaks from the old item to the new one. The sessions it showed
                 last stay mounted behind it, hidden, so going back to one shows the tree it has rather
                 than building it again (warm-panes.ts). A slot coming out of `hidden` starts its
-                animations over, so .panel-body .pane-slot's rl-settle (styles.css) plays on every swap. */}
+                animations over, so .panel-body .pane-slot's rl-settle (styles.css) plays on every swap
+                but one into a session, whose slot holds its picture: that swap is a cut. */}
             {item && !tabs && warmSlots(n.id, item).map((it) => (
               <div key={it.id} className="pane-slot" hidden={it.id !== item.id || undefined}>
                 <PaneFor item={it} visible={it.id === item.id} focused={it.id === item.id && n.id === p.focusedLeafId} />

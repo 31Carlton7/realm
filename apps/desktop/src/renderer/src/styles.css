@@ -7663,6 +7663,10 @@ select { appearance: none; padding-right: 22px;
 /* A leaf's item changing IS content entering, not the "pane focus switching" §6 keeps instant — the
    animation is keyed to item.id in PaneHost, so moving focus between panes never replays it. */
 .panel-body .pane-slot { animation: rl-settle var(--dur-fast) var(--ease-out-strong); }
+/* Not a session's: its slot carries the session's picture, which is the pane's ground, and a slot
+   faded from 0 showed the bare window for the switch's first frames before the picture came back.
+   A session switch is a cut, on a ground that never left. */
+.panel-body .pane-slot:has(> .session-pane) { animation: none; }
 @keyframes rl-settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 /* Menus open the way a Mac menu does: at once, whole, under the pointer. NSMenu has no entrance —
