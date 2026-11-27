@@ -2472,6 +2472,87 @@ export async function describePick(send: CdpSend, backendNodeId: number): Promis
   };
 }
 
+/* ------------------------- refs drawn into an agent's screenshot ------------------------- */
+
+/** The mark value of the numbered boxes `browser_screenshot { annotate }` draws for one capture. */
+export const MARK_REFS = "refs";
+export const REMOVE_REF_BOXES_JS = removeJs(MARK_REFS);
+
+/** One numbered box: where the element with `ref` is now, in the viewport's CSS pixels. */
+export type RefBox = { n: number; ref: number; role: string; name: string; left: number; top: number; width: number; height: number };
+
+/**
+ * The boxes for a snapshot's listed elements that are on screen, numbered from 1 in list order. Each
+ * is placed by `DOM.getContentQuads` at this moment, as the act ring is, and never by the snapshot's
+ * own rect or `offscreen` flag: the boxes are drawn in the page, so they have to be in the page's CSS
+ * pixels, and the snapshot's rects are not (on a 2× display they come back in device pixels, and
+ * elements on screen are flagged offscreen). An element with no quads, or none inside the viewport,
+ * gets no box and no number.
+ */
+export async function refBoxes(send: CdpSend, elements: readonly BrowserSnapshotElement[], viewport: { width: number; height: number }): Promise<RefBox[]> {
+  const quads = await Promise.all(elements.map((e) =>
+    (send("DOM.getContentQuads", { backendNodeId: e.ref }) as Promise<{ quads?: number[][] }>).then((r) => r.quads?.[0] ?? null, () => null)));
+  const boxes: RefBox[] = [];
+  elements.forEach((e, i) => {
+    const quad = quads[i];
+    if (!quad || quad.length < 8) return;
+    const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+    const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+    const left = Math.min(...xs), top = Math.min(...ys);
+    const width = Math.max(...xs) - left, height = Math.max(...ys) - top;
+    if (!Number.isFinite(left + top + width + height) || width <= 0 || height <= 0) return;
+    if (left + width <= 0 || top + height <= 0 || left >= viewport.width || top >= viewport.height) return;
+    boxes.push({ n: boxes.length + 1, ref: e.ref, role: e.role, name: e.name, left, top, width, height });
+  });
+  return boxes;
+}
+
+/** The legend that goes beside an annotated picture: one `[N] ref=… role "name"` line a box. */
+export function refLegend(boxes: readonly RefBox[]): string {
+  return boxes.map((b) => `[${b.n}] ref=${b.ref} ${b.role}${b.name ? ` "${b.name}"` : ""}`).join("\n");
+}
+
+/**
+ * The page-side script that draws `boxes`, and resolves once the page has painted them. One host
+ * element carries the mark attribute (so a snapshot never lists it, and `REMOVE_REF_BOXES_JS` takes it
+ * away); the boxes are inside a closed shadow root, so the page's own scripts cannot read them. A
+ * box's number sits above it, or left of it when it is at the top of the viewport, so it does not hide
+ * the element's own text; only a box in the top-left corner has its number inside. The host is
+ * shown as a manual popover, which puts it in the top layer above a modal dialog — a fixed element
+ * with the highest z-index still paints under one.
+ */
+export function refBoxesScript(boxes: readonly RefBox[], accent: string): string {
+  const j = JSON.stringify;
+  const hostCss = "position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0;"
+    + "background:transparent;overflow:visible;pointer-events:none;z-index:2147483647;";
+  const boxCss = `position:absolute;box-sizing:border-box;border:2px solid ${accent};border-radius:4px;`;
+  const badgeCss = "position:absolute;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;"
+    + `background:${accent};color:#fff;font:600 11px/16px -apple-system,system-ui,sans-serif;text-align:center;white-space:nowrap;`
+    + "box-shadow:0 1px 2px rgba(0,0,0,0.4);";
+  return `(() => { try {
+    ${REMOVE_REF_BOXES_JS};
+    var D = document, host = D.createElement("div");
+    host.setAttribute(${j(HIGHLIGHT_ATTR)}, ${j(MARK_REFS)});
+    host.style.cssText = ${j(hostCss)};
+    var root = host.attachShadow({ mode: "closed" });
+    for (var b of ${j(boxes.map(({ n, left, top, width, height }) => ({ n, left, top, width, height })))}) {
+      var box = D.createElement("div");
+      box.style.cssText = ${j(boxCss)} + "left:" + b.left + "px;top:" + b.top + "px;width:" + b.width + "px;height:" + b.height + "px";
+      var badge = D.createElement("div");
+      badge.textContent = String(b.n);
+      badge.style.cssText = ${j(badgeCss)} + (b.top >= 16 ? "left:-2px;top:-16px" : b.left >= 20 ? "right:100%;top:-2px;margin-right:2px" : "left:-2px;top:-2px");
+      box.appendChild(badge);
+      root.appendChild(box);
+    }
+    D.documentElement.appendChild(host);
+    try { host.setAttribute("popover", "manual"); host.showPopover(); } catch (e) {}
+    return new Promise(function (done) {
+      setTimeout(done, 200);
+      requestAnimationFrame(function () { requestAnimationFrame(done); });
+    }).then(function () { return true; });
+  } catch (e) { return false; } })()`;
+}
+
 /* ---------------------------------- annotate (Plan 26 W7d) ---------------------------------- */
 
 /**
