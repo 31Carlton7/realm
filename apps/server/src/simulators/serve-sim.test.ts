@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { parseScreen, parseStream, serveSimCommand, parseUiState, parseAxTree, parseEvents, parseClaim, serveSim, AxReadTimedOut, type ServeSimStream } from "./serve-sim";
+import { parseScreen, parseStream, serveSimCommand, parseUiState, parseAxTree, parseEvents, parseClaim, serveSim, AxReadTimedOut, type ServeSimExec, type ServeSimStream } from "./serve-sim";
 
 /** Both transcribed from a real `serve-sim@0.1.46` run against a booted iPhone 17 Pro. */
 const DETACHED = '{"url":"http://127.0.0.1:3100","streamUrl":"http://127.0.0.1:3100/helper/75D1511C-5E00-41A6-9CA2-1650DEAAF571/stream.mjpeg","wsUrl":"ws://127.0.0.1:3100/helper/75D1511C-5E00-41A6-9CA2-1650DEAAF571/ws","port":3100,"device":"75D1511C-5E00-41A6-9CA2-1650DEAAF571"}';
@@ -75,6 +75,86 @@ describe("how the CLI is run", () => {
     expect(serveSimCommand({})).toEqual({ bin: "npx", prefix: ["--yes", "serve-sim@latest"] });
     expect(serveSimCommand({ REALM_SERVE_SIM_BIN: "/usr/local/bin/serve-sim" })).toEqual({ bin: "/usr/local/bin/serve-sim", prefix: [] });
     expect(serveSimCommand({ REALM_SERVE_SIM_BIN: "   " }).bin).toBe("npx");
+  });
+});
+
+describe("the serve-sim binary npx has cached", () => {
+  const UDID = "75D1511C-5E00-41A6-9CA2-1650DEAAF571";
+  const CACHED = "/home/dev/.npm/_npx/0123456789abcdef/node_modules/.bin/serve-sim";
+  /** A fake npx and serve-sim: npx names the cached binary, the binary answers each command, and
+   *  every run is written down. `cost` is how long each one takes, in ms. */
+  const fakeExec = (o: { resolved?: string | null; cost?: { npx: number; bin: number }; missing?: () => boolean } = {}) => {
+    const calls: { bin: string; args: string[] }[] = [];
+    const exec: ServeSimExec = async (bin, args) => {
+      calls.push({ bin, args });
+      if (o.cost) await new Promise((r) => setTimeout(r, bin === "npx" ? o.cost!.npx : o.cost!.bin));
+      if (bin !== "npx" && o.missing?.()) return { code: 1, stdout: "", stderr: "spawn ENOENT", missing: true };
+      if (args.includes("--call")) return o.resolved === null ? { code: 1, stdout: "", stderr: "npm error 404" } : { code: 0, stdout: `${o.resolved ?? CACHED}\n`, stderr: "" };
+      if (args.includes("--detach")) return { code: 0, stdout: DETACHED, stderr: "" };
+      if (args.includes("--list")) return { code: 0, stdout: LISTED, stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    return { exec, calls };
+  };
+
+  it("asks npx once where serve-sim is, and runs that binary for every command after", async () => {
+    const { exec, calls } = fakeExec();
+    const sim = serveSim({}, fetch, exec);
+    expect((await sim.find(UDID)).streamUrl).toContain(UDID);
+    expect((await sim.start(UDID)).stream.streamUrl).toContain(UDID);
+    await sim.kill(UDID);
+    expect(calls).toEqual([
+      { bin: "npx", args: ["--yes", "--package", "serve-sim@latest", "--call", "command -v serve-sim"] },
+      { bin: CACHED, args: ["--list", UDID] },
+      { bin: CACHED, args: ["--detach", "-q", UDID] },
+      { bin: CACHED, args: ["--kill", UDID] },
+    ]);
+  });
+
+  it("asks npx once for calls that arrive together, while it is still answering", async () => {
+    const { exec, calls } = fakeExec({ cost: { npx: 20, bin: 0 } });
+    const sim = serveSim({}, fetch, exec);
+    await Promise.all([sim.find(UDID), sim.find(UDID), sim.ui(UDID)]);
+    expect(calls.filter((c) => c.bin === "npx")).toHaveLength(1);
+  });
+
+  it("goes through npx for each command when npx cannot name a binary", async () => {
+    const { exec, calls } = fakeExec({ resolved: null });
+    const sim = serveSim({}, fetch, exec);
+    expect((await sim.find(UDID)).streamUrl).toContain(UDID);
+    expect(calls.at(-1)).toEqual({ bin: "npx", args: ["--yes", "serve-sim@latest", "--list", UDID] });
+  });
+
+  it("asks npx again when the cached binary has been cleared away, and still answers", async () => {
+    let gone = false;
+    const { exec, calls } = fakeExec({ missing: () => gone && calls.filter((c) => c.bin === "npx").length < 2 });
+    const sim = serveSim({}, fetch, exec);
+    await sim.find(UDID);
+    gone = true;
+    expect((await sim.find(UDID)).streamUrl).toContain(UDID);
+    expect(calls.filter((c) => c.bin === "npx")).toHaveLength(2);
+  });
+
+  it("never asks npx when a binary is named", async () => {
+    const { exec, calls } = fakeExec();
+    await serveSim({ REALM_SERVE_SIM_BIN: "/opt/serve-sim" }, fetch, exec).find(UDID);
+    expect(calls).toEqual([{ bin: "/opt/serve-sim", args: ["--list", UDID] }]);
+  });
+
+  it("keeps a pane's connect inside its budget when npx is slow", async () => {
+    // What opening a pane asks serve-sim, and then what the pane's menu asks, against an npx that
+    // takes 250 ms a call — a quiet Mac's cost is 0.9 s, so this is generous to npx. Through npx
+    // each time this is six calls and 1.5 s; through the cached binary it is one npx call.
+    const { exec } = fakeExec({ cost: { npx: 250, bin: 2 } });
+    const sim = serveSim({}, fetch, exec);
+    const t0 = performance.now();
+    await sim.find(UDID);
+    await sim.start(UDID);
+    await sim.ui(UDID);
+    await sim.eventLog(UDID, 20);
+    await sim.find(UDID);
+    await sim.kill(UDID);
+    expect(performance.now() - t0).toBeLessThan(600);
   });
 });
 
