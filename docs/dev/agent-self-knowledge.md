@@ -75,5 +75,6 @@ These are deliberate, and `realm_capabilities` names where the user does each on
 - Settings beyond the five in `AGENT_SETTINGS`.
 - Editing, pausing or deleting a schedule outside a turn the user started, or someone else's without their card.
 - Changing a teammate's clock from the schedule tools; the teammate's page does it.
+- Linking or unlinking a project outside a turn the user started, or in another profile's space; renaming a project or setting its default branch.
 - Team roles and policies.
 - Opening Realm's own pages (Settings, Library, Code Review).

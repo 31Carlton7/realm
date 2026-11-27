@@ -62,6 +62,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *     (names and origins, no field for a password) is safe;
  *   - `workspace_state`, `sessions_list`, `session_read`, `space_list` — what is in this space and
  *     profile and what its sessions said, as the sidebar already shows it;
+ *   - `project_list` — the folders a space of this profile works in, by name and path;
  *   - `settings_get` — the five settings an agent may change (theme and the like), none of them secret;
  *   - `realm_capabilities` — Realm's tools, connections, skills and panes by name and state, as the
  *     Connections and Settings pages show them; never a value;
@@ -89,6 +90,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__sessions_list": read,
   "realm-workspace__session_read": read,
   "realm-workspace__space_list": read,
+  "realm-workspace__project_list": read,
   "realm-workspace__settings_get": read,
   "realm-workspace__realm_capabilities": read,
   "realm-workspace__machine_status": read,
@@ -177,6 +179,8 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__session_open": internal,
   "realm-workspace__space_switch": internal,
   "realm-workspace__space_create": internal,
+  "realm-workspace__project_link": internal,
+  "realm-workspace__project_unlink": internal,
   "realm-workspace__settings_set": internal,
   "realm-workspace__theme_import": internal,
 

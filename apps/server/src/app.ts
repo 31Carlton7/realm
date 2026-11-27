@@ -151,6 +151,8 @@ import { RunsStore } from "./store/runs";
 import { RunService } from "./runs/service";
 import { ScheduleService } from "./schedules/service";
 import { createScheduleAgentProvider } from "./schedules/agent-tools";
+import { createProjectTools } from "./workspace/projects";
+import { openProject } from "./workspace/open-project";
 import { SchedulesStore } from "./store/schedules";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, endProbes, fakeStandIn, type AdapterRegistry } from "@realm/adapters";
 import { FAKE_BLOCK_SCRIPT } from "./ui/fake-blocks";
@@ -1682,6 +1684,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       spaces, projects, sessions, settings, broker: browserBroker, rpc, userHome, realmHome: opts.home,
       turnOrigin: (id) => team?.turnOrigin(id) ?? "something other than the person",
       turnOf,
+    }),
+    createProjectTools({
+      spaces, projects, sessions, broker: browserBroker, rpc, userHome, realmHome: opts.home,
+      turnOrigin: (id) => team?.turnOrigin(id) ?? "something other than the person",
+      open: (input) => openProject({ profiles, spaces, projects, environments }, input),
     }),
     createSettingsTools({ settings, themes, broker: browserBroker, rpc }),
     // `machine_status`: the Mac's memory and what of Realm's is heavy, read before heavy work.

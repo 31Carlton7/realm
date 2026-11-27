@@ -1476,6 +1476,7 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
       "mcp__realm__realm-workspace__sessions_list",
       "mcp__realm__realm-workspace__session_read",
       "mcp__realm__realm-workspace__space_list",
+      "mcp__realm__realm-workspace__project_list",
       "mcp__realm__realm-workspace__settings_get",
       "mcp__realm__realm-workspace__realm_capabilities",
       // Sizes and names of what is using the Mac's memory, and advice; it changes nothing. A prompt
