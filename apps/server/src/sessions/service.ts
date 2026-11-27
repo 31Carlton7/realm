@@ -79,6 +79,9 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
    *  the messages typed after, not this one. Only for the agent it was queued on. */
   runsWith?: QueuedRun };
 
+/** A message the person typed or another session sent, as opposed to one Realm wrote itself. */
+export const isFromSomeone = (msg: Pick<SendMessage, "byPerson" | "from">): boolean => msg.byPerson === true || msg.from !== undefined;
+
 /** What a queued message runs on — see `SendMessage.runsWith`. */
 export type QueuedRun = { agentKind: AgentKind; model: string | null; effort: string | null; fastMode: boolean };
 
@@ -228,6 +231,8 @@ export class SessionService {
   private putBack = new Map<string, { was: Partial<QueueTurn>; set: Partial<QueueTurn> }>();
   /** `QUEUE_HOLD_TTL_MS`, as a field so a test can wait out a hold without waiting ten minutes. */
   queueHoldTtlMs = QUEUE_HOLD_TTL_MS;
+  /** Who is told when the person or another session sends this session a message (`onMessage`). */
+  private messageListeners = new Map<string, Set<(m: { queued: boolean }) => void>>();
   /** The reply each session is streaming, as far as its deltas have got (`sessions.streaming`).
    *  Gone once its `assistant_text` is stored, or the turn settles. */
   private streamed = new Map<string, StreamedMessage>();
@@ -571,11 +576,34 @@ export class SessionService {
     const turnInFlight = status === "running" || status === "waiting_permission";
     if (turnInFlight) {
       const mode = delivery === "auto" ? resolveMidTurnMode(this.d.settings.get(MID_TURN_MODE_KEY)) : delivery;
-      if (mode === "queue") { this.enqueue(id, msg); return; }
+      if (mode === "queue") { this.enqueue(id, msg); this.tellMessage(id, msg, true); return; }
+      this.tellMessage(id, msg, false);
       await this.steer(id, msg);
       return;
     }
+    this.tellMessage(id, msg, false);
     await this.deliver(id, msg);
+  }
+
+  /**
+   * Call `listener` each time the person or another session sends this session a message: what
+   * `agent_wait` listens for, so a lead blocked on its sub-agents hears it in seconds rather than
+   * when the wait ends. `queued` says whether it waits in Realm's queue for the turn to end. Realm's
+   * own messages (a goal's next turn, a schedule's run, a brief) do not count. Returns the unsubscribe.
+   */
+  onMessage(id: string, listener: (m: { queued: boolean }) => void): () => void {
+    const set = this.messageListeners.get(id) ?? new Set();
+    set.add(listener);
+    this.messageListeners.set(id, set);
+    return () => {
+      set.delete(listener);
+      if (set.size === 0 && this.messageListeners.get(id) === set) this.messageListeners.delete(id);
+    };
+  }
+
+  private tellMessage(id: string, msg: Pick<SendMessage, "byPerson" | "from">, queued: boolean): void {
+    if (!isFromSomeone(msg)) return;
+    for (const listener of this.messageListeners.get(id) ?? []) listener({ queued });
   }
 
   /**
@@ -1099,6 +1127,7 @@ export class SessionService {
     this.notePersonTurn(id, false);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
+    this.tellMessage(id, msg, false);
     return { interrupted };
   }
 

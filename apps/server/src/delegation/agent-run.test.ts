@@ -962,6 +962,119 @@ describe("long delegation calls report progress and honour cancellation", () => 
   });
 });
 
+/**
+ * A lead blocked in agent_wait used to hear nothing until the wait ended: a message from the person
+ * sat for the 6–20 minutes its agents took. The wait now returns when a message for the lead arrives.
+ */
+describe("agent_wait returns early when a message for the lead arrives", () => {
+  const hello = { text: "are you there?", attachments: [], byPerson: true };
+  /** The lead mid-turn, as it is when it calls agent_wait, so a message queues behind the turn. */
+  const leadRunning = (parentId: string) => new SessionsStore(app.db).update({ id: parentId, status: "running" });
+
+  it("a message mid-wait ends it in seconds, names who is still running, and a second wait collects them", async () => {
+    // THE MUTANT: awaitRuns ignores `wake` — the wait listens on until the child finishes.
+    const { spaceId, parentId } = await boot({ script: longScript(40), delayMs: 100 });
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files", title: "Count files" })));
+    leadRunning(parentId);
+    setTimeout(() => void app.sessions.send(parentId, hello), 200);
+    const t0 = Date.now();
+    const early = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle] });
+    expect(Date.now() - t0).toBeLessThan(1_500);
+    expect(early.isError).toBe(true);
+    const out = text(early);
+    expect(out).toContain("A new message for you arrived while you waited");
+    expect(out).toContain("held until this turn ends");
+    expect(out).toContain(`Still running: ${handle} ("Count files")`);
+    expect(out).toContain(`call ${AGENT_WAIT_TOOL_NAME} again with the same handles`);
+    expect(app.sessions.get(handle).status).not.toBe("ended");
+    // The same queued message does not end the next wait: this one has already told the lead.
+    const later = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle], timeoutMs: 30_000 });
+    expect(later.isError).toBe(false);
+    expect(text(later)).toContain("All 1 delegated agent finished");
+    expect(text(later)).toContain("step 39");
+  }, 40_000);
+
+  it("a message that goes straight to the lead says to read it now, and agents that finished are still reported", async () => {
+    // THE MUTANT: a woken wait claims nothing — the finished child's report is held back.
+    const script: FakeScript = [{ on: "QUICK", emit: [{ kind: "text", text: "FINAL: quick one done" }] }, ...longScript(40)];
+    const { spaceId, parentId } = await boot({ script, delayMs: 100, caps: { perParent: 4 } });
+    const quick = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "QUICK" })));
+    const slow = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "slow", title: "Slow one" })));
+    await waitFor(() => app.sessions.get(quick).status === "idle");
+    // The lead is idle here, so the message is delivered rather than queued.
+    setTimeout(() => void app.sessions.send(parentId, hello), 300);
+    const early = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [quick, slow] });
+    const out = text(early);
+    expect(early.isError).toBe(false);
+    expect(out).toContain("Read it now");
+    expect(out).toContain("1 of 2 delegated agents finished");
+    expect(out).toContain(`Still running: ${slow} ("Slow one")`);
+    expect(out).toContain("FINAL: quick one done");
+    const later = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [slow], timeoutMs: 30_000 });
+    expect(text(later)).toContain("All 1 delegated agent finished");
+  }, 40_000);
+
+  it("a message already queued when the wait starts ends it at once, and only once", async () => {
+    // THE MUTANT: drop the check of the queue at the start — the wait blocks with the message waiting.
+    const { spaceId, parentId } = await boot({ script: longScript(20), delayMs: 100 });
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" })));
+    leadRunning(parentId);
+    await app.sessions.send(parentId, hello);
+    const t0 = Date.now();
+    const early = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle] });
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(text(early)).toContain("A new message for you arrived while you waited");
+    const later = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle], timeoutMs: 30_000 });
+    expect(text(later)).toContain("All 1 delegated agent finished");
+  }, 40_000);
+
+  it("a question from another session through agent_ask ends the wait too", async () => {
+    // THE MUTANT: deliverInterjection does not tell the wait.
+    const { spaceId, parentId } = await boot({ script: longScript(20), delayMs: 100 });
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" })));
+    setTimeout(() => void app.sessions.deliverInterjection(parentId, { text: "which file?", from: { sessionId: handle, title: "peer" } }, { interruptFirst: false }), 200);
+    const t0 = Date.now();
+    const early = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle] });
+    expect(Date.now() - t0).toBeLessThan(1_500);
+    expect(text(early)).toContain("Read it now");
+  }, 40_000);
+
+  it("returnOnMessage: false keeps the old wait, which collects the agents through a message", async () => {
+    // THE MUTANT: the option ignored — the wait returns on the message all the same.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 100 });
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" })));
+    leadRunning(parentId);
+    setTimeout(() => void app.sessions.send(parentId, hello), 200);
+    const result = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle], timeoutMs: 30_000, returnOnMessage: false });
+    expect(result.isError).toBe(false);
+    expect(text(result)).toContain("All 1 delegated agent finished");
+    expect(text(result)).not.toContain("A new message for you");
+  }, 40_000);
+
+  it("a message to another session does not end the wait", async () => {
+    // THE MUTANT: listen on every session's messages rather than the lead's own.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 100 });
+    const other = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" }).session.id;
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" })));
+    leadRunning(parentId);
+    leadRunning(other);
+    setTimeout(() => void app.sessions.send(other, hello), 200);
+    const result = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle], timeoutMs: 30_000 });
+    expect(text(result)).toContain("All 1 delegated agent finished");
+    expect(text(result)).not.toContain("A new message for you");
+  }, 40_000);
+
+  it("Realm's own messages to the lead, like a goal's next turn, do not end the wait", async () => {
+    // THE MUTANT: every message wakes the wait, Realm's own included.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 100 });
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" })));
+    leadRunning(parentId);
+    setTimeout(() => void app.sessions.send(parentId, { text: "Continue toward the goal.", attachments: [], goal: "continuation" }), 200);
+    const result = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle], timeoutMs: 30_000 });
+    expect(text(result)).toContain("All 1 delegated agent finished");
+  }, 40_000);
+});
+
 describe("the lead's mode reaches its running children", () => {
   const script: FakeScript = [
     { on: "quick job", emit: [{ kind: "text", text: "FINAL: quick" }] },
