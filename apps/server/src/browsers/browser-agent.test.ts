@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -298,6 +299,14 @@ describe("specialization through existing seams", () => {
     expect(started.systemContext).toContain("Delegated browser agent");
     expect(started.systemContext).toContain("Count the buttons on example.test");
     expect(started.systemContext).toContain("password fields");
+    expect(started.systemContext).toContain("A sign-in is yours: a password goes in with browser_fill_credential, a code sent by text or email with browser_fill_code.");
+    expect(started.systemContext).not.toContain("When a sign-in is needed, stop");
+    // The staged playbook is the one that sends Duo to "Text me a passcode", not to the user.
+    const playbook = readFileSync(join(started.skills!.root, "browsing", "SKILL.md"), "utf8");
+    expect(playbook).toContain("choose \"Text me a passcode\"");
+    expect(playbook).toContain("Never read a code with `mac messages`, `mac mail` or a screenshot.");
+    expect(playbook).toContain("Never put a password or code in a file, a reply, a commit or a memory");
+    expect(playbook).not.toContain("is theirs");
     expect(started.permissionMode).toBe("default");
   });
 

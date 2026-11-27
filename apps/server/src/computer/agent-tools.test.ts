@@ -332,8 +332,17 @@ describe("computer_act refusals become advice", () => {
     return text(await snapshotThenAct(s, { kind: "click", index: 0 }));
   };
 
-  it("tells the agent to hand a password field back to the user", async () => {
-    expect(await refusal({ ok: false, error: "refused", refused: "secure_field" })).toMatch(/never types into one, in any mode/);
+  it("refuses a password field, and points a web sign-in at browser_fill_credential", async () => {
+    const said = await refusal({ ok: false, error: "refused", refused: "secure_field" });
+    expect(said).toMatch(/never types into one, in any mode/);
+    expect(said).toContain("use browser_fill_credential");
+  });
+
+  it("describes password fields as the browser fill tools' job, not the user's", async () => {
+    const act = (await setup().provider.tools(ctx)).find((t) => t.name === "computer_act")!;
+    expect(act.description).not.toContain("hand those to the user");
+    expect(act.description).toContain("goes through browser_fill_credential");
+    expect(act.description).toContain("through browser_fill_code");
   });
 
   it("says a forbidden app is forbidden in every mode, not merely unapproved", async () => {

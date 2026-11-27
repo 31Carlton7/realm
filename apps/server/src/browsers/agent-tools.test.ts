@@ -289,14 +289,14 @@ describe("hard blocks", () => {
     expect(calls.opened).toEqual([]);
   });
 
-  it("the executor's password refusal surfaces as a hand-to-the-user error (mutant: password type not refused)", async () => {
+  it("the executor's password refusal surfaces as an error pointing at browser_fill_credential (mutant: password type not refused)", async () => {
     // The gate ALLOWS (bypassPermissions would too) — the refusal must come through anyway, because
     // it is the executor's, not the broker's.
     const { call } = setup({ bridgeResults: { act: { ok: false, error: "password field", refused: "password" } } });
     const r = await call("browser_act", { browserId: "b1", action: { kind: "type", ref: 11, text: "hunter2" } });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("password field");
-    expect(text(r)).toContain("let them do it in the pane");
+    expect(text(r)).toContain("fill it with browser_fill_credential");
   });
 
   it("non-http(s) URLs never navigate — no file:, data:, javascript:", async () => {
@@ -606,11 +606,26 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(text(r)).toContain("cred-1");
     expect(text(r)).toContain("https://example.com");
     expect(text(r)).toContain("ada");
-    // The 2FA limit is stated where the agent will actually read it, not only in docs.
-    expect(text(r)).toMatch(/two-factor/i);
+    // The second step is steered where the agent will actually read it, not only in docs.
+    expect(text(r)).toContain("prefer a code by text or email");
+    expect(text(r)).toContain("A push or an authenticator app is the last resort");
 
     const tool = (await provider.tools(ctx)).find((t) => t.name === "browser_fill_credential")!;
     expect(tool.description).toMatch(/never receive the value|cannot read it back/i);
+  });
+
+  it("tells the agent the second step is its own, and never to hand a code to the user", async () => {
+    const { provider, ctx } = setup();
+    const tools = await provider.tools(ctx);
+    const fillCredential = tools.find((t) => t.name === "browser_fill_credential")!.description;
+    const fillCode = tools.find((t) => t.name === "browser_fill_code")!.description;
+    // THE MUTANT: the old lines back. An agent reads "is the user's" and stops at Duo instead of
+    // picking "Text me a passcode".
+    expect(fillCredential).not.toContain("is the user's");
+    expect(fillCredential).toContain("switch method first, and stop only if none is offered");
+    expect(fillCode).not.toContain("ask them to type the code");
+    expect(fillCode).toContain("you never ask them for the code");
+    expect(fillCode).toContain("it waits for the code to arrive");
   });
 
   it("empty list says so, and is exact about which half of enrollment the agent cannot do", async () => {

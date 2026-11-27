@@ -184,7 +184,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "browser_act",
-    description: "Act on a page element by its [ref=N] from browser_snapshot: click, type, press a key, or scroll. Coordinates are re-resolved from the ref at act time. Asks the user for permission. Typing into password fields is always refused — hand those to the user.",
+    description: "Act on a page element by its [ref=N] from browser_snapshot: click, type, press a key, or scroll. Coordinates are re-resolved from the ref at act time. Asks the user for permission. Typing into password fields is always refused — fill one with browser_fill_credential.",
     inputSchema: {
       type: "object",
       properties: {
@@ -246,7 +246,7 @@ const TOOLS: Tool[] = [
     description:
       "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
       "Both work the same way: Realm checks the pane's current origin, refuses if it is not the site the sign-in belongs to, asks the user to approve this specific fill (they may answer Always allow on this site), and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
-      "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). A code the site then sends by text or email is browser_fill_code; a push (Duo, Okta) or an authenticator app's code is the user's.",
+      "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). For a second step, prefer a code by text or email (choose it under 'Other options' / 'Try another way'), then browser_fill_code. A push (Duo, Okta) or an authenticator app is the last resort: switch method first, and stop only if none is offered.",
     inputSchema: {
       type: "object",
       properties: {
@@ -274,7 +274,7 @@ const TOOLS: Tool[] = [
     description:
       "Fill the one-time security code a site just sent by text or email into its code field, without ever seeing the code. Give the [ref=N] of the code field (or the first of its single-digit boxes). " +
       "Realm asks the user to approve this fill every time, then reads the newest code that arrived in their Messages or Mail in the last 5 minutes, on this Mac only, and types it. You are never told the code and the field's value stays out of your snapshots: the answer is only filled, declined, or why nothing was filled. " +
-      "Works only while the user has Settings ▸ Sign-ins ▸ Security codes on; if it is off, ask them to type the code or turn it on. Call it after the page says it sent the code.",
+      "Works only while the user has Settings ▸ Sign-ins ▸ Security codes on; when it is off, Realm asks the user to turn on agent sign-ins, and you never ask them for the code. Call it once, after the page says it sent the code; it waits for the code to arrive.",
     inputSchema: {
       type: "object",
       properties: {
@@ -990,7 +990,7 @@ async function runAct(d: Deps, browserId: string, action: BrowserAction): Promis
   const result = (await d.bridge.call("act", { browserId, action })) as BrowserActResult;
   if (result.ok) return ok(result.detail);
   if (result.refused === "password") {
-    return err("refused: that element is a password field. Realm never types into password fields in any mode — tell the user what to enter and let them do it in the pane.");
+    return err("refused: that element is a password field. Realm never types into password fields in any mode — fill it with browser_fill_credential, which types a saved or generated password without you seeing it.");
   }
   const content: CallToolResult["content"] = [{ type: "text", text: `act failed: ${result.error}` }];
   try {

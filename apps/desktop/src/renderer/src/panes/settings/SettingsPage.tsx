@@ -7,7 +7,7 @@ import { CaretSettings } from "../../components/settings/CaretSettings";
 import { QuickChatModelRow } from "../../components/settings/QuickChatModelRow";
 import { MeetingsRow } from "../../components/settings/MeetingsRow";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
-  CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
+  CREDENTIAL_2FA_LIMITS_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, hasAccounts, type AgentKind, type MidTurnMode, type ReducedMotionPref,
   EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge,
   FEATURE_REQUEST_URL, REALM_REPO_URL, bugReportUrl, } from "@realm/contracts";
@@ -2359,7 +2359,7 @@ function SignInsTab() {
             <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
           </summary>
           <div className="settings-disclosure-body">
-            <p>{CREDENTIAL_2FA_NOTE}</p>
+            <p>{CREDENTIAL_2FA_LIMITS_NOTE}</p>
             <p>{CREDENTIAL_STORAGE_NOTE}</p>
             <p>{PASSWORDS_IMPORT_NOTE}</p>
             <p>{PASSKEY_STORAGE_NOTE}</p>
