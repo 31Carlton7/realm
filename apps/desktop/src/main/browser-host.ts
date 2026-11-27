@@ -804,7 +804,7 @@ export class HiddenViews {
       if (now - agentAt < Math.max(o.hiddenMs, AGENT_GRACE_MS)) { out.kept.push({ id, reason: "agent" }); continue; }
       const reason = await host.keepReason(id);
       if (this.spares(reason, hiddenFor)) { out.kept.push({ id, reason: reason! }); continue; }
-      if (await host.discard(id)) out.discarded.push(id);
+      if (await host.discard(id, Math.max(o.hiddenMs, AGENT_GRACE_MS))) out.discarded.push(id);
     }
     return out;
   }
@@ -835,7 +835,7 @@ export class HiddenViews {
       if (count() <= limit) return;
       if (now - agentAt < AGENT_GRACE_MS) continue;
       if (this.spares(await host.keepReason(id), now - hiddenSince)) continue;
-      if (host.retainedViews().some((v) => v.id === id)) await host.discard(id);
+      if (host.retainedViews().some((v) => v.id === id)) await host.discard(id, AGENT_GRACE_MS);
     }
   }
 }
@@ -1209,13 +1209,15 @@ export class BrowserPaneHost {
 
   /**
    * Give a hidden view's renderer up to free its memory, remembering what brings it back. Its page's
-   * scroll is read first; a view that came back on screen while that was read is left alone.
+   * scroll is read first; a view that came back on screen while that was read is left alone, and so
+   * is one an agent drove within `agentGraceMs` — read here, after every await the caller's guard made.
    */
-  async discard(id: string): Promise<boolean> {
+  async discard(id: string, agentGraceMs = 0): Promise<boolean> {
     const v = this.views.get(id);
     if (!v || v.visible || v.shown) return false;
     const scroll = await v.handle.readScroll().catch(() => null);
     if (this.views.get(id) !== v || v.visible || v.shown) return false;
+    if (this.now() - v.agentAt < agentGraceMs) return false;
     this.discarded.set(id, { url: v.handle.getURL(), scroll, allowlist: v.allowlist, partition: v.partition, device: v.device, host: v.host });
     this.views.delete(id);
     this.retained.delete(id);

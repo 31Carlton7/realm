@@ -1932,13 +1932,71 @@ describe("HiddenViews — every window's hidden panes, with an age limit", () =>
   });
 
   it("forgets a closed window's panes", async () => {
+    // THE MUTANT: `destroyAll` not leaving the pool — the closed window's views are already gone, so
+    // only the pool's own list of hosts can tell.
     const { pool, open, at } = windows();
     const gone = open(), kept = open();
     gone.page("g"); kept.page("k");
     at(0); gone.hide("g"); at(MIN); kept.hide("k");
     gone.host.destroyAll();
+    expect([...(pool as unknown as { hosts: Set<BrowserPaneHost> }).hosts]).toEqual([kept.host]);
     at(30 * MIN);
     expect(await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 3 })).toEqual({ discarded: [], kept: [{ id: "k", reason: "recent" }] });
+  });
+
+  it("spares a pane an agent drives while the sweep awaits its guard", async () => {
+    // THE MUTANT: the agent's last op read before the guard's await (up to a second a frame) and not
+    // again — a browser_act landing in that gap lost its page.
+    let w!: ReturnType<ReturnType<typeof windows>["open"]>;
+    const { pool, open, at } = windows(async (id) => { w.host.touch(id); return null; });
+    w = open();
+    w.page("a");
+    at(0); w.hide("a");
+    at(30 * MIN);
+    expect((await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 })).discarded).toEqual([]);
+    expect(w.host.isDiscarded("a")).toBe(false);
+  });
+
+  it("spares a pane an agent drives while the off-screen budget awaits its guard", async () => {
+    let w!: ReturnType<ReturnType<typeof windows>["open"]>;
+    const { pool, open, at } = windows(async (id) => { if (id === "a1") w.host.touch(id); return null; }, 1);
+    w = open();
+    w.page("a1"); w.page("a2");
+    at(0); w.host.retain("a1");
+    at(MIN); w.host.retain("a2");
+    await pool.settled();
+    expect(w.host.isDiscarded("a1")).toBe(false);
+    expect(w.host.isDiscarded("a2")).toBe(true);
+  });
+
+  it("orders the off-screen budget by one stamp across windows, whichever window retained first", async () => {
+    // THE MUTANT: a stamp per window — b1 and a1 tie, and the first window's a1 goes instead of b1.
+    const { pool, open, at } = windows(undefined, 3);
+    const one = open(), two = open();
+    for (const id of ["a1", "a2"]) one.page(id);
+    for (const id of ["b1", "b2"]) two.page(id);
+    at(0); two.host.retain("b1");
+    at(MIN); one.host.retain("a1");
+    at(2 * MIN); one.host.retain("a2");
+    at(3 * MIN); two.host.retain("b2");
+    await pool.settled();
+    expect(["a1", "a2", "b1", "b2"].filter((id) => one.host.isDiscarded(id) || two.host.isDiscarded(id))).toEqual(["b1"]);
+  });
+
+  it("lets only \"loading\" lapse at the age limit — session, DevTools, input and a popup still keep a page", async () => {
+    // THE MUTANT: the age limit applied to every guard reason, not just a slow frame's "loading".
+    const reasons = { session: "session", devtools: "devtools", form: "form", popup: "popup" } as const;
+    const { pool, open, at } = windows(async (id) => reasons[id as keyof typeof reasons] ?? null, 1);
+    const w = open();
+    for (const id of Object.keys(reasons)) w.page(id);
+    at(0); for (const id of Object.keys(reasons)) w.host.retain(id);
+    at(3 * HIDDEN_KEEP_MAX_MS);
+    w.page("next"); w.host.retain("next");
+    await pool.settled();
+    const r = await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    expect(r.kept).toEqual(expect.arrayContaining(Object.entries(reasons).map(([id, reason]) => ({ id, reason }))));
+    for (const id of Object.keys(reasons)) expect(w.host.isDiscarded(id)).toBe(false);
+    expect(w.host.isDiscarded("next")).toBe(true);
   });
 });
 
