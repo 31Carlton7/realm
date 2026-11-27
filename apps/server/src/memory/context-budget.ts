@@ -65,8 +65,8 @@ export function indexQuery(firstPrompt: string | null | undefined, title: string
 /**
  * How much of an index Claude's auto-memory loads, and drops the rest of: the text trimmed, its first
  * 200 lines, and of those at most 25,000 characters, cut back to a line break. These are the CLI's own
- * numbers, read from the 0.3.322 binary the SDK ships, and its warning says the same: "MEMORY.md is 222 lines (limit: 200). Only part of it was loaded: 22 of 222 lines
- * were cut off, starting at line 201".
+ * numbers, read from the 0.3.322 binary the SDK ships, and its warning says the same: "MEMORY.md is
+ * 222 lines (limit: 200). Only part of it was loaded: 22 of 222 lines were cut off, starting at line 201".
  */
 export const CLAUDE_INDEX_LINES = 200;
 export const CLAUDE_INDEX_CHARS = 25_000;

@@ -231,7 +231,6 @@ describe("a space folder index longer than Claude's auto-memory loads", () => {
     const { all, context } = await withIndex(222);
     const claude = context("claude");
     const got = folderLines(claude)!;
-    // THE MUTANTS: a cut at 199 or 201, or the head handed over too, changes this set.
     expect([...got].sort()).toEqual(all.slice(200).sort());
     expect(got.slice(0, 2)).toEqual([all[219], all[209]]);
     expect(got.slice(2)).toEqual(all.slice(200).filter((l) => !l.includes("Notary")));
