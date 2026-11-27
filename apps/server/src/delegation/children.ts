@@ -39,13 +39,22 @@ export class DelegatedChildren {
   /** Every sub-agent `parentId` started, oldest first — the order the lead started them in, which is
    *  also the order a person reading the lead's transcript met them. */
   list(parentId: string): DelegatedChild[] {
-    return this.childrenOf(parentId).map((s) => {
-      const child = this.describe(s);
-      // A sub-agent can no longer start its own, but one from before that rule may have: its children
-      // are listed under it, one level, which is as deep as delegation ever went.
-      const nested = this.childrenOf(s.id).map((g) => this.describe(g));
-      return nested.length > 0 ? { ...child, children: nested } : child;
-    });
+    return this.childrenOf(parentId).map((s) => this.withNested(s));
+  }
+
+  /** One row of `list(parentId)`, read alone: what a window patches in when that one run moved. */
+  one(parentId: string, childId: string): DelegatedChild | null {
+    const s = this.d.sessions.get(childId);
+    if (!s?.dispatchedBy || s.dispatchedBy.sessionId !== parentId || !CHILD_ORIGINS.has(s.dispatchedBy.kind)) return null;
+    return this.withNested(s);
+  }
+
+  private withNested(s: Session): DelegatedChild {
+    const child = this.describe(s);
+    // A sub-agent can no longer start its own, but one from before that rule may have: its children
+    // are listed under it, one level, which is as deep as delegation ever went.
+    const nested = this.childrenOf(s.id).map((g) => this.describe(g));
+    return nested.length > 0 ? { ...child, children: nested } : child;
   }
 
   private childrenOf(parentId: string): Session[] {

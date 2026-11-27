@@ -15,7 +15,8 @@ export function announceDelegation(
   rpc: Pick<RpcServer, "broadcast">,
   engine: Pick<DelegationEngine, "liveRuns">,
   parentSessionId: string,
+  childSessionId?: string,
 ): void {
   if (!IdSchema.safeParse(parentSessionId).success) return;
-  rpc.broadcast("delegation.changed", { sessionId: parentSessionId, running: engine.liveRuns(parentSessionId) });
+  rpc.broadcast("delegation.changed", { sessionId: parentSessionId, running: engine.liveRuns(parentSessionId), ...(childSessionId ? { childId: childSessionId } : {}) });
 }

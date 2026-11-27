@@ -362,6 +362,7 @@ export const liveApi = (): Api => ({
   dismissReview: async (environmentId) => { await rpc().call("review.dismiss", { environmentId }); },
   listDelegatedRuns: async (sessionId) => (await rpc().call("delegation.running", { sessionId })).running,
   listDelegatedChildren: (sessionId) => rpc().call("delegation.children", { sessionId }),
+  getDelegatedChild: async (sessionId, childId) => (await rpc().call("delegation.child", { sessionId, childId })).child,
   addTeammate: (input) => rpc().call("delegation.addTeammate", input),
   dismissSubagent: (sessionId, id) => rpc().call("delegation.dismiss", { sessionId, id }),
   delegableModels: (sessionId) => rpc().call("delegation.models", { sessionId }),

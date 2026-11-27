@@ -2367,6 +2367,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
     listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
     listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return { children: data.delegatedChildren[sessionId] ?? [], dismissed: data.dismissedSubagents[sessionId] ?? [] }; },
+    getDelegatedChild: async (sessionId, childId) => { calls.push(`getDelegatedChild:${sessionId}:${childId}`); return (data.delegatedChildren[sessionId] ?? []).find((c) => c.session.id === childId) ?? null; },
     addTeammate: async (input) => { calls.push(`addTeammate:${JSON.stringify(input)}`); return { childId: "01ARZ3NDEKTSV4RRFFQ69G5TMT" }; },
     dismissSubagent: async (sessionId, id) => {
       calls.push(`dismissSubagent:${sessionId}:${id}`);

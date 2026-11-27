@@ -1549,7 +1549,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // including the bypass-is-never-inherited rule both tools carry.
   const delegationEngine: DelegationEngine = new DelegationEngine({
     sessions, caps: opts.agentRun?.caps,
-    onChange: (parentSessionId) => announceDelegation(rpc, delegationEngine, parentSessionId),
+    onChange: (parentSessionId, childSessionId) => announceDelegation(rpc, delegationEngine, parentSessionId, childSessionId),
   });
   browserAgents = new BrowserAgentService({ settings, sessions, rpc, engine: delegationEngine, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
   agentRuns = new AgentRunService({ settings, sessions, rpc, engine: delegationEngine, environments: envService, skills, otherDelegation: browserAgents,
