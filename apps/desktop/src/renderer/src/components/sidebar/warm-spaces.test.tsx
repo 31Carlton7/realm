@@ -104,9 +104,10 @@ describe("warming the other spaces", () => {
 
   it("stops when the rail goes away", async () => {
     const api = home();
-    api.delays["listItems:s2"] = 30;
+    api.delays["listItems:s2"] = 300;
     const { store, unmount } = await mount(api);
     await waitFor(() => expect(itemReads(api, "s2")).toBe(1));
+    expect(store.getState().heldSpaces).not.toContain("s2");
     unmount();
     await waitFor(() => expect(store.getState().heldSpaces).toContain("s2"));
     await new Promise((r) => setTimeout(r, 40));
