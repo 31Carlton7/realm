@@ -134,6 +134,20 @@ describe("agent_run — the delegated session", () => {
     expect(out).toContain("DELEGATED AGENT'S REPORT");
   });
 
+  it("hands back a finished child's final report whole, however long, with its session link", async () => {
+    // THE MUTANT: cut the report like a cut-short child's last message — the lead loses the end of it.
+    const report = `REPORT-START ${"x".repeat(60_000)} REPORT-END`;
+    const { spaceId, parentId } = await boot({ script: [{ on: "You are a delegated agent.", emit: [
+      { kind: "text", text: "partial: reading" }, { kind: "text", text: report },
+    ] }] });
+    const out = text(await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" }));
+    const child = childOf(spaceId, parentId);
+    expect(out).toContain(report);
+    expect(out).not.toContain("partial: reading");
+    expect(out).toContain(`realm://session/${child.id}`);
+    expect(out).toContain(`session_read {"sessionId":"${child.id}","sinceSeq":0}`);
+  });
+
   it("records the dispatch origin on the child — and on a browser_agent_run child too (the W2 Tasks-lens seam)", async () => {
     const { spaceId, parentId } = await boot({ script: [
       ...CHILD_SCRIPT,
@@ -162,11 +176,23 @@ describe("agent_run — the delegated session", () => {
     expect(fake.seen).toHaveLength(1); // only the CHILD started
     const started = fake.seen[0]!;
     expect(started.systemContext).toContain("Delegated agent (Realm)");
-    expect(started.systemContext).toContain("Refactor the parser");
+    expect(started.systemContext).toContain("ONE goal, given in full in its first message");
     // The preamble states the REMAINING budget, not a flat prohibition. A depth-1 child under a
     // max of 2 has one level left, and telling it otherwise would cost the whole budget.
     expect(started.systemContext).toContain("only 1 level deeper");
     expect(started.systemContext).toContain("depth 1 of 2");
+  });
+
+  it("sends the brief once: in the child's first message, not again in its system context", async () => {
+    // THE MUTANT: put child.goal back into the preamble — the child's first request carries it twice.
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude" });
+    const goal = "BRIEF-7f3: refactor the parser and keep every test green";
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal });
+    const child = childOf(spaceId, parentId);
+    const first = app.sessions.events(child.id, 0, 500).map((e) => e.event).find((e) => e.type === "user_message");
+    const firstRequest = `${fake.seen[0]!.systemContext}\n${first?.type === "user_message" ? first.payload.text : ""}`;
+    expect(firstRequest.split(goal)).toHaveLength(2);
+    expect(first?.type === "user_message" && first.payload.text).toContain(goal);
   });
 
   it("does NOT stack the general capabilities preamble on top of the child's brief", async () => {
@@ -1252,15 +1278,16 @@ describe("when the budget runs out: the report first, then the interrupt", () =>
     expect(out).toContain("It was asked for its report and wrote it before the grace period ended.");
     expect(out).toContain("REPORT: a.txt changed, the suite had not finished");
     for (const line of ["partial: editing a.txt", "partial: a.txt edited, running the suite"]) expect(out).not.toContain(line);
-    expect(out).toContain(`Its full transcript is available through session_read (session ${child.id}).`);
+    expect(out).toContain(`Its full transcript is available through session_read (session ${child.id}): session_read {"sessionId":"${child.id}","sinceSeq":0}`);
     expect(out).toContain("Files changed (from its Edit, Write and apply_patch calls; changes made by shell commands are not listed):\n- a.txt");
     // Answered inside the grace, so it was not held for all of it.
     expect(took).toBeLessThan(timeouts.baseMs + timeouts.graceMs);
     expect(app.agentRuns.record(child.id)?.outcome).toBe("timeout");
   }, 20_000);
 
-  it("interrupts a child that ignores the request once the grace is over, and still hands back everything it said and its files", async () => {
-    // THE MUTANT: every timeout treated as reported — the parent gets nothing of what it said.
+  it("interrupts a child that ignores the request once the grace is over, and hands back its last message, where to read the rest, and its files", async () => {
+    // THE MUTANTS: every timeout treated as reported — the parent gets nothing of what it said; the
+    // old everything-it-said default — every earlier message comes back too; no pointer to the rest.
     const { spaceId, parentId } = await boot({ script: midWork("ignore"), timeouts });
     const began = Date.now();
     const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "change a.txt" });
@@ -1269,9 +1296,11 @@ describe("when the budget runs out: the report first, then the interrupt", () =>
     expect(asksOf(child.id)).toHaveLength(1);
     const out = text(result);
     expect(out).toContain("did not write one before the grace period ended, and was interrupted.");
-    expect(out).toContain("partial: editing a.txt");
+    expect(out).toContain("DELEGATED AGENT'S LAST MESSAGE");
     expect(out).toContain("partial: a.txt edited, running the suite");
-    expect(out).not.toContain("session_read");
+    expect(out).not.toContain("partial: editing a.txt");
+    expect(out).toContain("That is only its last message. It said 2 messages (");
+    expect(out).toContain(`session_read {"sessionId":"${child.id}","sinceSeq":0}`);
     expect(out).toContain("- a.txt");
     expect(took).toBeGreaterThanOrEqual(timeouts.baseMs + timeouts.graceMs);
     await waitFor(() => app.sessions.get(child.id).status === "idle");
@@ -1287,9 +1316,64 @@ describe("when the budget runs out: the report first, then the interrupt", () =>
     expect(out).toContain("REPORT: a.txt changed");
     expect(out).not.toContain("partial: editing a.txt");
     const child = childOf(spaceId, parentId);
-    expect(out).toContain(`Its full transcript is available through session_read (session ${child.id}).`);
+    expect(out).toContain(`Its full transcript is available through session_read (session ${child.id}): session_read {"sessionId":"${child.id}","sinceSeq":0}`);
     expect(out).toContain("- a.txt");
   }, 20_000);
+
+  it("with full: true, agent_run and agent_wait hand back everything a cut-short child said, as before", async () => {
+    // THE MUTANT: drop `full` on the way to reportBody — the old output is no longer reachable.
+    const { spaceId, parentId } = await boot({ script: midWork("ignore"), timeouts });
+    const ctx = { sessionId: parentId, spaceId };
+    const viaRun = text(await app.agentRuns.run(ctx, { goal: "change a.txt", full: true }));
+    await app.agentRuns.start(ctx, { goal: "change a.txt" });
+    const viaWait = text(await app.agentRuns.wait(ctx, { full: true }));
+    for (const out of [viaRun, viaWait]) {
+      expect(out).toContain("everything the DELEGATED AGENT said (2 messages, in order)");
+      expect(out).toContain("partial: editing a.txt");
+      expect(out).toContain("partial: a.txt edited, running the suite");
+      expect(out).not.toContain("That is only its last message");
+    }
+  }, 30_000);
+
+  it("cuts a cut-short child's huge last message to its end, and session_read still reads every word of it", async () => {
+    // THE MUTANTS: the tail taken from the start (the end, where a run stops, is lost); no tail at all
+    // (the whole message comes back); session_read unable to reach what the tail left out.
+    const huge = `HUGE-START ${"y".repeat(20_000)} HUGE-END`;
+    const { spaceId, parentId } = await boot({ timeouts, script: [
+      { on: "You are a delegated agent.", emit: [
+        { kind: "text", text: "partial: early note" },
+        { kind: "text", text: huge },
+        { kind: "tool", name: "Bash", input: { command: "pnpm vitest run" }, result: "passed", holdMs: 60_000 },
+      ] },
+      { on: REPORT_ASK, emit: [{ kind: "tool", name: "Bash", input: { command: "sleep" }, result: "ok", holdMs: 60_000 }] },
+    ] });
+    const ctx = { sessionId: parentId, spaceId };
+    await app.agentRuns.start(ctx, { goal: "go" });
+    const out = text(await app.agentRuns.wait(ctx, {}));
+    const child = childOf(spaceId, parentId);
+    expect(out).toContain("HUGE-END");
+    expect(out).not.toContain("HUGE-START");
+    expect(out).not.toContain("partial: early note");
+    expect(out).toContain(`its last 4000 of ${huge.length} characters`);
+    expect(out.length).toBeLessThan(8_000);
+
+    const cfg = app.gateway.register(parentId, spaceId) as Extract<McpServerConfig, { url: string }>;
+    const client = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+    const read = async (args: Record<string, unknown>) => text((await client.callTool({ name: "realm-workspace__session_read", arguments: { sessionId: child.id, ...args } })) as CallToolResult);
+    const page = await read({ sinceSeq: 0 });
+    expect(page).toContain("partial: early note");
+    const seq = Number(/HUGE-START[^\n]*session_read with entry (\d+)/.exec(page)?.[1]);
+    let from = 1;
+    while (from <= huge.length) {
+      const part = await read({ entry: seq, from });
+      const [start, end] = /characters (\d+)–(\d+) of/.exec(part)!.slice(1).map(Number) as [number, number];
+      expect(part).toContain(huge.slice(start - 1, end));
+      from = end + 1;
+    }
+    expect(from).toBe(huge.length + 1);
+    await client.close();
+  }, 30_000);
 
   it("lists a worktree's changes from git, including a file only a shell command made", async () => {
     // THE MUTANT: the tool calls read even where git can see more — the shell-made file is missing.

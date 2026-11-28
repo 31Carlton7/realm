@@ -276,8 +276,10 @@ describe("the tool list says which models can be named", () => {
     expect(start!.description).toContain('"GPT-6 Luna"');
     const props = (start!.inputSchema.properties as { constraints: { properties: Record<string, { description: string }> } }).constraints.properties;
     expect(props.model!.description).toContain("Codex: GPT-6 Luna");
-    // One schema for both, so neither quietly stops accepting a model.
-    expect(run!.inputSchema).toEqual(start!.inputSchema);
+    // One schema for both, so neither quietly stops accepting a model. agent_run adds only `full`.
+    const { full, ...runProps } = run!.inputSchema.properties as Record<string, unknown>;
+    expect(full).toBeDefined();
+    expect({ ...run!.inputSchema, properties: runProps }).toEqual(start!.inputSchema);
   });
 });
 
