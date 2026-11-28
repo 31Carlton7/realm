@@ -78,6 +78,21 @@ describe("needsYou, from a server's lists", () => {
   });
 });
 
+describe("needsYou, from a window that has not read every space yet", () => {
+  it("draws a space of the window's profile from allItems until the window holds its list", () => {
+    const s: NeedsYouState = {
+      ...served({
+        spaces: [space("s1"), space("s2")],
+        sessions: [session("here", "s1", { status: "waiting_permission", updatedAt: 1 }), session("there", "s2", { status: "waiting_permission", updatedAt: 2 })],
+        items: [item("here", "s1", "Before the rename"), item("there", "s2", "There")],
+      }),
+      activeProfileId: "p1", heldSpaces: ["s1"], items: [item("here", "s1", "Here")],
+    };
+    // THE MUTANT: every space of the profile taken as held, so the one not read yet loses its row's name.
+    expect(needsYou(s).map((r) => r.title)).toEqual(["Here", "There"]);
+  });
+});
+
 describe("quickChatIdOf", () => {
   it("reads the session id the quick chat's setting holds, and nothing else", () => {
     expect(quickChatIdOf({ sessionId: "01J", pos: { x: 1, y: 2 } })).toBe("01J");

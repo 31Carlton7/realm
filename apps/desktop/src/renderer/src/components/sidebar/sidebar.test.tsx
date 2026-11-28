@@ -404,6 +404,54 @@ describe("a session's row", () => {
     await waitFor(() => expect(reads()).toBeGreaterThan(before), { timeout: ALL_ITEMS_SETTLE_MS - 100 });
   });
 
+  it("a turn ending in another space re-reads that space's rows alone, not every space's", async () => {
+    /* `items.listAll` is every row of every space (1.24 MB on the owner's home), and a status moves on
+       every turn start and end. THE MUTANT: refresh the whole home on a status change. */
+    const { api, store } = await mount(home());
+    await new Promise((r) => setTimeout(r, ALL_ITEMS_SETTLE_MS + 50));
+    const count = (c: string) => api.calls.filter((x) => x === c).length;
+    const all = count("listAllItems"), homework = count("listItems:s2");
+    api.data.items.s2 = [sessionItem("b", "s2", "Wants a yes, renamed")];
+    act(() => store.getState().applySessionStatus("b", "idle"));
+    await waitFor(() => expect(count("listItems:s2")).toBe(homework + 1), { timeout: ALL_ITEMS_SETTLE_MS * 4 });
+    await waitFor(() => expect(store.getState().allItems.find((i) => i.id === "i-b")?.title).toBe("Wants a yes, renamed"));
+    expect(count("listAllItems")).toBe(all);
+    // The other spaces' rows are the same rows.
+    expect(store.getState().allItems.map((i) => i.id).sort()).toEqual(["i-a", "i-b", "i-c", "i-term"]);
+  });
+
+  it("a session new to the window re-reads its own space, and new spaces re-read every space", async () => {
+    // THE MUTANTS: a session made in another space never reaching the list; a new space's rows never read.
+    const { api, store } = await mount(home());
+    await new Promise((r) => setTimeout(r, ALL_ITEMS_SETTLE_MS + 50));
+    const count = (c: string) => api.calls.filter((x) => x === c).length;
+    const homework = count("listItems:s2"), all = count("listAllItems");
+    act(() => store.setState({ sessionSpace: { ...store.getState().sessionSpace, z: "s2" } }));
+    await waitFor(() => expect(count("listItems:s2")).toBe(homework + 1), { timeout: ALL_ITEMS_SETTLE_MS * 4 });
+    expect(count("listAllItems")).toBe(all);
+    act(() => store.setState({ spaces: [...store.getState().spaces, space("s4", "p1", "Errands")] }));
+    await waitFor(() => expect(count("listAllItems")).toBe(all + 1), { timeout: ALL_ITEMS_SETTLE_MS * 4 });
+  });
+
+  it("a change to the room on screen is put into every space's rows as it is, with no read", async () => {
+    // The room's own list is already in the window; reading every space's again for it is the waste.
+    const { api, store } = await mount(home());
+    await new Promise((r) => setTimeout(r, ALL_ITEMS_SETTLE_MS + 50));
+    const reads = () => api.calls.filter((x) => x === "listAllItems" || x.startsWith("listItems:")).length;
+    const before = reads();
+    act(() => store.setState({ items: [...store.getState().items, sessionItem("n", "s1", "Brand new")] }));
+    expect(store.getState().allItems.some((i) => i.id === "i-n")).toBe(true);
+    await new Promise((r) => setTimeout(r, ALL_ITEMS_SETTLE_MS + 50));
+    expect(reads()).toBe(before);
+    // The same rows in a new list leave every space's rows as they were, so nothing derived from them runs again.
+    const held = store.getState().allItems;
+    act(() => store.setState({ items: [...store.getState().items] }));
+    expect(store.getState().allItems).toBe(held);
+    // Archived rows stay out, as `items.listAll` leaves them out.
+    act(() => store.setState({ items: store.getState().items.map((i) => (i.id === "i-n" ? { ...i, archived: true } : i)) }));
+    expect(store.getState().allItems.some((i) => i.id === "i-n")).toBe(false);
+  });
+
   it("keeps its state and its one action in one slot at the far end", async () => {
     /* THE MUTANTS: a mark outside the trailing group would stay on screen under the button, and a
        wrong count would make the title give way by the wrong amount on hover. */

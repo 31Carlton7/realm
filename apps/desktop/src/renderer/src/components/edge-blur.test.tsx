@@ -109,6 +109,23 @@ describe("a scroller wearing it", () => {
     expect(document.getElementById(id.slice(5, -1))).toBeNull();
   });
 
+  it("writes nothing when a render asks for the ends it already shows", async () => {
+    canvases();
+    const el = scroller();
+    const blur = attachEdgeBlur(el);
+    blur.set(true, false);
+    await frames();
+    const writes: MutationRecord[] = [];
+    const watch = new MutationObserver((records) => writes.push(...records));
+    watch.observe(document.body, { subtree: true, attributes: true });
+    watch.observe(el, { attributes: true });
+    blur.set(true, false);
+    await frames();
+    expect(watch.takeRecords().concat(writes)).toEqual([]);
+    watch.disconnect();
+    blur.stop();
+  });
+
   it("is half way in, not all at once, part way through the fade", async () => {
     canvases();
     const el = scroller();

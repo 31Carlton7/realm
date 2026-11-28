@@ -16,8 +16,11 @@ export type NeedsYouState = {
   /** The profile a window shows. Its own lists (`items`, `sessions`) carry every space of it; a
    *  reader with no window (the server) passes null and puts everything in `allItems`. */
   activeProfileId: string | null;
-  /** Every space of the window's profile, as the window holds them, archived rows included. */
+  /** The spaces of the window's profile it has read, as the window holds them, archived rows included. */
   items: readonly Item[];
+  /** Which spaces of the window's profile `items` holds. A space it has not read yet is drawn from
+   *  `allItems`, as another profile's is. Absent: every space of the profile. */
+  heldSpaces?: readonly string[];
   /** Every space's items, as `items.listAll` answers: archived rows are already left out. */
   allItems: readonly Item[];
   /** The active space's session rows (fresher than `allSessions` for that space). */
@@ -118,12 +121,17 @@ export function rootLeadOf(s: Pick<NeedsYouState, "sessions" | "allSessions">, s
   return isChild(at) ? null : at!.id;
 }
 
-/** Every live item the window knows of, each once. The window's own list carries every space of its
- *  profile (there is no room any more) and is the fresher of the two, so for those spaces it alone
- *  is trusted — a stale `allItems` copy of a row this window has since deleted must not come back.
- *  `allItems` adds the other profiles' spaces. Archived rows are not live. */
-export function liveItems(s: Pick<NeedsYouState, "spaces" | "activeProfileId" | "items" | "allItems">): Item[] {
-  const mine = new Set(s.spaces.filter((sp) => sp.profileId === s.activeProfileId).map((sp) => sp.id));
+/** The spaces whose rows come from the window's own `items`; every other space's come from `allItems`. */
+function heldSpaceIds(s: Pick<NeedsYouState, "spaces" | "activeProfileId" | "heldSpaces">): Set<string> {
+  return new Set(s.heldSpaces ?? s.spaces.filter((sp) => sp.profileId === s.activeProfileId).map((sp) => sp.id));
+}
+
+/** Every live item the window knows of, each once. For a space the window has read, its own list is
+ *  the fresher of the two and alone is trusted — a stale `allItems` copy of a row this window has
+ *  since deleted must not come back. `allItems` adds the spaces it has not read and the other
+ *  profiles' spaces. Archived rows are not live. */
+export function liveItems(s: Pick<NeedsYouState, "spaces" | "activeProfileId" | "items" | "allItems" | "heldSpaces">): Item[] {
+  const mine = heldSpaceIds(s);
   const seen = new Set<string>();
   const out: Item[] = [];
   for (const i of [...s.items, ...s.allItems.filter((x) => !mine.has(x.spaceId))]) {
@@ -135,8 +143,8 @@ export function liveItems(s: Pick<NeedsYouState, "spaces" | "activeProfileId" | 
 }
 
 /** `sessionRows`' items: every session item, put away or not, each once, the quick chat left out. */
-export function sessionItems(s: Pick<NeedsYouState, "spaces" | "activeProfileId" | "items" | "allItems" | "quickChatId">): Item[] {
-  const mine = new Set(s.spaces.filter((sp) => sp.profileId === s.activeProfileId).map((sp) => sp.id));
+export function sessionItems(s: Pick<NeedsYouState, "spaces" | "activeProfileId" | "items" | "allItems" | "heldSpaces" | "quickChatId">): Item[] {
+  const mine = heldSpaceIds(s);
   const seen = new Set<string>();
   const out: Item[] = [];
   for (const item of [...s.items, ...s.allItems.filter((x) => !mine.has(x.spaceId))]) {
