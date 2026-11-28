@@ -322,7 +322,7 @@ describe("only the windows used last open at launch", () => {
 
 describe("a window held at launch, opened for an agent's pane", () => {
   type W = ReturnType<typeof win>;
-  /** Space s1 held, s5 open; `open` is what openHeld does, left to the test to finish. */
+  /** Space s1 held, s5 open; `finish` is openHeld finishing, left to the test. */
   const setup = () => {
     const reg = new WindowRegistry<W>();
     reg.hold([{ profileId: "pWork", spaceId: "s1", land: "s1" }]);
@@ -336,19 +336,20 @@ describe("a window held at launch, opened for an agent's pane", () => {
       openHeld: (spaceId) => reg.openHeld(spaceId, () => { opens.push(spaceId); return new Promise<W | null>((r) => { finish = r; }); }),
       onClosed: (_w, fn) => { closers.push(fn); },
     });
-    /** createWindow's part: the window is known by its space before its page boots. */
-    const made = () => { const w = win(1); reg.add(w, "pWork", "s1", { behind: true }); reg.setSpace(w, "s1"); return w; };
+    /** createWindow's part, and then the page's first word: it shows no space until its store has one. */
+    const made = () => { const w = win(1); reg.add(w, "pWork", "s1", { behind: true, land: "s1" }); reg.setSpace(w, "s1"); reg.setSpace(w, null); return w; };
     return { reg, front, panes, opens, closers, made, finish: (w: W | null) => finish(w) };
   };
+  const pane = (browserId: string) => ({ spaceId: "s1", browserId, itemId: `i-${browserId}`, openedBy: "sess" });
 
   it("hands its page the pane events, even when the page asks before the window has finished opening", async () => {
     // THE MUTANT: the events kept only once the window has opened, so a page quicker than that asks,
     // gets nothing, and the agent's pane never mounts in its space's window.
     const { panes, opens, made, finish } = setup();
-    const opening = panes.needed("s1", { itemId: "a" });
-    void panes.needed("s1", { itemId: "b" });
+    const opening = panes.needed("s1", pane("a"));
+    void panes.needed("s1", pane("b"));
     const w = made();
-    expect(panes.unheardBy(w)).toEqual([{ itemId: "a" }, { itemId: "b" }]);
+    expect(panes.unheardBy(w)).toEqual([pane("a"), pane("b")]);
     finish(w);
     await opening;
     expect(opens).toEqual(["s1"]);
@@ -357,52 +358,78 @@ describe("a window held at launch, opened for an agent's pane", () => {
   it("hands them over once, and to no window on another space", async () => {
     // THE MUTANT: the events kept after the page took them, so a reload applies them again.
     const { panes, front, made, finish } = setup();
-    const opening = panes.needed("s1", { itemId: "a" });
+    const opening = panes.needed("s1", pane("a"));
     const w = made();
     finish(w);
     await opening;
     expect(panes.unheardBy(front)).toEqual([]);
-    expect(panes.unheardBy(w)).toEqual([{ itemId: "a" }]);
-    expect(panes.unheardBy(w)).toEqual([]);
-    await panes.needed("s1", { itemId: "b" });
+    expect(panes.unheardBy(w)).toEqual([pane("a")]);
     expect(panes.unheardBy(w)).toEqual([]);
   });
 
   it("makes the pane's browser view in that space's own window only, while it opens and once open", async () => {
     // THE MUTANT: the window in front makes the view first, the agent drives it, and the space's own
     // window then takes it, loading the page again under the agent.
-    const { panes, made, finish } = setup();
-    expect(panes.makesView("s5", "s1")).toBe(true);
-    const opening = panes.needed("s1", { itemId: "a" });
-    expect(panes.makesView("s5", "s1")).toBe(false);
-    expect(panes.makesView("s1", "s1")).toBe(true);
+    const { reg, panes, front, made, finish } = setup();
+    expect(panes.makesView(front, "s1")).toBe(true);
+    const opening = panes.needed("s1", pane("a"));
+    expect(panes.makesView(front, "s1")).toBe(false);
     const w = made();
+    expect(panes.makesView(w, "s1")).toBe(true);
     finish(w);
     await opening;
     panes.unheardBy(w);
-    expect(panes.makesView("s5", "s1")).toBe(false);
-    expect(panes.makesView(null, "s1")).toBe(false);
-    expect(panes.makesView("s5", "s5")).toBe(true);
+    reg.setSpace(w, "s1");
+    expect(panes.makesView(front, "s1")).toBe(false);
+    expect(panes.makesView(front, "s5")).toBe(true);
+  });
+
+  it("holds an agent's op on its browser until the view is made there, and no other browser's", async () => {
+    // THE MUTANT: no wait, so browser_snapshot straight after browser_open finds the pane not open,
+    // its window still booting.
+    const { panes } = setup();
+    void panes.needed("s1", pane("a"));
+    let done = false;
+    const waiting = panes.mounted("a", 60_000).then(() => { done = true; });
+    await panes.mounted("other", 60_000);
+    await Promise.resolve();
+    expect(done).toBe(false);
+    panes.made("a");
+    await waiting;
+    expect(done).toBe(true);
+  });
+
+  it("waits for a view that is never made only as long as it is told, and only once", async () => {
+    const { panes } = setup();
+    void panes.needed("s1", pane("a"));
+    const t0 = Date.now();
+    await panes.mounted("a", 30);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(25);
+    const t1 = Date.now();
+    await panes.mounted("a", 5_000);
+    expect(Date.now() - t1).toBeLessThan(1_000);
   });
 
   it("keeps nothing for a space with no window held, nor once its window closes or fails to open", async () => {
     // THE MUTANT: what was kept outlives its window, so no window ever makes that space's views again.
-    const { reg, panes, opens, closers, made, finish } = setup();
-    await panes.needed("s3", { itemId: "a" });
+    const { reg, panes, front, opens, closers, made, finish } = setup();
+    await panes.needed("s3", { ...pane("c"), spaceId: "s3" });
     expect(opens).toEqual([]);
-    expect(panes.makesView("s5", "s3")).toBe(true);
-    const opening = panes.needed("s1", { itemId: "a" });
+    expect(panes.makesView(front, "s3")).toBe(true);
+    const opening = panes.needed("s1", pane("a"));
     const w = made();
     finish(w);
     await opening;
     w.destroyed = true; reg.remove(w);
     for (const fn of closers) fn();
-    expect(panes.makesView("s5", "s1")).toBe(true);
+    expect(panes.makesView(front, "s1")).toBe(true);
+    await panes.mounted("a", 60_000);
 
     const failed = setup();
-    const gone = failed.panes.needed("s1", { itemId: "a" });
+    const gone = failed.panes.needed("s1", pane("b"));
     failed.finish(null);
     await gone;
-    expect(failed.panes.makesView("s5", "s1")).toBe(true);
+    expect(failed.panes.makesView(failed.front, "s1")).toBe(true);
+    await failed.panes.mounted("b", 60_000);
   });
 });

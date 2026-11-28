@@ -32,6 +32,8 @@ type Entry<W> = {
   showing: string | null;
   /** The space it shows right now, as its renderer last said. */
   space: string | null;
+  /** The space it was opened on, which its renderer says only once it has booted (null until then). */
+  land: string | null;
   /** When it was last focused, in registry order — the larger, the more recent. */
   focusedAt: number;
 };
@@ -50,8 +52,8 @@ export class WindowRegistry<W extends RegisteredWindow> {
   /** A new window, opened for `profileId` (null for the first window). It counts as the most recently
    *  used, since a window that has just opened is the one in front; one opened `behind` the person's,
    *  for an agent's work, counts as used longest ago. */
-  add(win: W, profileId: string | null, spaceId: string | null = null, o: { behind?: boolean } = {}): void {
-    this.entries.set(win.id, { win, bound: profileId, boundSpace: spaceId, showing: profileId, space: null, focusedAt: o.behind ? 0 : ++this.clock });
+  add(win: W, profileId: string | null, spaceId: string | null = null, o: { behind?: boolean; land?: string | null } = {}): void {
+    this.entries.set(win.id, { win, bound: profileId, boundSpace: spaceId, showing: profileId, space: null, land: o.land ?? null, focusedAt: o.behind ? 0 : ++this.clock });
   }
 
   remove(win: W): void { this.entries.delete(win.id); }
@@ -79,6 +81,7 @@ export class WindowRegistry<W extends RegisteredWindow> {
 
   showing(win: W): string | null { return this.entries.get(win.id)?.showing ?? null; }
   spaceOf(win: W): string | null { return this.entries.get(win.id)?.space ?? null; }
+  landOf(win: W): string | null { return this.entries.get(win.id)?.land ?? null; }
   boundTo(win: W): string | null { return this.entries.get(win.id)?.bound ?? null; }
 
   /** The live window showing this profile, other than `except` — the one to bring forward instead of
@@ -154,14 +157,17 @@ export class WindowRegistry<W extends RegisteredWindow> {
 
 /**
  * The windows held at launch that open for an agent's pane (`paneSpace`). The window's page boots after
- * the pane event that opened it, so the event is kept for the page until it asks; and the pane's browser
- * view is made in that window only, so it mounts once, where it belongs.
+ * the pane event that opened it, so the event is kept for the page until it asks; the pane's browser
+ * view is made in that window only, so it mounts once, where it belongs; and the agent's ops on that
+ * browser wait for the view rather than find it not open.
  */
 export class PaneWindows<W extends RegisteredWindow> {
   /** The pane events told for a space whose window is opening for them, until its page asks. Keyed by
    *  space from before the window is made: a page that asks before its window has finished opening
    *  still gets them. */
   private unheard = new Map<string, unknown[]>();
+  /** The browsers those events name, by id, until their view is made (`made`). */
+  private mounting = new Map<string, { spaceId: string; made: () => void; until: Promise<void> }>();
 
   constructor(private d: {
     windows: WindowRegistry<W>;
@@ -175,29 +181,66 @@ export class PaneWindows<W extends RegisteredWindow> {
    *  window open or held keeps nothing, and its pane mounts wherever it is heard. */
   async needed(spaceId: string, payload: unknown): Promise<void> {
     const told = this.unheard.get(spaceId);
-    if (told) { told.push(payload); return; }
+    if (told) { told.push(payload); this.expect(spaceId, payload); return; }
     if (this.d.windows.windowForSpace(spaceId) || !this.d.windows.heldFor(spaceId)) return;
     this.unheard.set(spaceId, [payload]);
+    this.expect(spaceId, payload);
     const win = await this.d.openHeld(spaceId);
-    if (!win || win.isDestroyed() || this.d.windows.spaceOf(win) !== spaceId) { this.unheard.delete(spaceId); return; }
-    this.d.onClosed(win, () => this.unheard.delete(spaceId));
+    if (!win || win.isDestroyed() || this.spaceOf(win) !== spaceId) { this.forget(spaceId); return; }
+    this.d.onClosed(win, () => this.forget(spaceId));
   }
 
   /** A window's page has booted: the pane events its space was told before it could hear them, once. */
   unheardBy(win: W): unknown[] {
-    const space = this.d.windows.spaceOf(win);
+    const space = this.spaceOf(win);
     if (!space) return [];
     const told = this.unheard.get(space) ?? [];
     this.unheard.delete(space);
     return told;
   }
 
-  /** Whether a window on `senderSpace` makes the view of a browser in `spaceId`. A view composites into
-   *  one window, so a browser whose space has a window of its own, open or opening, is made there only:
-   *  made first in another window, it would be closed there when the space's own window takes it, and
-   *  its page would load again under the agent driving it. */
-  makesView(senderSpace: string | null, spaceId: string): boolean {
-    return senderSpace === spaceId || (!this.unheard.has(spaceId) && !this.d.windows.windowForSpace(spaceId));
+  /** Whether `win` makes the view of a browser in `spaceId`. A view composites into one window, so a
+   *  browser whose space has a window of its own, open or opening, is made there only: made first in
+   *  another window, it would be closed there when the space's own window takes it, and its page
+   *  would load again under the agent driving it. */
+  makesView(win: W, spaceId: string): boolean {
+    return this.spaceOf(win) === spaceId || (!this.unheard.has(spaceId) && !this.d.windows.windowForSpace(spaceId));
+  }
+
+  /** The browser's view was made: an op waiting on it goes ahead. */
+  made(browserId: string): void {
+    this.mounting.get(browserId)?.made();
+    this.mounting.delete(browserId);
+  }
+
+  /** Settled once the view of a browser a window is opening for is made, or after `ms`, whichever is
+   *  first; at once for any other. Waited for once: an op after a wait that ran out finds it as it is. */
+  async mounted(browserId: string, ms: number): Promise<void> {
+    const m = this.mounting.get(browserId);
+    if (!m) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([m.until, new Promise<void>((r) => { timer = setTimeout(r, ms); })]);
+    clearTimeout(timer);
+    this.mounting.delete(browserId);
+  }
+
+  /** The space a window is on: what its renderer last said, else, while it boots, the one it opened on. */
+  private spaceOf(win: W): string | null {
+    return this.d.windows.spaceOf(win) ?? this.d.windows.landOf(win);
+  }
+
+  private expect(spaceId: string, payload: unknown): void {
+    const browserId = (payload as { browserId?: unknown } | null | undefined)?.browserId;
+    if (typeof browserId !== "string" || this.mounting.has(browserId)) return;
+    let made!: () => void;
+    const until = new Promise<void>((r) => { made = r; });
+    this.mounting.set(browserId, { spaceId, made, until });
+  }
+
+  /** Its window closed or did not open: nothing is kept for the space, and nothing waits on it. */
+  private forget(spaceId: string): void {
+    this.unheard.delete(spaceId);
+    for (const [id, m] of this.mounting) if (m.spaceId === spaceId) { m.made(); this.mounting.delete(id); }
   }
 }
 

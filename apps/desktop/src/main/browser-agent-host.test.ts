@@ -48,6 +48,8 @@ function setup(opts: {
   respond?: (method: string, params?: Record<string, unknown>) => unknown;
   /** The page being brought back from a discard: settles when it has loaded. */
   revived?: (id: string) => Promise<void>;
+  /** A view a window is opening for: settles once it is made. */
+  mounting?: (id: string) => Promise<void>;
   /** Told when an agent typed into a page. */
   typed?: (id: string) => void;
   /** What the pane's renderer check finds. Omitted = no `health` dep. */
@@ -142,6 +144,7 @@ function setup(opts: {
     readFile: opts.readFile === false ? undefined : async () => new Uint8Array([1, 2, 3]),
     ...(opts.paneProfile !== undefined ? { profileOf: (id: string) => (liveViews.has(id) ? opts.paneProfile ?? null : null) } : {}),
     ...(opts.revived ? { revived: opts.revived } : {}),
+    ...(opts.mounting ? { mounting: opts.mounting } : {}),
     ...(opts.typed ? { typed: opts.typed } : {}),
     ...(opts.health ? { health: opts.health } : {}),
     endRenderer: async (id) => { ended.push(id); },
@@ -192,6 +195,25 @@ describe("BrowserAgentHost — a page given up for memory", () => {
     await host.handleOp("describe", { browserId: "b1" });
     await host.handleOp("navigate", { browserId: "b1", url: "https://allowed.example" });
     expect(asked).toEqual(["b1"]);
+  });
+});
+
+describe("BrowserAgentHost — a pane whose window is opening for it", () => {
+  it("holds an agent's step until its view is made, rather than refusing it as not open, and never describe", async () => {
+    // THE MUTANT: no wait, so browser_snapshot straight after browser_open in a held space finds the
+    // pane not open while the space's window boots.
+    let made!: () => void;
+    const asked: string[] = [];
+    const { host, liveViews } = setup({ mounting: (id) => { asked.push(id); return new Promise<void>((r) => { made = r; }); } });
+    liveViews.delete("b1");
+    expect(await host.handleOp("describe", { browserId: "b1" })).toMatchObject({ open: false });
+    expect(asked).toEqual([]);
+    const snap = host.handleOp("snapshot", { browserId: "b1" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(asked).toEqual(["b1"]);
+    liveViews.add("b1");
+    made();
+    await expect(snap).resolves.toBeDefined();
   });
 });
 

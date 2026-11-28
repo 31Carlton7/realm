@@ -754,7 +754,7 @@ async function createWindow(info: { port: number; home: string; token: string },
       ...(quiet ? { backgroundThrottling: false } : {}),
       additionalArguments: windowArguments({ ...info, profileId, spaceId, land }) },
   });
-  windows.add(win, profileId, spaceId, o);
+  windows.add(win, profileId, spaceId, { ...o, land: land ?? spaceId });
   // Known by its space from the start, not once its page says so: an ask for that space meanwhile
   // finds this window rather than opening a second one on it.
   if (land ?? spaceId) windows.setSpace(win, land ?? spaceId);
@@ -1109,6 +1109,7 @@ ipcMain.handle("browser:password-offer", (e, browserId: unknown, offerId: unknow
 const agentHost = new BrowserAgentHost({
   attach: (id) => paneFor(id)?.attachCdp(id) ?? null,
   revived: async (id) => { await paneFor(id)?.host.revivedPage(id); },
+  mounting: (id) => paneWindows.mounted(id, PANE_MOUNT_WAIT_MS),
   typed: (id) => paneFor(id)?.markTyped(id),
   hasView: (id) => paneFor(id) !== null,
   health: async (id) => (await paneFor(id)?.health(id)) ?? "gone",
@@ -1197,12 +1198,13 @@ ipcMain.handle("browser:create", async (e, id: string, url: string, allowlist: s
   await profileDirectory.resolve(owner.profileId);
   // Its space's own window makes it, when there is one, open or opening for it (`PaneWindows`).
   const from = BrowserWindow.fromWebContents(e.sender);
-  if (!from || (owner.spaceId && !paneWindows.makesView(windows.spaceOf(from), owner.spaceId))) return;
+  if (!from || (owner.spaceId && !paneWindows.makesView(from, owner.spaceId))) return;
   // A view composites into ONE window. The same browser asked for in another window — its profile
   // moved windows — is closed where it was before it opens here.
   for (const other of windowPanes.values()) if (other.pane !== pane) other.pane.host.destroy(browserId);
   governBrowserDownloads(owner.partition, downloadPolicy);
   pane.host.create(browserId, url, allowlist, owner.partition);
+  paneWindows.made(browserId);
 });
 /* The renderer made the browser for a page's new tab (`links:open-tab`): its view hosts the page made for it. */
 ipcMain.on("links:claim-tab", (e, page: string, browserId: string) => { senderPane(e.sender)?.host.claimTab(String(page), String(browserId)); });
@@ -3145,6 +3147,9 @@ function openHeld(spaceId: string, o: { behind?: boolean } = {}): Promise<Browse
   });
 }
 
+/** How long an agent's op waits for a pane whose window is opening for it: a held window boots in a
+ *  second or three. */
+const PANE_MOUNT_WAIT_MS = 15_000;
 /** An agent needs a pane in a space held at launch: its window opens behind the person's, its page is
  *  handed the event once booted (`window:unheard-panes`), and the pane's view is made there only. */
 const paneWindows = new PaneWindows<BrowserWindow>({
