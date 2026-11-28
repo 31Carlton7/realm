@@ -1935,6 +1935,9 @@ export type AppState = TeammatesSlice & {
    * most one window. `by` says an agent asked, and then that window comes forward only inside Realm.
    */
   selectSpace(id: string, by?: "agent"): Promise<void>;
+  /** Read a space of the window's profile ahead of the window going there, once: a space already read,
+   *  or being read, is not read again. */
+  readSpace(id: string): Promise<void>;
   /** Switch the window to another profile: its spaces load, and its own view comes back. The one
    *  switch left, and a rare, deliberate one. A no-op for the profile already showing. */
   selectProfile(profileId: string): Promise<void>;
@@ -5238,6 +5241,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
         void get().refreshCliStatus().catch(() => {});
       },
+      readSpace(id) { return get().heldSpaces.includes(id) ? Promise.resolve() : holdSpace(id); },
       selectSpace(id, by) { return holdTrail(async () => {
         const space = get().spaces.find((s) => s.id === id);
         if (!space) return;
