@@ -1712,7 +1712,7 @@ export type AppState = TeammatesSlice & {
    *  delegation registry, mirrored. A session waiting on nothing holds no entry rather than an empty
    *  array, so the map stays the size of the delegation actually happening. */
   delegatedRuns: Record<string, DelegatedRun[]>;
-  /** The sub-agents a lead session started (`delegation.children`), by LEAD session id, oldest first —
+  /** The sub-agents a lead session started (`delegation.children`), by LEAD session id, oldest first:
    *  what its Agents tab lists and its transcript's delegation lines read. The newest page, and each
    *  older page Show older asked for; besides those, any older one still running or that something
    *  named (`loadSubagent`). Fetched while either is on screen, and kept current by each

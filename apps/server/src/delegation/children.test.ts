@@ -202,7 +202,7 @@ describe("DelegatedChildren.list", () => {
     };
     const few = readsFor(3);
     expect(readsFor(60)).toBe(few);
-    // The sessions, how many there are, their newest lines, the two kinds of record — and the one
+    // The sessions, how many there are, their newest lines, the two kinds of record, and the one
     // unreadable row read on past.
     expect(few).toBeLessThanOrEqual(6);
   });
