@@ -32,6 +32,7 @@ export function startAppPick(store: StoreApi<AppState>, sessionId?: string): voi
  *  the person's own chord for the command, so a rebinding in Settings ▸ Keys is what the menu says. */
 export function useSelectInRealm(sessionId: string): { onSelect: () => void; kbd?: string } {
   const store = useAppStore();
-  const chord = useApp((s) => chordsForCommand(s.keybindings, SELECT_IN_REALM)[0] ?? null);
+  const keybindings = useApp((s) => s.keybindings);
+  const chord = useMemo(() => chordsForCommand(keybindings, SELECT_IN_REALM)[0] ?? null, [keybindings]);
   return useMemo(() => ({ onSelect: () => startAppPick(store, sessionId), kbd: chord ? displayKeyChord(chord) : undefined }), [store, sessionId, chord]);
 }

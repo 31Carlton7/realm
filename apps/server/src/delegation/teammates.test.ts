@@ -178,7 +178,10 @@ describe("the lead's agent is told on its next message", () => {
     await waitFor(() => app.sessions.get(b.leadId).status === "idle");
     await b.call("sessions.send", { id: b.leadId, text: "Plan the release again" });
     await waitFor(() => b.fake.wire.some((w) => w.text.startsWith("Plan the release again")));
-    expect(b.fake.wire.find((w) => w.text.startsWith("Plan the release again"))!.text).not.toContain(childId);
+    // Its report is still uncollected, so the handle rides on the uncollected-agents line instead.
+    const again = b.fake.wire.find((w) => w.text.startsWith("Plan the release again"))!.text;
+    expect(again).not.toContain("asked to: Write the tests");
+    expect(again).toContain(`Your agents not yet collected: ${childId} (`);
     b.close();
   });
 

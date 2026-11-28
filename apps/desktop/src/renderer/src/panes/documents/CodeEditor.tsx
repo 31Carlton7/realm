@@ -185,8 +185,11 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
        since falls back to the offset, written once the lines are measured. A line asked for wins. */
     if (revealAtBuild.current !== null && scrollKey) forgetScroll(scrollKey);
     const mark = scrollKey ? recallScroll(scrollKey) : null;
-    if (mark?.snapshot && mark.snapshot.length === v.state.doc.length) v.dispatch({ effects: mark.snapshot.effect as StateEffect<unknown> });
-    else if (mark && mark.top > 0) v.requestMeasure({ read: () => null, write: () => { v.scrollDOM.scrollTop = mark.top; } });
+    const snap = mark?.snapshot;
+    if (snap && snap.length === v.state.doc.length) {
+      // Written down across a window's unload: the same place, asked of CodeMirror as a scroll to it.
+      v.dispatch({ effects: "effect" in snap ? snap.effect as StateEffect<unknown> : EditorView.scrollIntoView(snap.at, { y: "start", yMargin: snap.margin }) });
+    } else if (mark && mark.top > 0) v.requestMeasure({ read: () => null, write: () => { v.scrollDOM.scrollTop = mark.top; } });
     const onScroll = () => {
       if (!scrollKey) return;
       rememberScroll(scrollKey, { ...markOf(v.scrollDOM), snapshot: { effect: v.scrollSnapshot(), length: v.state.doc.length } });

@@ -109,9 +109,12 @@ export const APP_HOST_OPS = [
 export const RESOURCE_HOST_OPS = [
   /** Every Electron process, labelled (main's `app-metrics.ts`). */
   "appMetrics",
-  /** Discard browser panes hidden past a window (main's `BrowserPaneHost.sweep`), sparing what the
-   *  page or an agent is still using. Answers what went and what stayed. */
+  /** Discard browser panes hidden past a window, in every window (main's `HiddenViews.sweep`), sparing
+   *  what the page or an agent is still using. Answers what went and what stayed. */
   "browserSweep",
+  /** Unload Realm windows nobody has focused past a window (main's `WindowIdle.sweep`), sparing the one
+   *  in front and any an agent, a session's work or live audio still needs. Answers what went and what stayed. */
+  "windowSweep",
 ] as const;
 
 export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS, ...RESOURCE_HOST_OPS] as const;

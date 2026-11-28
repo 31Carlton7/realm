@@ -84,6 +84,23 @@ function stubActivitySources(db: DatabaseSync): void {
   if (!cols("session_events").includes("type")) db.exec("ALTER TABLE session_events ADD COLUMN type TEXT NOT NULL DEFAULT ''");
 }
 
+/** `sessions.dispatched_by_session_id` (v14), which the dispatcher index at the end of the chain is made
+ *  on, added where a fixture stamped past v14 left it out — every real home past v14 has it. */
+function stubDispatcherSource(db: DatabaseSync): void {
+  const cols = (db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map((c) => c.name);
+  if (cols.length === 0) db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL DEFAULT 0, dispatched_by_session_id TEXT)");
+  else {
+    if (!cols.includes("created_at")) db.exec("ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0");
+    if (!cols.includes("dispatched_by_session_id")) db.exec("ALTER TABLE sessions ADD COLUMN dispatched_by_session_id TEXT");
+  }
+}
+
+/** `session_events` (v1), which the type index at the end of the chain is made on, added where a fixture
+ *  stamped past v1 left it out — every real home has it. */
+function stubEventsTypeSource(db: DatabaseSync): void {
+  db.exec("CREATE TABLE IF NOT EXISTS session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}')");
+}
+
 /** What the record types' migration (v51) reads and hangs off on its way to the end of the chain (the
  *  spaces, the team's roles and reviews) as stubs, in a fixture stamped past the migrations that made them. */
 function stubTeamSources(db: DatabaseSync): void {
@@ -747,6 +764,8 @@ function v32Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V32_REWIND_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= 32; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1')").run();
   db.prepare("INSERT INTO environments (id) VALUES ('env1')").run();
@@ -868,6 +887,8 @@ function v34Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V34_HISTORY_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= 34; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', 0, 1, 1)");
   profile.run("p1", "Work");
@@ -970,6 +991,8 @@ function v35Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V35_FAVICON_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= 35; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', 0, 1, 1)");
   profile.run("p1", "Work");
@@ -1059,6 +1082,8 @@ function v36Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V36_PROFILES_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= 36; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', ?, ?, 1)");
   profile.run("pSchool", "School", 1, 5);
@@ -1126,6 +1151,8 @@ describe("migration v37 — a browser partition per profile", () => {
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(V36_PROFILES_SCHEMA);
     stubActivitySources(db);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= 36; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
     db.close();
     const fresh = openDatabase(p);
@@ -1181,6 +1208,8 @@ function v37Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V37_SCHEDULED_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= 37; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1')").run();
   db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json, next_run_at, last_run_at, last_run_id, last_skipped_at, created_at, updated_at)
@@ -1299,6 +1328,8 @@ function v38Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V38_SESSIONS_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= 38; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Charts'), ('sess2', 'Other')").run();
   db.close();
@@ -1378,6 +1409,8 @@ function v39Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V39_PROFILES_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= LIBRARY_FILES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
     VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser'), ('pHome', 'Home', 'house', '#22c55e', 1, 2, 2, 'persist:browser-pHome')`).run();
@@ -1485,6 +1518,8 @@ function v40Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V40_EVENTS_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= SAVED_TURNS_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
     VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser')`).run();
@@ -1639,6 +1674,8 @@ function v42Fixture(path: string): void {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V42_TEAMS_SCHEMA);
   stubActivitySources(db);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= TEAM_ROLES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1'), ('sp2')").run();
   db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json, next_run_at, last_run_at, last_run_id, last_skipped_at, created_at, updated_at)
@@ -1775,6 +1812,8 @@ function teamRolesFixture(path: string, through: number, extra = ""): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V45_TEAM_ROLES_SCHEMA + extra);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= through; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1'), ('sp2')").run();
   db.prepare(`INSERT INTO team_roles (id, space_id, name, brief, realmite_json, agent_kind, wake_on_review, week_budget_usd, created_at, updated_at)
@@ -1877,6 +1916,8 @@ function v45Fixture(path: string): void {
   const db = new DatabaseSync(path);
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V45_SESSIONS_SCHEMA);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= ACTIVITY_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   const session = db.prepare(`INSERT INTO sessions (id, space_id, agent_kind, status, title, last_event_seq, created_at, updated_at, environment_id)
     VALUES (?, 'sp1', 'claude', 'idle', ?, 0, ?, ?, 'env1')`);
@@ -2055,6 +2096,8 @@ function beforeRemoteDevices(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(BEFORE_REMOTE_DEVICES);
+  stubDispatcherSource(db);
+  stubEventsTypeSource(db);
   for (let v = 1; v <= REMOTE_DEVICES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO settings (key, value_json) VALUES ('power.preventSleep', 'true'), ('notifications.relay.iphone', 'false')").run();
   db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Org access')").run();
@@ -2177,6 +2220,8 @@ describe("the memory_learned migration — how far Realm has read each session f
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_MEMORY_LEARNED);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= MEMORY_LEARNED_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
     db.prepare("INSERT INTO settings (key, value_json) VALUES ('memory.learning:p1', 'false')").run();
     db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Billing'), ('sess2', 'Docs')").run();
@@ -2325,6 +2370,8 @@ describe("the space_team_access migration — one Team access mode per space", (
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_TEAM_ACCESS);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= TEAM_ACCESS_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     db.exec(`INSERT INTO spaces (id, profile_id, name, icon, sort_order, folder_path, created_at, updated_at) VALUES ('sp1', 'p1', 'API', 'f', 0, '/tmp/api', 1, 1), ('sp2', 'p1', 'Web', 'f', 1, '/tmp/web', 1, 1);
       INSERT INTO team_roles (id, space_id, name, permission_mode, handle) VALUES ('r1', 'sp1', 'CTO', 'acceptEdits', 'cto');
@@ -2400,6 +2447,8 @@ describe("the schedule-mode migration — what an existing scheduled task runs i
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_SCHEDULE_MODE);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= SCHEDULE_MODE_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
       INSERT INTO schedules (id, space_id, title, goal, cron, created_at, updated_at, role_id) VALUES
@@ -2459,6 +2508,8 @@ describe("the schedule-zone migration — the zone a schedule is computed in, an
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_SCHEDULE_ZONE);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= SCHEDULE_ZONE_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
       INSERT INTO schedules (id, space_id, title, goal, cron, next_run_at, last_run_at, created_at, updated_at, role_id, permission_mode) VALUES
@@ -2523,6 +2574,8 @@ describe("the compact-window migration — the window a teammate's chat is compa
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_COMPACT_WINDOW);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= COMPACT_WINDOW_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
       INSERT INTO team_roles (id, space_id, name, brief, model, permission_mode, handle, home_session_id, created_at, updated_at)
@@ -2573,6 +2626,8 @@ describe("the double-tap side migration: Left for a home that never chose, Eithe
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_DOUBLE_TAP_SIDE);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= DOUBLE_TAP_SIDE_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     for (const [key, json] of Object.entries(settings)) db.prepare("INSERT INTO settings (key, value_json) VALUES (?, ?)").run(key, json);
     db.close();
@@ -2640,6 +2695,8 @@ describe("the schedule-maker migration: the session whose agent made a schedule"
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_SCHEDULE_MAKER);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= SCHEDULE_MAKER_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
       INSERT INTO schedules (id, space_id, title, goal, cron, next_run_at, created_at, updated_at, role_id, permission_mode, time_zone) VALUES
@@ -2703,6 +2760,8 @@ describe("the event-retention migration: a cursor per session for event retentio
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(BEFORE_EVENT_RETENTION);
+    stubDispatcherSource(db);
+    stubEventsTypeSource(db);
     for (let v = 1; v <= EVENT_RETENTION_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     db.exec(`INSERT INTO spaces (id) VALUES ('sp1');
       INSERT INTO sessions (id, space_id, status, title, created_at, updated_at, activity_at) VALUES ('old', 'sp1', 'idle', 'Old', 1, 1, 1);
@@ -2711,8 +2770,8 @@ describe("the event-retention migration: a cursor per session for event retentio
     return { p, db: openDatabase(p) };
   };
 
-  it("is appended at the end of the chain, and a home one short of it reaches the end", () => {
-    expect(EVENT_RETENTION_AT).toBe(migrations.length - 1);
+  it("is appended after the schedule maker, and a home one short of it reaches the end", () => {
+    expect(EVENT_RETENTION_AT).toBeGreaterThan(SCHEDULE_MAKER_AT);
     const { db } = migrated();
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     db.close();
@@ -2746,6 +2805,162 @@ describe("the event-retention migration: a cursor per session for event retentio
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     again.exec(migrations[EVENT_RETENTION_AT]!);
     expect(again.prepare("SELECT session_id, through_seq FROM event_retention").all()).toEqual([{ session_id: "old", through_seq: 1 }]);
+    again.close();
+  });
+});
+
+/** The sessions table as a home one short of the dispatcher index has it, with a lead's children in
+ *  it: written out by hand, never replayed from `migrations`. */
+const BEFORE_DISPATCHED_BY_INDEX = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  status TEXT NOT NULL, title TEXT NOT NULL, dispatched_by_kind TEXT, dispatched_by_session_id TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX sessions_space ON sessions(space_id);
+INSERT INTO spaces (id) VALUES ('sp1');
+INSERT INTO sessions (id, space_id, status, title, dispatched_by_kind, dispatched_by_session_id, created_at, updated_at) VALUES
+  ('lead', 'sp1', 'idle', 'Lead', NULL, NULL, 1, 1),
+  ('kid-a', 'sp1', 'idle', 'A', 'agent_run', 'lead', 2, 2),
+  ('kid-b', 'sp1', 'idle', 'B', 'review', 'lead', 3, 3);
+`;
+const DISPATCHED_BY_INDEX_AT = migrations.findIndex((m) => m.includes("CREATE INDEX IF NOT EXISTS sessions_dispatched_by"));
+
+describe("the dispatcher index: a lead's children found by their dispatcher, newest first", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_DISPATCHED_BY_INDEX);
+    stubEventsTypeSource(db);
+    for (let v = 1; v <= DISPATCHED_BY_INDEX_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  const PAGE = "SELECT id FROM sessions WHERE dispatched_by_session_id = 'lead' ORDER BY created_at DESC, id DESC LIMIT 20";
+
+  it("is appended after event retention, and a home one short of it reaches the end", () => {
+    expect(DISPATCHED_BY_INDEX_AT).toBeGreaterThan(EVENT_RETENTION_AT);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("reads a lead's children by the index, in order, with no scan and no sort — and leaves the rows as they were", () => {
+    const { db } = migrated();
+    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${PAGE}`).all() as { detail: string }[]).map((r) => r.detail);
+    expect(plan).toEqual([expect.stringContaining("USING COVERING INDEX sessions_dispatched_by (dispatched_by_session_id=?)")]);
+    expect(db.prepare(PAGE).all()).toEqual([{ id: "kid-b" }, { id: "kid-a" }]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing, and the statement is safe to meet twice", () => {
+    const { p, db } = migrated();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.exec(migrations[DISPATCHED_BY_INDEX_AT]!);
+    expect(again.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'sessions_dispatched_by'").all()).toEqual([{ name: "sessions_dispatched_by" }]);
+    again.close();
+  });
+});
+
+/** The events table as a home one short of the type index has it (after the dispatcher index), with a
+ *  session's events of several types interleaved: written out by hand, never replayed from `migrations`. */
+const BEFORE_EVENTS_TYPE_INDEX = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  status TEXT NOT NULL, title TEXT NOT NULL, dispatched_by_kind TEXT, dispatched_by_session_id TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX sessions_space ON sessions(space_id);
+CREATE INDEX sessions_dispatched_by ON sessions(dispatched_by_session_id, created_at, id);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+CREATE INDEX session_events_session ON session_events(session_id, seq);
+CREATE INDEX session_events_permissions ON session_events(session_id, seq)
+  WHERE type IN ('permission_request', 'permission_response');
+INSERT INTO spaces (id) VALUES ('sp1');
+INSERT INTO sessions (id, space_id, status, title, created_at, updated_at) VALUES ('s1', 'sp1', 'idle', 'One', 1, 1), ('s2', 'sp1', 'idle', 'Two', 1, 1);
+INSERT INTO session_events (session_id, ts, type, payload_json) VALUES
+  ('s1', 1, 'summary', '{"text":"first","throughSeq":0}'),
+  ('s1', 2, 'user_message', '{"text":"hi","attachments":[]}'),
+  ('s1', 3, 'assistant_text', '{"messageId":"m1","text":"one"}'),
+  ('s2', 4, 'summary', '{"text":"other session","throughSeq":0}'),
+  ('s1', 5, 'summary', '{"text":"second","throughSeq":2}'),
+  ('s1', 6, 'assistant_text', '{"messageId":"m2","text":"two"}'),
+  ('s1', 7, 'user_message', '{"text":"again","attachments":[]}');
+`;
+const EVENTS_TYPE_INDEX_AT = migrations.findIndex((m) => m.includes("CREATE INDEX IF NOT EXISTS session_events_type"));
+
+describe("the events type index: a session's events of a type found without reading the rest", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_EVENTS_TYPE_INDEX);
+    for (let v = 1; v <= EVENTS_TYPE_INDEX_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  /** What `read` runs on `db`, each statement's plan: every one the store prepared, as it prepared it. */
+  const plansOf = (db: DatabaseSync, read: (events: SessionEventsStore) => unknown): string[][] => {
+    const prepared: string[] = [];
+    const prepare = db.prepare.bind(db);
+    const spy = Object.create(db) as DatabaseSync;
+    spy.prepare = (sql: string) => { prepared.push(sql); return prepare(sql); };
+    read(new SessionEventsStore(spy));
+    return prepared.map((sql) => (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as { detail: string }[]).map((r) => r.detail));
+  };
+  const readsByType = (plan: string[]) => {
+    const onEvents = plan.filter((d) => /\bsession_events\b/.test(d) && !d.includes("INTEGER PRIMARY KEY"));
+    return onEvents.length > 0 && onEvents.every((d) => d.includes("INDEX session_events_type (session_id=? AND type=?"));
+  };
+
+  it("is appended after the dispatcher index, and a home one short of it reaches the end", () => {
+    expect(EVENTS_TYPE_INDEX_AT).toBeGreaterThan(DISPATCHED_BY_INDEX_AT);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.close();
+  });
+
+  it("reads lastOfType and lastOfTypes by the index, one range per type, and returns what they did before", () => {
+    const { db } = migrated();
+    const [one] = plansOf(db, (e) => e.lastOfType("s1", "summary"));
+    expect(readsByType(one!)).toBe(true);
+    const [several] = plansOf(db, (e) => e.lastOfTypes("s1", ["summary", "user_message"]));
+    expect(readsByType(several!)).toBe(true);
+    expect(several!.some((d) => d.includes("session_events_session"))).toBe(false);
+    const events = new SessionEventsStore(db);
+    expect(events.lastOfType("s1", "summary")).toMatchObject({ type: "summary", ts: 5 });
+    expect(events.lastOfTypes("s1", ["summary", "user_message"])).toMatchObject({ type: "user_message", ts: 7 });
+    expect(events.lastOfTypes("s1", ["summary", "assistant_text"])).toMatchObject({ type: "assistant_text", ts: 6 });
+    db.close();
+  });
+
+  it("reads a session's events of several types a page at a time by the index, either way, in seq order", () => {
+    const { db } = migrated();
+    for (const plan of plansOf(db, (e) => e.listBefore("s1", Number.MAX_SAFE_INTEGER, 2, ["summary", "assistant_text"]))) expect(readsByType(plan)).toBe(true);
+    for (const plan of plansOf(db, (e) => e.listOfTypes("s1", ["summary", "user_message"], { limit: 2 }))) expect(readsByType(plan)).toBe(true);
+    const events = new SessionEventsStore(db);
+    const ts = (rows: { event: { ts: number } }[]) => rows.map((r) => r.event.ts);
+    expect(ts(events.listBefore("s1", Number.MAX_SAFE_INTEGER, 2, ["summary", "assistant_text"]))).toEqual([5, 6]);
+    expect(ts(events.listBefore("s1", 5, 2, ["summary", "assistant_text"]))).toEqual([1, 3]);
+    expect(ts(events.listBefore("s1", 5, 9, ["summary", "assistant_text"]))).toEqual([1, 3]);
+    expect(ts(events.listOfTypes("s1", ["summary", "user_message"], { limit: 2 }))).toEqual([5, 7]);
+    expect(ts(events.listOfTypes("s1", ["summary", "user_message"], { afterSeq: 1, limit: 2 }))).toEqual([2, 5]);
+    expect(ts(events.listOfTypes("s1", ["summary", "user_message"], { afterSeq: 0, limit: 9 }))).toEqual([1, 2, 5, 7]);
+    expect(ts(events.listBefore("s1", Number.MAX_SAFE_INTEGER, 2, ["summary", "summary", "assistant_text"]))).toEqual([5, 6]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing, and the statement is safe to meet twice", () => {
+    const { p, db } = migrated();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.exec(migrations[EVENTS_TYPE_INDEX_AT]!);
+    expect(again.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'session_events_type'").all()).toEqual([{ name: "session_events_type" }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM session_events").get() as { n: number }).n).toBe(7);
     again.close();
   });
 });

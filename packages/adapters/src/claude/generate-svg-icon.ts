@@ -1,4 +1,5 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import { noMcpServers, promptCacheDefault } from "./no-mcp";
 
 type QueryFn = typeof sdkQuery;
 
@@ -19,7 +20,12 @@ export async function generateSvgIcon(prompt: string, deps: { query?: QueryFn } 
     prompt: `Design a small, simple icon for: ${prompt}\n\nRespond with ONLY a single <svg> element, nothing else — no markdown fences, no explanation.`,
     options: {
       maxTurns: 1,
+      // No tools: it answers in text alone, and their definitions were ~45k chars of every call.
+      tools: [],
       allowedTools: [],
+      // And no prompt cache: each description is asked once, so nothing reads it back, and on a
+      // subscription the CLI wrote all of it to the 1 h cache at twice the price of input.
+      ...noMcpServers(promptCacheDefault({ DISABLE_PROMPT_CACHING: "1" })),
       model: "claude-haiku-4-5",
       systemPrompt: [
         "You generate a single square icon as raw SVG markup, in the style of a small, clean, modern app icon —",

@@ -1,3 +1,5 @@
+import type { KeepReason } from "./browser-host";
+
 /**
  * What keeps a hidden browser page from being discarded for memory, as far as the page itself can say:
  * `PAGE_BUSY`, run in each of its frames, and `TypedSince`, kept from the keyboard by main. Apart from
@@ -31,6 +33,35 @@ export const PAGE_BUSY = `(() => {
   try { if (sessionStorage.length > 0) return "session"; } catch { /* storage refused to this frame */ }
   return null;
 })()`;
+
+/** What the discard guard asks of a page's webContents. */
+export type GuardedPage = {
+  isDevToolsOpened(): boolean;
+  isCurrentlyAudible(): boolean;
+  isLoading(): boolean;
+  mainFrame: { framesInSubtree: { executeJavaScript(code: string): Promise<unknown> }[] };
+};
+
+/** Why a hidden page must not be discarded right now, or null when it may be: what the process says,
+ *  then what every frame says. "loading" is the weakest answer, since the age limit lapses it, so it
+ *  is given only when no frame holds anything stronger. */
+export async function pageKeepReason(page: GuardedPage, o: { typed: boolean; popups: number }): Promise<KeepReason | null> {
+  if (page.isDevToolsOpened()) return "devtools";
+  if (o.typed) return "form";
+  if (page.isCurrentlyAudible()) return "media";
+  if (o.popups > 0) return "popup";
+  let loading = page.isLoading();
+  for (const frame of page.mainFrame.framesInSubtree) {
+    // A frame that will not answer in a second is not one to throw away on a guess.
+    const said = await Promise.race([
+      frame.executeJavaScript(PAGE_BUSY).catch(() => null),
+      new Promise((resolve) => setTimeout(() => resolve("loading"), 1_000).unref?.()),
+    ]);
+    if (said === "media" || said === "form" || said === "session") return said;
+    if (said === "loading") loading = true;
+  }
+  return loading ? "loading" : null;
+}
 
 /** Keys that are not input on their own. */
 const BARE_MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn"]);

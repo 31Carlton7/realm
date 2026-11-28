@@ -361,7 +361,13 @@ export const liveApi = (): Api => ({
   getReview: (environmentId) => rpc().call("review.get", { environmentId }),
   dismissReview: async (environmentId) => { await rpc().call("review.dismiss", { environmentId }); },
   listDelegatedRuns: async (sessionId) => (await rpc().call("delegation.running", { sessionId })).running,
-  listDelegatedChildren: (sessionId) => rpc().call("delegation.children", { sessionId }),
+  // Every one, oldest first, as the store has always held them: the Agents tab, the transcript's lines
+  // and the prompter's row all read one list, and none of them asks for older pages yet.
+  listDelegatedChildren: async (sessionId) => {
+    const { children, dismissed } = await rpc().call("delegation.children", { sessionId, limit: null });
+    return { children: [...children].reverse(), dismissed };
+  },
+  getDelegatedChild: async (sessionId, childId) => (await rpc().call("delegation.child", { sessionId, childId })).child,
   addTeammate: (input) => rpc().call("delegation.addTeammate", input),
   dismissSubagent: (sessionId, id) => rpc().call("delegation.dismiss", { sessionId, id }),
   delegableModels: (sessionId) => rpc().call("delegation.models", { sessionId }),

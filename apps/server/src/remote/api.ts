@@ -1003,11 +1003,12 @@ export class MobileApi {
   }
 
   /** The session's sub-agents, newest first, each as its Agents tab says it — and, while the phone has
-   *  the lead open, the ones whose changes are a change to this list. */
+   *  the lead open, the ones whose changes are a change to this list. Every one, not a page: the phone
+   *  lists them all and has no cursor to ask for more. */
   private async subagents(ctx: ChannelContext, id: string): Promise<MobileResult<"session.subagents">> {
     const rpc = ctx.rpc;
     const [, { children }, { running }, { row }] = await Promise.all([
-      rpc.call("sessions.get", { id }), rpc.call("delegation.children", { sessionId: id }), rpc.call("delegation.running", { sessionId: id }), this.listing(rpc),
+      rpc.call("sessions.get", { id }), rpc.call("delegation.children", { sessionId: id, limit: null }), rpc.call("delegation.running", { sessionId: id }), this.listing(rpc),
     ]);
     const open = ctx.sessions.get(id);
     if (open) open.subagents = new Set(children.map((c) => c.session.id));

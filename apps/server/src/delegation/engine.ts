@@ -66,7 +66,7 @@ export class DelegationEngine {
      *  `liveRuns`, so there is still exactly one description of who is waiting on what, and nobody
      *  can be handed a snapshot the registry has already moved past. Optional, and its failures are
      *  swallowed (`announce`), because a delegation must not be abortable by whoever is watching. */
-    onChange?: (parentSessionId: string) => void;
+    onChange?: (parentSessionId: string, childSessionId?: string) => void;
   }) {
     this.maxPerParent = d.caps?.perParent ?? MAX_RUNS_PER_PARENT;
     this.maxTotal = d.caps?.total ?? MAX_RUNS_TOTAL;
@@ -106,8 +106,8 @@ export class DelegationEngine {
   /** A listener's failure is its own. `begin` is called on the delegation's happy path and `watch`'s
    *  settle runs unobserved in the background: a throw from either would abort a real run over a
    *  notification nobody needed. */
-  private announce(parentSessionId: string): void {
-    try { this.d.onChange?.(parentSessionId); } catch { /* the registry is unaffected; the listener resyncs */ }
+  private announce(parentSessionId: string, childSessionId?: string): void {
+    try { this.d.onChange?.(parentSessionId, childSessionId); } catch { /* the registry is unaffected; the listener resyncs */ }
   }
 
   /** The parent's live runs as the renderer reads them (`DelegatedRunSchema`). Derived here rather
@@ -162,7 +162,7 @@ export class DelegationEngine {
       ...(opts.byPerson ? { byPerson: true } : {}),
     };
     this.runs.set(parentSessionId, [...this.list(parentSessionId), run]);
-    this.announce(parentSessionId);
+    this.announce(parentSessionId, run.childSessionId);
     return run;
   }
 
@@ -174,7 +174,7 @@ export class DelegationEngine {
   detach(run: ActiveRun): void {
     if (run.detached) return;
     run.detached = true;
-    this.announce(run.parentSessionId);
+    this.announce(run.parentSessionId, run.childSessionId);
   }
 
   /**
@@ -194,7 +194,7 @@ export class DelegationEngine {
     const rest = held.filter((r) => r !== run);
     if (rest.length === 0) this.runs.delete(parentSessionId);
     else this.runs.set(parentSessionId, rest);
-    this.announce(parentSessionId);
+    this.announce(parentSessionId, run.childSessionId);
   }
 
   /** The PARENT was interrupted: ALL its delegated runs are cancelled and their children interrupted
@@ -238,7 +238,7 @@ export class DelegationEngine {
       const worktreeFiles = opts.worktreeFiles ? await opts.worktreeFiles().catch(() => null) : null;
       const settled = worktreeFiles ? { ...s, worktreeFiles } : s;
       run.done = settled;
-      this.announce(run.parentSessionId);
+      this.announce(run.parentSessionId, run.childSessionId);
       return settled;
     });
     // drain resolves for every outcome rather than throwing, but an unobserved promise that somehow
@@ -263,20 +263,24 @@ export class DelegationEngine {
    * progress, so a long wait is never silent on the wire. `signal` is the caller's own cancellation:
    * once it aborts nobody is listening, and the wait returns `aborted` on the next pass, leaving every
    * run exactly as it was.
+   *
+   * `wake` ends the wait early with `woken`, at once rather than on the next pass: `agent_wait` fires
+   * it when a message for the waiting session arrives. Runs that settled by then are still `settled`.
    */
   async awaitRuns(runs: ActiveRun[], mode: "all" | "any", deadline: number, pollMs: number,
-    opts: { onTick?: () => void; signal?: AbortSignal } = {}): Promise<"settled" | "timeout" | "aborted"> {
+    opts: { onTick?: () => void; signal?: AbortSignal; wake?: AbortSignal } = {}): Promise<"settled" | "timeout" | "aborted" | "woken"> {
     if (runs.length === 0) return "settled";
     const satisfied = (): boolean => mode === "all" ? runs.every((r) => r.done !== null) : runs.some((r) => r.done !== null);
     for (;;) {
       if (satisfied()) return "settled";
       if (opts.signal?.aborted) return "aborted";
+      if (opts.wake?.aborted) return "woken";
       opts.onTick?.();
       // A cancelled run whose drain has returned is `done`; one whose parent was interrupted mid-poll
       // resolves on the next pass. Either way the loop below is what notices, so there is no separate
       // cancellation branch here.
       if (Date.now() >= deadline) return "timeout";
-      await sleep(pollMs);
+      await sleep(pollMs, undefined, { signal: opts.wake }).catch(() => {});
     }
   }
 

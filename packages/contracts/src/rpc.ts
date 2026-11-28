@@ -31,7 +31,7 @@ import {
   GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
   PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
 } from "./code-review";
-import { AddTeammateSchema, DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema, SubagentIdSchema } from "./delegation";
+import { AddTeammateSchema, ChildrenCursorSchema, DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema, SubagentIdSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema, GuideStorageSchema } from "./documents";
@@ -1980,12 +1980,18 @@ export const Methods = {
    *  with the process, so this is a read of live state, not of a table — a pane opened after a run
    *  began has no other way to learn about it, and `delegation.changed` carries it from then on. */
   "delegation.running": { params: z.object({ sessionId: IdSchema }), result: z.object({ running: z.array(DelegatedRunSchema) }) },
-  /** Every session this one delegated to — its sub-agents, settled ones included, in the order they
-   *  were started. A read of tables, not of the engine: it answers for runs the registry has already
-   *  let go, and after a relaunch. */
-  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema),
-    /** The ones the person took off the prompter's row of agents (`delegation.dismiss`). */
-    dismissed: z.array(SubagentIdSchema).default([]) }) },
+  /** The sessions this one delegated to — its sub-agents, settled ones included, newest first. A read
+   *  of tables, not of the engine: it answers for runs the registry has already let go, and after a
+   *  relaunch. A page of `limit` (CHILDREN_PAGE when absent; `null` is every one) started before
+   *  `before`; `nextBefore` is where the next page starts, null when there is none. */
+  "delegation.children": { params: z.object({ sessionId: IdSchema, limit: z.number().int().positive().nullable().optional(), before: ChildrenCursorSchema.optional() }),
+    result: z.object({ children: z.array(DelegatedChildSchema),
+      /** The ones the person took off the prompter's row of agents (`delegation.dismiss`). */
+      dismissed: z.array(SubagentIdSchema).default([]),
+      nextBefore: ChildrenCursorSchema.nullable().default(null) }) },
+  /** One of the session's sub-agents, as `delegation.children` lists it (its own sub-agents under it).
+   *  Null when `childId` is not one of this session's sub-agents. */
+  "delegation.child": { params: z.object({ sessionId: IdSchema, childId: IdSchema }), result: z.object({ child: DelegatedChildSchema.nullable() }) },
   /** Add a teammate from the prompter's "+": started as this session's sub-agent through `agent_start`'s
    *  own path, and the session's agent told about it on its next message. */
   "delegation.addTeammate": { params: AddTeammateSchema, result: z.object({ childId: IdSchema }) },
@@ -2590,7 +2596,11 @@ export const Events = {
    *  frame. An empty `running` means the session is waiting on nothing, which is the resting state.
    *  Never sent for a reviewer the user started from the diff pane: that run has no delegating
    *  session, so there is no transcript for it to appear in. */
-  "delegation.changed": z.object({ sessionId: IdSchema, running: z.array(DelegatedRunSchema) }),
+  "delegation.changed": z.object({ sessionId: IdSchema, running: z.array(DelegatedRunSchema),
+    /** The sub-agent whose run began, detached or settled, when the change is one run's: a window holding
+     *  the lead's list reads that one row (`delegation.child`) rather than the whole list again. Absent
+     *  when the whole set moved at once (the lead released, a teammate dismissed). */
+    childId: IdSchema.optional() }),
   /** A mutating browser tool call SETTLED on this browser (Plan 11 W4) — the pane chrome's action
    *  ticker appends it. `text` is the same attributed description the permission card showed (page
    *  text only ever inside the `the page labels "…"` framing — never laundered into Realm's voice);

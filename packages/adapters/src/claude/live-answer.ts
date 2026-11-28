@@ -1,5 +1,6 @@
 import { query as sdkQuery, startup as sdkStartup, type Options, type SDKUserMessage, type WarmQuery } from "@anthropic-ai/claude-agent-sdk";
 import { fenceUntrusted, type LiveAnswerTrigger, type MeetingTranscriptLine, type ScreenPicture } from "@realm/contracts";
+import { noMcpServers, promptCacheDefault } from "./no-mcp";
 
 /** How long a started engine waits for the next live answer before it is stopped, as the quick
  *  chat's spare waits (`QUICK_CHAT_WARM_MS`). */
@@ -144,13 +145,13 @@ export class ClaudeLiveAnswers implements LiveAnswerModel {
       tools: [],
       // Nor MCP servers: `tools` covers the built-in ones only, so without these the servers in his
       // own config would be offered to a turn that reads other people's speech.
-      mcpServers: {},
-      strictMcpConfig: true,
-      settingSources: [],
       // The CLI sends adaptive thinking to Haiku 5.5 whatever `thinking` or `maxThinkingTokens` say
-      // (measured on the wire, SDK 0.3.322); only this variable leaves it out. `env` replaces the
-      // child's environment, so the rest is passed on.
-      env: { ...process.env, CLAUDE_CODE_DISABLE_THINKING: "1" },
+      // (measured on the wire, SDK 0.3.322); only CLAUDE_CODE_DISABLE_THINKING leaves it out.
+      // The 5-minute cache, not the 1 h one the CLI picks on a subscription at twice the write price:
+      // a 1 h entry only pays for itself when it is read after five minutes, and these repeat within
+      // one burst if at all.
+      ...noMcpServers({ CLAUDE_CODE_DISABLE_THINKING: "1", ...promptCacheDefault({ CLAUDE_CODE_PROMPT_CACHE_TTL: "5m" }) }),
+      settingSources: [],
       effort: "low",
       persistSession: false,
       includePartialMessages: true,

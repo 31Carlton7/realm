@@ -263,7 +263,7 @@ describe("migration v56 — compressed event payloads", () => {
       CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
         ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
       CREATE INDEX session_events_session ON session_events(session_id, seq);
-      CREATE TABLE sessions (id TEXT PRIMARY KEY);
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL DEFAULT 0, dispatched_by_session_id TEXT);
       CREATE TABLE team_roles (id TEXT PRIMARY KEY);
       CREATE TABLE schedules (id TEXT PRIMARY KEY, role_id TEXT);
       CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);`);

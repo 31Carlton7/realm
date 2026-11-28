@@ -23,14 +23,19 @@ export type LiveScratch = {
   /** `REALM_LIVE_HIDDEN_KEEP_MS`: the hidden browser pane age limit (`HIDDEN_KEEP_MAX_MS`), shortened
    *  so a check need not wait two hours. */
   hiddenKeepMs: number | null;
+  /** `REALM_LIVE_WINDOW_IDLE_MS`: how long a window may go unfocused before it unloads, in place of
+   *  the server's four hours, looked at every second so a check sees it within moments. */
+  windowIdleMs: number | null;
 };
 
 export function liveScratch(d: { packaged: boolean; env: Record<string, string | undefined> }): LiveScratch | null {
   if (d.packaged) return null;
   if (d.env.REALM_ENABLE_FAKE_AGENT !== "1" || d.env.REALM_LIVE_SCRATCH !== "1") return null;
   const hiddenKeepMs = Number(d.env.REALM_LIVE_HIDDEN_KEEP_MS);
+  const windowIdleMs = Number(d.env.REALM_LIVE_WINDOW_IDLE_MS);
   return {
     windowOptions: { show: false, focusable: false, title: SCRATCH_TITLE }, bannerScript: BANNER_SCRIPT,
     hiddenKeepMs: Number.isFinite(hiddenKeepMs) && hiddenKeepMs > 0 ? hiddenKeepMs : null,
+    windowIdleMs: Number.isFinite(windowIdleMs) && windowIdleMs > 0 ? windowIdleMs : null,
   };
 }

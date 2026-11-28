@@ -54,6 +54,11 @@ export class VoiceHelper {
     this.write({ t: "audio", pcm: Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength).toString("base64") });
   }
 
+  /** Whether this window is the one the helper is hearing right now. */
+  holds(from: VoiceOwner): boolean {
+    return this.ready !== null && from.id === this.owner?.id;
+  }
+
   stop(from?: VoiceOwner): void {
     if (from && from.id !== this.owner?.id) return;
     const child = this.child;

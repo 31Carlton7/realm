@@ -79,6 +79,9 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
    *  the messages typed after, not this one. Only for the agent it was queued on. */
   runsWith?: QueuedRun };
 
+/** A message the person typed or another session sent, as opposed to one Realm wrote itself. */
+export const isFromSomeone = (msg: Pick<SendMessage, "byPerson" | "from">): boolean => msg.byPerson === true || msg.from !== undefined;
+
 /** What a queued message runs on — see `SendMessage.runsWith`. */
 export type QueuedRun = { agentKind: AgentKind; model: string | null; effort: string | null; fastMode: boolean };
 
@@ -228,6 +231,8 @@ export class SessionService {
   private putBack = new Map<string, { was: Partial<QueueTurn>; set: Partial<QueueTurn> }>();
   /** `QUEUE_HOLD_TTL_MS`, as a field so a test can wait out a hold without waiting ten minutes. */
   queueHoldTtlMs = QUEUE_HOLD_TTL_MS;
+  /** Who is told when the person or another session sends this session a message (`onMessage`). */
+  private messageListeners = new Map<string, Set<(m: { queued: boolean }) => void>>();
   /** The reply each session is streaming, as far as its deltas have got (`sessions.streaming`).
    *  Gone once its `assistant_text` is stored, or the turn settles. */
   private streamed = new Map<string, StreamedMessage>();
@@ -337,12 +342,14 @@ export class SessionService {
      *  delegation registries (browser-agent children and agent_run children). `parentInterrupted`
      *  cancels a session's in-flight delegated run when THAT session is interrupted; `release`
      *  forgets a deleted session's child record/run; `extraSystemContext` is the policy preamble a
-     *  delegated child starts with; `skillsFilter` (optional, Plan 13 W1) narrows which of the
+     *  delegated child starts with; `afterCompaction` (optional) is what a delegated child is told
+     *  again after it compacts its conversation; `skillsFilter` (optional, Plan 13 W1) narrows which of the
      *  space's enabled skills an agent_run child is staged — null/undefined for every other session.
      *  `modeSet` (optional) is told a session's permission mode was just set, so its running
      *  children come down with it (`AgentRunService.cascadeMode`).
      *  Optional — a harness without delegation behaves exactly as before. */
     browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null;
+      afterCompaction?(sessionId: string): string | undefined;
       modeSet?(sessionId: string, mode: string): Promise<void> };
     /** Plan 12 W5: the notifications feed's session hooks. `handleSessionEvent` gets the session row as
      *  it stood BEFORE the event (so a status event carries its previous status implicitly); it is
@@ -398,6 +405,9 @@ export class SessionService {
     /** Teammates the person added (`delegation/teammates.ts`): what this session's agent is told about
      *  them on its next message, spent by asking. Optional — without it nothing is ever added. */
     teammates?: { joinedNote(sessionId: string): string };
+    /** The `agent_start` agents this session has not collected, as a line for a message from someone
+     *  (`AgentRunService.uncollectedNote`). Empty, or absent, when there are none. */
+    uncollectedNote?: (sessionId: string) => string;
     /** A teammate's home session is told who it is and who its team is on every start
      *  (`teammates/service.ts`). Undefined for every other session. `seen` hears a teammate
      *  session's read mark move. */
@@ -571,11 +581,34 @@ export class SessionService {
     const turnInFlight = status === "running" || status === "waiting_permission";
     if (turnInFlight) {
       const mode = delivery === "auto" ? resolveMidTurnMode(this.d.settings.get(MID_TURN_MODE_KEY)) : delivery;
-      if (mode === "queue") { this.enqueue(id, msg); return; }
+      if (mode === "queue") { this.enqueue(id, msg); this.tellMessage(id, msg, true); return; }
+      this.tellMessage(id, msg, false);
       await this.steer(id, msg);
       return;
     }
+    this.tellMessage(id, msg, false);
     await this.deliver(id, msg);
+  }
+
+  /**
+   * Call `listener` each time the person or another session sends this session a message: what
+   * `agent_wait` listens for, so a lead blocked on its sub-agents hears it in seconds rather than
+   * when the wait ends. `queued` says whether it waits in Realm's queue for the turn to end. Realm's
+   * own messages (a goal's next turn, a schedule's run, a brief) do not count. Returns the unsubscribe.
+   */
+  onMessage(id: string, listener: (m: { queued: boolean }) => void): () => void {
+    const set = this.messageListeners.get(id) ?? new Set();
+    set.add(listener);
+    this.messageListeners.set(id, set);
+    return () => {
+      set.delete(listener);
+      if (set.size === 0 && this.messageListeners.get(id) === set) this.messageListeners.delete(id);
+    };
+  }
+
+  private tellMessage(id: string, msg: Pick<SendMessage, "byPerson" | "from">, queued: boolean): void {
+    if (!isFromSomeone(msg)) return;
+    for (const listener of this.messageListeners.get(id) ?? []) listener({ queued });
   }
 
   /**
@@ -906,6 +939,8 @@ export class SessionService {
     // failover keeps the message, so a retry of the turn says it again.
     const joined = this.d.teammates?.joinedNote(id);
     if (joined) msg = { ...msg, note: `${msg.note ?? ""}${joined}` };
+    const uncollected = isFromSomeone(msg) ? this.d.uncollectedNote?.(id) : "";
+    if (uncollected) msg = { ...msg, note: `${msg.note ?? ""}${uncollected}` };
     // The first message after a move tells the agent it moved, once (`moved`'s `preface`).
     const preface = this.d.settings.get(movePrefaceKey(id));
     if (typeof preface === "string") {
@@ -1098,7 +1133,8 @@ export class SessionService {
     this.d.failover?.cancel(id);
     this.notePersonTurn(id, false);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
-    await handle.send({ text: msg.text, attachments: [] });
+    await handle.send({ text: msg.text + ((isFromSomeone(msg) && this.d.uncollectedNote?.(id)) || ""), attachments: [] });
+    this.tellMessage(id, msg, false);
     return { interrupted };
   }
 
@@ -2380,7 +2416,11 @@ export class SessionService {
     const first = this.d.events.listOfTypes(id, ["user_message"], { afterSeq: 0, limit: 1 })[0]?.event;
     const firstPrompt = first?.type === "user_message" ? first.payload.text : sending;
     const query = indexQuery(firstPrompt, s.title === DEFAULT_TITLE ? null : s.title);
-    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined, query });
+    const contextOptions = { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined, query };
+    const baseContext = this.d.memory.contextForSession(id, contextOptions);
+    // The index lines ranked for this session, which Claude's first prompt carries so that its system
+    // prompt is the same for every session in the space.
+    const promptContext = this.d.memory.promptContextForSession(id, contextOptions);
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
@@ -2393,6 +2433,8 @@ export class SessionService {
     // rather than in place of them, because a teammate works with every tool a session has.
     const teammateContext = this.d.teammateHome?.contextFor(id);
     const compactWindow = this.d.teammateHome?.compactWindowFor?.(id);
+    // A delegated child's goal is in its first message only, which a compaction replaces with a summary.
+    const goalAfterCompaction = this.d.browserAgents?.afterCompaction?.(id);
     // What Realm's own tools are for, named while the agent is still planning rather than left to be
     // discovered in a tool list it may never read (capabilities.ts). FIRST in the join: it is the most
     // general thing in the prompt, and the user's memory documents must be able to overrule it.
@@ -2431,9 +2473,13 @@ export class SessionService {
       cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
       skills,
       systemContext,
+      ...(promptContext ? { firstPromptContext: promptContext } : {}),
       ...(memoryDir ? { memoryDirectory: memoryDir } : {}),
       // A teammate's home chat is compacted well short of a 1M window; its task sessions are not.
-      ...(compactWindow ? { autoCompactWindow: compactWindow, afterCompaction: () => this.d.teammateHome?.afterCompaction?.(id) } : {}),
+      ...(compactWindow ? { autoCompactWindow: compactWindow } : {}),
+      ...(compactWindow || goalAfterCompaction ? {
+        afterCompaction: () => [compactWindow ? this.d.teammateHome?.afterCompaction?.(id) : undefined, goalAfterCompaction].filter(Boolean).join("\n\n") || undefined,
+      } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
       // under, for a log line or a bug report to read. Nothing reads them back. Then
       // `REALM_AGENT_SHELL`, which keeps a dev Realm the agent starts off the screen

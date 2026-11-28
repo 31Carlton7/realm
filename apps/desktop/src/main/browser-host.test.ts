@@ -6,6 +6,7 @@ import {
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks, type WindowKeyboard,
 } from "./browser-host";
+import { pageKeepReason, type GuardedPage } from "./page-busy";
 
 describe("normalizeAddress", () => {
   it("keeps http(s) URLs and about:blank as-is", () => {
@@ -1842,6 +1843,26 @@ describe("HiddenViews — every window's hidden panes, with an age limit", () =>
     expect(HIDDEN_KEEP_MAX_MS).toBe(2 * 60 * MIN);
   });
 
+  it("keeps an unloaded window's panes out of the budget for unmounted ones, so they take no other window's", async () => {
+    // THE MUTANT: the views on screen in a window that unloads retained, five past a budget of three,
+    // and the other window's background pages discarded for them.
+    const { pool, open, at } = windows();
+    const one = open(), two = open();
+    for (const id of ["a1", "a2", "a3"]) { one.page(id); one.host.retain(id); }
+    for (const id of ["b1", "b2"]) two.page(id);
+    at(60 * MIN);
+    two.host.parkShown();
+    await pool.settled();
+    for (const id of ["a1", "a2", "a3"]) expect(alive(one.views.get(id)!)).toBe(true);
+    for (const id of ["b1", "b2"]) {
+      expect(alive(two.views.get(id)!)).toBe(true);
+      expect(two.views.get(id)!.calls.at(-1)).toBe("visible:false");
+    }
+    // Its page back, its panes adopt the same views.
+    two.host.create("b1", "https://b1.example", null, P);
+    expect(alive(two.views.get("b1")!)).toBe(true);
+  });
+
   it("counts the most recently hidden across every window, not in each", async () => {
     // THE MUTANT: each window's sweep keeping its own three.
     const { pool, open, at } = windows();
@@ -1997,6 +2018,33 @@ describe("HiddenViews — every window's hidden panes, with an age limit", () =>
     expect(r.kept).toEqual(expect.arrayContaining(Object.entries(reasons).map(([id, reason]) => ({ id, reason }))));
     for (const id of Object.keys(reasons)) expect(w.host.isDiscarded(id)).toBe(false);
     expect(w.host.isDiscarded("next")).toBe(true);
+  });
+
+  /** A page still loading for an iframe that never finishes: its main frame answers clean, the slow
+   *  iframe never answers, and a third frame holds `said`. */
+  function slowIframePage(said: unknown): GuardedPage {
+    const main = { executeJavaScript: async () => null };
+    return {
+      isDevToolsOpened: () => false, isCurrentlyAudible: () => false, isLoading: () => true,
+      mainFrame: { ...main, framesInSubtree: [main, { executeJavaScript: () => new Promise(() => {}) }, { executeJavaScript: async () => said }] },
+    };
+  }
+  const nothingElse = { typed: false, popups: 0 };
+
+  it.each(["form", "media", "session"] as const)("keeps a page with a never-finishing iframe past the age limit when a frame says %s", async (said) => {
+    // THE MUTANT: "loading" answered before the frames were asked, or only the main frame asked. The
+    // age limit lapses "loading", so a slow ad frame took an MSAL sign-in, a muted video or typing with it.
+    const { pool, open, at } = windows(() => pageKeepReason(slowIframePage(said), nothingElse));
+    const w = open();
+    w.page("a");
+    at(0); w.hide("a");
+    at(HIDDEN_KEEP_MAX_MS);
+    expect(await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 })).toEqual({ discarded: [], kept: [{ id: "a", reason: said }] });
+    expect(w.host.isDiscarded("a")).toBe(false);
+  });
+
+  it("still calls a page loading when no frame holds anything stronger", async () => {
+    expect(await pageKeepReason(slowIframePage(null), nothingElse)).toBe("loading");
   });
 });
 

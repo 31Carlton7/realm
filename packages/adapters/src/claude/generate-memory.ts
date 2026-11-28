@@ -1,5 +1,6 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { BACKGROUND_MODEL } from "./background-model";
+import { noMcpServers, promptCacheDefault } from "./no-mcp";
 
 type QueryFn = typeof sdkQuery;
 
@@ -124,9 +125,13 @@ export async function generateMemoryTidyPlan(input: MemoryTidyInput, deps: { que
   return oneShot(deps.query ?? sdkQuery, { prompt, model: BACKGROUND_MODEL, systemPrompt: TIDY_GUIDANCE, what: "memory tidy" });
 }
 
-/** The text of a one-shot `query()`'s result. */
+/**
+ * The text of a one-shot `query()`'s result. No tools, since it answers in text alone, and no prompt
+ * cache: nothing reads it back, and on a subscription the CLI wrote it to the 1 h cache at twice the
+ * price of input (hit rate under 20 %, Nov 13-27).
+ */
 async function oneShot(query: QueryFn, o: { prompt: string; model: string; systemPrompt: string; what: string }): Promise<string> {
-  const q = query({ prompt: o.prompt, options: { maxTurns: 1, allowedTools: [], model: o.model, systemPrompt: o.systemPrompt } });
+  const q = query({ prompt: o.prompt, options: { maxTurns: 1, tools: [], allowedTools: [], ...noMcpServers(promptCacheDefault({ DISABLE_PROMPT_CACHING: "1" })), model: o.model, systemPrompt: o.systemPrompt } });
   let result = "";
   for await (const msg of q) {
     if (msg.type === "result") {

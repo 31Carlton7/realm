@@ -29,7 +29,8 @@ export function emptyResourceReport(): ResourceReport {
 export function defaultResourcePolicies(): ResourcePolicies {
   return {
     engineIdleMinutes: 30, mcpIdleMinutes: 30, layaIdleMinutes: 10, simulatorIdleMinutes: 30, browserHiddenMinutes: 20, browserKeepHidden: 3, adaptive: true,
-    effective: { engines: 30, mcp: 30, laya: 10, simulators: 30, browsers: 20 },
+    windowIdleMinutes: 240, unloadIdleWindows: true,
+    effective: { engines: 30, mcp: 30, laya: 10, simulators: 30, browsers: 20, windows: 240 },
   };
 }
 
@@ -1995,6 +1996,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const field: Record<string, keyof ResourcePolicies> = {
         "sessions.engineIdleMinutes": "engineIdleMinutes", "mcp.idleStopMinutes": "mcpIdleMinutes", "laya.idleStopMinutes": "layaIdleMinutes",
         "simulators.idleShutdownMinutes": "simulatorIdleMinutes", "browser.discardHiddenMinutes": "browserHiddenMinutes", "browser.keepHidden": "browserKeepHidden", "resources.adaptive": "adaptive",
+        "windows.idleUnloadMinutes": "windowIdleMinutes", "windows.unloadIdle": "unloadIdleWindows",
       };
       data.resourcePolicies = { ...data.resourcePolicies, [field[key]!]: value };
       return data.resourcePolicies;
@@ -2367,6 +2369,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
     listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
     listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return { children: data.delegatedChildren[sessionId] ?? [], dismissed: data.dismissedSubagents[sessionId] ?? [] }; },
+    getDelegatedChild: async (sessionId, childId) => { calls.push(`getDelegatedChild:${sessionId}:${childId}`); return (data.delegatedChildren[sessionId] ?? []).find((c) => c.session.id === childId) ?? null; },
     addTeammate: async (input) => { calls.push(`addTeammate:${JSON.stringify(input)}`); return { childId: "01ARZ3NDEKTSV4RRFFQ69G5TMT" }; },
     dismissSubagent: async (sessionId, id) => {
       calls.push(`dismissSubagent:${sessionId}:${id}`);

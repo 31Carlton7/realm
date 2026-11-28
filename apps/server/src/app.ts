@@ -51,7 +51,7 @@ import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { AGENT_LOGIN_HINTS, DEFAULT_PERMISSION_MODE_KEY, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
+import { AGENT_LOGIN_HINTS, DEFAULT_PERMISSION_MODE_KEY, EVENT_RETENTION_EVERY_HOURS, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
@@ -1045,8 +1045,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      dials Realm's sockets (main's bridge, the CLI, the live checks) is `ws` from Node and sends no
      Origin at all. */
   const rendererOrigins = ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])];
+  /* Written only by Realm's own launcher, which records each quiet app it starts. */
+  const hiddenApps = new HiddenApps();
   const viewers = new ViewerService({
-    apps: new HiddenApps(),
+    apps: hiddenApps,
     ownDevtoolsPort: Number(process.env.REALM_DEVTOOLS_PORT) || null,
     allowedOrigins: rendererOrigins,
   });
@@ -1507,6 +1509,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     adaptIdle,
     backgroundShells: () => resourcesLate?.backgroundShells() ?? Promise.resolve(new Set<string>()),
     teammates: { joinedNote: (id) => teammates?.joinedNote(id) ?? "" },
+    uncollectedNote: (id) => agentRuns?.uncollectedNote(id) ?? "",
     teammateHome: {
       contextFor: (id) => team?.contextFor(id), seen: (session) => team?.seen(session),
       compactWindowFor: (id) => team?.compactWindowFor(id),
@@ -1541,6 +1544,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); team?.release(id); void handoffNotes.release(id).catch(() => {}); void toolResults.release(id).catch(() => {}); },
       extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
+      afterCompaction: (id) => agentRuns?.afterCompaction(id),
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
     } });
   sessionService = sessions;
@@ -1551,7 +1555,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // including the bypass-is-never-inherited rule both tools carry.
   const delegationEngine: DelegationEngine = new DelegationEngine({
     sessions, caps: opts.agentRun?.caps,
-    onChange: (parentSessionId) => announceDelegation(rpc, delegationEngine, parentSessionId),
+    onChange: (parentSessionId, childSessionId) => announceDelegation(rpc, delegationEngine, parentSessionId, childSessionId),
   });
   browserAgents = new BrowserAgentService({ settings, sessions, rpc, engine: delegationEngine, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
   agentRuns = new AgentRunService({ settings, sessions, rpc, engine: delegationEngine, environments: envService, skills, otherDelegation: browserAgents,
@@ -1918,6 +1922,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   resourcesLate = resources;
   const resourcePolicies = new ResourcePolicies({
     settings, mcp: mcpHub, adapt: adaptIdle,
+    busySpaces: () => [...new Set(sessions.listAll().filter((s) => s.status === "running" || s.status === "waiting_permission").map((s) => s.spaceId))],
     app: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
   });
   /* The Memory page's side: the report with what each "free memory now" button would let go of, the
@@ -2021,16 +2026,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // resumable, and standing aside while an agent works (`PayloadCompactor` states the design).
   const payloadCompactor = new PayloadCompactor({ db, busy: () => sessions.statusCounts().working > 0 });
   void payloadCompactor.run();
-  // When the owner sets a retention window, sessions idle past it have their long tool payloads cut.
-  // Either way the file is shrunk when enough is free (`EventRetention` states the rule). Never during
-  // boot: first after ten minutes, then every six hours.
   const eventRetention = new EventRetention({
     db, dbPath: dbPath(opts.home), settings,
     busy: () => agentsNeedTheServer(sessions.statusCounts()),
     freeDiskBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
     maintenance: maintenanceWindow(opts.home, "vacuum"),
   });
-  eventRetention.start(10 * 60_000, 6 * 60 * 60_000);
+  eventRetention.start(10 * 60_000, EVENT_RETENTION_EVERY_HOURS * 60 * 60_000);
   // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in
   // the background (`SessionService.backfillTurnMedia`).
   void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));

@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
+import type { Rect, WindowFrame } from "./window-idle";
 
 /** What a window's moving background stops for that Chromium does not tell its page. */
 export type BackdropState = { lowPowerMode: boolean; covered: boolean; displayAsleep: boolean; screenLocked: boolean };
@@ -29,6 +30,41 @@ export function parseBackdropLine(line: string): { lowPower: boolean } | Windows
   } catch {
     return null;
   }
+}
+
+function rect(v: unknown): Rect | null {
+  if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => typeof n === "number")) return null;
+  const [x, y, width, height] = v as [number, number, number, number];
+  return { x, y, width, height };
+}
+
+/** The helper's `--frames` line, by window number, or null for one that is not. */
+export function parseFramesLine(line: string): Map<number, WindowFrame> | null {
+  try {
+    const v = JSON.parse(line) as { frames?: unknown };
+    if (!Array.isArray(v.frames)) return null;
+    const out = new Map<number, WindowFrame>();
+    for (const f of v.frames as { window?: unknown; onScreen?: unknown; bounds?: unknown; above?: unknown }[]) {
+      if (!Number.isInteger(f.window) || typeof f.onScreen !== "boolean") return null;
+      const bounds = f.bounds === undefined ? null : rect(f.bounds);
+      const above = Array.isArray(f.above) ? f.above.map(rect) : [];
+      if ((f.bounds !== undefined && !bounds) || above.includes(null)) return null;
+      out.set(f.window as number, { onScreen: f.onScreen, bounds, above: above as Rect[] });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** Where macOS has each of these windows and what is over it, or null where the helper is missing or
+ *  did not answer: the idle sweep's look at what can be seen, taken once a sweep. */
+export function windowFrames(numbers: readonly number[]): Promise<Map<number, WindowFrame> | null> {
+  const bin = helperPath();
+  if (!bin || numbers.length === 0) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile(bin, ["--frames", ...numbers.map(String)], { timeout: 5_000 }, (err, stdout) => resolve(err ? null : parseFramesLine(stdout.trim())));
+  });
 }
 
 /** A window's number as macOS knows it, from Electron's media source id (`window:<number>:0`). */

@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 /** Records every rpc().call so the wire params of the thin Api adapter can be asserted. */
 const calls: { method: string; params: unknown }[] = [];
+/** What a method answers, where a test needs more than `{}`. */
+const replies: Record<string, unknown> = {};
 vi.mock("../rpc/client", () => ({
-  rpc: () => ({ call: (method: string, params: unknown) => { calls.push({ method, params }); return Promise.resolve({}); } }),
+  rpc: () => ({ call: (method: string, params: unknown) => { calls.push({ method, params }); return Promise.resolve(replies[method] ?? {}); } }),
 }));
 vi.mock("../panes/terminal-hub", () => ({ getTerminalHub: () => ({ dispose: () => {} }) }));
 
@@ -16,6 +18,14 @@ const { liveApi } = await import("./live-api");
  * All three are invisible to every store-level test, which sees only the fake.
  */
 describe("liveApi wire params", () => {
+  it("reads every sub-agent of a lead, and hands the store them oldest first, as it always held them", async () => {
+    calls.length = 0;
+    replies["delegation.children"] = { children: [{ session: { id: "newest" } }, { session: { id: "oldest" } }], dismissed: ["d"], nextBefore: null };
+    const got = await liveApi().listDelegatedChildren("se1");
+    expect(calls).toEqual([{ method: "delegation.children", params: { sessionId: "se1", limit: null } }]);
+    expect(got).toEqual({ children: [{ session: { id: "oldest" } }, { session: { id: "newest" } }], dismissed: ["d"] });
+  });
+
   it("forwards agents.probe's force flag in both directions", async () => {
     calls.length = 0;
     await liveApi().probeAgents(true);
