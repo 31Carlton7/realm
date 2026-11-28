@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cleanDictation, DICTATION_MODEL, dictationPrompt } from "./clean-dictation";
 
 type Options = { model?: string; maxTurns?: number; tools?: string[]; allowedTools?: string[]; settingSources?: string[]; thinking?: { type: string }; persistSession?: boolean };
@@ -70,6 +70,24 @@ describe("cleanDictation", () => {
     const env = (calls[0]!.options as { env?: Record<string, string | undefined> }).env!;
     expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
     expect(env.DISABLE_PROMPT_CACHING).toBeUndefined();
+  });
+
+  it("leaves the cache to the person when they turned it off in their own environment", async () => {
+    vi.stubEnv("DISABLE_PROMPT_CACHING", "1");
+    const calls: Call[] = [];
+    await cleanDictation("hello", { query: gullibleModel(calls) });
+    vi.unstubAllEnvs();
+    const env = (calls[0]!.options as { env?: Record<string, string | undefined> }).env!;
+    expect(env.DISABLE_PROMPT_CACHING).toBe("1");
+    expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
+  });
+
+  it("keeps the person's own TTL over Realm's five minutes", async () => {
+    vi.stubEnv("CLAUDE_CODE_PROMPT_CACHE_TTL", "1h");
+    const calls: Call[] = [];
+    await cleanDictation("hello", { query: gullibleModel(calls) });
+    vi.unstubAllEnvs();
+    expect((calls[0]!.options as { env?: Record<string, string | undefined> }).env!.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
   });
 
   it("throws on a failed result, so the caller keeps the raw words", async () => {

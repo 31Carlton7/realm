@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BACKGROUND_MODEL } from "./background-model";
 import { generateSessionTitle } from "./generate-session-title";
 
@@ -48,6 +48,19 @@ describe("generateSessionTitle", () => {
     }) as never;
     await generateSessionTitle("fix the login flow", { query });
     expect(options).toMatchObject({ tools: [], env: expect.objectContaining({ DISABLE_PROMPT_CACHING: "1" }) });
+  });
+
+  it("leaves the cache to the person when they set a TTL in their own environment", async () => {
+    vi.stubEnv("CLAUDE_CODE_PROMPT_CACHE_TTL", "1h");
+    let options: { env?: Record<string, string | undefined> } = {};
+    const query = ((args: { options: typeof options }) => {
+      options = args.options;
+      return (async function* () { yield { type: "result", subtype: "success", result: "Fix login" } as never; })();
+    }) as never;
+    await generateSessionTitle("fix the login flow", { query });
+    vi.unstubAllEnvs();
+    expect(options.env?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
+    expect(options.env?.DISABLE_PROMPT_CACHING).toBeUndefined();
   });
 
   it("throws on a non-success result instead of returning a blank or garbage title", async () => {

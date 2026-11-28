@@ -1,6 +1,6 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { BACKGROUND_MODEL } from "./background-model";
-import { noMcpServers } from "./no-mcp";
+import { noMcpServers, promptCacheDefault } from "./no-mcp";
 
 type QueryFn = typeof sdkQuery;
 
@@ -26,7 +26,7 @@ export async function generateSessionTitle(text: string, deps: { query?: QueryFn
       allowedTools: [],
       // And no prompt cache. Nothing reads it back: on a subscription the CLI wrote all of it to the
       // 1 h cache, at twice the price of input, for a hit rate of 0-20 % (Nov 13-27).
-      ...noMcpServers({ DISABLE_PROMPT_CACHING: "1" }),
+      ...noMcpServers(promptCacheDefault({ DISABLE_PROMPT_CACHING: "1" })),
       model: BACKGROUND_MODEL,
       systemPrompt: [
         "You write short titles that summarize a coding assistant's chat session for a sidebar list.",

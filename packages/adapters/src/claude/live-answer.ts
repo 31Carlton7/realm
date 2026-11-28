@@ -1,6 +1,6 @@
 import { query as sdkQuery, startup as sdkStartup, type Options, type SDKUserMessage, type WarmQuery } from "@anthropic-ai/claude-agent-sdk";
 import { fenceUntrusted, type LiveAnswerTrigger, type MeetingTranscriptLine, type ScreenPicture } from "@realm/contracts";
-import { noMcpServers } from "./no-mcp";
+import { noMcpServers, promptCacheDefault } from "./no-mcp";
 
 /** How long a started engine waits for the next live answer before it is stopped, as the quick
  *  chat's spare waits (`QUICK_CHAT_WARM_MS`). */
@@ -150,7 +150,7 @@ export class ClaudeLiveAnswers implements LiveAnswerModel {
       // The 5-minute cache, not the 1 h one the CLI picks on a subscription at twice the write price:
       // a 1 h entry only pays for itself when it is read after five minutes, and these repeat within
       // one burst if at all.
-      ...noMcpServers({ CLAUDE_CODE_DISABLE_THINKING: "1", CLAUDE_CODE_PROMPT_CACHE_TTL: "5m" }),
+      ...noMcpServers({ CLAUDE_CODE_DISABLE_THINKING: "1", ...promptCacheDefault({ CLAUDE_CODE_PROMPT_CACHE_TTL: "5m" }) }),
       settingSources: [],
       effort: "low",
       persistSession: false,
