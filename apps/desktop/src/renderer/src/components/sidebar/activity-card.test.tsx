@@ -76,6 +76,20 @@ describe("an Activity card", () => {
     expect(lines(c)[2]!.querySelector("svg")).not.toBeNull();
   });
 
+  it("names the worktree of a session in a space the window has not read yet once that space is read", async () => {
+    // THE MUTANT: a space's read leaves its checkouts out (`refreshEnvironments(sid)` dropped from `holdSpace`).
+    // The card is drawn from the list row; the checkout it runs in comes with the space, not the session.
+    clock.at(NOW);
+    const { container, store } = await mount([chat("b", "s2", NOW, { environmentId: "wt2" })],
+      { environments: { s2: [env("wt2", "s2", { kind: "worktree", branch: "realm/homework-pass", path: "/tmp/wt-hw" })] } });
+    expect(store.getState().heldSpaces).not.toContain("s2");
+    const c = await card(container, "chat b");
+    expect(lines(c)).toHaveLength(2);
+    await store.getState().readSpace("s2");
+    await waitFor(() => expect(lines(c)).toHaveLength(3));
+    expect(lines(c)[2]).toHaveTextContent("realm/homework-pass");
+  });
+
   it("draws the space's own icon, an emoji included", async () => {
     // THE MUTANT: a fixed folder glyph for every space (`icon="folder"`).
     clock.at(NOW);
