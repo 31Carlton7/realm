@@ -1165,6 +1165,24 @@ describe("app store", () => {
       expect(allItems(store.getState().layout!)).toContain("d3");
     });
 
+    it("a switch into a space not read yet reads the log of the session it comes back to alongside the space", async () => {
+      api.data.items["s2"] = [item("i2", "s2", { kind: "session", refId: "se2" })];
+      api.data.sessions.push(session("se2", "s2", { lastEventSeq: 1 }));
+      api.data.settings["ui.spaceScreens:p1"] = { s2: { itemId: "i2", page: null } };
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().refreshAllItems();
+      api.delays["listItems:s2"] = 40;
+      const going = store.getState().selectSpace("s2");
+      await new Promise((r) => setTimeout(r, 10));
+      // THE MUTANT: the log is read only once the space's lists are back, so the pane waits on both in turn.
+      expect(store.getState().heldSpaces).not.toContain("s2");
+      expect(api.calls).toContain("sessionEventsBefore:se2:end");
+      await going;
+      expect(allItems(store.getState().layout!)).toContain("i2");
+      expect(api.calls.filter((c) => c === "sessionEventsBefore:se2:end")).toHaveLength(1);
+    });
+
     it("an item of a space not read yet opens once its space is read", async () => {
       api.data.items["s2"] = [item("i2", "s2")];
       const store = createAppStore(api);

@@ -5249,6 +5249,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
         if (get().activeProfileId !== space.profileId) return;
         if (!get().heldSpaces.includes(id)) {
+          // The log of the session the space comes back to is read alongside the space, not after it.
+          const back = spaceScreens[id]?.itemId;
+          const row = back ? get().allItems.find((i) => i.id === back) : undefined;
+          if (row?.kind === "session") get().prefetchSession(row.refId);
           await holdSpace(id);
           if (get().activeProfileId !== space.profileId) return;
         }
