@@ -28,7 +28,7 @@ const REPORT_MAX = 2000;
  */
 export class DelegatedChildren {
   constructor(private readonly d: {
-    sessions: Pick<SessionsStore, "get" | "dispatchedPage">;
+    sessions: Pick<SessionsStore, "get" | "dispatchedPage" | "listDispatchedBy">;
     events: Pick<SessionEventsStore, "lastReportAndActivity">;
     items: Pick<ItemsStore, "findTab" | "create">;
     rpc: Pick<RpcServer, "broadcast">;
@@ -41,6 +41,21 @@ export class DelegatedChildren {
    *  page holds: the sessions, then their transcripts' newest lines, then their records. */
   list(parentId: string, page: { limit?: number | null; before?: ChildrenCursor } = {}): { children: DelegatedChild[]; nextBefore: ChildrenCursor | null } {
     const { children, nested, nextBefore } = this.d.sessions.dispatchedPage(parentId, [...CHILD_ORIGINS], { limit: page.limit === undefined ? CHILDREN_PAGE : page.limit, before: page.before });
+    return { children: this.describeAll(children, nested), nextBefore };
+  }
+
+  /** One row of `list(parentId)`, read alone: what a window patches in when that one run moved. Null
+   *  when `childId` is not one of `parentId`'s sub-agents. */
+  one(parentId: string, childId: string): DelegatedChild | null {
+    const s = this.d.sessions.get(childId);
+    if (!s?.dispatchedBy || s.dispatchedBy.sessionId !== parentId || !CHILD_ORIGINS.has(s.dispatchedBy.kind)) return null;
+    const kids = this.d.sessions.listDispatchedBy(childId).filter((g) => g.dispatchedBy && CHILD_ORIGINS.has(g.dispatchedBy.kind));
+    return this.describeAll([s], new Map([[s.id, kids]]))[0]!;
+  }
+
+  /** `children`, each with the sub-agents it started (`nested`, by parent id) under it, in the same
+   *  few reads however many there are. */
+  private describeAll(children: Session[], nested: Map<string, Session[]>): DelegatedChild[] {
     // A sub-agent can no longer start its own, but one from before that rule may have: its children
     // are listed under it, one level, which is as deep as delegation ever went.
     const ids = children.flatMap((s) => [s.id, ...(nested.get(s.id) ?? []).map((g) => g.id)]);
@@ -68,13 +83,10 @@ export class DelegatedChildren {
         ...(record?.stopNote ? { note: record.stopNote } : {}),
       };
     };
-    return {
-      children: children.map((s) => {
-        const kids = nested.get(s.id) ?? [];
-        return kids.length > 0 ? { ...describe(s), children: kids.map(describe) } : describe(s);
-      }),
-      nextBefore,
-    };
+    return children.map((s) => {
+      const kids = nested.get(s.id) ?? [];
+      return kids.length > 0 ? { ...describe(s), children: kids.map(describe) } : describe(s);
+    });
   }
 
   /**

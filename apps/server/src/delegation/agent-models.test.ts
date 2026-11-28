@@ -286,14 +286,15 @@ describe("the tool list says which models can be named", () => {
 async function client(port: number) {
   const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
   const pending = new Map<string, (v: { result?: unknown; error?: { message: string } }) => void>();
-  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); });
+  const frames: { event: string; payload: Record<string, unknown> }[] = [];
+  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); else if ("event" in m) frames.push(m); });
   let n = 0;
   const call = <T>(method: string, params: unknown) => new Promise<T>((res, rej) => {
     const id = String(++n);
     pending.set(id, (v) => (v.error ? rej(new Error(v.error.message)) : res(v.result as T)));
     ws.send(JSON.stringify({ id, method, params }));
   });
-  return { call, close: () => ws.close() };
+  return { call, frames, close: () => ws.close() };
 }
 
 type Child = { session: { id: string; agentKind: string; model: string | null }; goal: string | null; startedAt: number;
@@ -374,6 +375,47 @@ describe("the lead's list of its sub-agents", () => {
     const kids = (await c.call<{ children: (Child & { children?: Child[] })[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
     expect(kids.map((k) => k.session.id)).toEqual([child!.id]);
     expect(kids[0]!.children?.map((k) => k.session.id)).toEqual([grandchild.session.id]);
+    c.close();
+  });
+
+  it("delegation.changed names the sub-agent that moved, so a window reads that one row rather than the list", async () => {
+    // THE MUTANT: announce the lead alone, and every begin and settle re-reads every child it ever had.
+    const { ctx } = await boot();
+    const c = await client(app.port);
+    await app.agentRuns.start(ctx, { goal: "go" });
+    const [child] = children(ctx);
+    expect(await app.agentRuns.wait(ctx, {})).toMatchObject({ isError: false });
+    const changes = () => c.frames.filter((f) => f.event === "delegation.changed" && f.payload.sessionId === ctx.sessionId);
+    await waitFor(() => changes().length >= 3);
+    // Every one of them is this one run's: its begin, its settle and its collect.
+    expect(changes().map((f) => f.payload.childId)).toEqual(changes().map(() => child!.id));
+    c.close();
+  });
+
+  it("delegation.child reads one sub-agent exactly as delegation.children lists it, and nothing for a stranger", async () => {
+    const { ctx } = await boot();
+    const c = await client(app.port);
+    await app.agentRuns.start(ctx, { goal: "first" });
+    await app.agentRuns.start(ctx, { goal: "second" });
+    expect(await app.agentRuns.wait(ctx, {})).toMatchObject({ isError: false });
+    const [first, second] = children(ctx);
+    app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default",
+      dispatchedBy: { kind: "agent_run", sessionId: second!.id } });
+    const listed = (await c.call<{ children: (Child & { children?: Child[] })[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
+    const one = (id: string) => c.call<{ child: (Child & { children?: Child[] }) | null }>("delegation.child", { sessionId: ctx.sessionId, childId: id });
+    // `working` is measured at the moment of the read, so only its existence is compared.
+    const still = (x: (Child & { working?: unknown }) | null | undefined) => x && { ...x, working: x.working ? "measured" : null };
+    expect(still((await one(first!.id)).child)).toEqual(still(listed.find((x) => x.session.id === first!.id)));
+    // Its own sub-agents ride with it, as the list nests them.
+    expect((await one(second!.id)).child?.children).toHaveLength(1);
+    // A session that is not this lead's sub-agent is not a row of its list. Mutant: drop the parent check.
+    expect((await one(ctx.sessionId)).child).toBeNull();
+    const stranger = app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default" });
+    expect((await one(stranger.session.id)).child).toBeNull();
+    // Another lead's sub-agent is not this one's.
+    const theirs = app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default",
+      dispatchedBy: { kind: "agent_run", sessionId: stranger.session.id } });
+    expect((await one(theirs.session.id)).child).toBeNull();
     c.close();
   });
 
