@@ -81,7 +81,7 @@ export function useDissolve(ref: RefObject<HTMLElement | null>, axis: "y" | "x" 
        one frame, which is the pop the bands' opacity transition used to cover. With it in place and
        no ends named, both depths run to zero and the dissolve fades out instead. */
     const ends = [start ? "start" : "", end ? "end" : ""].filter(Boolean).join(" ");
-    // Written only when it changes: every render writing the same value is a style invalidation each.
+    // Only when it changes: rewriting the same value on every render still costs a style recalc.
     if (el.dataset[key] !== ends) el.dataset[key] = ends;
   });
   return edges;
