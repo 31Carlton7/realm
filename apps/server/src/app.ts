@@ -1505,6 +1505,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     adaptIdle,
     backgroundShells: () => resourcesLate?.backgroundShells() ?? Promise.resolve(new Set<string>()),
     teammates: { joinedNote: (id) => teammates?.joinedNote(id) ?? "" },
+    uncollectedNote: (id) => agentRuns?.uncollectedNote(id) ?? "",
     teammateHome: {
       contextFor: (id) => team?.contextFor(id), seen: (session) => team?.seen(session),
       compactWindowFor: (id) => team?.compactWindowFor(id),

@@ -7,7 +7,7 @@ import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import { GIT_DIFF_FLAGS, gitCapture, type GitRun } from "../workspace/git-exec";
-import type { SessionService } from "../sessions/service";
+import { isFromSomeone, type SessionService } from "../sessions/service";
 import type { SkillsService } from "../skills/service";
 import { MAX_RUNS_PER_PARENT, workingMs, type ActiveRun, type DelegationEngine, type SettledRun } from "./engine";
 import { defaultModelLabel, delegableModels, modelMenu, resolveModelName, type ModelResolution, type ProbedAgent } from "./models";
@@ -102,6 +102,9 @@ const WaitArgs = z.object({
   handles: z.array(z.string().min(1)).min(1).max(MAX_RUNS_PER_PARENT).optional(),
   mode: z.enum(["all", "any"]).default("all"),
   timeoutMs: z.number().int().min(1_000).max(3_600_000).default(900_000),
+  /** Return early when the person or another session messages the waiting session. False is the old
+   *  wait, which hears nothing until its agents finish or it times out. */
+  returnOnMessage: z.boolean().default(true),
 });
 
 type SettingsLike = { get(key: string): unknown; getMany(keys: readonly string[]): Map<string, unknown>; set(key: string, value: unknown): void };
@@ -134,7 +137,7 @@ type SettingsLike = { get(key: string): unknown; getMany(keys: readonly string[]
 export class AgentRunService {
   constructor(private readonly d: {
     settings: SettingsLike;
-    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "setOptions" | "listAll" | "suggestTitle" | "retitleIf">;
+    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "setOptions" | "listAll" | "suggestTitle" | "retitleIf" | "onMessage" | "queuedFor">;
     rpc: Pick<RpcServer, "broadcast">;
     /** The shared settle/drain + run registry — the SAME instance `BrowserAgentService` uses. */
     engine: DelegationEngine;
@@ -634,6 +637,10 @@ export class AgentRunService {
     };
   }
 
+  /** Queued messages a wait has already told its session about (`wait`). Weak, so a message that
+   *  leaves the queue leaves this too. */
+  private readonly heardQueued = new WeakSet<object>();
+
   private get pollMs(): number {
     return (this.d.timeouts ?? DEFAULT_TIMEOUTS).pollMs;
   }
@@ -646,6 +653,16 @@ export class AgentRunService {
     } catch {
       return { title: childId, needsYou: false };
     }
+  }
+
+  /** The line a message from the person or another session carries while this session has agents
+   *  from `agent_start` it has not collected. Nothing wakes an idle lead when they finish, so a lead
+   *  that answers and stops would leave their reports unread. Empty when there are none. */
+  uncollectedNote(sessionId: string): string {
+    const open = this.d.engine.runsOf(sessionId).filter((r) => r.detached)
+      .map((r) => `${r.childSessionId} ("${this.described(r.childSessionId).title}")`);
+    if (open.length === 0) return "";
+    return `\n\nYour agents not yet collected: ${open.join(", ")}. After you answer this, call ${AGENT_WAIT_TOOL_NAME} with those handles.`;
   }
 
   /** `agent_run`'s progress: "Dark-mode toggle working, 2:10". */
@@ -699,7 +716,7 @@ export class AgentRunService {
   async wait(ctx: ProviderCallContext, rawArgs: unknown): Promise<CallToolResult> {
     const parsed = WaitArgs.safeParse(rawArgs ?? {});
     if (!parsed.success) return err(`invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
-    const { handles, mode, timeoutMs } = parsed.data;
+    const { handles, mode, timeoutMs, returnOnMessage } = parsed.data;
 
     const mine = new Map(this.d.engine.runsOf(ctx.sessionId).map((r) => [r.childSessionId, r]));
     // No handles named = wait for everything this session started. The common shape, and it means an
@@ -711,10 +728,23 @@ export class AgentRunService {
       return err(`unknown handle${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. A handle belongs to the session that started it, and is spent once ${AGENT_WAIT_TOOL_NAME} has reported it. ${AGENT_STATUS_TOOL_NAME} lists what is outstanding.`);
     const runs = wanted.map((h) => mine.get(h)!);
 
+    // A message for this session ends the wait, so the lead reads it now rather than when its agents
+    // finish. One already in the queue when the wait starts counts too, but only once: a lead that
+    // waits again without ending its turn has heard about it.
+    const woke = new AbortController();
+    let queuedMessage = false;
+    const unheard = returnOnMessage ? this.d.sessions.queuedFor(ctx.sessionId).filter((w) => isFromSomeone(w.msg) && !this.heardQueued.has(w)) : [];
+    if (unheard.length > 0) { queuedMessage = true; woke.abort(); }
+    const stopListening = returnOnMessage
+      ? this.d.sessions.onMessage(ctx.sessionId, ({ queued }) => { queuedMessage ||= queued; woke.abort(); })
+      : () => {};
     const outcome = await this.d.engine.awaitRuns(runs, mode, Date.now() + timeoutMs, this.pollMs, {
       onTick: () => ctx.progress?.(this.waitingLine(runs), runs.filter((r) => r.done !== null).length, runs.length),
       signal: ctx.signal,
-    });
+      wake: woke.signal,
+    }).finally(stopListening);
+    // A message queued while the wait listened is heard by this wait's answer, not the next one's.
+    if (returnOnMessage) for (const w of this.d.sessions.queuedFor(ctx.sessionId)) this.heardQueued.add(w);
     // The caller cancelled the call: nothing is claimed, so every report is still there for the next wait.
     if (outcome === "aborted") return err(`The wait was cancelled. Nothing was collected; ${AGENT_WAIT_TOOL_NAME} again to collect.`);
     const settledRuns = runs.filter((r) => r.done !== null);
@@ -724,7 +754,9 @@ export class AgentRunService {
 
     const sections = settledRuns.map((r) => reportSection(r.done!, r.childSessionId, this.childRecord(r.childSessionId)?.stopNote));
     const stillRunning = runs.filter((r) => r.done === null).map((r) => r.childSessionId);
-    const head = outcome === "timeout"
+    const head = outcome === "woken"
+      ? messageHead(settledRuns.length, runs.length, stillRunning.map((id) => `${id} ("${this.described(id).title}")`), queuedMessage)
+      : outcome === "timeout"
       ? `Waited ${Math.round(timeoutMs / 1000)}s; ${settledRuns.length} of ${runs.length} delegated agent${runs.length === 1 ? "" : "s"} finished. The rest are STILL RUNNING under their own budgets — this timeout gave up on listening, it did not stop them. Wait again to collect: ${stillRunning.join(", ")}.`
       : mode === "any"
         ? `${settledRuns.length} of ${runs.length} delegated agents finished${stillRunning.length > 0 ? `; still running: ${stillRunning.join(", ")}` : ""}.`
@@ -799,6 +831,18 @@ function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): Ca
     case "gone":
       return err("Delegated agent session was deleted before it finished.");
   }
+}
+
+/** The head of an `agent_wait` result that a message ended early. `queued`: the message waits in
+ *  Realm's queue until this turn ends, so the lead has to end it to read the message. */
+function messageHead(finished: number, total: number, stillRunning: string[], queued: boolean): string {
+  const read = queued
+    ? "It is held until this turn ends: finish your turn now with a short note of what you are waiting on, and it will be delivered to you as your next message."
+    : "Read it now: it is the next thing you will see.";
+  const again = stillRunning.length > 0
+    ? ` Still running: ${stillRunning.join(", ")}. Nothing was stopped; after you have answered the message, call ${AGENT_WAIT_TOOL_NAME} again with the same handles to collect them.`
+    : "";
+  return `A new message for you arrived while you waited, so this wait returned early. ${read} ${finished} of ${total} delegated agent${total === 1 ? "" : "s"} finished.${again}`;
 }
 
 /** One collected handle's block inside an `agent_wait` result. Deliberately the same vocabulary as
@@ -967,13 +1011,14 @@ export function agentStartTool(menu: readonly string[] = []): Tool {
 export const AGENT_WAIT_TOOL: Tool = {
   name: AGENT_WAIT_TOOL_NAME,
   description:
-    `Block until agents started with ${AGENT_START_TOOL_NAME} finish, and return their reports. Reporting a handle SPENDS it: that agent's report is returned once, and the handle is then unknown. Agents that have already finished return instantly. This tool's timeout bounds how long YOU wait, not how long the agents run — timing out here leaves them running under their own budgets, so wait again rather than starting a replacement.`,
+    `Block until agents started with ${AGENT_START_TOOL_NAME} finish, and return their reports. Reporting a handle SPENDS it: that agent's report is returned once, and the handle is then unknown. Agents that have already finished return instantly. This tool's timeout bounds how long YOU wait, not how long the agents run — timing out here leaves them running under their own budgets, so wait again rather than starting a replacement. A message to you from the person or another session ends the wait early: the result says which agents are still running, and once you have read and answered the message, call this again with the same handles to collect them.`,
   inputSchema: {
     type: "object",
     properties: {
       handles: { type: "array", items: { type: "string" }, description: `Handles from ${AGENT_START_TOOL_NAME}. Omitted: every agent this session has in flight.` },
       mode: { type: "string", enum: ["all", "any"], description: "all (default) waits for every named handle; any returns as soon as one finishes, leaving the rest running and collectable later." },
       timeoutMs: { type: "number", description: "How long to wait, in ms (1s–1h; default 15min). Bounds the WAIT, never the agents. The call reports progress while it waits, so it is not cut off for being quiet: leave this at the default, or set it as long as the work needs — there is no need to keep it under a few minutes." },
+      returnOnMessage: { type: "boolean", description: "true (default) returns early when a message for you arrives, so you can answer it; false waits through messages until the agents finish or the timeout ends." },
     },
     additionalProperties: false,
   },

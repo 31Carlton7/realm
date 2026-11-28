@@ -205,6 +205,19 @@ describe("awaitRuns — ticks while it waits, and stops for a caller that has go
     expect(interrupted).toEqual([]);
   });
 
+  it("returns woken the moment `wake` fires, without waiting out the poll", async () => {
+    // THE MUTANT: the sleep ignores `wake` — the wait hears the message only on its next pass.
+    const { engine } = engineOver([[]]);
+    const r = run();
+    const wake = new AbortController();
+    setTimeout(() => wake.abort(), 20);
+    const t0 = Date.now();
+    const outcome = await engine.awaitRuns([r], "all", Date.now() + 60_000, 30_000, { wake: wake.signal });
+    expect(outcome).toBe("woken");
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(r.done).toBeNull();
+  });
+
   it("drain ticks while the child works", async () => {
     const { engine } = engineOver([[status("running", 1)], [], [said("done", 2), status("idle", 3)]]);
     let ticks = 0;

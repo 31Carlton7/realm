@@ -263,20 +263,24 @@ export class DelegationEngine {
    * progress, so a long wait is never silent on the wire. `signal` is the caller's own cancellation:
    * once it aborts nobody is listening, and the wait returns `aborted` on the next pass, leaving every
    * run exactly as it was.
+   *
+   * `wake` ends the wait early with `woken`, at once rather than on the next pass: `agent_wait` fires
+   * it when a message for the waiting session arrives. Runs that settled by then are still `settled`.
    */
   async awaitRuns(runs: ActiveRun[], mode: "all" | "any", deadline: number, pollMs: number,
-    opts: { onTick?: () => void; signal?: AbortSignal } = {}): Promise<"settled" | "timeout" | "aborted"> {
+    opts: { onTick?: () => void; signal?: AbortSignal; wake?: AbortSignal } = {}): Promise<"settled" | "timeout" | "aborted" | "woken"> {
     if (runs.length === 0) return "settled";
     const satisfied = (): boolean => mode === "all" ? runs.every((r) => r.done !== null) : runs.some((r) => r.done !== null);
     for (;;) {
       if (satisfied()) return "settled";
       if (opts.signal?.aborted) return "aborted";
+      if (opts.wake?.aborted) return "woken";
       opts.onTick?.();
       // A cancelled run whose drain has returned is `done`; one whose parent was interrupted mid-poll
       // resolves on the next pass. Either way the loop below is what notices, so there is no separate
       // cancellation branch here.
       if (Date.now() >= deadline) return "timeout";
-      await sleep(pollMs);
+      await sleep(pollMs, undefined, { signal: opts.wake }).catch(() => {});
     }
   }
 
