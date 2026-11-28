@@ -158,6 +158,26 @@ describe("bringing in Claude's own memory", () => {
     expect(fingerprint(h.claudeDir)).toBe(claude);
   });
 
+  it("leaves out an index line whose file the folder's ARCHIVE.md already links", async () => {
+    const h = await harness();
+    h.claudeKept(h.realmDir, "a.md", "a\n");
+    h.claudeKept(h.realmDir, "b.md", "b\n");
+    h.claudeKept(h.realmDir, "c.md", "c\n");
+    h.claudeKept(h.realmDir, "MEMORY.md", "- [a](a.md) — a\n- [b](b.md) — b\n- [c](c.md) — c\n");
+    await h.run();
+    // An agent archives b and c to keep the index under the load limit.
+    const folder = join(h.repo, "spaces", "realm");
+    writeFileSync(join(folder, "MEMORY.md"), "- [a](a.md) — a\n");
+    writeFileSync(join(folder, "ARCHIVE.md"), "# Archived index\n\n- [b](b.md) — b\n- [c](./c.md) — c\n");
+    git(h.repo, "add", "-A");
+    git(h.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "archive b and c");
+    h.claudeKept(h.realmDir, "d.md", "d\n");
+    h.claudeKept(h.realmDir, "MEMORY.md", "- [a](a.md) — a\n- [b](b.md) — b\n- [c](c.md) — c\n- [d](d.md) — d\n");
+    expect(await h.run()).toMatchObject({ imported: 1 });
+    expect(readFileSync(join(folder, "MEMORY.md"), "utf8")).toBe("- [a](a.md) — a\n- [d](d.md) — d\n");
+    expect(readFileSync(join(folder, "ARCHIVE.md"), "utf8")).toBe("# Archived index\n\n- [b](b.md) — b\n- [c](./c.md) — c\n");
+  });
+
   it("updates a copy whose file changed only in Claude's folder, and never one changed in the repo", async () => {
     const h = await harness();
     h.claudeKept(h.realmDir, "a.md", "a v1\n");

@@ -44,6 +44,8 @@ export function claudeProjectName(path: string): string {
 }
 
 const NAME_MAX = 200;
+/** Where a folder's agents move index lines to keep MEMORY.md under its load limit (see tidy.ts). */
+const ARCHIVE_FILE = "ARCHIVE.md";
 /** What two names are compared by: a name the CLI cut is known only up to the cut. */
 const nameKey = (name: string): string => (name.length > NAME_MAX ? name.slice(0, NAME_MAX) : name);
 
@@ -207,7 +209,9 @@ export function planBackfill(repo: string, projectsDir: string, folders: Readonl
       // The project's index lines join the folder's, for the files the folder now holds.
       const index = readOr(join(src, MEMORY_REPO_INDEX_FILE));
       if (index === null) continue;
-      const lines = index.split("\n").filter((l) => { const t = claudeIndexTarget(l); return t === null || (!t.includes("/") && now(`${at}/${t}`) !== null); });
+      // A file the folder's ARCHIVE.md links was moved out of the index on purpose; its line stays out.
+      const archived = new Set((now(`${at}/${ARCHIVE_FILE}`) ?? "").split("\n").map(claudeIndexTarget));
+      const lines = index.split("\n").filter((l) => { const t = claudeIndexTarget(l); return t === null || (!t.includes("/") && now(`${at}/${t}`) !== null && !archived.has(t)); });
       const merged = mergeClaudeIndex(now(indexRel) ?? "", lines.join("\n"));
       if (merged !== (now(indexRel) ?? "")) writes.set(indexRel, merged);
     }
