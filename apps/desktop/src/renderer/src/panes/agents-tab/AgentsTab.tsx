@@ -135,7 +135,7 @@ function SubagentList({ leadId, children, loaded }: { leadId: string; children: 
     if (!arrived) return;
     setArrived(null);
     const first = [...list.current?.querySelectorAll<HTMLElement>(":scope > [data-child]") ?? []].find((el) => !arrived.has(el.dataset.child!));
-    first?.scrollIntoView?.({ block: "start" });
+    first?.scrollIntoView?.({ block: "center" });
     first?.querySelector("button")?.focus({ preventScroll: true });
   }, [arrived]);
   const leadStatus = sessionStatus[leadId];
