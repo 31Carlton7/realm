@@ -80,7 +80,9 @@ export function useDissolve(ref: RefObject<HTMLElement | null>, axis: "y" | "x" 
        declares the mask, and the depths inside it are what animate: remove it and the mask goes in
        one frame, which is the pop the bands' opacity transition used to cover. With it in place and
        no ends named, both depths run to zero and the dissolve fades out instead. */
-    el.dataset[key] = [start ? "start" : "", end ? "end" : ""].filter(Boolean).join(" ");
+    const ends = [start ? "start" : "", end ? "end" : ""].filter(Boolean).join(" ");
+    // Written only when it changes: every render writing the same value is a style invalidation each.
+    if (el.dataset[key] !== ends) el.dataset[key] = ends;
   });
   return edges;
 }

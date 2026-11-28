@@ -148,8 +148,12 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
     return depth > 0 ? Math.max(0, Math.min(1, past / depth)) : 1;
   };
 
+  /** What `place` last wrote, so a render that moves neither band writes nothing. */
+  let placed: { images: typeof images; top: number; bottom: number } | null = null;
   const place = () => {
     if (!images || !shape) return;
+    if (placed?.images === images && placed.top === shown.top && placed.bottom === shown.bottom) return;
+    placed = { images, top: shown.top, bottom: shown.bottom };
     for (const img of images.top) img.setAttribute("y", String(-shape.top * (1 - shown.top)));
     for (const img of images.bottom) img.setAttribute("y", String(shape.height - shape.bottom * shown.bottom));
     if (shown.top > 0 || shown.bottom > 0) el.style.setProperty("--edge-blur", `url(#${filter.id})`);
