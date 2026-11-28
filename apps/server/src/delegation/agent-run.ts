@@ -361,10 +361,16 @@ export class AgentRunService {
     const delegationRule = remaining > 0
       ? `- You may delegate further, but only ${remaining} level${remaining === 1 ? "" : "s"} deeper (you are at depth ${child.depth} of ${this.maxDepth}). Prefer doing the work yourself: every extra level is another agent the human has to follow.`
       : "- You cannot delegate: do the work yourself. There is no agent_run, agent_start or browser_agent_run here — the session that started you is the one that coordinates.";
+    // Claude gets its goal back after a compaction (`afterCompaction`), so the goal is sent once, in the
+    // first message, and the preamble stays the same for every child. Codex and ACP agents compact with
+    // no hook to restore it, so theirs stays here, where it survives.
+    const goalLines = this.d.sessions.get(sessionId).agentKind === "claude"
+      ? ["This session was spawned by another Realm session to accomplish ONE goal, given in full in its first message."]
+      : ["This session was spawned by another Realm session to accomplish ONE goal:", "", child.goal];
     return [
       "# Delegated agent (Realm)",
       "",
-      "This session was spawned by another Realm session to accomplish ONE goal, given in full in its first message.",
+      ...goalLines,
       "",
       "Ground rules — restated for clarity; each is also enforced server-side:",
       delegationRule,

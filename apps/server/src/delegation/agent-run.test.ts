@@ -96,7 +96,7 @@ async function boot(opts: {
   // The same fake serves BOTH registry keys — "claude" is the stand-in kind with skills injection,
   // exactly the arrangement browser-agent.test.ts uses.
   app = await createApp({
-    home, port: 0, adapters: { fake, claude: fake },
+    home, port: 0, adapters: { fake, claude: fake, codex: fake, "acp:gemini": fake },
     browserAgent: { fallbackKind: "fake", timeouts: { baseMs: 5000, perActMs: 0, pollMs: 20 } },
     agentRun: { timeouts: opts.timeouts ?? { baseMs: 5000, perTurnMs: 0, pollMs: 20 }, maxDepth: opts.maxDepth, caps: opts.caps },
     titleGenerator: opts.titleGenerator,
@@ -193,6 +193,15 @@ describe("agent_run — the delegated session", () => {
     const firstRequest = `${fake.seen[0]!.systemContext}\n${first?.type === "user_message" ? first.payload.text : ""}`;
     expect(firstRequest.split(goal)).toHaveLength(2);
     expect(first?.type === "user_message" && first.payload.text).toContain(goal);
+  });
+
+  it.each(["codex", "acp:gemini"] as const)("keeps a %s child's goal in its preamble, which outlives a compaction it has no hook for", async (agentKind) => {
+    // THE MUTANT: send every kind the goal in its first message only — a compacted Codex child loses its wording.
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude" });
+    const goal = `BRIEF-${agentKind}: keep the goal where a compaction cannot reach it`;
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal, constraints: { agentKind } });
+    expect(childOf(spaceId, parentId).agentKind).toBe(agentKind);
+    expect(fake.seen[0]!.systemContext).toContain(goal);
   });
 
   it("hands a compacted child its goal again, word for word, and nothing more on a resume", async () => {
