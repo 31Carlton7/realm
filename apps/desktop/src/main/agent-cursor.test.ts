@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorFormName } from "./agent-cursor";
+import { browserActorLabel } from "@realm/contracts";
+import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_CURSOR_PALETTE, AGENT_MOTION, CURSOR_FORM_FOR_CSS, CursorSlots, cursorColour, cursorIdentity, frameLabel, type CursorFormName } from "./agent-cursor";
 import { LINGER_MS } from "./computer-driving";
 
 /* Vite rewrites `import.meta.url` to a non-file scheme under jsdom, so walk up from the cwd — the
@@ -167,5 +168,65 @@ describe("the in-page marks mirror the app's motion ladder", () => {
   it("pulses at the in-flight ping's slow rate, not the 13px dot's", () => {
     expect(stylesCss).toContain(`--ring-rate: ${AGENT_MOTION.framePulseMs / 1000}s`);
     expect(stylesCss).toMatch(/\.status-dot\[data-status="driving"\]::after \{ --ring: var\(--rl-accent\); --ring-rate: 0\.9s; \}/);
+  });
+});
+
+describe("one cursor per session: colours, slots and the frame's line", () => {
+  const ACCENT = "rgb(76, 141, 255)";
+
+  it("keeps the accent for the first cursor and gives every other slot its own palette colour", () => {
+    expect(cursorColour(0, ACCENT)).toBe(ACCENT);
+    const rest = AGENT_CURSOR_PALETTE.map((_, i) => cursorColour(i + 1, ACCENT));
+    expect(new Set(rest).size).toBe(AGENT_CURSOR_PALETTE.length);
+    expect(rest).not.toContain(ACCENT);
+    // Past the palette's end it goes round again rather than running out.
+    expect(cursorColour(AGENT_CURSOR_PALETTE.length + 1, ACCENT)).toBe(rest[0]);
+  });
+
+  it("leaves out the hues that read as a status or as the accent's own blue", () => {
+    for (const c of ["red", "amber", "green", "blue", "sky"]) expect(AGENT_CURSOR_PALETTE).not.toContain(c);
+  });
+
+  it("hands each session its own slot and keeps it for as long as its cursor is up", () => {
+    let t = 0;
+    const slots = new CursorSlots(() => t);
+    expect(slots.take("a")).toBe(0);
+    expect(slots.take("b")).toBe(1);
+    t += AGENT_CURSOR.idleMs - 1;
+    expect(slots.take("a")).toBe(0);
+    expect(slots.take("c")).toBe(2);
+  });
+
+  it("gives a slot back once its cursor has idled out and faded, and not a moment before", () => {
+    let t = 0;
+    const slots = new CursorSlots(() => t);
+    slots.take("a");
+    slots.take("b");
+    // Still fading on the page: a newcomer must not take the accent from under it.
+    t = AGENT_CURSOR.idleMs + AGENT_MOTION.fastMs - 1;
+    slots.take("b");
+    expect(slots.take("c")).toBe(2);
+    // Gone now: the lowest free slot, the accent, goes to whoever arrives next.
+    t += 2;
+    expect(slots.take("d")).toBe(0);
+  });
+
+  it("names who is driving, in the order they arrived", () => {
+    expect(frameLabel(["Claude"])).toBe("Claude is using this page");
+    expect(frameLabel(["Claude", "Codex"])).toBe("Claude and Codex are using this page");
+    expect(frameLabel(["Claude", "Codex", "Gemini"])).toBe("Claude, Codex and Gemini are using this page");
+    expect(frameLabel(["Claude", "Claude", "Codex"])).toBe("2 Claude sessions and Codex are using this page");
+    expect(frameLabel([null])).toBe("An agent is using this page");
+    expect(frameLabel([])).toBe("An agent is using this page");
+  });
+
+  it("wears the agent's mark and its pill words, and an act nobody named draws the cursor alone", () => {
+    const claude = cursorIdentity({ sessionId: "s1", agentKind: "claude", label: browserActorLabel("claude", " checkout ") }, 1, ACCENT);
+    expect(claude).toMatchObject({ key: "s1", label: "Claude · checkout", agent: "Claude", colour: cursorColour(1, ACCENT) });
+    expect(claude.mark?.paths.length).toBeGreaterThan(0);
+    // The fake agent has only a stroke glyph, so its pill carries words and no mark.
+    expect(cursorIdentity({ sessionId: "s2", agentKind: "fake", label: browserActorLabel("fake", "") }, 2, ACCENT))
+      .toMatchObject({ label: "Fake agent", mark: null });
+    expect(cursorIdentity(null, 0, ACCENT)).toEqual({ key: "", colour: ACCENT, label: null, agent: null, mark: null });
   });
 });

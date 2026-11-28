@@ -1737,3 +1737,61 @@ describe("BrowserAgentHost — fillCode", () => {
     expect([...(hidden ?? [])]).toEqual([100, 101, 102, 103, 104, 105]);
   });
 });
+
+describe("acts from two sessions on one pane take turns", () => {
+  const click = { kind: "click", ref: 42, button: "left", clickCount: 1, modifiers: [] };
+  const claude = { sessionId: "s-claude", agentKind: "claude", label: "Claude · checkout" };
+  const codex = { sessionId: "s-codex", agentKind: "codex", label: "Codex · docs" };
+
+  /* The mutant is a lease that lets the second act in early: its mark scrolls the page between the
+     first act's geometry read and its click, and that click lands on whatever moved under it. */
+  it("the second act's mark waits until the first act's input has been sent", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let gated = false;
+    const log: string[] = [];
+    const { host } = setup({
+      respond: (method, params) => {
+        if (method === "Runtime.evaluate" && String(params?.expression).includes('"data-actor"')) {
+          log.push(String(params?.expression).includes('"s-codex"') ? "mark codex" : "mark claude");
+        }
+        if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed") {
+          log.push("press");
+          if (!gated) { gated = true; return held.then(() => ({})); }
+        }
+        return undefined;
+      },
+    });
+    const first = host.handleOp("act", { browserId: "b1", action: click, actor: claude });
+    await vi.waitFor(() => expect(log).toContain("press"));
+    const second = host.handleOp("act", { browserId: "b1", action: click, actor: codex });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(log).toEqual(["mark claude", "press"]);
+    release();
+    await Promise.all([first, second]);
+    expect(log).toEqual(["mark claude", "press", "mark codex", "press"]);
+  });
+
+  it("a failed act hands the turn on rather than wedging the pane", async () => {
+    let failed = false;
+    const { host } = setup({
+      respond: (method) => {
+        if (method === "Input.dispatchMouseEvent" && !failed) { failed = true; throw new Error("target closed"); }
+        return undefined;
+      },
+    });
+    await host.handleOp("act", { browserId: "b1", action: click, actor: claude }).catch(() => {});
+    await expect(host.handleOp("act", { browserId: "b1", action: click, actor: codex })).resolves.toMatchObject({ ok: true });
+  });
+
+  it("the first session keeps the accent and the second gets its own colour", async () => {
+    const { host, calls } = setup();
+    await host.handleOp("act", { browserId: "b1", action: click, actor: claude });
+    await host.handleOp("act", { browserId: "b1", action: click, actor: codex });
+    const marks = calls.filter((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes('"data-actor"')).map((c) => String(c.params?.expression));
+    expect(marks[0]).toContain('var KEY = "s-claude"');
+    expect(marks[0]).toContain('"stroke", "rgb(76, 141, 255)"');
+    expect(marks[1]).toContain('var KEY = "s-codex"');
+    expect(marks[1]).not.toContain('"stroke", "rgb(76, 141, 255)"');
+  });
+});
