@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Rail } from "./Rail";
+import { spacesToRead } from "./use-warm-spaces";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, space, type FakeApi } from "../../state/store.test-fakes";
 
@@ -60,6 +61,23 @@ describe("warming the other spaces", () => {
     expect(api.calls.filter((c) => /^listItems:s[23]$/.test(c))).toEqual(["listItems:s3", "listItems:s2"]);
   });
 
+  it("waits for the window to be idle before each space", async () => {
+    const pending: (() => void)[] = [];
+    vi.stubGlobal("requestIdleCallback", (cb: () => void) => { pending.push(cb); return pending.length; });
+    try {
+      const api = home();
+      const { store } = await mount(api);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(itemReads(api, "s2")).toBe(0);
+      pending.shift()!();
+      await waitFor(() => expect(store.getState().heldSpaces).toContain("s2"));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(itemReads(api, "s3")).toBe(0);
+      pending.shift()!();
+      await waitFor(() => expect(store.getState().heldSpaces).toContain("s3"));
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("reads one space at a time", async () => {
     const api = home();
     api.delays["listItems:s2"] = 30;
@@ -116,5 +134,13 @@ describe("warming the other spaces", () => {
     expect(itemReads(api, "s2")).toBe(1);
     fireEvent.pointerEnter(tile("Versed"));
     expect(itemReads(api, "s1")).toBe(1);
+  });
+
+  it("lists only the window's profile's spaces it does not hold", async () => {
+    const api = home();
+    api.data.spaces.push({ ...api.data.spaces[1]!, id: "s9", profileId: "p2", name: "School" });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(spacesToRead(store.getState())).toEqual(["s2", "s3"]);
   });
 });
