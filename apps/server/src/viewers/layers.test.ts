@@ -114,12 +114,12 @@ const C2: ViewerChildView = { targetId: "C2", x: 250, y: 50, width: 300, height:
 let cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const c of cleanup.reverse()) await c(); cleanup = []; });
 
-async function setup(seed: ViewerChildView[] = [], opts: { slowStop?: boolean } = {}) {
+async function setup(seed: ViewerChildView[] = [], opts: { slowStop?: boolean; stillMs?: number } = {}) {
   const app = await fakeRealm(opts);
   app.seed(seed);
   const apps = new HiddenApps();
   const record = apps.record({ cdpPort: app.port, pid: 1 });
-  const viewers = new ViewerService({ apps });
+  const viewers = new ViewerService({ apps, stillMs: opts.stillMs });
   cleanup.push(() => app.close(), () => viewers.closeAll());
   const viewer = await viewers.open({ kind: "electron", appId: record.id, targetId: "W" });
   return { app, viewers, viewer };
@@ -379,6 +379,107 @@ describe("viewer layers: a client that stops reading", () => {
     const queued = [...relay["clients"]].map((res) => res.writableLength);
     expect(Math.max(...queued)).toBeGreaterThan(0);
     expect(Math.max(...queued)).toBeLessThanOrEqual(BIG.length + 16 * 1024 + 256);
+  }, 30_000);
+});
+
+describe("viewer layers: a client that stops reading, then drains", () => {
+  const STILL = 60;
+  const BIG = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(1024 * 1024, 7), Buffer.from([0xff, 0xd9])]);
+  const LAST = Buffer.from([0xff, 0xd8, 9, 9, 9, 0xff, 0xd9]);
+  const relayOf = (viewers: ViewerService, id: string) => viewers["viewers"].get(id)!.relay;
+  const isLast = (f: { jpeg: Buffer }) => f.jpeg.equals(LAST);
+
+  /** Sends big frames on `page` until the relay holds more than the cap for some layers client, so
+   *  the next frame on that layer is skipped for it. */
+  async function stallPastCap(app: Awaited<ReturnType<typeof fakeRealm>>, viewers: ViewerService, id: string, page: string) {
+    const relay = relayOf(viewers, id);
+    const over = () => Math.max(...[...relay["layerClients"]].map((ws) => ws.bufferedAmount)) > LAYER_BUFFER_CAP;
+    for (let i = 0; i < 64 && !over(); i++) { app.frame(page, BIG, 400, 200); await settle(); }
+    expect(over()).toBe(true);
+  }
+
+  it("is sent a layer's last frame once it drains, when that frame was skipped and the page then went still", async () => {
+    const { app, viewers, viewer } = await setup([C1], { stillMs: STILL });
+    const stalled = await layers(viewer.layersUrl);
+    stalled.ws.pause();
+    await until(() => app.on("C1", "Page.startScreencast").length >= 1, "the view's screencast");
+    await stallPastCap(app, viewers, viewer.id, "C1");
+    app.frame("C1", LAST, 400, 200);
+    await settle();
+    stalled.ws.resume();
+    await until(() => stalled.frames.some((f) => f.layer === "C1" && isLast(f)), () => `the last frame, got ${stalled.frames.length} frames`, 5000);
+    expect(stalled.frames.at(-1)).toEqual({ layer: "C1", jpeg: LAST });
+  }, 30_000);
+
+  it("is sent again only the layers it was skipped for, and nothing for a view that went meanwhile", async () => {
+    const { app, viewers, viewer } = await setup([C1, C2], { stillMs: STILL });
+    const stalled = await layers(viewer.layersUrl);
+    await until(() => app.on("C1", "Page.startScreencast").length >= 1 && app.on("C2", "Page.startScreencast").length >= 1, "both views' screencasts");
+    app.frame("W", JPEG_W, 800, 600);
+    app.frame("C2", JPEG_C2, 300, 300);
+    await until(() => stalled.frames.length >= 2, "the first frames");
+    stalled.ws.pause();
+    await stallPastCap(app, viewers, viewer.id, "C1");
+    app.frame("C1", LAST, 400, 200);
+    await settle();
+    stalled.ws.resume();
+    await until(() => stalled.frames.some(isLast), "the last frame", 5000);
+    await new Promise((r) => setTimeout(r, STILL * 4));
+    expect(stalled.frames.filter((f) => f.layer === "window")).toEqual([{ layer: "window", jpeg: JPEG_W }]);
+    expect(stalled.frames.filter((f) => f.layer === "C2")).toEqual([{ layer: "C2", jpeg: JPEG_C2 }]);
+    expect(stalled.frames.filter(isLast)).toHaveLength(1);
+
+    // A view skipped and then dropped before the client drains is not sent.
+    const before = stalled.frames.length;
+    stalled.ws.pause();
+    await stallPastCap(app, viewers, viewer.id, "C1");
+    app.frame("C1", LAST, 400, 200);
+    await settle();
+    const skipped = relayOf(viewers, viewer.id)["skipped"] as Map<unknown, Set<string>>;
+    expect([...skipped.values()].some((s) => s.has("C1"))).toBe(true);
+    app.children([C2]);
+    await until(() => relayOf(viewers, viewer.id)["children"].size === 1, "C1 dropped");
+    stalled.ws.resume();
+    await until(() => skipped.size === 0, "the record cleared", 5000);
+    await new Promise((r) => setTimeout(r, STILL * 4));
+    const after = stalled.frames.slice(before);
+    expect(after.filter((f) => f.layer !== "C1")).toEqual([]);
+    expect(after.filter(isLast)).toEqual([]);
+  }, 60_000);
+
+  it("on the MJPEG stream is sent the last frame once it drains, through the still re-send", async () => {
+    const { app, viewers, viewer } = await setup([], { stillMs: STILL });
+    const parts: Buffer[] = [];
+    let buf = Buffer.alloc(0);
+    let stalledRes: import("node:http").IncomingMessage | null = null;
+    const req = get(viewer.streamUrl, (r) => {
+      stalledRes = r;
+      r.on("data", (chunk: Buffer) => {
+        buf = Buffer.concat([buf, chunk]);
+        for (;;) {
+          const head = buf.indexOf("\r\n\r\n");
+          if (head < 0) return;
+          const len = Number(/Content-Length: (\d+)/.exec(buf.subarray(0, head).toString())?.[1]);
+          if (buf.length < head + 4 + len + 2) return;
+          parts.push(buf.subarray(head + 4, head + 4 + len));
+          buf = buf.subarray(head + 4 + len + 2);
+        }
+      });
+      r.pause();
+      r.socket.pause();
+    });
+    req.on("error", () => {});
+    cleanup.push(async () => { req.destroy(); });
+    await until(() => stalledRes !== null && app.on("W", "Page.startScreencast").length >= 1, "the screencast");
+    const relay = relayOf(viewers, viewer.id);
+    const needsDrain = () => [...relay["clients"]].some((res) => res.writableNeedDrain);
+    for (let i = 0; i < 64 && !needsDrain(); i++) { app.frame("W", BIG, 800, 600); await settle(); }
+    expect(needsDrain()).toBe(true);
+    app.frame("W", LAST, 800, 600);
+    await settle();
+    stalledRes!.socket.resume();
+    stalledRes!.resume();
+    await until(() => parts.some((p) => p.equals(LAST)), () => `the last frame, got ${parts.length} parts`, 5000);
   }, 30_000);
 });
 

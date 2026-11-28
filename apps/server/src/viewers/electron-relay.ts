@@ -28,7 +28,9 @@ const JPEG_QUALITY = 70;
 /** How long a page may sit still before its last frame is sent again. */
 const STILL_MS = 1000;
 /** Past this much unsent on a layers socket, the client is not keeping up: its frames are skipped until
- *  it drains, which costs it nothing, as each frame is a whole picture. About two full-size frames. */
+ *  it drains, which costs it nothing, as each frame is a whole picture. About two full-size frames.
+ *  Once it is back under, it is sent the latest frame of each layer it missed, as a still page sends
+ *  no next one. */
 export const LAYER_BUFFER_CAP = 4 * 1024 * 1024;
 /** How long close waits for `Page.stopScreencast` before dropping the socket anyway. */
 const STOP_WAIT_MS = 500;
@@ -148,6 +150,10 @@ export class ElectronRelay {
   /** The page's viewport in CSS pixels, from the latest frame's metadata. */
   private page: Size | null = null;
   private stillTimer: NodeJS.Timeout | null = null;
+  /** Per layers client, the layers whose latest frame it was skipped for. */
+  private readonly skipped = new Map<WebSocket, Set<string>>();
+  /** Looks every `stillMs` for a skipped client that has drained. `ws` has no drain event. */
+  private catchUpTimer: NodeJS.Timeout | null = null;
   private ended = false;
   /** In z-order, bottom first, as main lists them. */
   private children = new Map<string, Child>();
@@ -302,10 +308,31 @@ export class ElectronRelay {
   private sendFrame(layer: string, jpeg: Buffer, to: Iterable<WebSocket> = this.layerClients): void {
     let message: Uint8Array | null = null;
     for (const ws of to) {
-      if (ws.bufferedAmount > LAYER_BUFFER_CAP) continue;
+      const skipped = this.skipped.get(ws);
+      if (ws.bufferedAmount > LAYER_BUFFER_CAP) {
+        if (skipped) skipped.add(layer); else this.skipped.set(ws, new Set([layer]));
+        this.catchUpTimer ??= setTimeout(() => this.catchUp(), this.opts.stillMs ?? STILL_MS);
+        continue;
+      }
+      skipped?.delete(layer);
       message ??= encodeViewerFrame(layer, jpeg);
       ws.send(message);
     }
+  }
+
+  /** Sends each skipped client that has drained the latest frame of each layer it missed, if that
+   *  layer is still there. */
+  private catchUp(): void {
+    this.catchUpTimer = null;
+    for (const [ws, layers] of [...this.skipped]) {
+      if (ws.bufferedAmount > LAYER_BUFFER_CAP) continue;
+      this.skipped.delete(ws);
+      for (const layer of layers) {
+        const jpeg = layer === VIEWER_WINDOW_LAYER ? this.frame : this.children.get(layer)?.jpeg;
+        if (jpeg) this.sendFrame(layer, jpeg, [ws]);
+      }
+    }
+    if (this.skipped.size > 0) this.catchUpTimer = setTimeout(() => this.catchUp(), this.opts.stillMs ?? STILL_MS);
   }
 
   private broadcast(): void {
@@ -316,7 +343,8 @@ export class ElectronRelay {
     this.stillTimer = setTimeout(() => this.broadcast(), this.opts.stillMs ?? STILL_MS);
   }
 
-  /** A client still holding an unsent frame is skipped: it takes the next one once it has drained. */
+  /** A client still holding an unsent frame is skipped. Once it has drained it is sent the latest
+   *  frame: the next one, or the still re-send. */
   private write(res: ServerResponse): void {
     if (!this.frame || res.writableNeedDrain) return;
     res.write(`--${BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${this.frame.length}\r\n\r\n`);
@@ -347,6 +375,7 @@ export class ElectronRelay {
     if (this.ended) { ws.close(); return; }
     this.layerClients.add(ws);
     ws.on("close", () => {
+      this.skipped.delete(ws);
       if (this.layerClients.delete(ws)) this.updateScreencasts();
     });
     ws.send(JSON.stringify(this.layout()));
@@ -421,6 +450,9 @@ export class ElectronRelay {
     this.ended = true;
     if (this.stillTimer) clearTimeout(this.stillTimer);
     this.stillTimer = null;
+    if (this.catchUpTimer) clearTimeout(this.catchUpTimer);
+    this.catchUpTimer = null;
+    this.skipped.clear();
     for (const res of this.clients) res.end();
     this.clients.clear();
     for (const ws of this.layerClients) ws.close();
