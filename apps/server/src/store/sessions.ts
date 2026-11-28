@@ -86,6 +86,36 @@ export class SessionsStore {
   listDispatchedBy(id: string): Session[] {
     return (this.db.prepare(`${SELECT} WHERE s.dispatched_by_session_id = ? ORDER BY s.created_at`).all(id) as Row[]).map(toSession);
   }
+  /**
+   * A page of the sessions `id` dispatched with one of `kinds`, newest first (by `created_at`, then id),
+   * started before `before` when given — and the sessions each of those dispatched with one of `kinds`,
+   * oldest first, by the dispatcher's id. One statement, on `sessions_dispatched_by`. `limit: null` is
+   * every one. `nextBefore` is the last of the page when there are more past it.
+   */
+  dispatchedPage(id: string, kinds: readonly DispatchKind[], page: { limit: number | null; before?: { createdAt: number; id: string } }): {
+    children: Session[]; nested: Map<string, Session[]>; nextBefore: { createdAt: number; id: string } | null;
+  } {
+    const kindList = JSON.stringify(kinds);
+    const before = page.before ? "AND (s.created_at < ? OR (s.created_at = ? AND s.id < ?))" : "";
+    const rows = this.db.prepare(`WITH page AS (
+        SELECT s.id FROM sessions s WHERE s.dispatched_by_session_id = ? AND s.dispatched_by_kind IN (SELECT value FROM json_each(?)) ${before}
+        ORDER BY s.created_at DESC, s.id DESC LIMIT ?)
+      SELECT 0 AS depth, s.*, e.path AS cwd FROM sessions s JOIN environments e ON e.id = s.environment_id WHERE s.id IN (SELECT id FROM page)
+      UNION ALL
+      SELECT 1 AS depth, s.*, e.path AS cwd FROM sessions s JOIN environments e ON e.id = s.environment_id
+        WHERE s.dispatched_by_session_id IN (SELECT id FROM page) AND s.dispatched_by_kind IN (SELECT value FROM json_each(?))`)
+      .all(id, kindList, ...(page.before ? [page.before.createdAt, page.before.createdAt, page.before.id] : []), page.limit === null ? -1 : page.limit + 1, kindList) as (Row & { depth: number })[];
+    const newestFirst = (a: Row, b: Row) => b.created_at - a.created_at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+    const all = rows.filter((r) => r.depth === 0).sort(newestFirst).map(toSession);
+    const children = page.limit === null ? all : all.slice(0, page.limit);
+    const nested = new Map<string, Session[]>();
+    for (const r of rows.filter((x) => x.depth === 1).sort((a, b) => newestFirst(b, a))) {
+      const under = nested.get(r.dispatched_by_session_id!);
+      if (under) under.push(toSession(r)); else nested.set(r.dispatched_by_session_id!, [toSession(r)]);
+    }
+    const last = children.at(-1);
+    return { children, nested, nextBefore: all.length > children.length && last ? { createdAt: last.createdAt, id: last.id } : null };
+  }
   /** Every provider session id Realm holds — the import's dedup key (`ImportService`). One set
    *  rather than a query per candidate: the question is asked of ~1100 transcripts per scan, and the
    *  column is small enough that reading it whole is cheaper than the round trips. Sessions with no
@@ -388,6 +418,35 @@ export class SessionEventsStore {
       const text = (parsePayload(r.payload) as { text?: unknown } | undefined)?.text;
       return { sessionId: r.session_id, lastReply: typeof text === "string" ? replyLine(text) : null };
     });
+  }
+  /**
+   * For each of `sessionIds`, in one statement: its newest `assistant_text` (as `lastOfType` reads it)
+   * and its newest event of any of `activity` (as `lastOfTypes` reads it). Each is one indexed look
+   * back from the session's newest event. The rare activity row that fails validation is read again
+   * by `lastOfTypes`, which reads on past it.
+   */
+  lastReportAndActivity(sessionIds: readonly string[], activity: readonly SessionEvent["type"][]): Map<string, { report: SessionEvent | null; activity: SessionEvent | null }> {
+    const out = new Map<string, { report: SessionEvent | null; activity: SessionEvent | null }>();
+    for (const id of sessionIds) out.set(id, { report: null, activity: null });
+    if (sessionIds.length === 0) return out;
+    const rows = this.db.prepare(`WITH ids(id) AS (SELECT value FROM json_each(?))
+      SELECT 0 AS what, ids.id AS sid, ev.* FROM ids JOIN session_events ev
+        ON ev.seq = (SELECT seq FROM session_events WHERE session_id = ids.id AND type = 'assistant_text' ORDER BY seq DESC LIMIT 1)
+      UNION ALL
+      SELECT 1 AS what, ids.id AS sid, ev.* FROM ids JOIN session_events ev
+        ON ev.seq = (SELECT seq FROM session_events WHERE session_id = ids.id AND type IN (SELECT value FROM json_each(?)) ORDER BY seq DESC LIMIT 1)`)
+      .all(JSON.stringify(sessionIds), JSON.stringify(activity)) as (EventRow & { what: number; sid: string })[];
+    const parsed = (r: EventRow): SessionEvent | null => {
+      const payload = parsePayload(r.payload_json); if (payload === undefined) return null;
+      const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
+      return p.success ? p.data : null;
+    };
+    for (const r of rows) {
+      const entry = out.get(r.sid)!;
+      if (r.what === 0) entry.report = parsed(r);
+      else entry.activity = parsed(r) ?? this.lastOfTypes(r.sid, activity);
+    }
+    return out;
   }
   /** The newest persisted event of one type, or null. Skips rows that fail schema validation. */
   lastOfType(sessionId: string, type: SessionEvent["type"]): SessionEvent | null {

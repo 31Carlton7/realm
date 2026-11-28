@@ -30,6 +30,16 @@ describe("generateSessionTitle", () => {
     expect(model).toBe(BACKGROUND_MODEL);
   });
 
+  it("loads no MCP servers and no claude.ai connectors", async () => {
+    let options: unknown;
+    const query = ((args: { options: unknown }) => {
+      options = args.options;
+      return (async function* () { yield { type: "result", subtype: "success", result: "Fix login" } as never; })();
+    }) as never;
+    await generateSessionTitle("fix the login flow", { query });
+    expect(options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
+  });
+
   it("throws on a non-success result instead of returning a blank or garbage title", async () => {
     await expect(generateSessionTitle("x", { query: fakeQuery([{ type: "result", subtype: "error_max_turns" }]) }))
       .rejects.toThrow(/title generation failed/);

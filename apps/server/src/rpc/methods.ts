@@ -1204,7 +1204,7 @@ export function registerMethods(d: Deps): void {
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
   // The tables' side of the same subject: every child a session ever started, settled ones included.
-  reg("delegation.children", (p) => ({ children: d.children.list(p.sessionId), dismissed: d.teammates?.dismissed(p.sessionId) ?? [] }));
+  reg("delegation.children", (p) => ({ ...d.children.list(p.sessionId, { limit: p.limit, before: p.before }), dismissed: d.teammates?.dismissed(p.sessionId) ?? [] }));
   reg("delegation.child", (p) => ({ child: d.children.one(p.sessionId, p.childId) }));
   reg("delegation.addTeammate", (p) => {
     if (!d.teammates) throw new RpcError("UNAVAILABLE", "this Realm cannot add teammates");

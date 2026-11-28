@@ -1,7 +1,7 @@
 import type { IconName } from "@realm/ui";
 import {
   AGENT_META, ASSISTANT_CHORDS, CARET_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
-  TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_STYLE_COPY, TERMINALS_HISTORY_COPY, type NotificationCategory,
+  TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_STYLE_COPY, TERMINALS_HISTORY_COPY, EVENT_RETENTION_COPY, type NotificationCategory,
 } from "@realm/contracts";
 import { capabilities } from "../../platform";
 
@@ -122,6 +122,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     available: () => capabilities().meetings },
   { id: "sidebar-activity-order", tab: "general", section: "Sidebar", label: "Sort spaces by activity", terms: "order drag strip" },
   { id: "confirm-delete", tab: "general", section: "Deleting", label: "Ask before deleting", terms: "confirm delete trash" },
+  { id: "event-retention", tab: "general", section: "Storage", label: EVENT_RETENTION_COPY.label, terms: "retention trim prune disk space database old sessions vacuum" },
   { id: "terminal-history", tab: "general", section: "Terminals", label: TERMINALS_HISTORY_COPY.label, terms: "output history restart" },
   { id: "terminal-dock", tab: "general", section: "Terminals", label: "Session terminal", terms: "bottom right position dock place shell" },
   { id: "terminal-colors", tab: "general", section: "Terminals", label: "Terminal colours", terms: "colors palette ansi theme p10k powerlevel10k shell xterm" },

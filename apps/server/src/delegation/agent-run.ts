@@ -104,7 +104,7 @@ const WaitArgs = z.object({
   timeoutMs: z.number().int().min(1_000).max(3_600_000).default(900_000),
 });
 
-type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown): void };
+type SettingsLike = { get(key: string): unknown; getMany(keys: readonly string[]): Map<string, unknown>; set(key: string, value: unknown): void };
 
 /**
  * Plan 13 W1: `agent_run` — general task delegation, `browser_agent_run`'s proven shape opened up to
@@ -169,7 +169,10 @@ export class AgentRunService {
   /* ------------------------------ the seams other code consults ------------------------------ */
 
   private childRecord(sessionId: string): AgentChildRecord | null {
-    const v = this.d.settings.get(childKey(sessionId));
+    return this.parseRecord(this.d.settings.get(childKey(sessionId)));
+  }
+
+  private parseRecord(v: unknown): AgentChildRecord | null {
     if (!v || typeof v !== "object") return null;
     const r = v as Partial<AgentChildRecord>;
     if (typeof r.parentSessionId !== "string" || typeof r.goal !== "string") return null;
@@ -203,11 +206,23 @@ export class AgentRunService {
     return this.childRecord(sessionId);
   }
 
-  /** How much of its budget a child still running has spent so far, from the engine's run — null once
-   *  the run has settled (the record holds `workedMs` then) or for a child with no run. */
-  working(sessionId: string): number | null {
-    const parent = this.childRecord(sessionId)?.parentSessionId;
-    const run = parent ? this.d.engine.running(parent).find((r) => r.childSessionId === sessionId) : undefined;
+  /** The records of several children in one read, by session id; one nobody delegated with
+   *  `agent_run` is absent. */
+  records(sessionIds: readonly string[]): Map<string, AgentChildRecord> {
+    const values = this.d.settings.getMany(sessionIds.map(childKey));
+    const out = new Map<string, AgentChildRecord>();
+    for (const id of sessionIds) {
+      const record = this.parseRecord(values.get(childKey(id)));
+      if (record) out.set(id, record);
+    }
+    return out;
+  }
+
+  /** How much of its budget a child still running has spent so far, from the engine's run under the
+   *  lead its record names — null once the run has settled (the record holds `workedMs` then) or for a
+   *  child with no run. */
+  working(record: AgentChildRecord, sessionId: string): number | null {
+    const run = this.d.engine.running(record.parentSessionId).find((r) => r.childSessionId === sessionId);
     return run ? workingMs(run, Date.now()) : null;
   }
 

@@ -45,7 +45,7 @@ const RunArgs = z.object({
   constraints: BrowserAgentConstraintsSchema.optional(),
 });
 
-type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown): void };
+type SettingsLike = { get(key: string): unknown; getMany(keys: readonly string[]): Map<string, unknown>; set(key: string, value: unknown): void };
 
 /**
  * Plan 11 W5: browser-agent sessions. NOT a new agent runtime — a delegated browser agent is a REAL
@@ -96,7 +96,10 @@ export class BrowserAgentService {
   /* ------------------------------ the seams other code consults ------------------------------ */
 
   private childRecord(sessionId: string): ChildRecord | null {
-    const v = this.d.settings.get(childKey(sessionId));
+    return this.parseRecord(this.d.settings.get(childKey(sessionId)));
+  }
+
+  private parseRecord(v: unknown): ChildRecord | null {
     if (!v || typeof v !== "object") return null;
     const r = v as Partial<ChildRecord>;
     if (typeof r.parentSessionId !== "string" || typeof r.goal !== "string") return null;
@@ -117,9 +120,16 @@ export class BrowserAgentService {
     return this.childRecord(sessionId)?.parentSessionId ?? null;
   }
 
-  /** The goal this browser agent was handed, for its lead's list of sub-agents. */
-  goalOf(sessionId: string): string | null {
-    return this.childRecord(sessionId)?.goal ?? null;
+  /** The goals several browser agents were handed, for their lead's list of sub-agents, in one read.
+   *  A session nobody delegated a browser to is absent. */
+  goalsOf(sessionIds: readonly string[]): Map<string, string> {
+    const values = this.d.settings.getMany(sessionIds.map(childKey));
+    const out = new Map<string, string>();
+    for (const id of sessionIds) {
+      const goal = this.parseRecord(values.get(childKey(id)))?.goal;
+      if (goal !== undefined) out.set(id, goal);
+    }
+    return out;
   }
 
   /** The gateway's `sessionToolset` seam: a delegated child sees ONLY `realm-browser`. Everything

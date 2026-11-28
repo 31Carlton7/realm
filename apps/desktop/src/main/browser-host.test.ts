@@ -6,6 +6,7 @@ import {
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks, type WindowKeyboard,
 } from "./browser-host";
+import { pageKeepReason, type GuardedPage } from "./page-busy";
 
 describe("normalizeAddress", () => {
   it("keeps http(s) URLs and about:blank as-is", () => {
@@ -1997,6 +1998,33 @@ describe("HiddenViews — every window's hidden panes, with an age limit", () =>
     expect(r.kept).toEqual(expect.arrayContaining(Object.entries(reasons).map(([id, reason]) => ({ id, reason }))));
     for (const id of Object.keys(reasons)) expect(w.host.isDiscarded(id)).toBe(false);
     expect(w.host.isDiscarded("next")).toBe(true);
+  });
+
+  /** A page still loading for an iframe that never finishes: its main frame answers clean, the slow
+   *  iframe never answers, and a third frame holds `said`. */
+  function slowIframePage(said: unknown): GuardedPage {
+    const main = { executeJavaScript: async () => null };
+    return {
+      isDevToolsOpened: () => false, isCurrentlyAudible: () => false, isLoading: () => true,
+      mainFrame: { ...main, framesInSubtree: [main, { executeJavaScript: () => new Promise(() => {}) }, { executeJavaScript: async () => said }] },
+    };
+  }
+  const nothingElse = { typed: false, popups: 0 };
+
+  it.each(["form", "media", "session"] as const)("keeps a page with a never-finishing iframe past the age limit when a frame says %s", async (said) => {
+    // THE MUTANT: "loading" answered before the frames were asked, or only the main frame asked. The
+    // age limit lapses "loading", so a slow ad frame took an MSAL sign-in, a muted video or typing with it.
+    const { pool, open, at } = windows(() => pageKeepReason(slowIframePage(said), nothingElse));
+    const w = open();
+    w.page("a");
+    at(0); w.hide("a");
+    at(HIDDEN_KEEP_MAX_MS);
+    expect(await pool.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 })).toEqual({ discarded: [], kept: [{ id: "a", reason: said }] });
+    expect(w.host.isDiscarded("a")).toBe(false);
+  });
+
+  it("still calls a page loading when no frame holds anything stronger", async () => {
+    expect(await pageKeepReason(slowIframePage(null), nothingElse)).toBe("loading");
   });
 });
 

@@ -5,7 +5,7 @@ import {
   sendAsAgent, shownPage, windowOpenAction, type FaviconFetch, type HiddenViews, type KeepReason, type PageProcess, type ViewFactory,
 } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
-import { PAGE_BUSY, TypedSince } from "./page-busy";
+import { TypedSince, pageKeepReason } from "./page-busy";
 import { bothReads, coverFields, fitWithin, pageFields, SECRET_FIELDS, WITHHELD, type SecretFields } from "./phone-frame";
 import { guardPanePermissions } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
@@ -458,24 +458,11 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
   const viewBoxes = new Map<string, WebContentsView>();
   const destroyedCbs: ((id: string) => void)[] = [];
   const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
-  /** The discard guard (`BrowserPaneHost.sweep`): what the process says, then what the page says. */
+  /** The discard guard (`HiddenViews.sweep` and the off-screen budget). */
   const guard = async (id: string): Promise<KeepReason | null> => {
     const wc = views.get(id);
     if (!wc || wc.isDestroyed()) return null;
-    if (wc.isDevToolsOpened()) return "devtools";
-    if (host.typedOf(id)) return "form";
-    if (wc.isCurrentlyAudible()) return "media";
-    if (wc.isLoading()) return "loading";
-    if (host.popupsOf(id).length > 0) return "popup";
-    for (const frame of wc.mainFrame.framesInSubtree) {
-      // A frame that will not answer in a second is not one to throw away on a guess.
-      const said = await Promise.race([
-        frame.executeJavaScript(PAGE_BUSY).catch(() => null),
-        new Promise((resolve) => setTimeout(() => resolve("loading"), 1_000).unref?.()),
-      ]);
-      if (said === "media" || said === "form" || said === "session" || said === "loading") return said;
-    }
-    return null;
+    return pageKeepReason(wc, { typed: host.typedOf(id), popups: host.popupsOf(id).length });
   };
   const host = new BrowserPaneHost({
     guard,

@@ -51,7 +51,7 @@ import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { AGENT_LOGIN_HINTS, DEFAULT_PERMISSION_MODE_KEY, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
+import { AGENT_LOGIN_HINTS, DEFAULT_PERMISSION_MODE_KEY, EVENT_RETENTION_EVERY_HOURS, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
@@ -2019,9 +2019,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // resumable, and standing aside while an agent works (`PayloadCompactor` states the design).
   const payloadCompactor = new PayloadCompactor({ db, busy: () => sessions.statusCounts().working > 0 });
   void payloadCompactor.run();
-  // When the owner sets a retention window, sessions idle past it have their long tool payloads cut.
-  // Either way the file is shrunk when enough is free (`EventRetention` states the rule). Never during
-  // boot: first after ten minutes, then every six hours.
   const eventRetention = new EventRetention({
     db, dbPath: dbPath(opts.home), settings,
     busy: () => agentsNeedTheServer(sessions.statusCounts()),
@@ -2031,7 +2028,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       end: () => clearMaintenance(opts.home),
     },
   });
-  eventRetention.start(10 * 60_000, 6 * 60 * 60_000);
+  eventRetention.start(10 * 60_000, EVENT_RETENTION_EVERY_HOURS * 60 * 60_000);
   // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in
   // the background (`SessionService.backfillTurnMedia`).
   void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));

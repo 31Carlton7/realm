@@ -80,6 +80,7 @@ export * from "./editors";
 export * from "./link-open";
 export * from "./realm-repo";
 export * from "./terminals";
+export * from "./storage";
 export * from "./terminal-programs";
 export * from "./schedules";
 export * from "./teammates";
