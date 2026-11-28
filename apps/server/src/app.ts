@@ -1917,6 +1917,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   resourcesLate = resources;
   const resourcePolicies = new ResourcePolicies({
     settings, mcp: mcpHub, adapt: adaptIdle,
+    busySpaces: () => [...new Set(sessions.listAll().filter((s) => s.status === "running" || s.status === "waiting_permission").map((s) => s.spaceId))],
     app: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
   });
   /* The Memory page's side: the report with what each "free memory now" button would let go of, the

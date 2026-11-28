@@ -23,7 +23,7 @@ import { canReveal, publishShownFile, revealPath, showInLabel } from "./shown-fi
 import { QuickLookView } from "./QuickLookView";
 import { VideoView } from "./VideoView";
 import { recallDocumentsView, rememberDocumentsView } from "./view-memory";
-import { forgetKeptTyping, keepTyping, keptTyping } from "./kept-typing";
+import { forgetKeptTyping, holdOpenBuffers, keepTyping, keptTyping } from "./kept-typing";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
@@ -137,6 +137,8 @@ export function DocumentsPane({ item }: PaneProps) {
   // listener especially — re-registering it per edit would drop events fired mid-render).
   const buffersRef = useRef(buffers);
   buffersRef.current = buffers;
+  // What this pane holds that is not on disk keeps its window loaded (unload-guard.ts).
+  useEffect(() => holdOpenBuffers(documentsId, () => Object.values(buffersRef.current)), [documentsId]);
   const activeRef = useRef(active);
   activeRef.current = active;
 

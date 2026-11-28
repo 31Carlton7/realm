@@ -1,18 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BROWSER_DISCARD_HIDDEN_KEY, BROWSER_KEEP_HIDDEN_KEY, MCP_IDLE_STOP_KEY } from "@realm/contracts";
+import { BROWSER_DISCARD_HIDDEN_KEY, BROWSER_KEEP_HIDDEN_KEY, MCP_IDLE_STOP_KEY, WINDOW_IDLE_MINUTES_KEY, WINDOW_UNLOAD_IDLE_KEY } from "@realm/contracts";
 import { POLICY_TICK_MS, ResourcePolicies, minutesSetting } from "./policies";
 
 afterEach(() => { vi.useRealTimers(); });
 
-function setup(o: { settings?: Record<string, unknown>; attached?: boolean; slow?: Promise<void> } = {}) {
-  const asked: { hiddenMs: number | null; keepHidden: number; policy?: boolean }[] = [];
+function setup(o: { settings?: Record<string, unknown>; attached?: boolean; slow?: Promise<void>; adapt?: (m: number, windows?: { warn: number; critical: number }) => number; busySpaces?: string[] } = {}) {
+  const asked: unknown[] = [];
+  const windowsAsked: unknown[] = [];
   const settings = new Map(Object.entries(o.settings ?? {}));
   let attached = o.attached ?? true;
   const p = new ResourcePolicies({
     settings: { get: (k) => settings.get(k) },
-    app: () => (attached ? { call: async (_op, params) => { asked.push(params); await o.slow; return { discarded: [], kept: [] }; } } : null),
+    ...(o.adapt ? { adapt: o.adapt } : {}),
+    ...(o.busySpaces ? { busySpaces: () => o.busySpaces! } : {}),
+    app: () => (attached ? { call: async (op, params) => {
+      if (op === "windowSweep") { windowsAsked.push(params); return { unloaded: [], kept: [] }; }
+      asked.push(params); await o.slow; return { discarded: [], kept: [] };
+    } } : null),
   });
-  return { p, asked, settings, attach: (v: boolean) => { attached = v; } };
+  return { p, asked, windowsAsked, settings, attach: (v: boolean) => { attached = v; } };
 }
 
 describe("the browser pane policy", () => {
@@ -77,8 +83,37 @@ describe("the MCP policy", () => {
 
   it("shortens the browser window under pressure too", async () => {
     const { asked } = setup();
-    const p = new ResourcePolicies({ settings: { get: () => undefined }, adapt: (m) => Math.min(m, 5), app: () => ({ call: async (_op, params) => { asked.push(params); } }) });
+    const p = new ResourcePolicies({ settings: { get: () => undefined }, adapt: (m) => Math.min(m, 5), app: () => ({ call: async (op, params) => { if (op === "browserSweep") asked.push(params); } }) });
     await p.tick();
     expect(asked).toEqual([{ hiddenMs: 5 * 60_000, keepHidden: 3, policy: true }]);
+  });
+});
+
+describe("the idle window policy", () => {
+  it("asks the app each tick to unload windows not focused for four hours, naming the spaces with work under way", async () => {
+    const { p, windowsAsked } = setup({ busySpaces: ["sp-working"] });
+    await p.tick();
+    expect(windowsAsked).toEqual([{ idleMs: 240 * 60_000, unloadIdle: true, busySpaces: ["sp-working"] }]);
+  });
+
+  it("shortens under memory pressure with a window of its own", async () => {
+    const { p, windowsAsked } = setup({ adapt: (m, windows) => Math.min(m, windows?.warn ?? 10) });
+    await p.tick();
+    expect(windowsAsked).toEqual([{ idleMs: 30 * 60_000, unloadIdle: true, busySpaces: [] }]);
+  });
+
+  it("follows its minutes, and Unload idle windows switched off unloads nothing", async () => {
+    const { p, windowsAsked, settings } = setup({ settings: { [WINDOW_IDLE_MINUTES_KEY]: 60 } });
+    await p.tick();
+    settings.set(WINDOW_IDLE_MINUTES_KEY, 0);
+    await p.tick();
+    settings.set(WINDOW_IDLE_MINUTES_KEY, 60);
+    settings.set(WINDOW_UNLOAD_IDLE_KEY, false);
+    await p.tick();
+    expect(windowsAsked).toEqual([
+      { idleMs: 60 * 60_000, unloadIdle: true, busySpaces: [] },
+      { idleMs: null, unloadIdle: true, busySpaces: [] },
+      { idleMs: null, unloadIdle: false, busySpaces: [] },
+    ]);
   });
 });

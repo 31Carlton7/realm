@@ -1092,6 +1092,17 @@ Every window comes back where it was left — on its space, with its view, at it
 maximised or full screen — unless the display it was on is gone, in which case its size comes back
 centred on the main display. A window closed while others stay open is forgotten; the last one closed
 is kept, so reopening Realm lands where you were. A window whose space was deleted does not come back.
+Coming back is not the same as being loaded. A window's page costs its renderer whether or not anyone
+looks at its space, so with Unload idle windows on (Settings ▸ RAM, the default) only the three windows
+used last open at launch, and the rest open, exactly as they were, the moment their space is asked for.
+A window nobody has focused for four hours (sooner when memory is short) gives up its page and stays a
+window; focused again, it loads on the space, panes, page and scroll it had, never a fresh boot. The one
+in front, one an agent drives, one whose space has work under way and one with live audio stay loaded.
+So do the window used last, minimised or hidden, since its page is what still posts "needs you" and
+"done"; one on another display, which someone may be looking at; and one holding anything kept only in
+its page: a prompt or attachment not sent, a commit message, a review being written, a file edit not
+on disk, an open sheet. Unloading never costs work, only a reload. A window whose space starts work
+while it is unloaded loads at once, so the agent finds its panes there.
 
 ## Motion
 

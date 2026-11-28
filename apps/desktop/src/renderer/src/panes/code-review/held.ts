@@ -25,6 +25,9 @@ export function useReviewDraft(key: string): [ReviewDraft, (next: ReviewDraft | 
   return [draft, set];
 }
 
+/** Whether a review is being written for any request: it lives here and nowhere else. */
+export const reviewDraftHeld = (): boolean => drafts.size > 0;
+
 export const heldDetails = new Map<string, PrDetail>();
 /** Files and patches by `<prKey>@<head>`: a push makes a new head, and nothing read at the old one
  *  is shown against the new. */

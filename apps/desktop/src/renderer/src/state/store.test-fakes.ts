@@ -29,7 +29,8 @@ export function emptyResourceReport(): ResourceReport {
 export function defaultResourcePolicies(): ResourcePolicies {
   return {
     engineIdleMinutes: 30, mcpIdleMinutes: 30, layaIdleMinutes: 10, simulatorIdleMinutes: 30, browserHiddenMinutes: 20, browserKeepHidden: 3, adaptive: true,
-    effective: { engines: 30, mcp: 30, laya: 10, simulators: 30, browsers: 20 },
+    windowIdleMinutes: 240, unloadIdleWindows: true,
+    effective: { engines: 30, mcp: 30, laya: 10, simulators: 30, browsers: 20, windows: 240 },
   };
 }
 
@@ -1995,6 +1996,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const field: Record<string, keyof ResourcePolicies> = {
         "sessions.engineIdleMinutes": "engineIdleMinutes", "mcp.idleStopMinutes": "mcpIdleMinutes", "laya.idleStopMinutes": "layaIdleMinutes",
         "simulators.idleShutdownMinutes": "simulatorIdleMinutes", "browser.discardHiddenMinutes": "browserHiddenMinutes", "browser.keepHidden": "browserKeepHidden", "resources.adaptive": "adaptive",
+        "windows.idleUnloadMinutes": "windowIdleMinutes", "windows.unloadIdle": "unloadIdleWindows",
       };
       data.resourcePolicies = { ...data.resourcePolicies, [field[key]!]: value };
       return data.resourcePolicies;
