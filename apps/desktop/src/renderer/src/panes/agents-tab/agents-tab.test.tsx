@@ -664,7 +664,7 @@ describe("a change to one sub-agent of a paged lead", () => {
 
   it("starts the pages again under a re-read that more began since than a page holds, so none is out of reach", async () => {
     const fifty = Array.from({ length: 50 }, (_, i) => ended(i + 1));
-    const { store, data } = await paged(fifty);
+    const { api, store, data } = await paged(fifty);
     store.setState({ delegatedRuns: { se1: [{ sessionId: "p02", startedAt: 0, detached: true, owned: true }] } });
     await store.getState().loadSubagent("se1", "p02");
     await store.getState().loadOlderSubagents("se1");
@@ -674,8 +674,10 @@ describe("a change to one sub-agent of a paged lead", () => {
     await store.getState().refreshSubagents("se1");
     // Mutant: keep the older pages and their cursor, and Task 51 to 55 can never be reached.
     expect(store.getState().subagentsBefore.se1?.id).toBe("p56");
-    // The one still running stays while the pages start again.
+    // The one still running stays while the pages start again. Mutant: drop it, and it is read again.
     expect(held(store)?.[0]).toBe("p02");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.calls.filter((c) => c === "getDelegatedChild:se1:p02")).toHaveLength(1);
     for (let pages = 0; store.getState().subagentsBefore.se1 && pages < 10; pages++) await store.getState().loadOlderSubagents("se1");
     expect(store.getState().subagentsBefore.se1).toBeNull();
     expect(held(store)).toEqual(data.se1.map((c) => c.session.id));
