@@ -227,16 +227,14 @@ describe("a space folder index longer than Claude's auto-memory loads", () => {
     return m ? m[1]!.split("\n") : null;
   };
 
-  it("hands Claude lines 201 to 222 and none before, the ones about the prompt first", async () => {
+  it("hands Claude lines 201 to 222 and none before, in the index's order", async () => {
     const { all, context } = await withIndex(222);
     const claude = context("claude");
-    const got = folderLines(claude)!;
-    expect([...got].sort()).toEqual(all.slice(200).sort());
-    expect(got.slice(0, 2)).toEqual([all[219], all[209]]);
-    expect(got.slice(2)).toEqual(all.slice(200).filter((l) => !l.includes("Notary")));
+    // THE MUTANT: rank a tail that fits — the prompt reorders it, and so the system prompt.
+    expect(folderLines(claude)).toEqual(all.slice(200));
     expect(claude).not.toContain("Notary head");
     expect(claude).toContain("Your auto-memory loads only the first 200 lines of");
-    expect(claude).toContain("the ones closest to this session's first prompt (or its title) first");
+    expect(claude).toContain("Its lines after that follow;");
     expect(claude).toContain("ROOT-FACT");
   });
 
@@ -254,6 +252,76 @@ describe("a space folder index longer than Claude's auto-memory loads", () => {
     expect(folderLines(codex)).toEqual(all);
     expect(codex).toContain("Its MEMORY.md follows.");
     expect(codex).not.toContain("Your auto-memory loads");
+  });
+});
+
+describe("one memory index, ordered for the prompt cache", () => {
+  /** A root index past the profile's cap and a space folder index past Claude's 200 lines: the shape of
+   *  the owner's own (57 and 224 lines), so both Realm-injected indexes have lines to rank. */
+  const root = Array.from({ length: 60 }, (_, i) => i % 7 === 3
+    ? `- Root ${i}: notarization needs the keychain unlocked and the asc key, which ${"is held in the profile ".repeat(4)}`
+    : `- Root ${i}: a profile-wide fact about something else, written out at a length ${"like the real ones ".repeat(5)}`);
+  const folder = Array.from({ length: 224 }, (_, i) => i % 9 === 4
+    ? `- [Tail ${i + 1}](tail-${i + 1}.md) — notarization stalls on the asc upload`
+    : `- [Entry ${i + 1}](entry-${i + 1}.md) — note ${i + 1}`);
+  const NOTARY = "notarization keeps failing on the keychain, what do I do";
+  const PORTS = "the live check times out on port 8811";
+
+  async function withBoth() {
+    const h = await made();
+    writeFileSync(join(h.repo, "MEMORY.md"), `${root.join("\n")}\n`);
+    const dir = h.repos.spaceFolderFor(SPACE)!.dir;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "MEMORY.md"), `${folder.join("\n")}\n`);
+    const environments = { ensurePrimary: (spaceId: string): Environment => ({ id: "e", spaceId, path: h.home, branch: null, kind: "primary", portBlockStart: null, createdAt: 0, updatedAt: 0 }) };
+    const memory = new MemoryService({ home: h.home, settings: h.settings, environments, claudeDir: join(h.home, "claude-home"), repos: h.repos });
+    memory.set(SPACE, "SPACE-DOC the user's own standing rules");
+    const o = (kind: "claude" | "codex", query: string) => ({ spaceId: SPACE, kind, cwd: h.home, skillsInjected: false, query });
+    return { ...h, memory, o };
+  }
+  /** Every line inside a `<memory-index>` tag of `text`. */
+  const indexLines = (text: string | undefined): string[] =>
+    [...(text ?? "").matchAll(/<memory-index[^>]*>\n([\s\S]*?)\n<\/memory-index>/g)].flatMap((m) => m[1]!.split("\n"));
+  const counts = (ls: string[]): Map<string, number> => ls.reduce((m, l) => m.set(l, (m.get(l) ?? 0) + 1), new Map<string, number>());
+
+  it("gives Claude every index line Codex is given, each exactly once, with the CLI's 200", async () => {
+    const { memory, o } = await withBoth();
+    for (const query of [NOTARY, PORTS, ""]) {
+      const claude = [...indexLines(memory.systemContextFor(o("claude", query))), ...indexLines(memory.promptContextFor(o("claude", query)))];
+      // Codex is handed everything in its system context, in place: the lines that reach the model today.
+      const codex = indexLines(memory.systemContextFor(o("codex", query)));
+      const cli = folder.slice(0, 200);
+      const want = counts(codex);
+      // THE MUTANT: drop the ranked lines (`rankedBlock` returns undefined) — the profile lines ranked in are lost.
+      // THE MUTANT: show `index` rather than `head` in the system prompt — the ranked lines ride twice.
+      expect(counts([...claude, ...cli])).toEqual(want);
+      expect([...counts([...claude, ...cli]).values()].every((n) => n === 1)).toBe(true);
+      expect(memory.promptContextFor(o("codex", query))).toBeUndefined();
+    }
+  });
+
+  it("gives two Claude sessions of one space the same system prompt, and only their ranked lines differ", async () => {
+    const { memory, o } = await withBoth();
+    const notary = memory.systemContextFor(o("claude", NOTARY))!;
+    const ports = memory.systemContextFor(o("claude", PORTS))!;
+    // THE MUTANT: leave the ranked lines in the system prompt (`split` false) — it differs by prompt.
+    expect(notary).toBe(ports);
+    const ranked = memory.promptContextFor(o("claude", NOTARY))!;
+    expect(ranked).not.toBe(memory.promptContextFor(o("claude", PORTS)));
+    expect(indexLines(ranked).some((l) => l.includes("notarization"))).toBe(true);
+    expect(indexLines(ranked).every((l) => !notary.includes(l))).toBe(true);
+    expect(ranked).toContain('<memory-index repo="profile">');
+    // The space doc still has the last word in the system prompt, after every index.
+    expect(notary.trimEnd().endsWith("SPACE-DOC the user's own standing rules")).toBe(true);
+    expect(notary.indexOf("<memory-index>")).toBeLessThan(notary.indexOf("# Space memory"));
+  });
+
+  it("freezes the ranked lines with the session's block", async () => {
+    const { memory, o } = await withBoth();
+    const first = memory.promptContextForSession("s1", o("claude", NOTARY));
+    // A later start of the same session, whose query no longer matters.
+    expect(memory.promptContextForSession("s1", o("claude", PORTS))).toBe(first);
+    expect(memory.contextForSession("s1", o("claude", PORTS))).toBe(memory.systemContextFor(o("claude", NOTARY)));
   });
 });
 

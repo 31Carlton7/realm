@@ -106,10 +106,13 @@ export function indexWarning(file: string, index: string): string | null {
  *  way last. `pointer` is the line that says where the rest is, shown when the block is cut. `cut`
  *  says the text is already short of the whole (a read cap upstream), so it needs its pointer even if
  *  all of it fits here. `query`, when it has words, is what a block that does not fit ranks its lines
- *  against past its head (`INDEX_HEAD_SHARE`). */
-export type BudgetBlock = { priority: number; cap: number; text: string; pointer: string; cut?: boolean; query?: string };
-/** What of one block fits: its text, whole or cut at a line, and whether it needs its pointer. */
-export type FittedBlock = { text: string; cut: boolean };
+ *  against past its head (`INDEX_HEAD_SHARE`), or all of them with `rankAll`, for a block that has no
+ *  head of its own. */
+export type BudgetBlock = { priority: number; cap: number; text: string; pointer: string; cut?: boolean; query?: string; rankAll?: boolean };
+/** What of one block fits: its text, whole or cut at a line, and whether it needs its pointer. `head`
+ *  is the start of `text` that is the same whatever the query: all of it unless ranking chose lines,
+ *  and then the lines after `head` are the ones it chose. */
+export type FittedBlock = { text: string; cut: boolean; head: string };
 
 /**
  * What of each block fits under one `total`, in the order the blocks were given.
@@ -124,22 +127,24 @@ export type FittedBlock = { text: string; cut: boolean };
  */
 export function fitBlocks(blocks: readonly BudgetBlock[], total: number): FittedBlock[] {
   const order = blocks.map((b, i) => ({ b, i })).sort((x, y) => x.b.priority - y.b.priority || x.i - y.i);
-  const out: FittedBlock[] = blocks.map(() => ({ text: "", cut: false }));
+  const out: FittedBlock[] = blocks.map(() => ({ text: "", cut: false, head: "" }));
   let left = total;
   order.forEach(({ b, i }, k) => {
     const held = order.slice(k + 1).reduce((n, o) => n + o.b.pointer.length, 0);
     const room = Math.max(0, Math.min(b.cap, left - held));
     if (!b.cut && b.text.length <= room) {
-      out[i] = { text: b.text, cut: false };
+      out[i] = { text: b.text, cut: false, head: b.text };
       left -= b.text.length;
       return;
     }
     const max = room - b.pointer.length;
-    const text = b.cut && b.text.length <= max ? b.text
-      : b.query && terms(b.query).length > 0 ? fitRanked(b.text, max, b.query, b.cut === true)
-      : cutAtLine(b.text, max);
-    out[i] = { text, cut: true };
-    left -= text.length + b.pointer.length;
+    const ranked = b.query !== undefined && terms(b.query).length > 0;
+    const fitted = b.cut && b.text.length <= max ? unranked(b.text)
+      : !ranked ? unranked(cutAtLine(b.text, max))
+      : b.rankAll ? { text: cutAtLine(inRankOrder(b.text, b.query!), max), head: "" }
+      : fitRanked(b.text, max, b.query!, b.cut === true);
+    out[i] = { ...fitted, cut: true };
+    left -= fitted.text.length + b.pointer.length;
   });
   return out;
 }
@@ -149,7 +154,7 @@ export function fitBlocks(blocks: readonly BudgetBlock[], total: number): Fitted
  * after it that rank highest for `query`, then the rest in order while they fit. The lines kept stay
  * in the order the index has them. `partial` drops the last line, which a read cap may have cut short.
  */
-function fitRanked(text: string, max: number, query: string, partial: boolean): string {
+function fitRanked(text: string, max: number, query: string, partial: boolean): { text: string; head: string } {
   const head = cutAtLine(text, Math.floor(max * INDEX_HEAD_SHARE));
   const lines = text.split("\n");
   if (partial) lines.pop();
@@ -164,7 +169,7 @@ function fitRanked(text: string, max: number, query: string, partial: boolean): 
     kept.add(i);
     left -= cost;
   }
-  return [head, ...tail.filter((_, i) => kept.has(i))].filter((l) => l !== "").join("\n");
+  return { text: [head, ...tail.filter((_, i) => kept.has(i))].filter((l) => l !== "").join("\n"), head };
 }
 
 /** The positions of `lines`, the ones that rank highest for `query` first and the rest after them in order. */
@@ -179,6 +184,9 @@ function inRankOrder(text: string, query: string): string {
   const lines = text.split("\n");
   return rankedFirst(lines, query).map((i) => lines[i]!).join("\n");
 }
+
+/** A fitted text no query chose any of. */
+const unranked = (text: string): { text: string; head: string } => ({ text, head: text });
 
 /** The longest start of `text` that ends at a line break and is at most `max` long — "" when not even
  *  the first line fits. */
@@ -202,23 +210,25 @@ export type RepoIndexLike = { scope: "profile" | "space"; kind?: "root" | "space
  * then the profile's root — the most specific gives way last. Each entry comes back with `index` cut
  * to what fits and `truncated` set where anything is missing, so the block that renders it adds
  * `readRestPointer` — the line this budget held room for. With a `query` (`indexQuery`), what is cut
- * past an index's head is what ranked lowest for it, and `ranked` says so.
+ * past an index's head is what ranked lowest for it, and `ranked` says so. `head` is the start of
+ * `index` that does not depend on the query (`FittedBlock`).
  *
  * A `claudeTail` entry is only the lines Claude's auto-memory left out (`claudeUnloadedLines`): it has
- * no head of its own to keep, so all of it is put in rank order, and what does not fit is the lowest.
+ * no head of its own to keep, so when it does not fit all of it is put in rank order, and what does not
+ * fit is the lowest. When it fits it keeps the index's order.
  */
-export function budgetRepoIndexes<T extends RepoIndexLike>(indexes: readonly T[], total = MEMORY_INDEX_BUDGET, query = ""): (T & { ranked: boolean })[] {
+export function budgetRepoIndexes<T extends RepoIndexLike>(indexes: readonly T[], total = MEMORY_INDEX_BUDGET, query = ""): (T & { ranked: boolean; head: string })[] {
   const ranked = terms(query).length > 0;
   const fitted = fitBlocks(indexes.map((r) => {
     const folder = r.kind === "spaceFolder";
     return {
       priority: folder ? 0 : r.scope === "space" ? 1 : 2,
       cap: folder ? SPACE_FOLDER_INDEX_CAP : r.scope === "space" ? TEAM_INDEX_CAP : PROFILE_INDEX_CAP,
-      text: r.claudeTail ? inRankOrder(r.index, query) : r.index,
-      pointer: readRestPointer({ ...r, ranked }), cut: r.truncated, query: r.claudeTail ? "" : query,
+      text: r.index,
+      pointer: readRestPointer({ ...r, ranked }), cut: r.truncated, query, rankAll: r.claudeTail === true,
     };
   }), total);
-  return indexes.map((r, i) => ({ ...r, index: fitted[i]!.text, truncated: fitted[i]!.cut, ranked: ranked && fitted[i]!.cut }));
+  return indexes.map((r, i) => ({ ...r, index: fitted[i]!.text, head: fitted[i]!.head, truncated: fitted[i]!.cut, ranked: ranked && fitted[i]!.cut }));
 }
 
 /**

@@ -2380,7 +2380,11 @@ export class SessionService {
     const first = this.d.events.listOfTypes(id, ["user_message"], { afterSeq: 0, limit: 1 })[0]?.event;
     const firstPrompt = first?.type === "user_message" ? first.payload.text : sending;
     const query = indexQuery(firstPrompt, s.title === DEFAULT_TITLE ? null : s.title);
-    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined, query });
+    const contextOptions = { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined, query };
+    const baseContext = this.d.memory.contextForSession(id, contextOptions);
+    // The index lines ranked for this session, which Claude's first prompt carries so that its system
+    // prompt is the same for every session in the space.
+    const promptContext = this.d.memory.promptContextForSession(id, contextOptions);
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
@@ -2431,6 +2435,7 @@ export class SessionService {
       cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
       skills,
       systemContext,
+      ...(promptContext ? { firstPromptContext: promptContext } : {}),
       ...(memoryDir ? { memoryDirectory: memoryDir } : {}),
       // A teammate's home chat is compacted well short of a 1M window; its task sessions are not.
       ...(compactWindow ? { autoCompactWindow: compactWindow, afterCompaction: () => this.d.teammateHome?.afterCompaction?.(id) } : {}),
