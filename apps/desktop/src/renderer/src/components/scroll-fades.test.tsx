@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { act, render } from "@testing-library/react";
-import { useRef } from "react";
-import { ScrollFades, ScrollFadesX, useScrollEdges } from "./ScrollFades";
+import { useRef, useState } from "react";
+import { ScrollFades, ScrollFadesX, useDissolve, useScrollEdges } from "./ScrollFades";
 
 /** jsdom lays nothing out, so a scroller's metrics have to be stated. These are the four numbers the
  *  hook reads — the point of the test is that the horizontal band reads the OTHER two. */
@@ -84,5 +84,28 @@ describe("the dissolve is gated on there being something under it", () => {
     for (let top = 400; top <= 1300; top += 100) scrollTo(top);
     // React may call a component once more before it bails out of an equal state; never once a scroll.
     expect(renders - settled).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("the dissolve's marking", () => {
+  it("is written only when the ends it names change, not on every render", () => {
+    let scroller!: HTMLDivElement;
+    let bump!: () => void;
+    function Harness() {
+      const ref = useRef<HTMLDivElement>(null);
+      const [, set] = useState(0);
+      bump = () => set((n) => n + 1);
+      useDissolve(ref);
+      return <div ref={(n) => { ref.current = n; if (n) scroller = n; }} />;
+    }
+    render(<Harness />);
+    act(() => { sized(scroller, { scrollHeight: 500, clientHeight: 100 }); scroller.dispatchEvent(new Event("scroll")); });
+    expect(scroller.dataset.dissolve).toBe("end");
+    const watch = new MutationObserver(() => {});
+    watch.observe(scroller, { attributes: true });
+    act(() => bump());
+    act(() => bump());
+    expect(watch.takeRecords()).toEqual([]);
+    watch.disconnect();
   });
 });

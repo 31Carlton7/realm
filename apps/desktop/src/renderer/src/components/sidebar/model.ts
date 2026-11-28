@@ -20,8 +20,10 @@ export type SidebarState = {
   /** The profile this window shows. Its own lists (`items`, `sessions`) carry every space of it. */
   activeProfileId: string | null;
   activeSpaceId: string | null;
-  /** Every space of the window's profile, as this window holds them, archived rows included. */
+  /** The spaces of the window's profile it has read, as this window holds them, archived rows included. */
   items: readonly Item[];
+  /** Which spaces of the profile `items` holds; the others are drawn from `allItems`. Absent: all. */
+  heldSpaces?: readonly string[];
   /** Every space's items, as `items.listAll` answers: archived rows are already left out. */
   allItems: readonly Item[];
   /** The active space's session rows (fresher than `allSessions` for that space). */
