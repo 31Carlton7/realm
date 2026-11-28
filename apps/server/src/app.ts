@@ -1608,7 +1608,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
     profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
     transcript: { note: (sessionId, ev) => sessionService?.publishServerEvent(sessionId, ev) },
-    // Each session's acts draw its own cursor in the page, named by its agent and its title.
     actorOf: (sessionId) => {
       const s = sessionsStore.get(sessionId);
       return s ? { sessionId, agentKind: s.agentKind, label: browserActorLabel(s.agentKind, s.title) } : null;

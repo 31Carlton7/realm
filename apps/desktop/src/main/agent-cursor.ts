@@ -273,7 +273,7 @@ export function pillOffset(form: CursorForm): readonly [number, number] {
 
 /** An agent's mark as the page draws it: the sidebar's brand mark, or none for an agent that has only
  *  one of Realm's stroke glyphs (the fake agent, Hermes). */
-export type CursorMark = { viewBox: string; paths: readonly { d: string; evenOdd?: true }[] };
+type CursorMark = { viewBox: string; paths: readonly { d: string; evenOdd?: true }[] };
 
 function markOf(agentKind: BrowserActor["agentKind"]): CursorMark | null {
   const icon = AGENT_META[agentKind].icon;

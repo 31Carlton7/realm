@@ -1740,9 +1740,14 @@ const removeJs = (...values: string[]): string =>
  *  delete the cursor the very act that placed it. */
 export const REMOVE_RINGS_JS = removeJs(MARK_RING);
 
-/** The drive's own marks: the cursor and the controlled-screen frame. Used by `armElementPick`,
- *  because two accent overlays chasing one pointer is the failure the picker would otherwise have. */
-export const REMOVE_AGENT_MARKS_JS = removeJs(MARK_CURSOR, MARK_FRAME);
+/** The drive's own marks: every cursor and the controlled-screen frame. Used by `armElementPick`,
+ *  because two accent overlays chasing one pointer is the failure the picker would otherwise have.
+ *  The page's record of who is driving goes too, or the next act's frame would still name them. */
+export const REMOVE_AGENT_MARKS_JS = `${removeJs(MARK_CURSOR, MARK_FRAME)};(() => { try {
+  var AG = window.__realmAgents; if (!AG) return;
+  for (var k in AG) clearTimeout(AG[k].timer);
+  window.__realmAgents = {};
+} catch (e) {} })()`;
 
 /** The element ref the RING should trace for this action, or null when there is nothing to outline.
  *  The ring says "this element": it is quad-shaped, it outlives the act, and it is the only honest
@@ -2100,7 +2105,6 @@ function markScript(o: { accent: string; who: CursorIdentity; ring: string; poin
           svg.appendChild(pth);
         }
         mark.appendChild(svg);
-        /* The name pill: whose pointer this is, in words and the agent's own mark. */
         if (LABEL) {
           var pill = make(${j(MARK_CURSOR)} + "-label", ${j(pillCss)} + "left:" + spec.pill[0] + "px;top:" + spec.pill[1] + "px;");
           if (BRAND) {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UPLOAD_DROP_MAX_BYTES, type BrowserAction, type BrowserRefusal } from "@realm/contracts";
-import { buildSnapshot, CODE_HIDDEN, hideCodes, MAX_ELEMENTS, performAct, performAutofill, performCodeFill, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
+import { buildSnapshot, CODE_HIDDEN, hideCodes, MAX_ELEMENTS, performAct, performAutofill, performCodeFill, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, REMOVE_AGENT_MARKS_JS, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, cursorIdentity } from "./agent-cursor";
 import { readPageText, tickStylesFor } from "./browser-agent";
 
@@ -1735,6 +1735,14 @@ describe("two sessions' cursors on one page, run as the page runs them", () => {
     vi.advanceTimersByTime(AGENT_CURSOR.idleMs / 2 + AGENT_MOTION.fastMs + 1);
     expect(cursors()).toEqual(["s-claude"]);
     expect(frameLine()).toBe("Claude is using this page");
+  });
+
+  it("the picker's sweep forgets who was driving, so the next act's frame names only its own session", async () => {
+    await actAs(claude);
+    window.eval(REMOVE_AGENT_MARKS_JS);
+    expect(cursors()).toEqual([]);
+    await actAs(codex);
+    expect(frameLine()).toBe("Codex is using this page");
   });
 
   it("an act landing during a cursor's fade draws a fresh cursor rather than reviving the dying one", async () => {
