@@ -14,7 +14,8 @@
  *   3. A press naming the pane's layer, and one naming no layer at a point inside the pane (the
  *      topmost-rect fallback), each click the page: its counter is read through its own CDP target.
  *
- * The layout JSON, one JPEG per layer and the presses go to .out/viewer-layers/ (or --out <dir>).
+ * The layout JSON, one JPEG per layer, one of the pane after the first press, and the presses go to
+ * .out/viewer-layers/ (or --out <dir>).
  * Look at them: the pane's layer is the page, and the window's has a hole where the pane goes. The
  * window's frame would name this Mac at the prompter's foot, so that label reads "This Mac".
  *
@@ -126,6 +127,12 @@ const handle = async (cmd: string, arg: string) => {
     for (const [layer, jpeg] of last) { const f = path.join(out, layer + ".jpg"); fs.writeFileSync(f, jpeg); files.push(f); }
     say("saved", files);
   }
+  if (cmd === "save-layer") {
+    const { layer, name } = JSON.parse(arg);
+    const f = path.join(out, name + ".jpg");
+    fs.writeFileSync(f, last.get(layer)!);
+    say("saved", [f]);
+  }
   if (cmd === "press") {
     const p = JSON.parse(arg);
     for (const action of ["down", "up"]) input.send(JSON.stringify({ type: "pointer", action, ...p }));
@@ -235,6 +242,10 @@ try {
   await rig.ask("pressed", "press", onLayer);
   const afterLayer = await until(async () => { const c = await clicks(); return c.length > before ? c : null; }, 5_000, "the layer press").catch(() => clicks());
   check("a press naming the pane's layer clicks the page", afterLayer.length === before + 1, { sent: onLayer, clicks: afterLayer });
+  // A pane frame painted after the press, so the picture shows the count it made.
+  const shown = (await rig.ask("state", "state")).counts[pane.id];
+  await until(async () => (await rig.ask("state", "state")).counts[pane.id] >= shown + 2, 10_000, "a pane frame after the press");
+  note("saved after the press", await rig.ask("saved", "save-layer", { layer: pane.id, name: `${pane.id}-after-press` }));
   const fallback = { x: Math.round(pane.x + pane.width / 3), y: Math.round(pane.y + pane.height / 3), width: win.width, height: win.height };
   await rig.ask("pressed", "press", fallback);
   const afterPoint = await until(async () => { const c = await clicks(); return c.length > before + 1 ? c : null; }, 5_000, "the point press").catch(() => clicks());
