@@ -1176,9 +1176,11 @@ describe("file-chooser interception", () => {
       const { host, emitEvent } = setup({
         responses: { "Runtime.callFunctionOn": { result: { value: { accept: "", multiple: true, names: ["hero.png"] } } } },
       });
-      const upload = within(host.handleOp("upload", { browserId: "b1", ref: 5, files: [{ path: "/space/hero.png", name: "hero.png", bytes: 10 }] }), 3000);
+      // The act is waiting first, so a chooser handed only to the first wait would miss the upload.
       const act = within(host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 6 } }), 3000);
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const upload = within(host.handleOp("upload", { browserId: "b1", ref: 5, files: [{ path: "/space/hero.png", name: "hero.png", bytes: 10 }] }), 3000);
+      await new Promise((resolve) => setTimeout(resolve, 20));
       emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectMultiple" });
       const [u, a] = (await Promise.all([upload, act])) as ({ ok: boolean; method?: string } | "hung")[];
       expect(a).not.toBe("hung");
