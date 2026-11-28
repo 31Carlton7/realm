@@ -2,7 +2,7 @@
  * Count the RPCs the main window's renderer makes from load to first paint, and time that paint.
  *
  *   node apps/desktop/scripts/boot-rpcs-live.mjs --home <scratch home> --out <dir> \
- *     --renderer A=<out/renderer copy> --renderer B=<out/renderer copy> [--runs 5]
+ *     --renderer A=<out/renderer copy> --renderer B=<out/renderer copy> [--runs 5] [--after 3000]
  *
  * Every run boots the BUILT main and server on `--home` (a scratch copy of a real home, never ~/Realm)
  * through `launchLiveApp`, serves one renderer build over http, and reloads the main window with
@@ -27,6 +27,7 @@ const { values } = parseArgs({
     renderer: { type: "string", multiple: true },
     runs: { type: "string", default: "5" },
     settle: { type: "string", default: "8000" },
+    after: { type: "string", default: "3000" },
   },
 });
 if (!values.home || !values.out || !values.renderer?.length) {
@@ -126,7 +127,7 @@ async function oneRun(build, url, i) {
     await page.send("Page.reload", { ignoreCache: false });
     await sleep(500);
     await until(() => page.eval(`window.__bootRpcs?.marks.booted !== undefined`), 60_000, "the boot mark to come down");
-    await sleep(3000);
+    await sleep(Number(values.after));
     const { log, marks } = await page.eval(`window.__bootRpcs`);
     page.close();
     return summarize(build.name, i, log, marks);
@@ -150,7 +151,7 @@ function summarize(build, run, log, marks) {
   for (const c of before) if (c.key) keys[c.key] = (keys[c.key] ?? 0) + 1;
   return {
     build, run, booted: marks.booted, frameAfter: marks.frameAfter ?? null, fcp: marks["first-contentful-paint"] ?? null,
-    callsBefore: before.length, callsAfter3s: calls.length - before.length,
+    callsBefore: before.length, callsAfter: calls.length - before.length,
     bytesBefore: before.reduce((s, c) => s + c.outBytes + (c.inBytes ?? 0), 0),
     eventsBefore: log.filter((e) => e.kind === "event" && e.t < marks.booted).length,
     byMethod, afterByMethod: after, settingsKeys: keys,
