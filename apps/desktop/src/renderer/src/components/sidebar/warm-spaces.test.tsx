@@ -74,6 +74,16 @@ describe("warming the other spaces", () => {
     expect(firstOfS3).toBeGreaterThan(lastOfS2);
   });
 
+  it("moves on from a space whose read fails, and does not ask it again", async () => {
+    const api = home();
+    const real = api.listItems;
+    api.listItems = async (sid) => { if (sid === "s2") { api.calls.push("listItems:s2"); throw new Error("gone"); } return real(sid); };
+    const { store } = await mount(api);
+    await waitFor(() => expect(store.getState().heldSpaces).toContain("s3"));
+    await new Promise((r) => setTimeout(r, 40));
+    expect(itemReads(api, "s2")).toBe(1);
+  });
+
   it("stops when the rail goes away", async () => {
     const api = home();
     api.delays["listItems:s2"] = 30;
