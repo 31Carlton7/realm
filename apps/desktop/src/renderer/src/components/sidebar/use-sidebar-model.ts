@@ -12,6 +12,7 @@ export function useSidebarState(): SidebarState {
   const activeProfileId = useApp((s) => s.activeProfileId);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const items = useApp((s) => s.items);
+  const heldSpaces = useApp((s) => s.heldSpaces);
   const allItems = useApp((s) => s.allItems);
   const sessions = useApp((s) => s.sessions);
   const allSessions = useApp((s) => s.allSessions);
@@ -20,8 +21,8 @@ export function useSidebarState(): SidebarState {
   const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
   const sessionActivityAt = useApp((s) => s.sessionActivityAt);
   const quickChatId = useApp((s) => (s.quickChat && !s.quickChat.keptIn ? s.quickChat.sessionId : null));
-  return useMemo(() => ({ spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId }),
-    [spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId]);
+  return useMemo(() => ({ spaces, profiles, activeProfileId, activeSpaceId, items, heldSpaces, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId }),
+    [spaces, profiles, activeProfileId, activeSpaceId, items, heldSpaces, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId]);
 }
 
 /** The active profile's spaces, in rail order. */
@@ -143,7 +144,7 @@ export function useOpenAnywhere(): (item: Item) => void {
   const revealSession = useApp((s) => s.revealSession);
   const revealItem = useApp((s) => s.revealItem);
   const run = useApp((s) => s.run);
-  // Every space of the profile is loaded, so any item opens where it is, from any list.
+  // Both read a space not read yet before opening in it, so any item opens where it is, from any list.
   return useCallback((item: Item) => run(async () => {
     if (item.kind === "session") await revealSession(item.refId, item.spaceId);
     else await revealItem(item.id, item.spaceId);

@@ -155,9 +155,10 @@ describe("app store", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     expect(store.getState().activeProfileId).toBe("p1");
-    // ONE profile's work, all of it: both of Work's spaces, none of School's.
-    expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
+    // ONE profile's work, a space at a time: the Work space it lands in, none of School's.
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]);
     await store.getState().selectSpace("s2");      // Work's current space is now s2, not s1
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
     await store.getState().selectProfile("p2");
     expect(store.getState().activeProfileId).toBe("p2");
     expect(store.getState().activeSpaceId).toBe("s3");
@@ -367,8 +368,8 @@ describe("app store", () => {
   it("refreshSpaces drops a space deleted elsewhere — its items with it — and the current space falls back", async () => {
     api.data.items.s2 = [item("i2", "s2")];
     const store = createAppStore(api); await store.getState().boot();
-    expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
     await store.getState().selectSpace("s2");
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
     api.data.spaces = api.data.spaces.filter((s) => s.id !== "s2");
     await store.getState().refreshSpaces();
     expect(store.getState().activeSpaceId).toBe("s1");
@@ -1066,16 +1067,58 @@ describe("app store", () => {
   });
 
   describe("staleness guards", () => {
-    it("selecting spaces reads nothing — every space of the profile is already held", async () => {
+    /** The four lists a space is read with, as this space's calls name them. */
+    const spaceReads = (sid: string) => api.calls.filter((c) => new RegExp(`^list(Items|Projects|Environments|Sessions):${sid}$`).test(c)).sort();
+    const READ = (sid: string) => [`listEnvironments:${sid}`, `listItems:${sid}`, `listProjects:${sid}`, `listSessions:${sid}`];
+
+    it("boot reads only the space the window lands in; another is read the first time it is switched to, and never again", async () => {
+      api.data.items["s2"] = [item("i2", "s2")];
+      const store = createAppStore(api);
+      await store.getState().boot();
+      // THE MUTANT: boot reads every space of the profile, as it did when all of them were held at once.
+      expect(spaceReads("s1")).toEqual(READ("s1"));
+      expect(spaceReads("s2")).toEqual([]);
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]);
+      await store.getState().selectSpace("s2");
+      expect(spaceReads("s2")).toEqual(READ("s2"));
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
+      api.calls.length = 0;
+      // THE MUTANT: a space read again on every switch, as a room switch did.
+      await Promise.all([store.getState().selectSpace("s1"), store.getState().selectSpace("s2")]);
+      expect(api.calls.filter((c) => /^list(Items|Projects|Environments|Sessions):/.test(c))).toEqual([]);
+      expect(allItems(store.getState().layout!)).toEqual([]); // nothing force-opened
+    });
+
+    it("a refresh of every space reads the spaces the window holds, not the ones it has not opened", async () => {
       api.data.items["s2"] = [item("i2", "s2")];
       const store = createAppStore(api);
       await store.getState().boot();
       api.calls.length = 0;
-      // THE MUTANT: a selectSpace that reloads, as a room switch did.
-      await Promise.all([store.getState().selectSpace("s1"), store.getState().selectSpace("s2")]);
-      expect(api.calls.filter((c) => /^list(Items|Projects|Environments|Sessions):/.test(c))).toEqual([]);
-      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
-      expect(allItems(store.getState().layout!)).toEqual([]); // nothing force-opened
+      await Promise.all([store.getState().refreshItems(), store.getState().refreshSessions(), store.getState().refreshEnvironments(), store.getState().refreshProjects()]);
+      expect(spaceReads("s1")).toEqual(READ("s1"));
+      expect(spaceReads("s2")).toEqual([]);
+    });
+
+    it("a view left with a pane of another space reads that space at boot, so the pane comes back", async () => {
+      api.data.items["s2"] = [item("i2", "s2")];
+      api.data.settings["ui.view:p1"] = { v: 1, layout: { type: "split", id: "sp", dir: "row", sizes: [50, 50], children: [leaf("l1", "i1"), leaf("l2", "i2")] },
+        zoomedLeafId: null, sidePanes: {}, focusedItemId: "i1" };
+      const store = createAppStore(api);
+      await store.getState().boot();
+      // THE MUTANT: restore the view with only the landing space read, and the prune takes i2 off the screen.
+      expect(allItems(store.getState().layout!)).toEqual(["i1", "i2"]);
+      expect(spaceReads("s2")).toEqual(READ("s2"));
+    });
+
+    it("an item of a space not read yet opens once its space is read", async () => {
+      api.data.items["s2"] = [item("i2", "s2")];
+      const store = createAppStore(api);
+      await store.getState().boot();
+      // THE MUTANT: open it without reading its space; the pane has no row and is pruned.
+      await store.getState().openItem("i2");
+      expect(allItems(store.getState().layout!)).toContain("i2");
+      expect(store.getState().activeSpaceId).toBe("s2");
+      expect(store.getState().heldSpaces).toEqual(["s1", "s2"]);
     });
 
     it("switching profile twice quickly ends on the second's work only: slow answers for the first are dropped", async () => {
@@ -1323,9 +1366,9 @@ describe("app store", () => {
       ] },
     });
 
-    it("boot loads every space's sessions, and making another space current unloads none of them", async () => {
+    it("boot loads the landing space's sessions, another space's come with it, and leaving one unloads none", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
-      expect(Object.keys(store.getState().sessions).sort()).toEqual(["se1", "se9"]);
+      expect(Object.keys(store.getState().sessions).sort()).toEqual(["se1"]);
       expect(store.getState().sessionStatus.se1).toBe("running");
       await store.getState().selectSpace("s2");
       expect(Object.keys(store.getState().sessions).sort()).toEqual(["se1", "se9"]);
@@ -2552,7 +2595,7 @@ describe("app store", () => {
       api.data.settings["ui.activeSpaceId"] = "s3";
       const store = createAppStore(api); await store.getState().boot();
       expect(store.getState().layout).toEqual({ type: "leaf", id: "L", itemId: "L2" }); // collapsed to activeTab
-      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "L1", "L2"]); // every space's, L1 unopened
+      expect(store.getState().items.map((i) => i.id)).toEqual(["L1", "L2"]); // the space it lands in, L1 unopened
     });
 
     it("a corrupt layout migrates to an empty pane, items intact and unopened", async () => {
@@ -2561,7 +2604,7 @@ describe("app store", () => {
       api.data.settings["ui.activeSpaceId"] = "s4";
       const store = createAppStore(api); await store.getState().boot();
       expect(store.getState().layout).toMatchObject({ type: "leaf", itemId: null });
-      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "C1"]);
+      expect(store.getState().items.map((i) => i.id)).toEqual(["C1"]);
     });
   });
 
