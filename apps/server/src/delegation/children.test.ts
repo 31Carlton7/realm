@@ -184,6 +184,15 @@ describe("DelegatedChildren.list", () => {
     expect(children.list(lead, { limit: CHILDREN_PAGE + 4 }).nextBefore).toBeNull();
   });
 
+  it("counts every one of the lead's sub-agents on each page, and no session that is not one", () => {
+    const { lead, children } = seed(CHILDREN_PAGE + 5);
+    const first = children.list(lead);
+    expect(first.children).toHaveLength(CHILDREN_PAGE);
+    expect(first.total).toBe(CHILDREN_PAGE + 5);
+    expect(children.list(lead, { before: first.nextBefore! }).total).toBe(CHILDREN_PAGE + 5);
+    expect(children.list(lead, { limit: null }).total).toBe(CHILDREN_PAGE + 5);
+  });
+
   it("makes the same number of reads for three children as for sixty", () => {
     const readsFor = (n: number) => {
       const { lead, children, reads } = seed(n);
@@ -193,8 +202,9 @@ describe("DelegatedChildren.list", () => {
     };
     const few = readsFor(3);
     expect(readsFor(60)).toBe(few);
-    // The sessions, their newest lines, the two kinds of record — and the one unreadable row read on past.
-    expect(few).toBeLessThanOrEqual(5);
+    // The sessions, how many there are, their newest lines, the two kinds of record, and the one
+    // unreadable row read on past.
+    expect(few).toBeLessThanOrEqual(6);
   });
 
   it("finds the children by the dispatcher index, without scanning sessions or sorting in a temporary tree", () => {

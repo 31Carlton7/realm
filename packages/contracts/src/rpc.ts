@@ -1988,7 +1988,10 @@ export const Methods = {
     result: z.object({ children: z.array(DelegatedChildSchema),
       /** The ones the person took off the prompter's row of agents (`delegation.dismiss`). */
       dismissed: z.array(SubagentIdSchema).default([]),
-      nextBefore: ChildrenCursorSchema.nullable().default(null) }) },
+      nextBefore: ChildrenCursorSchema.nullable().default(null),
+      /** How many sub-agents the session has in all, every page together; absent from a server
+       *  before it counted them. */
+      total: z.number().int().nonnegative().optional() }) },
   /** One of the session's sub-agents, as `delegation.children` lists it (its own sub-agents under it).
    *  Null when `childId` is not one of this session's sub-agents. */
   "delegation.child": { params: z.object({ sessionId: IdSchema, childId: IdSchema }), result: z.object({ child: DelegatedChildSchema.nullable() }) },

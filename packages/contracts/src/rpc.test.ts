@@ -63,5 +63,7 @@ describe("delegation.children result", () => {
     expect(() => params.parse({ sessionId: id, limit: 0 })).toThrow();
     expect(() => params.parse({ sessionId: id, before: { createdAt: 9 } })).toThrow();
     expect(Methods["delegation.children"].result.parse({ children: [], nextBefore: { createdAt: 9, id } }).nextBefore).toEqual({ createdAt: 9, id });
+    expect(Methods["delegation.children"].result.parse({ children: [], total: 25 }).total).toBe(25);
+    expect(() => Methods["delegation.children"].result.parse({ children: [], total: -1 })).toThrow();
   });
 });

@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { type CalendarAccess, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank, sessionListRow } from "@realm/contracts";
+import { type CalendarAccess, CHILDREN_PAGE, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank, sessionListRow } from "@realm/contracts";
 import type { MoveOptions, PendingMove, GuideProgress, Lecture, MeetingNotesList, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, EditorTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
@@ -2368,7 +2368,18 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     getReview: async (environmentId) => { calls.push(`getReview:${environmentId}`); return { review: data.reviews[environmentId] ?? null }; },
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
     listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
-    listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return { children: data.delegatedChildren[sessionId] ?? [], dismissed: data.dismissedSubagents[sessionId] ?? [] }; },
+    // Paged as the server pages: `delegatedChildren` is held oldest first, a page is the newest
+    // `CHILDREN_PAGE` before the cursor, and it comes back oldest first, as live-api returns it.
+    listDelegatedChildren: async (sessionId, before) => {
+      calls.push(before ? `listDelegatedChildren:${sessionId}:before:${before.id}` : `listDelegatedChildren:${sessionId}`);
+      const newestFirst = [...(data.delegatedChildren[sessionId] ?? [])].reverse();
+      const from = before ? newestFirst.findIndex((c) => c.session.id === before.id) + 1 : 0;
+      const page = newestFirst.slice(from, from + CHILDREN_PAGE);
+      const last = page.at(-1);
+      const nextBefore = from + page.length < newestFirst.length && last ? { createdAt: last.session.createdAt, id: last.session.id } : null;
+      return { children: page.reverse(), dismissed: data.dismissedSubagents[sessionId] ?? [], nextBefore, total: newestFirst.length };
+    },
+    listAllDelegatedChildren: async (sessionId) => { calls.push(`listAllDelegatedChildren:${sessionId}`); return data.delegatedChildren[sessionId] ?? []; },
     getDelegatedChild: async (sessionId, childId) => { calls.push(`getDelegatedChild:${sessionId}:${childId}`); return (data.delegatedChildren[sessionId] ?? []).find((c) => c.session.id === childId) ?? null; },
     addTeammate: async (input) => { calls.push(`addTeammate:${JSON.stringify(input)}`); return { childId: "01ARZ3NDEKTSV4RRFFQ69G5TMT" }; },
     dismissSubagent: async (sessionId, id) => {
