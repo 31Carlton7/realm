@@ -16,7 +16,7 @@ import { useElapsed } from "../session/use-elapsed";
 import { canSend, delegationBrief, type BriefPick } from "./brief";
 import { ModelChooser, OWN } from "./ModelChooser";
 import { StateMark } from "./StateMark";
-import { SubagentSwitch, SubagentViewer, findChild, whereLabel, type ShownSubagent } from "./SubagentViewer";
+import { SubagentSwitch, SubagentViewer, useSubagent, whereLabel, type ShownSubagent } from "./SubagentViewer";
 import { STATE_LABEL, childTitle, isLive, orchestratorOrder, reportSummary, rollup, sessionModelLabel, spentMs, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
 
 /** How many models the composer offers as one-click chips before the rest are a chooser away. */
@@ -63,15 +63,15 @@ export function AgentsTab({ item, visible }: PaneProps) {
   useEffect(() => { run(() => hydrateAgentsShown()); }, [hydrateAgentsShown, run]);
   // And again whenever a child changes state: a wait starting or ending is what moves its spent
   // budget from ticking to held, and only the server knows how long it was held.
-  const statuses = useApp((s) => (s.subagents[leadId] ?? NO_CHILDREN).map((c) => s.sessionStatus[c.session.id] ?? "").join(","));
-  // Counted from the list's arrival, which is a read of its own and not a child changing state.
+  const statuses = useApp((s) => (s.subagents[leadId] ?? NO_CHILDREN).map((c) => `${c.session.id}=${s.sessionStatus[c.session.id] ?? ""}`).join(","));
+  // Counted from the list's arrival, which is a read of its own and not a child changing state; so is
+  // a row joining the list, which Show older or a patch has just read.
   const seenStatuses = useRef(loaded ? statuses : null);
   useEffect(() => {
     if (!loaded) return;
-    if (seenStatuses.current === null) seenStatuses.current = statuses;
-    if (seenStatuses.current === statuses) return;
+    const seen = new Map((seenStatuses.current ?? statuses).split(",").map((e) => e.split("=") as [string, string]));
     seenStatuses.current = statuses;
-    run(() => refreshSubagents(leadId));
+    if (statuses.split(",").some((e) => { const [id, status] = e.split("="); return seen.has(id!) && seen.get(id!) !== status; })) run(() => refreshSubagents(leadId));
   }, [statuses, loaded, leadId, refreshSubagents, run]);
 
   /* What the tab was opened FOR — a plan to start the composer from. Taken once and cleared, so a
@@ -86,14 +86,16 @@ export function AgentsTab({ item, visible }: PaneProps) {
   /* The one being looked at: a harness agent of the lead's, or a delegated child at any depth. Until
      both the list and the lead's transcript have answered, an id that names neither may yet — a tab
      restored at launch is read before either — so the body waits rather than flashing the overview.
-     Once both have, an id naming nothing (a child since deleted) is the overview. */
+     A child older than the pages held is read alone. Once all have answered, an id naming nothing (a
+     child since deleted) is the overview. */
+  const isHarness = shownId !== null && agents.some((a) => a.id === shownId && a.source === "harness");
+  const child = useSubagent(leadId, isHarness ? null : shownId);
   const shown = useMemo((): ShownSubagent | "pending" | null => {
     if (shownId === null) return null;
-    if (agents.some((a) => a.id === shownId && a.source === "harness")) return { kind: "harness", id: shownId };
-    const found = findChild(children, shownId, leadId);
-    if (found) return { kind: "child", ...found };
-    return loaded && leadRead ? null : "pending";
-  }, [shownId, agents, children, leadId, loaded, leadRead]);
+    if (isHarness) return { kind: "harness", id: shownId };
+    if (child.found) return { kind: "child", ...child.found };
+    return child.known && leadRead ? null : "pending";
+  }, [shownId, isHarness, child.found, child.known, leadRead]);
 
   const scroller = useRef<HTMLDivElement>(null);
   if (!lead) return <div className="pane-placeholder muted">This session no longer exists.</div>;
@@ -117,6 +119,9 @@ function SubagentList({ leadId, children, loaded }: { leadId: string; children: 
   const sessionStatus = useApp((s) => s.sessionStatus);
   const runs = useApp((s) => s.delegatedRuns[leadId]);
   const leadBlocks = useApp((s) => s.transcripts[leadId]?.t.blocks ?? NO_BLOCKS);
+  const older = useApp((s) => (s.subagentsBefore[leadId] ?? null) !== null);
+  const loadOlderSubagents = useApp((s) => s.loadOlderSubagents);
+  const run = useApp((s) => s.run);
   const leadStatus = sessionStatus[leadId];
   const leadLive = leadStatus === undefined || leadStatus === "running" || leadStatus === "waiting_permission";
   // The lead's OWN harness sub-agents — Claude's background `Agent` calls — which have no session and
@@ -151,6 +156,7 @@ function SubagentList({ leadId, children, loaded }: { leadId: string; children: 
           ? <SubagentCard key={e.child.session.id} child={e.child} leadId={leadId} tabLead={leadId} />
           : <HarnessCard key={e.harness!.id} agent={e.harness!} leadId={leadId} />)}
       </ul>
+      {older && <button type="button" className="agents-more" onClick={() => run(() => loadOlderSubagents(leadId))}>Show older</button>}
     </section>
   );
 }

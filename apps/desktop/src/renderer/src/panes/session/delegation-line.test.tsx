@@ -113,4 +113,35 @@ describe("a sub-agent in its lead's transcript", () => {
     await mount(start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), [child()], { sessionId: null });
     expect(await screen.findByRole("button", { name: /Write the tests/ })).toBeDisabled();
   });
+
+  it("a line for a sub-agent older than the page held reads that one sub-agent, not the list", async () => {
+    // Twenty newer ones fill the first page, so the line's child is on the second.
+    const newer = Array.from({ length: 20 }, (_, i) => child({ session: session(`01JC00000000000000000001${String(i).padStart(2, "0")}`, "s1", { createdAt: 1000 + i, dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }) }));
+    const { api } = await mount(start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), [child(), ...newer]);
+    // Mutant: no read on a miss, and the line says "Sub-agent" with no state for a child that exists.
+    expect(await screen.findByRole("button", { name: "Sub-agent finished: Write the tests, on GPT-6 Luna" })).toBeInTheDocument();
+    expect(api.calls).toContain(`getDelegatedChild:${LEAD}:${CHILD}`);
+    expect(api.calls.filter((c) => c.startsWith(`listDelegatedChildren:${LEAD}`))).toEqual([`listDelegatedChildren:${LEAD}`]);
+  });
+
+  it("a line waiting on that read still says it is starting, not that its sub-agent is gone", async () => {
+    const newer = Array.from({ length: 21 }, (_, i) => child({ session: session(`01JC00000000000000000001${String(i).padStart(2, "0")}`, "s1", { createdAt: 1000 + i, dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }) }));
+    const api = fakeApi({ items: { s1: [item("i1", "s1", { kind: "session", refId: LEAD })] }, sessions: [session(LEAD, "s1")], delegatedChildren: { [LEAD]: newer } });
+    api.getDelegatedChild = () => new Promise(() => {});
+    const store = createAppStore(api); await store.getState().boot();
+    render(<StoreContext.Provider value={store}>
+      <Transcript transcript={reduceAll(start("Write the tests", { text: `Started delegated agent ${CHILD}.` }))} sessionStatus="idle" onDecide={() => {}} sessionId={LEAD} />
+    </StoreContext.Provider>);
+    await waitFor(() => expect(store.getState().subagents[LEAD]).toBeDefined());
+    // Mutant: call it gone as soon as the page lacks it, before the read has answered.
+    expect(await screen.findByRole("button", { name: "Sub-agent starting: Write the tests, on GPT-6 Luna" })).toBeInTheDocument();
+  });
+
+  it("a line naming a session that is no longer the lead's stops waiting once that read answers", async () => {
+    const newer = Array.from({ length: 21 }, (_, i) => child({ session: session(`01JC00000000000000000001${String(i).padStart(2, "0")}`, "s1", { createdAt: 1000 + i, dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }) }));
+    const { api } = await mount(start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), newer);
+    await waitFor(() => expect(api.calls).toContain(`getDelegatedChild:${LEAD}:${CHILD}`));
+    // Mutant: a miss never settles, and the line spins as "starting" forever.
+    expect(await screen.findByRole("button", { name: "Sub-agent: Write the tests, on GPT-6 Luna" })).toBeInTheDocument();
+  });
 });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { findSidePane, sessionEvent, type DelegatedChild, type SessionEvent } from "@realm/contracts";
+import { findSidePane, sessionEvent, type DelegatedChild, type Session, type SessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore, type DelegableModels } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { reduceAll } from "../session/transcript-model";
@@ -485,5 +485,145 @@ describe("the orchestrator", () => {
     await mount({ children: [{ ...CHILDREN[1]!, outcome: "stopped", report: null,
       note: "Stopped when the session that started it went to Plan: Realm cannot hold Cursor to a read-only mode." }] });
     expect(await card(/^Write the migration\. .*Stopped/)).toHaveTextContent("Realm cannot hold Cursor to a read-only mode.");
+  });
+});
+
+/** A lead with more sub-agents than one page holds: Task 01 the oldest, Task 25 the newest. */
+const pad = (n: number) => String(n).padStart(2, "0");
+const ended = (n: number, over: Partial<Session> = {}): DelegatedChild => ({
+  session: session(`p${pad(n)}`, "s1", { title: `Task ${pad(n)}`, agentKind: "claude", createdAt: n * 1000, dispatchedBy: { sessionId: "se1", kind: "agent_run" }, ...over }),
+  goal: `Task ${pad(n)}`, startedAt: NOW - (30 - n) * 60_000, settledAt: NOW - (30 - n) * 60_000 + 30_000, outcome: "done", report: "Done.", activity: null,
+});
+const MANY = Array.from({ length: 25 }, (_, i) => ended(i + 1));
+const held = (store: ReturnType<typeof createAppStore>) => store.getState().subagents.se1?.map((c) => c.session.id);
+const taskCards = () => screen.getAllByRole("button", { name: /^Task \d\d\./ }).map((b) => b.getAttribute("aria-label")!.slice(0, 7));
+
+async function paged(children: DelegatedChild[] = MANY) {
+  const data = { se1: [...children] };
+  const api = fakeApi({ items: ITEMS, sessions: [LEAD, ...children.map((c) => c.session)], delegatedChildren: data });
+  const store = createAppStore(api); await store.getState().boot();
+  store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+  await store.getState().loadSubagents("se1");
+  return { api, store, data };
+}
+
+describe("a lead with more sub-agents than a page", () => {
+  it("opens on the newest page alone, and Show older brings the rest in, in the tab's order, until there are none", async () => {
+    const { api } = await mount({ children: MANY, idle: true });
+    await card(/^Task 25\./);
+    // Mutant: read every one at the open, as the store did before paging.
+    expect(taskCards()).toEqual(Array.from({ length: 20 }, (_, i) => `Task ${pad(i + 6)}`));
+    expect(api.calls.filter((c) => c.startsWith("listDelegatedChildren:se1"))).toEqual(["listDelegatedChildren:se1"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+    await card(/^Task 01\./);
+    // From the oldest it holds, and nothing read twice.
+    expect(api.calls).toContain("listDelegatedChildren:se1:before:p06");
+    expect(taskCards()).toEqual(Array.from({ length: 25 }, (_, i) => `Task ${pad(i + 1)}`));
+    // Mutant: keep the row once the last page is in, which reads an empty page on every press.
+    expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
+  });
+
+  it("has no Show older when every one fits on the first page", async () => {
+    await mount({ children: MANY.slice(0, 20), idle: true });
+    await card(/^Task 20\./);
+    expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
+  });
+
+  it("opens an older sub-agent's viewer by reading that one, not the list", async () => {
+    const { api, store } = await mount({ children: MANY, idle: true });
+    await card(/^Task 25\./);
+    store.getState().showSubagent("se1", "p03");
+    // Mutant: no read on a miss, and the tab falls back to the overview for a sub-agent that exists.
+    expect(await screen.findByRole("region", { name: "Sub-agent: Task 03" })).toBeInTheDocument();
+    expect(api.calls).toContain("getDelegatedChild:se1:p03");
+    expect(api.calls.filter((c) => c.startsWith("listDelegatedChildren:se1"))).toEqual(["listDelegatedChildren:se1"]);
+  });
+
+  it("a viewer opened on a session that is not the lead's settles on the overview after one read", async () => {
+    const { api, store } = await mount({ children: MANY, idle: true, transcripts: { se1: [] } });
+    await card(/^Task 25\./);
+    store.getState().showSubagent("se1", "01ARZ3NDEKTSV4RRFFQ69G5TMX");
+    await waitFor(() => expect(api.calls).toContain("getDelegatedChild:se1:01ARZ3NDEKTSV4RRFFQ69G5TMX"));
+    expect(await card(/^Task 25\./)).toBeInTheDocument();
+    expect(api.calls.filter((c) => c === "getDelegatedChild:se1:01ARZ3NDEKTSV4RRFFQ69G5TMX")).toHaveLength(1);
+  });
+
+  it("reads a sub-agent's own sub-agent by reading the one that started it, when that one is not held", async () => {
+    const grand = session("g1", "s1", { title: "Grand task", createdAt: 3500, dispatchedBy: { sessionId: "p03", kind: "agent_run" } });
+    const withGrand = MANY.map((c) => (c.session.id === "p03" ? { ...c, children: [{ ...ended(3), session: grand, goal: "Grand task" }] } : c));
+    const { api, store } = await paged(withGrand);
+    store.setState({ allSessions: { ...store.getState().allSessions, g1: grand } });
+    await store.getState().loadSubagent("se1", "g1");
+    // Mutant: stop at the miss, and a viewer opened on it from an old transcript shows the overview.
+    expect(api.calls).toContain("getDelegatedChild:se1:p03");
+    expect(store.getState().subagents.se1?.find((c) => c.session.id === "p03")?.children?.[0]?.session.id).toBe("g1");
+  });
+
+  it("reads a sub-agent still running that is older than the page, so it is never missing from the working ones", async () => {
+    const api = fakeApi({ items: ITEMS, sessions: [LEAD, ...MANY.map((c) => c.session)], delegatedChildren: { se1: MANY },
+      delegatedRuns: { se1: [{ sessionId: "p02", startedAt: 0, detached: true, owned: true }] } });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    await store.getState().refreshDelegatedRuns("se1");
+    await store.getState().loadSubagents("se1");
+    // Mutant: no read for a live run the page left out.
+    await waitFor(() => expect(held(store)?.[0]).toBe("p02"));
+    expect(api.calls).toContain("getDelegatedChild:se1:p02");
+  });
+});
+
+describe("a change to one sub-agent of a paged lead", () => {
+  it("replaces a held row in place and keeps the others' identity", async () => {
+    const { store, data } = await paged();
+    const before = store.getState().subagents.se1!;
+    data.se1[9] = { ...data.se1[9]!, report: "Changed." };
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "p10" });
+    await waitFor(() => expect(store.getState().subagents.se1?.find((c) => c.session.id === "p10")?.report).toBe("Changed."));
+    expect(held(store)).toEqual(before.map((c) => c.session.id));
+    expect(store.getState().subagents.se1?.[0]).toBe(before[0]);
+  });
+
+  it("leaves out an ended one older than the oldest held, which its own page brings", async () => {
+    const { api, store } = await paged();
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "p03" });
+    await waitFor(() => expect(api.calls).toContain("getDelegatedChild:se1:p03"));
+    await new Promise((r) => setTimeout(r, 0));
+    // Mutant: add it anyway, and the list holds Task 03 with a gap of Task 04 and 05 under it.
+    expect(held(store)).toEqual(MANY.slice(5).map((c) => c.session.id));
+  });
+
+  it("takes in an older one that is running again, in its place", async () => {
+    const { store } = await paged();
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [{ sessionId: "p03", startedAt: 0, detached: true, owned: true }], childId: "p03" });
+    await waitFor(() => expect(held(store)?.[0]).toBe("p03"));
+    expect(held(store)?.slice(1)).toEqual(MANY.slice(5).map((c) => c.session.id));
+  });
+
+  it("puts a new sub-agent where it started among the held rows: the newest at the end", async () => {
+    const { store, data } = await paged();
+    data.se1.push(ended(26));
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "p26" });
+    await waitFor(() => expect(held(store)?.at(-1)).toBe("p26"));
+    // Same moment as Task 15: the id breaks the tie, as the server's order does.
+    const tie = ended(15, { id: "p15a", title: "Task 15a" });
+    data.se1.splice(15, 0, tie);
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "p15a" });
+    await waitFor(() => expect(held(store)).toContain("p15a"));
+    const ids = held(store)!;
+    // Mutant: append, as the store did when it held every one.
+    expect(ids.indexOf("p15a")).toBe(ids.indexOf("p15") + 1);
+  });
+
+  it("keeps the older pages already shown when the list is read again", async () => {
+    const { store } = await paged();
+    await store.getState().loadOlderSubagents("se1");
+    // Mutant: the older page under the newer one, which every insert by position then misplaces.
+    expect(held(store)).toEqual(MANY.map((c) => c.session.id));
+    expect(store.getState().subagentsBefore.se1).toBeNull();
+    // Mutant: a re-read replaces the list with its first page, and Show older comes back.
+    await store.getState().refreshSubagents("se1");
+    expect(held(store)).toEqual(MANY.map((c) => c.session.id));
+    expect(store.getState().subagentsBefore.se1).toBeNull();
   });
 });

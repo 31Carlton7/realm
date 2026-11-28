@@ -61,6 +61,25 @@ export function findChild(children: readonly DelegatedChild[], id: string, leadI
 }
 
 /**
+ * A lead's sub-agent by session id, at any depth, from the pages held, and read alone when no page
+ * held has it (`loadSubagent`) rather than by reading the list again. `known` once there is an
+ * answer: it was found, every one is held, or the lead said it is not one of its own. The list itself
+ * is the caller's to load.
+ */
+export function useSubagent(leadId: string | null, id: string | null): { found: { child: DelegatedChild; leadId: string } | null; known: boolean } {
+  const children = useApp((s) => (leadId ? s.subagents[leadId] : undefined));
+  const allHeld = useApp((s) => (leadId ? (s.subagentsBefore[leadId] ?? null) === null : false));
+  const missed = useApp((s) => (leadId && id ? s.subagentMisses[leadId]?.includes(id) ?? false : false));
+  const loadSubagent = useApp((s) => s.loadSubagent);
+  const run = useApp((s) => s.run);
+  const found = useMemo(() => (leadId && id && children ? findChild(children, id, leadId) : null), [leadId, id, children]);
+  const loaded = children !== undefined;
+  const known = found !== null || (loaded && (allHeld || missed));
+  useEffect(() => { if (leadId && id && loaded && !known) run(() => loadSubagent(leadId, id)); }, [leadId, id, loaded, known, loadSubagent, run]);
+  return { found, known };
+}
+
+/**
  * A sub-agent opened as a session, read as its viewer reads it: its first message as the brief its
  * lead wrote, and once it has ended, its last as the report its lead collected. Nothing for any other
  * session. The sub-agent is found by its record among the children of the session that started it,
@@ -71,13 +90,12 @@ export function useAsSubagent(session: Session | undefined, blocks: readonly Blo
 } {
   const id = session?.id ?? "";
   const leadId = session?.dispatchedBy?.sessionId ?? null;
-  const children = useApp((s) => (leadId ? s.subagents[leadId] : undefined));
+  const loaded = useApp((s) => (leadId ? s.subagents[leadId] !== undefined : false));
   const inFlight = useApp((s) => (leadId ? s.delegatedRuns[leadId]?.some((r) => r.sessionId === id) ?? false : false));
   const loadSubagents = useApp((s) => s.loadSubagents);
   const run = useApp((s) => s.run);
-  const loaded = children !== undefined;
   useEffect(() => { if (leadId && !loaded) run(() => loadSubagents(leadId)); }, [leadId, loaded, loadSubagents, run]);
-  const child = useMemo(() => (leadId && children ? findChild(children, id, leadId)?.child ?? null : null), [leadId, children, id]);
+  const child = useSubagent(leadId, session ? id : null).found?.child ?? null;
   const brief = useAskedFor(child?.goal ?? null, blocks, { beside: id, environmentId: session?.environmentId ?? "", cwd: session?.cwd ?? "" });
   const state = child ? subagentState(child, status, inFlight) : null;
   const failed = state === "failed" || state === "timeout";
