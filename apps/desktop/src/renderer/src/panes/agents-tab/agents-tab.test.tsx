@@ -676,7 +676,8 @@ describe("a change to one sub-agent of a paged lead", () => {
     expect(store.getState().subagentsBefore.se1?.id).toBe("p56");
     // The one still running stays while the pages start again.
     expect(held(store)?.[0]).toBe("p02");
-    while (store.getState().subagentsBefore.se1) await store.getState().loadOlderSubagents("se1");
+    for (let pages = 0; store.getState().subagentsBefore.se1 && pages < 10; pages++) await store.getState().loadOlderSubagents("se1");
+    expect(store.getState().subagentsBefore.se1).toBeNull();
     expect(held(store)).toEqual(data.se1.map((c) => c.session.id));
   });
 
