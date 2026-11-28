@@ -5261,55 +5261,47 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // at boot at all because the first broadcast can arrive long before anyone opens Settings.
         // A failed read keeps the default-on answer: a preference nobody could read is not a
         // preference to switch the feature off.
-        const [desktop, sound, volume, imessage, slackWebhook, iphone, midTurn] = await Promise.all([
-          api.getSetting(NOTIFICATIONS_DESKTOP_KEY).catch(() => null),
-          api.getSetting(NOTIFICATIONS_SOUND_KEY).catch(() => null),
-          api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY).catch(() => null),
-          api.getSetting(NOTIFICATIONS_IMESSAGE_KEY).catch(() => null),
-          api.getSetting(NOTIFICATIONS_SLACK_WEBHOOK_KEY).catch(() => null),
-          api.getSetting(NOTIFICATIONS_IPHONE_KEY).catch(() => null),
-          api.getSetting(MID_TURN_MODE_KEY).catch(() => null),
+        // The rest are read alongside it: none of them is first paint's, and one at a time they were
+        // fifteen round trips in a row ahead of it.
+        const read = (key: string) => api.getSetting(key).catch(() => null);
+        const [desktop, sound, volume, imessage, slackWebhook, iphone, midTurn, terminalHistory, retention, cursorBlink,
+          cursorStyle, caret, colorScheme, dockEdge, awake, opensMeetingsPref, startsAssistant, linksIn, openIn, editors] = await Promise.all([
+          read(NOTIFICATIONS_DESKTOP_KEY), read(NOTIFICATIONS_SOUND_KEY), read(NOTIFICATIONS_SOUND_VOLUME_KEY),
+          read(NOTIFICATIONS_IMESSAGE_KEY), read(NOTIFICATIONS_SLACK_WEBHOOK_KEY), read(NOTIFICATIONS_IPHONE_KEY),
+          read(MID_TURN_MODE_KEY), read(TERMINALS_HISTORY_KEY), read(EVENT_RETENTION_DAYS_KEY),
+          read(TERMINALS_CURSOR_BLINK_KEY), read(TERMINALS_CURSOR_STYLE_KEY), read(CARET_KEY), read(TERMINALS_COLORS_KEY),
+          read(TERMINALS_DOCK_KEY), read(POWER_PREVENT_SLEEP_KEY), read(MEETINGS_OPEN_KEY), read(MEETING_AUTO_START_KEY),
+          read(LINKS_OPEN_IN_KEY), read(FILES_OPEN_IN_KEY), api.listEditors().catch(() => []),
         ]);
-        // Read separately and defaulted the OTHER way: a preference nobody could read must not switch
-        // scrollback ON, because what it keeps is whatever a shell printed.
-        const terminalHistory = await api.getSetting(TERMINALS_HISTORY_KEY).catch(() => null);
+        // Defaulted the OTHER way: a preference nobody could read must not switch scrollback ON,
+        // because what it keeps is whatever a shell printed.
         set({ terminalHistory: terminalHistory === true });
         // Read as the server reads it, so the control shows the window that is applied. A failed read is off.
-        const retention = await api.getSetting(EVENT_RETENTION_DAYS_KEY).catch(() => null);
         set({ eventRetentionDays: parseRetentionDays(retention) });
         // Defaulted ON, so only an explicit `false` turns it off — an unset key and a failed read
         // both mean "nobody has said", which is the blinking cursor every other terminal draws.
-        const cursorBlink = await api.getSetting(TERMINALS_CURSOR_BLINK_KEY).catch(() => null);
         set({ terminalCursorBlink: cursorBlink !== false });
         // The style is a word, so an unrecognised one is the default rather than a shape nothing draws.
-        const cursorStyle = await api.getSetting(TERMINALS_CURSOR_STYLE_KEY).catch(() => null);
         set({ terminalCursorStyle: terminalCaretShape(cursorStyle) });
         // The caret, field by field. The code editor's old blink switch is asked only while the caret
         // has never been stored, because it is the one thing a home that predates this said about it.
-        const caret = await api.getSetting(CARET_KEY).catch(() => null);
-        const editorBlink = caret === null ? await api.getSetting(EDITOR_CURSOR_BLINK_KEY).catch(() => null) : null;
+        const editorBlink = caret === null ? await read(EDITOR_CURSOR_BLINK_KEY) : null;
         set({ caret: parseCaretPrefs(caret, { editorBlink }) });
-        const colorScheme = await api.getSetting(TERMINALS_COLORS_KEY).catch(() => null);
         set({ terminalColors: isTerminalColorScheme(colorScheme) ? colorScheme : TERMINALS_COLORS_DEFAULT });
-        const dockEdge = await api.getSetting(TERMINALS_DOCK_KEY).catch(() => null);
         set({ terminalDock: isTerminalDockEdge(dockEdge) ? dockEdge : TERMINALS_DOCK_DEFAULT });
         // Only an explicit `true` keeps a Mac awake: an unset key and a failed read both mean nobody
         // asked, and the battery is not ours to spend on a guess.
-        const awake = await api.getSetting(POWER_PREVENT_SLEEP_KEY).catch(() => null);
         set({ preventSleep: awake === true });
         void api.setPreventSleep(awake === true).catch(() => {});
         // On unless turned off: only an explicit `false` stops Realm opening meetings.
-        const opensMeetings = (await api.getSetting(MEETINGS_OPEN_KEY).catch(() => null)) !== false;
+        const opensMeetings = opensMeetingsPref !== false;
         set({ opensMeetings });
         void api.setOpensMeetings(opensMeetings).catch(() => {});
-        const startsAssistant = await api.getSetting(MEETING_AUTO_START_KEY).catch(() => null);
         set({ startsAssistant: typeof startsAssistant === "boolean" ? startsAssistant : MEETING_AUTO_START_DEFAULT });
-        const linksIn = await api.getSetting(LINKS_OPEN_IN_KEY).catch(() => null);
         const linksOpenIn = isLinksOpenIn(linksIn) ? linksIn : LINKS_OPEN_IN_DEFAULT;
         set({ linksOpenIn });
         api.setLinksOpenIn(linksOpenIn);
-        const openIn = await api.getSetting(FILES_OPEN_IN_KEY).catch(() => null);
-        set({ openFilesIn: isOpenFilesIn(openIn) ? openIn : null, editors: await api.listEditors().catch(() => []) });
+        set({ openFilesIn: isOpenFilesIn(openIn) ? openIn : null, editors });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
         set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
           notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) }, iphoneNotifications: iphone !== false,

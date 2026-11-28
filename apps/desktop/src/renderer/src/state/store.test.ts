@@ -15,6 +15,23 @@ describe("app store", () => {
   beforeEach(() => { api = fakeApi(); });
   afterEach(() => { vi.useRealTimers(); });
 
+  it("asks for the settings boot reads last all at once, not one round trip after another", async () => {
+    // THE MUTANT: awaiting each of those reads before asking for the next (fifteen in a row before the first paint).
+    const asked: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const store = createAppStore({ ...api, getSetting: async (k) => { asked.push(k); if (k === "terminals.history") await held; return null; } });
+    const booting = store.getState().boot();
+    await vi.waitFor(() => expect(asked).toContain("terminals.history"));
+    await tick();
+    expect(asked).toEqual(expect.arrayContaining(["storage.eventRetentionDays", "terminals.cursorBlink", "terminals.cursorStyle", "ui.caret",
+      "terminals.colors", "terminals.dock", "power.preventSleep", "meetings.openWhenStarts", "meetings.startAssistantWithCall", "links.openIn", "files.openIn"]));
+    expect(store.getState().booted).toBe(false);
+    release();
+    await booting;
+    expect(store.getState().booted).toBe(true);
+  });
+
   it("boot loads profiles and all spaces, selects the first space and loads its items", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
