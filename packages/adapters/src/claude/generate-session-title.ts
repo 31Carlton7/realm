@@ -1,5 +1,6 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { BACKGROUND_MODEL } from "./background-model";
+import { noMcpServers } from "./no-mcp";
 
 type QueryFn = typeof sdkQuery;
 
@@ -21,6 +22,7 @@ export async function generateSessionTitle(text: string, deps: { query?: QueryFn
     options: {
       maxTurns: 1,
       allowedTools: [],
+      ...noMcpServers(),
       model: BACKGROUND_MODEL,
       systemPrompt: [
         "You write short titles that summarize a coding assistant's chat session for a sidebar list.",

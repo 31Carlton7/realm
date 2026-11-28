@@ -7,6 +7,16 @@ export class SettingsStore {
     if (!r) return null;
     try { return JSON.parse(r.value_json) as unknown; } catch { return null; }
   }
+  /** Several keys in one read, each as `get` would read it. A key with no row is absent from the map. */
+  getMany(keys: readonly string[]): Map<string, unknown> {
+    const out = new Map<string, unknown>();
+    if (keys.length === 0) return out;
+    const rows = this.db.prepare("SELECT key, value_json FROM settings WHERE key IN (SELECT value FROM json_each(?))").all(JSON.stringify(keys)) as { key: string; value_json: string }[];
+    for (const r of rows) {
+      try { out.set(r.key, JSON.parse(r.value_json) as unknown); } catch { out.set(r.key, null); }
+    }
+    return out;
+  }
   /** Whether the key was ever written — `get` reads a key set to null and a missing one alike. */
   has(key: string): boolean {
     return this.db.prepare("SELECT 1 FROM settings WHERE key = ?").get(key) !== undefined;

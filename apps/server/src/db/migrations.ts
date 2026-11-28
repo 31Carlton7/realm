@@ -1339,4 +1339,8 @@ export const migrations: string[] = [
     session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
     through_seq INTEGER NOT NULL);
   `,
+  // A lead's sub-agents, newest first, a page at a time (`delegation.children`): the sessions naming it
+  // as their dispatcher, read by that column and ordered by when each was made, id breaking a tie.
+  // Without it every read scanned the table and sorted. `IF NOT EXISTS`: safe to meet twice.
+  `CREATE INDEX IF NOT EXISTS sessions_dispatched_by ON sessions(dispatched_by_session_id, created_at, id);`,
 ];

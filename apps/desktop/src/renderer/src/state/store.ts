@@ -24,7 +24,7 @@ import {
   forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SESSION_DONE_KEY, sessionDoneWhen, type SessionDoneWhen, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SESSION_DONE_KEY, sessionDoneWhen, type SessionDoneWhen, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_DEFAULTS_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, readModelDefaults, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, EVENT_RETENTION_DAYS_DEFAULT, EVENT_RETENTION_DAYS_KEY, parseRetentionDays, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, MEETINGS_OPEN_DEFAULT, MEETINGS_OPEN_KEY, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, type CalendarAccess, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
@@ -827,7 +827,7 @@ export type Api = TeammatesApi & {
    *  in memory, so this is the only way a pane mounted mid-run learns about it; from then on
    *  `delegation.changed` carries every change. */
   listDelegatedRuns(sessionId: string): Promise<DelegatedRun[]>;
-  /** `delegation.children` — every session this one delegated to, settled ones included, and the
+  /** `delegation.children` — every session this one delegated to, oldest first, settled ones included, and the
    *  sub-agents the person took off its prompter's row. */
   listDelegatedChildren(sessionId: string): Promise<{ children: DelegatedChild[]; dismissed: string[] }>;
   /** `delegation.addTeammate` — an agent added from the prompter's "+", as the session's sub-agent. */
@@ -3096,6 +3096,9 @@ export type AppState = TeammatesSlice & {
    *  Cursor). Drawn by `caret.ts`, which App's bridge hands this to. */
   caret: CaretPrefs;
   setTerminalHistory(enabled: boolean): Promise<void>;
+  /** Days before an untouched session's long tool output is cut; 0 is off, the default. See the contract. */
+  eventRetentionDays: number;
+  setEventRetentionDays(days: number): Promise<void>;
   setTerminalCursorBlink(on: boolean): Promise<void>;
   setTerminalCursorStyle(style: CaretShape): Promise<void>;
   /** Realm's sixteen colours or xterm's (Settings ▸ General ▸ Terminals). Reaches live terminals
@@ -4986,7 +4989,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, memoryLearning: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, opensMeetings: MEETINGS_OPEN_DEFAULT, startsAssistant: MEETING_AUTO_START_DEFAULT, calendarAccess: null, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
+      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, eventRetentionDays: EVENT_RETENTION_DAYS_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, opensMeetings: MEETINGS_OPEN_DEFAULT, startsAssistant: MEETING_AUTO_START_DEFAULT, calendarAccess: null, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
@@ -5121,6 +5124,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // scrollback ON, because what it keeps is whatever a shell printed.
         const terminalHistory = await api.getSetting(TERMINALS_HISTORY_KEY).catch(() => null);
         set({ terminalHistory: terminalHistory === true });
+        // Read as the server reads it, so the control shows the window that is applied. A failed read is off.
+        const retention = await api.getSetting(EVENT_RETENTION_DAYS_KEY).catch(() => null);
+        set({ eventRetentionDays: parseRetentionDays(retention) });
         // Defaulted ON, so only an explicit `false` turns it off — an unset key and a failed read
         // both mean "nobody has said", which is the blinking cursor every other terminal draws.
         const cursorBlink = await api.getSetting(TERMINALS_CURSOR_BLINK_KEY).catch(() => null);
@@ -8899,6 +8905,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const next = { ...get().caret, ...patch };
         set({ caret: next });
         await api.setSetting(CARET_KEY, next);
+      },
+      async setEventRetentionDays(days) {
+        // The server reads the window at its next run, so the control shows only what was written.
+        await api.setSetting(EVENT_RETENTION_DAYS_KEY, days);
+        set({ eventRetentionDays: days });
       },
       async setTerminalHistory(enabled) {
         // Set the server first. Turning it OFF also purges what was kept, server-side, and a switch

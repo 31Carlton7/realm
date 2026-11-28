@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DOMPurify from "dompurify";
 import { Transcript, WINDOW_BLOCKS, EARLIER_BLOCKS, FIRST_BLOCKS, FILL_BLOCKS, windowStart } from "./Transcript";
 import { Markdown } from "./Markdown";
@@ -141,19 +141,25 @@ describe("a session read from its end", () => {
 
 describe("a pane switched to draws its end first", () => {
   const rows = () => document.querySelectorAll(".msg-user-row").length;
+  /* Frames and the timeout each step waits behind come off a fake clock, so a loaded machine cannot
+     fit fewer of them into a wait than the test counts. */
+  beforeEach(() => { vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] }); });
+  afterEach(() => { vi.useRealTimers(); });
   /** Let the frames after the first one paint, each in an act of its own: a step of the fill is a
    *  transition, which act commits as it ends, and only then is the next step asked for. */
-  const frames = async (n: number) => { for (let i = 0; i < n; i++) await act(() => new Promise((r) => setTimeout(r, 20))); };
+  const frames = (n: number) => {
+    for (let i = 0; i < n; i++) act(() => { vi.advanceTimersToNextFrame(); vi.advanceTimersByTime(1); });
+  };
 
-  it("draws a screenful in the first frame, then the rest of its window above it, a step a frame", async () => {
+  it("draws a screenful in the first frame, then the rest of its window above it, a step a frame", () => {
     const blocks = session(200, 10);
     render(<Transcript transcript={model(blocks)} sessionStatus="idle" onDecide={() => {}} stage />);
     // The last FIRST_BLOCKS blocks: three whole turns.
     expect(rows()).toBe(FIRST_BLOCKS / 10);
     const newest = screen.getByText("prompt 199").closest(".msg-user-row");
-    await frames(1);
+    frames(1);
     expect(rows()).toBe((FIRST_BLOCKS + FILL_BLOCKS) / 10);
-    await frames(8);
+    frames(8);
     expect(rows()).toBe(WINDOW_BLOCKS / 10);
     // Grown above the rows already drawn, which stay mounted, and as history rather than news.
     expect(screen.getByText("prompt 199").closest(".msg-user-row")).toBe(newest);
@@ -167,28 +173,28 @@ describe("a pane switched to draws its end first", () => {
     expect(document.querySelector(".msg-user-row")!.textContent).toContain("prompt 198");
   });
 
-  it("draws an earlier stretch read in front of it by the same steps, not in one frame", async () => {
+  it("draws an earlier stretch read in front of it by the same steps, not in one frame", () => {
     const all = session(200, 10);
     const tail: TranscriptModel = { ...model(all.slice(1980)), earlier: { from: 198, settledAt: null } };
     const { rerender } = render(<Transcript transcript={tail} sessionStatus="idle" onDecide={() => {}} onEarlier={async () => {}} stage />);
     expect(rows()).toBe(2);
-    await frames(2);
+    frames(2);
     rerender(<Transcript transcript={{ ...model(all), base: -1980 }} sessionStatus="idle" onDecide={() => {}} onEarlier={async () => {}} stage />);
     expect(rows()).toBe(2);
-    await frames(1);
+    frames(1);
     expect(rows()).toBe(2 + FILL_BLOCKS / 10);
-    await frames(8);
+    frames(8);
     expect(rows()).toBe(WINDOW_BLOCKS / 10);
   });
 
-  it("stops filling while the reader reads further up, holding what they are reading still", async () => {
+  it("stops filling while the reader reads further up, holding what they are reading still", () => {
     render(<Transcript transcript={model(session(200, 10))} sessionStatus="idle" onDecide={() => {}} stage />);
     const el = document.querySelector(".transcript") as HTMLElement;
     Object.defineProperty(el, "scrollHeight", { configurable: true, value: 10_000 });
     Object.defineProperty(el, "clientHeight", { configurable: true, value: 500 });
     el.scrollTop = 1000;
     fireEvent.scroll(el);
-    await frames(6);
+    frames(6);
     expect(rows()).toBe(FIRST_BLOCKS / 10);
   });
 

@@ -1,5 +1,6 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { BACKGROUND_MODEL } from "./background-model";
+import { noMcpServers } from "./no-mcp";
 
 type QueryFn = typeof sdkQuery;
 
@@ -49,6 +50,7 @@ export async function generateHandoffNotes(input: HandoffNotesInput, deps: { que
     options: {
       maxTurns: 1,
       allowedTools: [],
+      ...noMcpServers(),
       model: BACKGROUND_MODEL,
       systemPrompt: [
         `A coding session is moving from ${input.from} to ${input.to} mid-conversation. The new agent`,

@@ -52,6 +52,16 @@ describe("delegation.addTeammate params", () => {
 
 describe("delegation.children result", () => {
   it("reads a server from before dismissal existed as nothing dismissed", () => {
-    expect(Methods["delegation.children"].result.parse({ children: [] })).toEqual({ children: [], dismissed: [] });
+    expect(Methods["delegation.children"].result.parse({ children: [] })).toEqual({ children: [], dismissed: [], nextBefore: null });
+  });
+  it("pages by a limit and a cursor, either left out, null asking for every one", () => {
+    const params = Methods["delegation.children"].params;
+    const id = "01J0000000000000000000000A";
+    expect(params.parse({ sessionId: id })).toEqual({ sessionId: id });
+    expect(params.parse({ sessionId: id, limit: null })).toEqual({ sessionId: id, limit: null });
+    expect(params.parse({ sessionId: id, limit: 5, before: { createdAt: 9, id } })).toEqual({ sessionId: id, limit: 5, before: { createdAt: 9, id } });
+    expect(() => params.parse({ sessionId: id, limit: 0 })).toThrow();
+    expect(() => params.parse({ sessionId: id, before: { createdAt: 9 } })).toThrow();
+    expect(Methods["delegation.children"].result.parse({ children: [], nextBefore: { createdAt: 9, id } }).nextBefore).toEqual({ createdAt: 9, id });
   });
 });
