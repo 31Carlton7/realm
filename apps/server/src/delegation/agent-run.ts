@@ -374,6 +374,14 @@ export class AgentRunService {
     ].join("\n");
   }
 
+  /** What a child is told after it compacts its conversation: its goal, word for word. The goal is in
+   *  its first message only, and a compaction replaces that message with a summary. */
+  afterCompaction(sessionId: string): string | undefined {
+    const child = this.childRecord(sessionId);
+    if (!child) return undefined;
+    return ["Your conversation was compacted. The goal you were delegated, as it was given in your first message:", "", child.goal].join("\n");
+  }
+
   /** A session was deleted. As a parent: cancel its run. As a child: forget its persisted record and
    *  its per-session skill stage — the restriction dies with the session, never leaks to a future id. */
   release(sessionId: string): void {

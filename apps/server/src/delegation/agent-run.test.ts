@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -193,6 +193,28 @@ describe("agent_run — the delegated session", () => {
     const firstRequest = `${fake.seen[0]!.systemContext}\n${first?.type === "user_message" ? first.payload.text : ""}`;
     expect(firstRequest.split(goal)).toHaveLength(2);
     expect(first?.type === "user_message" && first.payload.text).toContain(goal);
+  });
+
+  it("hands a compacted child its goal again, word for word, and nothing more on a resume", async () => {
+    const { home, fake, spaceId, parentId } = await boot({ parentKind: "claude" });
+    const goal = "BRIEF-9c1: rename the flag in Base.xcconfig\n  and keep   its spacing exactly\n";
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal });
+    const childId = childOf(spaceId, parentId).id;
+    // THE MUTANT: drop the hook — a compacted child keeps only the summary's account of its task.
+    // THE MUTANT: restate a changed goal — the exact wording is what the summary loses.
+    expect(fake.seen[0]!.afterCompaction?.()).toBe(`Your conversation was compacted. The goal you were delegated, as it was given in your first message:\n\n${goal}`);
+    expect(fake.seen[0]!.autoCompactWindow).toBeUndefined();
+
+    await app.close();
+    const again = new CaptureFake({ script: [{ on: "carry on", emit: [{ kind: "text", text: "ok" }] }], delayMs: 5 });
+    app = await createApp({ home, port: 0, adapters: { fake: again, claude: again } });
+    await app.sessions.send(childId, { text: "carry on", attachments: [] });
+    await vi.waitFor(() => expect(again.sent).toEqual(["carry on"]));
+    const resumed = again.seen[0]!;
+    expect(resumed.resume).toBeTruthy();
+    // THE MUTANT: re-send the brief on a resume — the conversation it resumes already holds it.
+    expect(`${resumed.systemContext}\n${again.sent.join("\n")}`).not.toContain(goal);
+    expect(resumed.afterCompaction?.()).toContain(goal);
   });
 
   it("does NOT stack the general capabilities preamble on top of the child's brief", async () => {

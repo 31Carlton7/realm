@@ -1540,6 +1540,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); team?.release(id); void handoffNotes.release(id).catch(() => {}); void toolResults.release(id).catch(() => {}); },
       extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
+      afterCompaction: (id) => agentRuns?.afterCompaction(id),
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
     } });
   sessionService = sessions;
