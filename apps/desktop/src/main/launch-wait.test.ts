@@ -52,4 +52,12 @@ describe("the launch's maintenance notice", () => {
     close();
     expect(made[0]!.destroyed).toBe(true);
   });
+
+  it("is left alone when the person closed it first", () => {
+    // The notice can be closed by hand mid-wait; the launch's close after its window opens must not
+    // touch the destroyed window. MUTANT: drop the isDestroyed guard and destroy() throws here.
+    const close = showLaunchWait("vacuum");
+    made[0]!.destroyed = true;
+    expect(close).not.toThrow();
+  });
 });
