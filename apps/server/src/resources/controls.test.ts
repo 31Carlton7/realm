@@ -52,7 +52,8 @@ describe("the Memory page's controls", () => {
     const { c } = setup();
     expect(c.policies()).toEqual({
       engineIdleMinutes: 30, mcpIdleMinutes: 30, layaIdleMinutes: 10, simulatorIdleMinutes: 30, browserHiddenMinutes: 20, browserKeepHidden: 3, adaptive: true,
-      effective: { engines: 10, mcp: 10, laya: 3, simulators: 10, browsers: 10 },
+      windowIdleMinutes: 240, unloadIdleWindows: true,
+      effective: { engines: 10, mcp: 10, laya: 3, simulators: 10, browsers: 10, windows: 30 },
     });
   });
 
@@ -63,6 +64,9 @@ describe("the Memory page's controls", () => {
     expect(c.setPolicy("resources.adaptive", false).adaptive).toBe(false);
     expect(() => c.setPolicy("mcp.idleStopMinutes", true)).toThrow(/whole number/);
     expect(() => c.setPolicy("resources.adaptive", 5)).toThrow(/on or off/);
+    expect(c.setPolicy("windows.unloadIdle", false).unloadIdleWindows).toBe(false);
+    expect(() => c.setPolicy("windows.unloadIdle", 5)).toThrow(/on or off/);
+    expect(c.setPolicy("windows.idleUnloadMinutes", 60).windowIdleMinutes).toBe(60);
     c.setPolicy("laya.idleStopMinutes", 0);
     expect(calls.filter((x) => x === "laya-window")).toHaveLength(2);
   });
@@ -74,6 +78,9 @@ describe("the Memory page's controls", () => {
     c.setPolicy("resources.adaptive", true);
     c.setPolicy("mcp.idleStopMinutes", 10);
     expect(calls.filter((x) => x === "browser-policy")).toHaveLength(3);
+    c.setPolicy("windows.idleUnloadMinutes", 30);
+    c.setPolicy("windows.unloadIdle", false);
+    expect(calls.filter((x) => x === "browser-policy")).toHaveLength(5);
   });
 
   it("free memory with each button through the policy's own rules, skipping only the wait", async () => {

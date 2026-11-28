@@ -16,6 +16,7 @@ describe("generateHandoffNotes", () => {
     expect(seen!.options.systemPrompt).toContain("from Claude Opus 5.5 to Codex GPT-5.6");
     expect(seen!.prompt).toContain("- edited 1 file: health.ts");
     expect(seen!.options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
+    expect(seen!.options).toMatchObject({ tools: [], env: expect.objectContaining({ DISABLE_PROMPT_CACHING: "1" }) });
   });
 
   it("throws on a failed or empty call, so the caller carries the conversation verbatim instead", async () => {

@@ -648,7 +648,10 @@ describe("a teammate's chat is compacted short of the model's window", () => {
     expect(home.autoCompactWindow).toBe(TEAMMATE_HOME_COMPACT_WINDOW);
     expect(TEAMMATE_HOME_COMPACT_WINDOW).toBe(250_000);
     expect(child.autoCompactWindow).toBeUndefined();
-    expect(child.afterCompaction).toBeUndefined();
+    // The task is a delegated child: after a compaction it is told its goal again, and not the
+    // teammate's open tasks.
+    expect(child.afterCompaction?.()).toContain("The goal you were delegated");
+    expect(child.afterCompaction?.()).not.toContain("Your chat was just compacted.");
   });
 
   it("takes the teammate's own window over the default, and goes back to the default when it is cleared", async () => {

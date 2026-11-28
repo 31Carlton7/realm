@@ -207,3 +207,35 @@ describe("DelegatedChildren.list", () => {
     expect(plan.filter((d) => /^SCAN s\b/.test(d) || d.includes("TEMP B-TREE"))).toEqual([]);
   });
 });
+
+describe("DelegatedChildren.one", () => {
+  it("answers one child, its sub-agents under it, field for field as the list has it, and nothing for one that is not the lead's", () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(NOW);
+    const { raw, lead, children, kids, grandchild } = seed(9);
+    const listed = children.list(lead, { limit: null }).children;
+    for (const id of kids) expect(children.one(lead, id)).toEqual(listed.find((c) => c.session.id === id));
+    expect(children.one(lead, kids[0]!)!.children?.map((g) => g.session.id)).toEqual([grandchild]);
+    expect(children.one(lead, lead)).toBeNull();
+    // A fork names the lead it came from, but is nobody's sub-agent.
+    const fork = (raw.prepare("SELECT id FROM sessions WHERE title = 'A fork'").get() as { id: string }).id;
+    expect(children.one(lead, fork)).toBeNull();
+    expect(children.one(kids[0]!, kids[1]!)).toBeNull();
+    // A grandchild is its own parent's sub-agent, not the lead's.
+    expect(children.one(lead, grandchild!)).toBeNull();
+    expect(children.one(kids[0]!, grandchild!)).toMatchObject({ goal: "grand goal", report: "grand report" });
+  });
+
+  it("makes the same number of reads for a child with sub-agents of its own as for one without", () => {
+    const { lead, children, reads, kids } = seed(9);
+    const readsFor = (id: string) => {
+      const from = reads.length;
+      expect(children.one(lead, id)).not.toBeNull();
+      return reads.length - from;
+    };
+    // kids[0] has a grandchild; kids[3] is the same kind with none.
+    const without = readsFor(kids[3]!);
+    expect(readsFor(kids[0]!)).toBe(without);
+    // The session, the sessions it started, their newest lines and the two kinds of record.
+    expect(without).toBeLessThanOrEqual(5);
+  });
+});

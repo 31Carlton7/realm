@@ -1343,4 +1343,10 @@ export const migrations: string[] = [
   // as their dispatcher, read by that column and ordered by when each was made, id breaking a tie.
   // Without it every read scanned the table and sorted. `IF NOT EXISTS`: safe to meet twice.
   `CREATE INDEX IF NOT EXISTS sessions_dispatched_by ON sessions(dispatched_by_session_id, created_at, id);`,
+  // A session's events of one type, newest or oldest first (`lastOfType`, `lastOfTypes`, the typed
+  // reads of `listOfTypes` and `listBefore`). `(session_id, seq)` finds a session's rows but not one
+  // type among them, so a read for a type the session rarely writes walked its whole log. Index-only:
+  // nothing to backfill, every query it serves returns the same rows without it, and it is built in
+  // under two seconds on an 800k-event home. `IF NOT EXISTS`: safe to meet twice.
+  `CREATE INDEX IF NOT EXISTS session_events_type ON session_events(session_id, type, seq);`,
 ];

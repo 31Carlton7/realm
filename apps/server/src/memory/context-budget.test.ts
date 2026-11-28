@@ -14,7 +14,7 @@ const block = (o: Partial<{ priority: number; cap: number; text: string; pointer
 describe("fitBlocks", () => {
   it("keeps every block whole when they fit, in the order they were given", () => {
     const out = fitBlocks([block({ priority: 2, text: "general" }), block({ priority: 0, text: "specific" })], 100);
-    expect(out).toEqual([{ text: "general", cut: false }, { text: "specific", cut: false }]);
+    expect(out).toEqual([{ text: "general", cut: false, head: "general" }, { text: "specific", cut: false, head: "specific" }]);
   });
 
   it("lets the most specific block take its share first, and the general one give way", () => {
@@ -22,7 +22,7 @@ describe("fitBlocks", () => {
     const general = lines(5, 20);
     // 99 + 99 = 198 against 150: the general block is the one that is cut.
     const [g, s] = fitBlocks([block({ priority: 2, text: general }), block({ priority: 0, text: specific })], 150);
-    expect(s).toEqual({ text: specific, cut: false });
+    expect(s).toEqual({ text: specific, cut: false, head: specific });
     expect(g!.cut).toBe(true);
     // THE MUTANT: fill in input order. The general block would win and the specific one be cut.
     expect(g!.text.length).toBeLessThan(general.length);
@@ -38,8 +38,8 @@ describe("fitBlocks", () => {
     const text = "- one fact\n- two facts\n- three facts";
     // Room for "- one fact\n- two" — the half line must not survive.
     const [out] = fitBlocks([block({ text, cap: 16 + "[more]".length })], 1_000);
-    expect(out).toEqual({ text: "- one fact", cut: true });
-    expect(fitBlocks([block({ text: "x".repeat(500), cap: 100 })], 1_000)).toEqual([{ text: "", cut: true }]);
+    expect(out).toEqual({ text: "- one fact", cut: true, head: "- one fact" });
+    expect(fitBlocks([block({ text: "x".repeat(500), cap: 100 })], 1_000)).toEqual([{ text: "", cut: true, head: "" }]);
   });
 
   it("never spends more than the total, pointers included, and holds room for every later block's pointer", () => {
@@ -66,7 +66,7 @@ describe("fitBlocks", () => {
   });
 
   it("gives a block that was already cut upstream its pointer even when all of it fits", () => {
-    expect(fitBlocks([block({ text: "- a\n- b", cut: true })], 1_000)).toEqual([{ text: "- a\n- b", cut: true }]);
+    expect(fitBlocks([block({ text: "- a\n- b", cut: true })], 1_000)).toEqual([{ text: "- a\n- b", cut: true, head: "- a\n- b" }]);
   });
 });
 
@@ -172,7 +172,8 @@ describe("budgetRepoIndexes, ranked for the session", () => {
     const pointer = readRestPointer({ ...folder(""), ranked: true });
     const fit = () => fitBlocks([{ priority: 0, cap: 200 + pointer.length, text: twins.join("\n"), pointer, query: "notarize" }], 100_000)[0]!;
     const first = fit();
-    expect(first).toEqual({ text: `${twins[0]}\n${twins[40]}`, cut: true });
+    // The head is the first line alone: the one after it is the query's choice.
+    expect(first).toEqual({ text: `${twins[0]}\n${twins[40]}`, cut: true, head: twins[0] });
     for (let i = 0; i < 5; i++) expect(fit()).toEqual(first);
   });
 
@@ -218,15 +219,19 @@ describe("claudeUnloadedLines", () => {
 });
 
 describe("budgetRepoIndexes, a Claude tail", () => {
-  it("puts the lines that rank for the prompt first, and cuts the lowest when it does not fit", () => {
+  it("keeps the index's order when it fits, and when it does not keeps the lines that rank for the prompt", () => {
     // Each line longer than the pointer, so one that fits with the pointer cannot be the whole block.
     const tail = ["- [A](a.md) — alpha", "- [B](b.md) — notarization keychain", "- [C](c.md) — gamma"].map((l) => l.padEnd(400, "."));
     const entry = { scope: "profile" as const, kind: "spaceFolder" as const, path: "/mine/spaces/realm", index: tail.join("\n"), truncated: false, claudeTail: true as const };
     const [fit] = budgetRepoIndexes([entry], MEMORY_INDEX_BUDGET, "notarization");
-    expect(fit!.index.split("\n")).toEqual([tail[1], tail[0], tail[2]]);
+    // THE MUTANT: rank a tail that fits — the prompt reorders it and two sessions' system prompts differ.
+    expect(fit!.index.split("\n")).toEqual(tail);
+    expect(fit!.head).toBe(fit!.index);
     const small = `${tail[1]}\n${tail[0]}`.length + readRestPointer({ ...entry, ranked: true }).length;
     const [cut] = budgetRepoIndexes([entry], small, "notarization");
     expect(cut!.index.split("\n")).toEqual([tail[1], tail[0]]);
     expect(cut!.truncated).toBe(true);
+    // All of a cut tail is the query's choice, so none of it is a head.
+    expect(cut!.head).toBe("");
   });
 });

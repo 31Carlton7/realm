@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ScreenPicture } from "@realm/contracts";
 import { ClaudeLiveAnswers, liveAnswerPrompt } from "./live-answer";
 
@@ -66,6 +66,28 @@ describe("ClaudeLiveAnswers", () => {
     expect(started[0]!.options).toMatchObject({ model: "claude-haiku-5-5", tools: [], settingSources: [], effort: "low", persistSession: false, includePartialMessages: true });
     expect(started[0]!.options.env).toMatchObject({ CLAUDE_CODE_DISABLE_THINKING: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH });
     expect(started[0]!.prompts).toEqual(["the prompt"]);
+    live.close();
+  });
+
+  it("caches for five minutes, not the CLI's hour", async () => {
+    const { started, startup } = engines();
+    const live = new ClaudeLiveAnswers({ startup });
+    await ask(live).done;
+    expect(started[0]!.options.env?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
+    expect(started[0]!.options.env?.DISABLE_PROMPT_CACHING).toBeUndefined();
+    live.close();
+  });
+
+  it("leaves the cache to the person when they asked for the 1 h one in their own environment", async () => {
+    // Realm's 5m TTL outranks ENABLE_PROMPT_CACHING_1H in the CLI, so it must not be sent alongside.
+    vi.stubEnv("ENABLE_PROMPT_CACHING_1H", "1");
+    const { started, startup } = engines();
+    const live = new ClaudeLiveAnswers({ startup });
+    await ask(live).done;
+    vi.unstubAllEnvs();
+    expect(started[0]!.options.env?.ENABLE_PROMPT_CACHING_1H).toBe("1");
+    expect(started[0]!.options.env?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
+    expect(started[0]!.options.env?.CLAUDE_CODE_DISABLE_THINKING).toBe("1");
     live.close();
   });
 

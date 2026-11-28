@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BACKGROUND_MODEL } from "./background-model";
 import { generateMemoryExtraction, generateMemoryTidyPlan } from "./generate-memory";
 
@@ -103,5 +103,27 @@ describe("the background model", () => {
     await generateMemoryExtraction(INPUT, { query: extraction.query });
     await generateMemoryTidyPlan(TIDY, { query: tidy.query });
     for (const f of [extraction, tidy]) expect(f.asked[0]!.options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
+  });
+
+  it("sends no tool definitions and writes nothing to the prompt cache in either call", async () => {
+    const extraction = fakeQuery('{"memories": []}');
+    const tidy = fakeQuery('{"operations": []}');
+    await generateMemoryExtraction(INPUT, { query: extraction.query });
+    await generateMemoryTidyPlan(TIDY, { query: tidy.query });
+    for (const f of [extraction, tidy]) expect(f.asked[0]!.options).toMatchObject({ tools: [], env: expect.objectContaining({ DISABLE_PROMPT_CACHING: "1" }) });
+  });
+
+  it("leaves the cache to the person in either call when they set a TTL in their own environment", async () => {
+    vi.stubEnv("CLAUDE_CODE_PROMPT_CACHE_TTL", "1h");
+    const extraction = fakeQuery('{"memories": []}');
+    const tidy = fakeQuery('{"operations": []}');
+    await generateMemoryExtraction(INPUT, { query: extraction.query });
+    await generateMemoryTidyPlan(TIDY, { query: tidy.query });
+    vi.unstubAllEnvs();
+    for (const f of [extraction, tidy]) {
+      const env = (f.asked[0]!.options as { env?: Record<string, string | undefined> }).env!;
+      expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
+      expect(env.DISABLE_PROMPT_CACHING).toBeUndefined();
+    }
   });
 });

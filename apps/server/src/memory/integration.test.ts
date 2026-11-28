@@ -288,6 +288,28 @@ describe("memory over rpc", () => {
     c.close();
   });
 
+  it("two Claude sessions of a space get one system prompt, and each first prompt its own ranked lines", async () => {
+    const { c, spA, claude, codex } = await boot();
+    const made = (await c.call("memory.repo.create", { scope: "profile", ownerId: spA.profileId })).result;
+    // Past the profile's cap, so the lines after its head are ranked for each session.
+    const root = Array.from({ length: 60 }, (_, i) => `- Fact ${i}: ${i % 6 === 2 ? "notarization needs the keychain" : "ports start at 8790"} ${"and more words ".repeat(8)}`);
+    writeFileSync(join(made.path, "MEMORY.md"), `${root.join("\n")}\n`);
+    for (const [kind, text] of [["claude", "notarization keeps failing"], ["claude", "which ports does it use"], ["codex", "notarization keeps failing"]] as const) {
+      const { session } = (await c.call("sessions.create", { spaceId: spA.id, agentKind: kind })).result;
+      await c.call("sessions.send", { id: session.id, text });
+    }
+    await waitFor(() => claude.starts.length === 2 && codex.starts.length === 1);
+    const [one, two] = claude.starts;
+    // THE MUTANT: hand `contextForSession` the ranked lines too — the system prompts differ.
+    expect(one!.systemContext).toBe(two!.systemContext);
+    // THE MUTANT: never pass `firstPromptContext` — the ranked lines reach no Claude session.
+    expect(one!.firstPromptContext).toContain("notarization needs the keychain");
+    expect(two!.firstPromptContext).not.toBe(one!.firstPromptContext);
+    expect(codex.starts[0]!.firstPromptContext).toBeUndefined();
+    expect(codex.starts[0]!.systemContext).toContain("notarization needs the keychain");
+    c.close();
+  });
+
   it("memory.repo RPC: per-space opt-out, log, detach that leaves the folder, refusals", async () => {
     const { c, spA, spB, claude, home } = await boot();
     const made = (await c.call("memory.repo.create", { scope: "profile", ownerId: spA.profileId })).result;

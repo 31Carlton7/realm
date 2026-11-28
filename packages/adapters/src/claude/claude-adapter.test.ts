@@ -953,6 +953,51 @@ describe("ClaudeAdapter", () => {
       expect(await hook({ hook_event_name: "SessionStart", source: "resume" })).toEqual({});
     });
 
+    it("restates a delegated child's goal after a compaction, word for word, without adding it to any prompt", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      const goal = "Your conversation was compacted. The goal:\n\nrename  the flag\n";
+      for (const resume of [null, "psid-1"]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], resume, afterCompaction: () => goal });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      for (const o of captureOptions) {
+        const hooks = o.hooks as { SessionStart: { hooks: ((input: unknown) => Promise<unknown>)[] }[]; UserPromptSubmit?: unknown };
+        expect(await hooks.SessionStart[0]!.hooks[0]!({ hook_event_name: "SessionStart", source: "compact" }))
+          .toEqual({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: goal } });
+        expect(hooks.UserPromptSubmit).toBeUndefined();
+      }
+    });
+
+    it("hands the first prompt its context once, never on a resume, and again after a compaction", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      for (const resume of [null, "psid-1"]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], resume, firstPromptContext: "RANKED", afterCompaction: () => "Still open: one task." });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      type Hook = (input: unknown) => Promise<unknown>;
+      type Hooks = { SessionStart: { hooks: Hook[] }[]; UserPromptSubmit: { hooks: Hook[] }[] };
+      const prompt = { hook_event_name: "UserPromptSubmit", prompt: "hi" };
+      const fresh = captureOptions[0]!.hooks as Hooks;
+      // THE MUTANT: no UserPromptSubmit hook — the ranked lines reach no request at all.
+      expect(await fresh.UserPromptSubmit[0]!.hooks[0]!(prompt)).toEqual({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: "RANKED" } });
+      // THE MUTANT: no one-shot flag — every turn carries the lines again.
+      expect(await fresh.UserPromptSubmit[0]!.hooks[0]!(prompt)).toEqual({});
+      // THE MUTANT: leave the context out of the compaction note — a compacted session loses the lines.
+      expect(await fresh.SessionStart[0]!.hooks[0]!({ hook_event_name: "SessionStart", source: "compact" }))
+        .toEqual({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "Still open: one task.\n\nRANKED" } });
+      const resumed = captureOptions[1]!.hooks as Hooks;
+      // THE MUTANT: send it on a resume too — the conversation already holds it, and it would ride twice.
+      expect(await resumed.UserPromptSubmit[0]!.hooks[0]!(prompt)).toEqual({});
+      expect(await resumed.SessionStart[0]!.hooks[0]!({ hook_event_name: "SessionStart", source: "compact" }))
+        .toEqual({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "Still open: one task.\n\nRANKED" } });
+    });
+
     describe("reasoning effort", () => {
       it("hands the SDK a level it has a word for, and never one from another harness", async () => {
         for (const [effort, sent] of [["max", "max"], ["minimal", undefined], [null, undefined]] as const) {
@@ -1359,6 +1404,22 @@ describe("ClaudeAdapter skills", () => {
     await handle.send({ text: "hi", attachments: [] });
     expect((await options()).env).toEqual({ MAX_MCP_OUTPUT_TOKENS: String(CLAUDE_MCP_OUTPUT_TOKENS), ...CLAUDE_LISTING_ENV, ...process.env, REALM_PROBE_OWN: "v" });
     await handle.dispose();
+  });
+
+  it("leaves a session's prompt cache TTL to the CLI, which keeps the main loop on its 1 h cache", async () => {
+    // Only the one-shot helpers shorten or turn off the cache. A main loop reads ~97 % of its prompt
+    // back from the 1 h cache, so none of these switches may reach its env, skills or not.
+    const cacheEnv = ["DISABLE_PROMPT_CACHING", "CLAUDE_CODE_PROMPT_CACHE_TTL", "FORCE_PROMPT_CACHING_5M", "CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL"];
+    const plain = capture({});
+    await plain.handle.send({ text: "hi", attachments: [] });
+    const plainEnv = (await plain.options()).env as Record<string, string>;
+    await plain.handle.dispose();
+    settingsFile({});
+    const skills = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await skills.handle.send({ text: "hi", attachments: [] });
+    const skillsEnv = (await skills.options()).env as Record<string, string>;
+    await skills.handle.dispose();
+    for (const env of [plainEnv, skillsEnv]) for (const key of cacheEnv) expect(env[key], key).toBeUndefined();
   });
 
   it("lifts the CLI's 25,000-token cap on one MCP result, skills or not, unless the user set their own", async () => {

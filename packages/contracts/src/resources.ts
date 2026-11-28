@@ -166,10 +166,30 @@ export const MCP_IDLE_STOP_DEFAULT = 30;
 export const ENGINE_IDLE_MINUTES_KEY = "sessions.engineIdleMinutes";
 export const ENGINE_IDLE_MINUTES_DEFAULT = 30;
 
+/**
+ * Unload idle windows: a Realm window nobody has focused for `WINDOW_IDLE_MINUTES_KEY` gives up its
+ * renderer, and comes back on the view it had when it is focused again. A window in front, one an
+ * agent is driving, one with work under way in its space, one with live audio or dictation and one
+ * holding work not sent or saved are never unloaded. With it on, only the windows used last open at
+ * launch. Off, every window stays loaded and all of them open at launch, as Realm ran before.
+ */
+export const WINDOW_UNLOAD_IDLE_KEY = "windows.unloadIdle";
+export const WINDOW_UNLOAD_IDLE_DEFAULT = true;
+/** Minutes a window may go without focus before it unloads (0: never). */
+export const WINDOW_IDLE_MINUTES_KEY = "windows.idleUnloadMinutes";
+export const WINDOW_IDLE_MINUTES_DEFAULT = 240;
+/** How many windows open at launch with Unload idle windows on: the ones used last. Each window's
+ *  renderer costs about 290 MB from the moment it opens, whether or not its space is looked at. */
+export const WINDOWS_OPENED_AT_LAUNCH = 3;
+/** A window's own: coming back costs a second or two of loading where an engine costs a few, so it
+ *  is given longer than the shared ten when memory is short. */
+export const WINDOW_PRESSURE_IDLE_MINUTES = { warn: 30, critical: 10 } as const;
+
 /** Every policy setting the Memory page writes, and the shape it is written in. */
 export const RESOURCE_POLICY_KEYS = [
   "sessions.engineIdleMinutes", "mcp.idleStopMinutes", "laya.idleStopMinutes", "simulators.idleShutdownMinutes",
   "browser.discardHiddenMinutes", "browser.keepHidden", "resources.adaptive",
+  "windows.idleUnloadMinutes", "windows.unloadIdle",
 ] as const;
 export const ResourcePolicyKeySchema = z.enum(RESOURCE_POLICY_KEYS);
 export type ResourcePolicyKey = z.infer<typeof ResourcePolicyKeySchema>;
@@ -183,6 +203,8 @@ export const ResourcePoliciesSchema = z.object({
   browserHiddenMinutes: z.number().int().nonnegative(),
   browserKeepHidden: z.number().int().nonnegative(),
   adaptive: z.boolean(),
-  effective: z.object({ engines: z.number(), mcp: z.number(), laya: z.number(), simulators: z.number(), browsers: z.number() }),
+  windowIdleMinutes: z.number().int().nonnegative(),
+  unloadIdleWindows: z.boolean(),
+  effective: z.object({ engines: z.number(), mcp: z.number(), laya: z.number(), simulators: z.number(), browsers: z.number(), windows: z.number() }),
 });
 export type ResourcePolicies = z.infer<typeof ResourcePoliciesSchema>;

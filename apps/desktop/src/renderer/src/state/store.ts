@@ -830,6 +830,8 @@ export type Api = TeammatesApi & {
   /** `delegation.children` — every session this one delegated to, oldest first, settled ones included, and the
    *  sub-agents the person took off its prompter's row. */
   listDelegatedChildren(sessionId: string): Promise<{ children: DelegatedChild[]; dismissed: string[] }>;
+  /** `delegation.child`: one of them, as the list has it; null when it is not this session's. */
+  getDelegatedChild(sessionId: string, childId: string): Promise<DelegatedChild | null>;
   /** `delegation.addTeammate` — an agent added from the prompter's "+", as the session's sub-agent. */
   addTeammate(input: AddTeammate): Promise<{ childId: string }>;
   /** `delegation.dismiss` — take one of a session's sub-agents off its prompter's row. */
@@ -2861,7 +2863,7 @@ export type AppState = TeammatesSlice & {
   refreshDelegatedRuns(sessionId: string): Promise<void>;
   /** The `delegation.changed` handler. The payload is the WHOLE set, so it replaces rather than
    *  merges; an empty one drops the key instead of parking an empty array nobody will clear. */
-  applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
+  applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[]; childId?: string }): void;
   /** Re-read a lead's sub-agents into `subagents`. */
   refreshSubagents(sessionId: string): Promise<void>;
   /** Read a lead's sub-agents on a mount: joins a read already in flight for the lead, so a lead's pane
@@ -3997,6 +3999,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const prefetching = new Map<string, Promise<void>>();
     /** The read of each lead's sub-agents in flight, which `loadSubagents` joins. */
     const readingSubagents = new Map<string, Promise<void>>();
+    /** Put the one row `delegation.child` answers in place of the held one: replaced, added at the end,
+     *  or dropped when it is no longer the lead's. Adding at the end relies on the held list being
+     *  oldest first, as `listDelegatedChildren` returns it. */
+    const patchSubagent = async (leadId: string, childId: string) => {
+      const child = await api.getDelegatedChild(leadId, childId);
+      const held = get().subagents[leadId];
+      if (!held) return;
+      const at = held.findIndex((c) => c.session.id === childId);
+      if (child === null && at < 0) return;
+      const next = child === null ? held.filter((_, i) => i !== at) : at < 0 ? [...held, child] : held.map((c, i) => (i === at ? child : c));
+      set({ subagents: { ...get().subagents, [leadId]: next } });
+    };
     const setDelegatedRuns = (sessionId: string, running: DelegatedRun[]) => {
       const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
       set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
@@ -8299,11 +8313,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Only the runs: every caller (a mount, a reconnect) reads the list of sub-agents itself.
         setDelegatedRuns(sessionId, await api.listDelegatedRuns(sessionId));
       },
-      applyDelegationChanged({ sessionId, running }) {
+      applyDelegationChanged({ sessionId, running, childId }) {
         setDelegatedRuns(sessionId, running);
         // The same moment is a change in the lead's list of sub-agents — one began, settled, or was
         // collected — wherever that list is being read: its Agents tab, or its transcript's lines.
-        if (get().subagents[sessionId] || get().transcripts[sessionId]) void get().run(() => get().refreshSubagents(sessionId));
+        if (!get().subagents[sessionId] && !get().transcripts[sessionId]) return;
+        // One run moved in a list already held: that row is read and put in its place. A list still
+        // being read is read again, since the read in flight may have been answered before the change.
+        if (childId && get().subagents[sessionId] && !readingSubagents.has(sessionId)) void get().run(() => patchSubagent(sessionId, childId));
+        else void get().run(() => get().refreshSubagents(sessionId));
       },
       async refreshSubagents(sessionId) {
         const read = api.listDelegatedChildren(sessionId).then(({ children, dismissed }) => {

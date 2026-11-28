@@ -450,6 +450,8 @@ export type BrowserPane = {
   viewProcesses(): PageProcess[];
   /** An agent typed into this view's page: kept from a discard until its next navigation. */
   markTyped(id: string): void;
+  /** Whether any of the window's pages is playing sound. */
+  audible(): boolean;
 };
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller, o: { pool?: HiddenViews } = {}): BrowserPane {
@@ -539,6 +541,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       return { x: b.x, y: b.y, zoom: wc.getZoomFactor() };
     },
     markTyped: (id) => typedSince.mark(id),
+    audible: () => [...views.values()].some((wc) => !wc.isDestroyed() && wc.isCurrentlyAudible()),
     viewProcesses: () => host.processes(),
     capture: async (id) => {
       host.live(id);

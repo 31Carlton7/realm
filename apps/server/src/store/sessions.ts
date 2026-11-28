@@ -298,6 +298,22 @@ export function replyLine(text: string): string | null {
 
 type EventRow = { seq: number; session_id: string; ts: number; type: string; payload_json: StoredPayload };
 
+/**
+ * The seqs of a session's first `limit` events of `types` in `order`, past `bound` when given, as SQL
+ * and its arguments. Each type's first `limit` is read off its own range of `session_events_type` and
+ * the ranges are merged: a `type IN (...)` read in seq order cannot use that index, and walks every
+ * event of the session, whatever its type, until it has found enough.
+ */
+function typedSeqs(sessionId: string, types: readonly string[], order: "ASC" | "DESC", limit: number, bound?: { op: "<" | ">"; seq: number }): { sql: string; args: (string | number)[] } {
+  const range = bound ? ` AND seq ${bound.op} ?` : "";
+  const distinct = [...new Set(types)];
+  const each = distinct.map(() => `SELECT seq FROM (SELECT seq FROM session_events WHERE session_id = ? AND type = ?${range} ORDER BY seq ${order} LIMIT ?)`);
+  return {
+    sql: `SELECT seq FROM (${each.join(" UNION ALL ")}) ORDER BY seq ${order} LIMIT ?`,
+    args: [...distinct.flatMap((t) => [sessionId, t, ...(bound ? [bound.seq] : []), limit]), limit],
+  };
+}
+
 export class SessionEventsStore {
   /** `artifacts` is optional so every existing construction site (and every store test) keeps
    *  working: an events store with no index simply does not maintain one, which is the right
@@ -396,8 +412,8 @@ export class SessionEventsStore {
    *  several kinds of event that say. Skips a row that fails schema validation by reading on past it. */
   lastOfTypes(sessionId: string, types: readonly SessionEvent["type"][]): SessionEvent | null {
     if (types.length === 0) return null;
-    const rows = this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND type IN (${types.map(() => "?").join(", ")}) ORDER BY seq DESC LIMIT 20`)
-      .all(sessionId, ...types) as EventRow[];
+    const newest = typedSeqs(sessionId, types, "DESC", 20);
+    const rows = this.db.prepare(`SELECT * FROM session_events WHERE seq IN (${newest.sql}) ORDER BY seq DESC`).all(...newest.args) as EventRow[];
     for (const r of rows) {
       const payload = parsePayload(r.payload_json); if (payload === undefined) continue;
       const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
@@ -486,10 +502,10 @@ export class SessionEventsStore {
    */
   listOfTypes(sessionId: string, types: readonly SessionEvent["type"][], opts: { afterSeq?: number; limit: number }): StoredSessionEvent[] {
     if (types.length === 0 || opts.limit <= 0) return [];
-    const inTypes = `type IN (${types.map(() => "?").join(", ")})`;
-    const rows = (opts.afterSeq !== undefined
-      ? this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND seq > ? AND ${inTypes} ORDER BY seq LIMIT ?`).all(sessionId, opts.afterSeq, ...types, opts.limit)
-      : this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND ${inTypes} ORDER BY seq DESC LIMIT ?`).all(sessionId, ...types, opts.limit).reverse()) as EventRow[];
+    const page = opts.afterSeq !== undefined
+      ? typedSeqs(sessionId, types, "ASC", opts.limit, { op: ">", seq: opts.afterSeq })
+      : typedSeqs(sessionId, types, "DESC", opts.limit);
+    const rows = this.db.prepare(`SELECT * FROM session_events WHERE seq IN (${page.sql}) ORDER BY seq`).all(...page.args) as EventRow[];
     const out: StoredSessionEvent[] = [];
     for (const r of rows) {
       const payload = parsePayload(r.payload_json); if (payload === undefined) continue;
@@ -520,9 +536,10 @@ export class SessionEventsStore {
    */
   listBefore(sessionId: string, beforeSeq: number, limit: number, types?: readonly SessionEvent["type"][]): StoredSessionEvent[] {
     if (limit <= 0 || types?.length === 0) return [];
-    const inTypes = types ? ` AND type IN (${types.map(() => "?").join(", ")})` : "";
-    const first = this.db.prepare(`SELECT seq FROM session_events WHERE session_id = ? AND seq < ?${inTypes} ORDER BY seq DESC LIMIT 1 OFFSET ?`)
-      .get(sessionId, beforeSeq, ...(types ?? []), limit - 1) as { seq: number } | undefined;
+    const newest = types ? typedSeqs(sessionId, types, "DESC", limit, { op: "<", seq: beforeSeq }) : null;
+    const first = (newest
+      ? this.db.prepare(`SELECT seq FROM (${newest.sql}) ORDER BY seq DESC LIMIT 1 OFFSET ?`).get(...newest.args, limit - 1)
+      : this.db.prepare("SELECT seq FROM session_events WHERE session_id = ? AND seq < ? ORDER BY seq DESC LIMIT 1 OFFSET ?").get(sessionId, beforeSeq, limit - 1)) as { seq: number } | undefined;
     // Fewer than `limit` before it: the page is everything from the start.
     const after = first ? first.seq - 1 : 0;
     const page = types ? this.listOfTypes(sessionId, types, { afterSeq: after, limit }) : this.listAfter(sessionId, after, limit);

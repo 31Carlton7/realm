@@ -10,8 +10,11 @@ import { enableSquircles } from "./theme/squircle";
 import { preloadRichLibs } from "./panes/session/rich/rich-libs";
 import { preloadLazyComponents } from "./lazy-component";
 import { applyPlatform } from "./platform";
+import { takeScrollAfterReload } from "./panes/scroll-memory";
 // Before the first render: the head row's room for the window controls, and how chords are printed.
 applyPlatform();
+// A window unloaded while nobody looked at it kept each reader's place for this load.
+takeScrollAfterReload(sessionStorage);
 // Fire and forget: the cards render on their circular-corner fallback until the painter is ready,
 // and stay there if it never loads. Nothing waits on a corner shape.
 void enableSquircles();

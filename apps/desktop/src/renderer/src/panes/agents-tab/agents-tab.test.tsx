@@ -119,6 +119,61 @@ describe("the list of a session's sub-agents", () => {
     await waitFor(() => expect(reads()).toBe(2));
   });
 
+  it("a change that names one sub-agent reads that row alone and puts it in its place", async () => {
+    const held = { se1: [...CHILDREN] };
+    const api = fakeApi({ items: ITEMS, sessions: [LEAD, LUNA, FABLE], delegatedChildren: held });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    await store.getState().loadSubagents("se1");
+    const reads = () => api.calls.filter((c) => c === "listDelegatedChildren:se1").length;
+    expect(reads()).toBe(1);
+
+    held.se1 = [{ ...CHILDREN[0]!, settledAt: NOW, outcome: "done", report: "All green" }, CHILDREN[1]!];
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "se2" });
+    await waitFor(() => expect(store.getState().subagents.se1?.[0]?.outcome).toBe("done"));
+    // Mutant: ignore `childId`, and a lead with 170 runs re-reads all of them on every begin and settle.
+    expect(reads()).toBe(1);
+    expect(api.calls).toContain("getDelegatedChild:se1:se2");
+    // The rows that did not move are the same rows, so nothing else on screen draws again.
+    expect(store.getState().subagents.se1?.[1]).toBe(CHILDREN[1]);
+  });
+
+  it("a sub-agent that just began joins the end of the list; a session that is not one leaves it alone", async () => {
+    const NEW = session("se4", "s1", { title: "Write the docs", agentKind: "claude", status: "running", dispatchedBy: { sessionId: "se1", kind: "agent_run" } });
+    const held = { se1: [...CHILDREN] };
+    const api = fakeApi({ items: ITEMS, sessions: [LEAD, LUNA, FABLE, NEW], delegatedChildren: held });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    await store.getState().loadSubagents("se1");
+
+    held.se1 = [...CHILDREN, { session: NEW, goal: "Write the docs", startedAt: NOW, settledAt: null, outcome: null, report: null, activity: null }];
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "se4" });
+    await waitFor(() => expect(store.getState().subagents.se1?.map((c) => c.session.id)).toEqual(["se2", "se3", "se4"]));
+
+    // A peer the lead asked a question is announced too, and is nobody's sub-agent.
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "01ARZ3NDEKTSV4RRFFQ69G5TMX" });
+    await waitFor(() => expect(api.calls).toContain("getDelegatedChild:se1:01ARZ3NDEKTSV4RRFFQ69G5TMX"));
+    expect(store.getState().subagents.se1?.map((c) => c.session.id)).toEqual(["se2", "se3", "se4"]);
+
+    // One deleted under the lead is no longer its sub-agent, and leaves the list.
+    held.se1 = [...CHILDREN];
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "se4" });
+    await waitFor(() => expect(store.getState().subagents.se1?.map((c) => c.session.id)).toEqual(["se2", "se3"]));
+  });
+
+  it("a change naming one sub-agent while the list is being read reads the list again", async () => {
+    const api = fakeApi({ items: ITEMS, sessions: [LEAD, LUNA, FABLE], delegatedChildren: { se1: CHILDREN } });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    await store.getState().loadSubagents("se1");
+    const reads = () => api.calls.filter((c) => c === "listDelegatedChildren:se1").length;
+    const reading = store.getState().refreshSubagents("se1");
+    // Mutant: patch the row anyway, and the read in flight lands after it, from before the change.
+    store.getState().applyDelegationChanged({ sessionId: "se1", running: [], childId: "se2" });
+    expect(reads()).toBe(3);
+    await reading;
+  });
+
   it("a change while an open's read is in flight reads again, after the change", async () => {
     const api = fakeApi({ items: ITEMS, sessions: [LEAD, LUNA, FABLE], delegatedChildren: { se1: CHILDREN } });
     const store = createAppStore(api); await store.getState().boot();

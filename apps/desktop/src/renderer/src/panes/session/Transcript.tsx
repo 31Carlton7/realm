@@ -628,7 +628,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   };
   const jump = useCallback((top: number, instant?: boolean) => jumpRef.current(top, instant), []);
 
+  /* A warm pane behind the one on screen sits in a `display: none` slot (warm-panes.ts) and can still be
+     streaming. Every follow below reads and writes its scroller, a forced layout per delta for a box
+     nobody can see, so a hidden pane leaves its scroller alone and this effect catches it up when
+     `visible` comes back. */
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   useLayoutEffect(() => {
+    if (!visible) return;
     const el = ref.current;
     // Coming back to a reader who had scrolled up: put them where they were, and raise NO pill —
     // nothing arrived, the pane was simply rebuilt around the same log.
@@ -651,7 +658,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      position it can no longer reach, against a reader who has moved on. So it expires: on landing
      (above), on the reader reaching for the scroller, or on the deadline, whichever comes first. */
   useEffect(() => {
-    if (restore.current === null) return;
+    // Counted from when the pane is first shown: a pane rebuilt hidden has had no chance to land it.
+    if (!visible || restore.current === null) return;
     const el = ref.current;
     const drop = () => { restore.current = null; };
     const timer = setTimeout(drop, SETTLE_MS);
@@ -662,7 +670,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
       el?.removeEventListener("wheel", drop);
       el?.removeEventListener("pointerdown", drop);
     };
-  }, []);
+  }, [visible]);
 
   /* Content that grows AFTER its block arrived. The effect above fires on new blocks and on the
      streaming message getting longer, and neither describes a media strip: it appears once main has
@@ -673,7 +681,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     const col = ref.current?.querySelector(".transcript-col");
     if (!col) return;
     const ro = new ResizeObserver(() => {
-      const el = ref.current; if (!el) return;
+      const el = ref.current; if (!el || !visibleRef.current) return;
       // A restore still owed takes the column growing as its cue: this observer fires exactly when
       // the media that was missing at mount lands, which is the frame the offset finally fits in.
       const top = restore.current;

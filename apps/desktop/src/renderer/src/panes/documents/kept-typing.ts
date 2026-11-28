@@ -49,7 +49,24 @@ export function forgetKeptTyping(documentsId: string, path: string, only?: Buffe
   if (files.size === 0) kept.delete(documentsId);
 }
 
+/** The buffers each documents pane on screen holds, by workspace, read when asked. */
+const open = new Map<string, () => readonly Buffer[]>();
+
+/** A mounted pane's buffers, for `unsavedTyping` to read while it is up. Answers the release. */
+export function holdOpenBuffers(documentsId: string, read: () => readonly Buffer[]): () => void {
+  open.set(documentsId, read);
+  return () => { if (open.get(documentsId) === read) open.delete(documentsId); };
+}
+
+/** Whether any pane, on screen or gone, holds typing not on disk: a buffer typed into, one in conflict
+ *  with what an agent wrote, or one whose file was deleted under it. Nothing but this page holds it. */
+export function unsavedTyping(): boolean {
+  if (kept.size > 0) return true;
+  return [...open.values()].some((read) => read().some((b) => b.dirty || b.conflict !== null || b.missing));
+}
+
 /** Test seam, as `forgetAllScroll` is: the copies are process-wide. */
 export function forgetAllKeptTyping(): void {
   kept.clear();
+  open.clear();
 }

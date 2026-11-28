@@ -11,4 +11,14 @@ describe("generateSvgIcon", () => {
     expect(await generateSvgIcon("a kettle", { query })).toBe('<svg viewBox="0 0 48 48"></svg>');
     expect(options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
   });
+
+  it("sends no tool definitions and writes nothing to the prompt cache", async () => {
+    let options: unknown;
+    const query = ((args: { options: unknown }) => {
+      options = args.options;
+      return (async function* () { yield { type: "result", subtype: "success", result: '<svg viewBox="0 0 48 48"></svg>' }; })();
+    }) as never;
+    await generateSvgIcon("a kettle", { query });
+    expect(options).toMatchObject({ tools: [], env: expect.objectContaining({ DISABLE_PROMPT_CACHING: "1" }) });
+  });
 });
