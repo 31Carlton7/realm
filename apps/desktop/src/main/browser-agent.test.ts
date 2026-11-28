@@ -1728,6 +1728,15 @@ describe("two sessions' cursors on one page, run as the page runs them", () => {
     expect(frameUp()).toBe(false);
   });
 
+  it("a session's later act pushes its own deadline back rather than leaving the first one running", async () => {
+    await actAs(claude);
+    vi.advanceTimersByTime(AGENT_CURSOR.idleMs / 2);
+    await actAs(claude);
+    vi.advanceTimersByTime(AGENT_CURSOR.idleMs / 2 + AGENT_MOTION.fastMs + 1);
+    expect(cursors()).toEqual(["s-claude"]);
+    expect(frameLine()).toBe("Claude is using this page");
+  });
+
   it("an act landing during a cursor's fade draws a fresh cursor rather than reviving the dying one", async () => {
     await actAs(claude);
     vi.advanceTimersByTime(AGENT_CURSOR.idleMs + 1); // fading, not yet removed

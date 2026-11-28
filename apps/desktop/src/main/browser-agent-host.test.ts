@@ -1772,16 +1772,24 @@ describe("acts from two sessions on one pane take turns", () => {
     expect(log).toEqual(["mark claude", "press", "mark codex", "press"]);
   });
 
-  it("a failed act hands the turn on rather than wedging the pane", async () => {
-    let failed = false;
-    const { host } = setup({
-      respond: (method) => {
-        if (method === "Input.dispatchMouseEvent" && !failed) { failed = true; throw new Error("target closed"); }
-        return undefined;
-      },
-    });
-    await host.handleOp("act", { browserId: "b1", action: click, actor: claude }).catch(() => {});
-    await expect(host.handleOp("act", { browserId: "b1", action: click, actor: codex })).resolves.toMatchObject({ ok: true });
+  it("an act that throws hands the turn on rather than wedging the pane", async () => {
+    let thrown = false;
+    const typing = { kind: "key", key: "Tab" };
+    const { host } = setup({ typed: () => { if (!thrown) { thrown = true; throw new Error("listener failed"); } } });
+    // Queued behind it, so the second act's turn comes from the first one's lease.
+    const first = host.handleOp("act", { browserId: "b1", action: typing, actor: claude });
+    const second = host.handleOp("act", { browserId: "b1", action: click, actor: codex });
+    await expect(first).rejects.toThrow("listener failed");
+    await expect(second).resolves.toMatchObject({ ok: true });
+  });
+
+  it("a download's click is drawn as the session that asked for it", async () => {
+    const { host, calls } = setup({ downloads: true });
+    await host.handleOp("act", { browserId: "b1", action: click, actor: claude });
+    await host.handleOp("download", { browserId: "b1", ref: 42, dir: "/tmp/downloads", actor: codex });
+    const marks = calls.filter((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes('"data-actor"')).map((c) => String(c.params?.expression));
+    expect(marks[1]).toContain('var KEY = "s-codex"');
+    expect(marks[1]).toContain('"Codex · docs"');
   });
 
   it("the first session keeps the accent and the second gets its own colour", async () => {
