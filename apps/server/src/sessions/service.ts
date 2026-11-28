@@ -1133,7 +1133,7 @@ export class SessionService {
     this.d.failover?.cancel(id);
     this.notePersonTurn(id, false);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
-    await handle.send({ text: msg.text + (this.d.uncollectedNote?.(id) ?? ""), attachments: [] });
+    await handle.send({ text: msg.text + ((isFromSomeone(msg) && this.d.uncollectedNote?.(id)) || ""), attachments: [] });
     this.tellMessage(id, msg, false);
     return { interrupted };
   }
