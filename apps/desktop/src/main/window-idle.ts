@@ -12,8 +12,8 @@
  */
 
 /** Why a window past its idle window stays loaded: it has the keyboard, it is the one in front, it is
- *  the one used last (minimised or hidden, it is still the page that asks for toasts), it can be seen on
- *  another display, an agent is driving one of its panes, a session in its space is working, it is
+ *  the one used last (minimised or hidden, it is still the page that asks for toasts), some of it can be
+ *  seen (`canBeSeen`), an agent is driving one of its panes, a session in its space is working, it is
  *  playing audio or hearing a microphone (dictation, a meeting's transcript), its page holds work kept
  *  nowhere else (`unsaved`: a prompt not sent, a file not settled, a sheet open), or its renderer
  *  process holds another page too, which ending it would end. */
@@ -171,8 +171,34 @@ export function sharesRenderer<C extends { id: number; getOSProcessId(): number;
   return all.some((o) => o.id !== wc.id && !o.isDestroyed() && o.getOSProcessId() === pid);
 }
 
-/** Whether a window is on screen on another display than the one in front: someone may be looking at
- *  it, and an unloaded window shows nothing. */
-export function onAnotherDisplay(win: { visible: boolean; minimized: boolean; display: number }, frontDisplay: number | null): boolean {
-  return win.visible && !win.minimized && frontDisplay !== null && win.display !== frontDisplay;
+export type Rect = { x: number; y: number; width: number; height: number };
+
+/** Where macOS has a window, and the opaque ordinary windows above it (native/BackdropState.swift's
+ *  `--frames`). Off screen is minimised, on another Space, or ordered out. */
+export type WindowFrame = { onScreen: boolean; bounds: Rect | null; above: Rect[] };
+
+/** Whether every point of `rect` is inside one of `above`. Exact: the edges of the windows over it cut it
+ *  into cells, each of which is wholly inside a window or wholly outside all of them. */
+export function fullyCovered(rect: Rect, above: readonly Rect[]): boolean {
+  const middles = (lo: number, hi: number, edges: number[]) => {
+    const cuts = [...new Set([lo, hi, ...edges.filter((e) => e > lo && e < hi)])].sort((a, b) => a - b);
+    return cuts.slice(1).map((c, i) => (cuts[i]! + c) / 2);
+  };
+  const xs = middles(rect.x, rect.x + rect.width, above.flatMap((r) => [r.x, r.x + r.width]));
+  const ys = middles(rect.y, rect.y + rect.height, above.flatMap((r) => [r.y, r.y + r.height]));
+  return xs.every((x) => ys.every((y) => above.some((r) => x > r.x && x < r.x + r.width && y > r.y && y < r.y + r.height)));
+}
+
+/** What main reads of a window to know whether someone can see it. `frame` is null where macOS was not
+ *  asked (no helper, or it did not answer). */
+export type Sight = { visible: boolean; minimized: boolean; display: number; frame: WindowFrame | null };
+
+/** Whether someone may be looking at a window, which an unload would leave an empty frame: on screen
+ *  with some part of it not under other windows, or on another display than the one in front (kept
+ *  loaded there whatever covers it). Without a frame, a window on screen counts as seen. */
+export function canBeSeen(win: Sight, frontDisplay: number | null): boolean {
+  if (!win.visible || win.minimized) return false;
+  if (frontDisplay !== null && win.display !== frontDisplay) return true;
+  if (!win.frame) return true;
+  return win.frame.onScreen && !(win.frame.bounds && fullyCovered(win.frame.bounds, win.frame.above));
 }

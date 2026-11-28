@@ -210,6 +210,9 @@ export async function ensureDaemon(d: {
   /** `maintenance.json` (see `decideLaunch`'s `maintenance`), and the wall clock it is read against. */
   readMaintenance?: (home: string) => MaintenanceMarker | null;
   wallNow?: () => number;
+  /** Called once for each daemon this launch starts waiting on because its marker says it is busy, so
+   *  the person is told what the wait is for. */
+  onWait?: (marker: MaintenanceMarker) => void;
   /** Stop any realm-server still holding this home that no state file names — called right before
    *  this launch starts the one a home may have. */
   clearStrays?: () => Promise<void>;
@@ -242,13 +245,14 @@ export async function ensureDaemon(d: {
     // Not asked of a server running a replaced bundle: nothing it answers changes what happens to it,
     // and one that cannot answer would cost the probe's whole timeout.
     const replacedOnDisk = state !== null && onDisk !== undefined && onDisk !== state.bundleId;
+    const marker = state && alive ? d.readMaintenance?.(d.home) ?? null : null;
     const decision = decideLaunch({
       state,
       pidAlive: alive,
       probe: state && alive && !replacedOnDisk ? await d.probe(state.port, state.token) : null,
       ours: { bundleId: d.ourBundleId },
       onDisk,
-      maintenance: state && alive ? d.readMaintenance?.(d.home) : null,
+      maintenance: marker,
       wallNow: (d.wallNow ?? Date.now)(),
     });
 
@@ -302,7 +306,11 @@ export async function ensureDaemon(d: {
       }
     } else if (decision.why === "maintenance") {
       // Busy on purpose, and it said so. Its time not answering starts again when the marker goes.
-      if (!inMaintenance.has(decision.state.bootId)) d.log?.(`[daemon] pid ${decision.state.pid} is compacting realm.db; waiting for it`);
+      // `decideLaunch` waits on maintenance only when this marker names the daemon.
+      if (!inMaintenance.has(decision.state.bootId) && marker) {
+        d.log?.(`[daemon] pid ${decision.state.pid} is busy with ${marker.what} since ${new Date(marker.startedAt).toISOString()}; waiting for it`);
+        d.onWait?.(marker);
+      }
       inMaintenance.add(decision.state.bootId);
       waitingSince.delete(decision.state.bootId);
       deadline = now() + DAEMON_WAIT_MS;

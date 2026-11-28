@@ -1,7 +1,9 @@
-import { readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
+import { MAINTENANCE_FILE, MaintenanceMarkerSchema, type MaintenanceMarker } from "@realm/contracts";
+import { BOOT_ID, maintenanceWindow } from "../daemon/state";
 import { LAYA_AUTO_INSTALL_MIN_FREE } from "../laya/service";
 import { RISE_LOG_BYTES, SAMPLES_KEPT, SAMPLE_EVERY_MS, SNAPSHOT_EVERY_MS, SNAPSHOT_RSS_BYTES, ServerMemory, growth, type MemorySample } from "./server-memory";
 
@@ -9,7 +11,7 @@ const MB = 1024 ** 2, GB = 1024 ** 3;
 const usage = (rss: number, heapUsed = 50 * MB): NodeJS.MemoryUsage => ({ rss, heapUsed, heapTotal: 80 * MB, external: 4 * MB, arrayBuffers: 2 * MB });
 
 /** A server whose clock and memory the test moves by hand. */
-function rig(o: { snapshotDir?: string; writeMs?: number } = {}) {
+function rig(o: { snapshotDir?: string; writeMs?: number; maintenance?: { begin(): void; end(): void }; duringWrite?: () => void } = {}) {
   let now = 1_000_000;
   let rss = 200 * MB;
   let busy = false;
@@ -19,8 +21,8 @@ function rig(o: { snapshotDir?: string; writeMs?: number } = {}) {
   const m = new ServerMemory({
     now: () => now, usage: () => usage(rss), log: (l) => lines.push(l),
     busy: () => busy, freeBytes: () => free,
-    snapshotDir: o.snapshotDir,
-    writeSnapshot: (path) => { written.push(path); writeFileSync(path, "x".repeat(3 * MB)); utimesSync(path, now / 1000, now / 1000); now += o.writeMs ?? 0; },
+    snapshotDir: o.snapshotDir, maintenance: o.maintenance,
+    writeSnapshot: (path) => { o.duringWrite?.(); written.push(path); writeFileSync(path, "x".repeat(3 * MB)); utimesSync(path, now / 1000, now / 1000); now += o.writeMs ?? 0; },
   });
   return {
     m, lines, written,
@@ -204,5 +206,49 @@ describe("the heap snapshot", () => {
     r.tick(200 * MB);
     r.tick(2 * GB);
     expect(r.skips()).toHaveLength(2);
+  });
+
+  describe("marks the server as busy with maintenance while it writes", () => {
+    let home: string;
+    afterEach(() => rmSync(home, { recursive: true, force: true }));
+    const marker = () => join(home, MAINTENANCE_FILE);
+
+    it("writes this server's heap-snapshot marker before the write and removes it after", () => {
+      dir = tempDir("realm-heap-");
+      home = tempDir("realm-home-");
+      let during: MaintenanceMarker | null = null;
+      const r = rig({
+        snapshotDir: dir, maintenance: maintenanceWindow(home, "heap-snapshot"),
+        duringWrite: () => { during = MaintenanceMarkerSchema.parse(JSON.parse(readFileSync(marker(), "utf8"))); },
+      });
+      r.tick(2 * GB);
+      expect(r.written).toHaveLength(1);
+      expect(during).toMatchObject({ pid: process.pid, bootId: BOOT_ID, what: "heap-snapshot" });
+      expect(existsSync(marker())).toBe(false);
+    });
+
+    it("removes the marker when the write throws", () => {
+      dir = tempDir("realm-heap-");
+      home = tempDir("realm-home-");
+      let markedDuring = false;
+      const r = rig({
+        snapshotDir: dir, maintenance: maintenanceWindow(home, "heap-snapshot"),
+        duringWrite: () => { markedDuring = existsSync(marker()); throw new Error("ENOSPC: no space left on device"); },
+      });
+      r.tick(2 * GB);
+      expect(markedDuring).toBe(true);
+      expect(existsSync(marker())).toBe(false);
+      expect(r.lines.at(-1)).toBe("[server-memory] heap snapshot failed: ENOSPC: no space left on device");
+    });
+
+    it("writes no marker when the snapshot waits", () => {
+      dir = tempDir("realm-heap-");
+      home = tempDir("realm-home-");
+      let begun = 0;
+      const r = rig({ snapshotDir: dir, maintenance: { begin: () => { begun++; }, end: () => {} } });
+      r.setBusy(true);
+      r.tick(2 * GB);
+      expect(begun).toBe(0);
+    });
   });
 });

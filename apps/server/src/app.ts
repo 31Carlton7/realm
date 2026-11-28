@@ -16,7 +16,7 @@ import { SettingsStore } from "./store/settings";
 import { ArtifactsStore } from "./store/artifacts";
 import { PayloadCompactor } from "./store/payload-compaction";
 import { EventRetention, agentsNeedTheServer } from "./store/event-retention";
-import { BOOT_ID, clearMaintenance, writeMaintenance } from "./daemon/state";
+import { maintenanceWindow } from "./daemon/state";
 import { TerminalHistoryStore, TerminalsStore } from "./store/terminals";
 import { Drain } from "./daemon/drain";
 
@@ -1030,7 +1030,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      wait (Laya's auto-install, the heap snapshot) asks before it starts. `sessions` is built further down. */
   const agentsWorking = (): boolean => sessions.statusCounts().working > 0;
   const homeFreeBytes = (): number | null => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } };
-  const serverMemory = new ServerMemory({ log: (line) => console.error(line), snapshotDir: join(opts.home, "logs"), busy: agentsWorking, freeBytes: homeFreeBytes });
+  const serverMemory = new ServerMemory({ log: (line) => console.error(line), snapshotDir: join(opts.home, "logs"), busy: agentsWorking, freeBytes: homeFreeBytes,
+    maintenance: maintenanceWindow(opts.home, "heap-snapshot"),
+  });
   /* The resource service, built further down once every service it asks exists; the idle windows read
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
@@ -1043,8 +1045,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      dials Realm's sockets (main's bridge, the CLI, the live checks) is `ws` from Node and sends no
      Origin at all. */
   const rendererOrigins = ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])];
+  /* Written only by Realm's own launcher, which records each quiet app it starts. */
+  const hiddenApps = new HiddenApps();
   const viewers = new ViewerService({
-    apps: new HiddenApps(),
+    apps: hiddenApps,
     ownDevtoolsPort: Number(process.env.REALM_DEVTOOLS_PORT) || null,
     allowedOrigins: rendererOrigins,
   });
@@ -1540,6 +1544,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); team?.release(id); void handoffNotes.release(id).catch(() => {}); void toolResults.release(id).catch(() => {}); },
       extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
+      afterCompaction: (id) => agentRuns?.afterCompaction(id),
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
     } });
   sessionService = sessions;
@@ -2025,10 +2030,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     db, dbPath: dbPath(opts.home), settings,
     busy: () => agentsNeedTheServer(sessions.statusCounts()),
     freeDiskBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
-    maintenance: {
-      begin: () => writeMaintenance(opts.home, { pid: process.pid, bootId: BOOT_ID, what: "vacuum", startedAt: Date.now() }),
-      end: () => clearMaintenance(opts.home),
-    },
+    maintenance: maintenanceWindow(opts.home, "vacuum"),
   });
   eventRetention.start(10 * 60_000, EVENT_RETENTION_EVERY_HOURS * 60 * 60_000);
   // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in

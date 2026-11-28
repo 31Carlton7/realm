@@ -115,6 +115,15 @@ export function clearMaintenance(home: string): void {
   rmSync(join(home, MAINTENANCE_FILE), { force: true });
 }
 
+/** What a job that blocks the event loop calls around the block: `begin` writes this server's marker
+ *  for `what`, and `end`, which the job runs in a finally, removes it. */
+export function maintenanceWindow(home: string, what: MaintenanceMarker["what"]): { begin(): void; end(): void } {
+  return {
+    begin: () => writeMaintenance(home, { pid: process.pid, bootId: BOOT_ID, what, startedAt: Date.now() }),
+    end: () => clearMaintenance(home),
+  };
+}
+
 export type LockOutcome = { kind: "acquired" } | { kind: "held"; pid: number };
 
 /**

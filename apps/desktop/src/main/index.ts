@@ -16,17 +16,18 @@ import { SERVER_ENTRY_SUFFIX, STOP_WAIT_MS, realProcessOps, runsServer, stopServ
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
 import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState } from "@realm/contracts";
-import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
+import { closeDaemonLog, daemonLogPath, launcherLog, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
-import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
+import { beforeQuitStep, confirmQuitCopy, decideQuit, lastWindowClosedStep, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
+import { showLaunchWait } from "./launch-wait";
 import { BROWSER_KEEP_HIDDEN_DEFAULT, WINDOW_UNLOAD_IDLE_DEFAULT, WINDOW_UNLOAD_IDLE_KEY, WINDOWS_OPENED_AT_LAUNCH, COMMAND_SIDE_DEFAULT, isCommandSide, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
-import { startBackdropState } from "./backdrop-state";
+import { startBackdropState, windowFrames, windowNumber } from "./backdrop-state";
 import { MeetingWatch, meetingWatchPath, startMeetingWatchHelper } from "./meeting-watch";
 import { RealmKeys } from "./realm-keys";
 import { AssistantKeys, onPageGone, PageInbox } from "./assistant-keys";
@@ -90,7 +91,7 @@ import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
-import { WindowIdle, busySpaces, onAnotherDisplay, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep } from "./window-idle";
+import { WindowIdle, busySpaces, canBeSeen, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
 import { endRenderer } from "./pane-health";
 import { registerFileActions } from "./file-actions";
 import { registerPdfExport } from "./print-pdf";
@@ -131,8 +132,11 @@ if (agentHomeDir) {
   process.env.REALM_HOME = agentHomeDir;
   // One home per checkout, so Laya installing itself in each would fill the disk (layaAutoInstallOn).
   process.env.REALM_NO_LAYA_AUTO_INSTALL = "1";
-  console.error(`[home] ${agentHomeDir}: started from an agent's shell, so not the default home, whose server is the owner's`);
+  launchLog(`[home] ${agentHomeDir}: started from an agent's shell, so not the default home, whose server is the owner's`);
 }
+/** A launcher line, to the console and to `launcher.log` in the home this launch resolved — after
+ *  `agentHome`, so an agent's run writes into its own scratch home (daemon-log.ts). */
+function launchLog(...parts: unknown[]): void { launcherLog(realmHomePath(), ...parts); }
 // Windows shows a notification only for an app it can name, and names it by this id — the appId
 // electron-builder registers the Start menu shortcut under.
 if (process.platform === "win32") app.setAppUserModelId("co.charmtechnologies.realm");
@@ -184,7 +188,7 @@ function serverEndpoint(): { port: number; home: string; token: string } | null 
   if (!serverInfo) return null;
   const now = followDaemon(serverInfo, readDaemonState(serverInfo.home));
   if (now.port !== serverInfo.port || now.token !== serverInfo.token) {
-    console.error(`[daemon] realm-server is on port ${now.port} now`);
+    launchLog(`[daemon] realm-server is on port ${now.port} now`);
     serverInfo = { ...serverInfo, ...now };
   }
   return serverInfo;
@@ -475,6 +479,8 @@ const RELOAD_WAIT_MS = 15_000;
 /** The space each unloaded window showed, by its webContents, for its page to land on when it loads
  *  again (`window:land`). */
 const unloadedLand = new Map<number, string>();
+/** Where macOS has each window and what covers it, by window number, as the latest sweep found it. */
+let sweepFrames: Map<number, WindowFrame> | null = null;
 
 /** An agent's op reached one of this window's browser panes within the grace the hidden-pane sweep
  *  gives one (`AGENT_GRACE_MS`). */
@@ -490,7 +496,8 @@ function idleKeep(win: BrowserWindow): IdleKeep | null {
   const front = windows.primary();
   if (win === front && win.isVisible() && !win.isMinimized()) return "front";
   const displayOf = (w: BrowserWindow) => screen.getDisplayMatching(w.getBounds()).id;
-  if (onAnotherDisplay({ visible: win.isVisible(), minimized: win.isMinimized(), display: displayOf(win) }, front && !front.isDestroyed() ? displayOf(front) : null)) return "visible";
+  const frame = sweepFrames?.get(windowNumber(win) ?? -1) ?? null;
+  if (canBeSeen({ visible: win.isVisible(), minimized: win.isMinimized(), display: displayOf(win), frame }, front && !front.isDestroyed() ? displayOf(front) : null)) return "visible";
   if (agentDriving(win) || computerDriving.showing) return "agent";
   const space = windows.spaceOf(win);
   if (space && windowPolicy.busySpaces.has(space)) return "working";
@@ -561,8 +568,10 @@ async function sweepWindows(params: unknown): Promise<{ unloaded: number[]; kept
   const p = (params ?? {}) as { idleMs?: unknown; unloadIdle?: unknown; busySpaces?: unknown };
   if (typeof p.unloadIdle === "boolean") windowPolicy.unloadIdle = p.unloadIdle;
   if (Array.isArray(p.busySpaces)) windowPolicy.busySpaces = new Set(p.busySpaces.filter((x): x is string => typeof x === "string"));
-  const idleMs = typeof p.idleMs === "number" && p.idleMs >= 0 ? p.idleMs : null;
-  return windowIdle.sweep(windowPolicy.unloadIdle ? liveWindowIdleMs ?? idleMs : null);
+  const idleMs = windowPolicy.unloadIdle ? liveWindowIdleMs ?? (typeof p.idleMs === "number" && p.idleMs >= 0 ? p.idleMs : null) : null;
+  if (idleMs === null) return windowIdle.sweep(null);
+  sweepFrames = await windowFrames(windows.all().map(windowNumber).filter((n): n is number => n !== null));
+  return windowIdle.sweep(idleMs);
 }
 if (liveWindowIdleMs !== null) setInterval(() => { void sweepWindows({}); }, 1_000).unref();
 
@@ -2651,11 +2660,11 @@ async function handOff(state: DaemonState, why: HandoffWhy): Promise<HandoffResu
   if (mode === "drain") {
     try {
       await callDaemon(running, "daemon.drain", {});
-      console.error("[daemon] draining the previous server; waiting for it to finish");
+      launchLog("[daemon] draining the previous server; waiting for it to finish");
       if (await waitForExit(running.pid, DRAIN_WAIT_MS, realProcessOps)) return { kind: "replaced" };
-      console.error("[daemon] drain did not finish in time; stopping it");
+      launchLog("[daemon] drain did not finish in time; stopping it");
     } catch (e) {
-      console.error(`[daemon] drain refused (${e instanceof Error ? e.message : String(e)}); stopping it`);
+      launchLog(`[daemon] drain refused (${e instanceof Error ? e.message : String(e)}); stopping it`);
     }
   }
   // Stop it, and for certain. It used to be SIGTERM and ten seconds' grace, after which the launcher
@@ -2677,11 +2686,11 @@ const DRAIN_WAIT_MS = 120_000;
  */
 async function replaceServer(state: DaemonState, why?: "unresponsive" | "draining" | "unowned"): Promise<void> {
   if (!runsServer(state.pid, state.entry, realProcessOps)) { forgetDeadServer(state); return; }
-  console.error(`[daemon] stopping realm-server pid ${state.pid}`);
+  launchLog(`[daemon] stopping realm-server pid ${state.pid}`);
   // One that has not answered a probe in ten seconds will not run its own shutdown in ten more, and
   // this is all time the launch spends with nothing on screen.
   const grace = why === "unresponsive" ? UNRESPONSIVE_STOP_WAIT_MS : STOP_WAIT_MS;
-  if (!(await stopServerProcess(state.pid, realProcessOps, grace))) console.error(`[daemon] pid ${state.pid} survived SIGKILL`);
+  if (!(await stopServerProcess(state.pid, realProcessOps, grace))) launchLog(`[daemon] pid ${state.pid} survived SIGKILL`);
 }
 const UNRESPONSIVE_STOP_WAIT_MS = 3_000;
 
@@ -2732,7 +2741,7 @@ function appTokenFor(home: string, state: DaemonState): string | null {
 function startDaemonProcess(home: string): void {
   const token = ourAppToken(home);
   // Sealed for the next launch, which finds this daemon still running and has no other way to it.
-  if (!sealAppToken(home, token, safeStorage)) console.error("[daemon] no Keychain to seal the app's token with; the next launch will restart the server");
+  if (!sealAppToken(home, token, safeStorage)) launchLog("[daemon] no Keychain to seal the app's token with; the next launch will restart the server");
   const fd = openDaemonLog(home);
   try { daemonChild = spawnDaemon({ home, logFd: fd, appToken: token }); } finally { closeDaemonLog(fd); }
 }
@@ -2745,6 +2754,12 @@ function startDaemonProcess(home: string): void {
  * left behind when the app exits. Both ends hand back the same three facts, so everything downstream
  * of here is written once.
  */
+/** Closes the notice a launch shows while its server is busy with maintenance (launch-wait.ts). Called
+ *  once the first Realm window is open, so closing it is never the last window closing. */
+let closeLaunchWait: (() => void) | null = null;
+/** Set once the launch has opened its Realm windows. A last window closed before then was the notice. */
+let launchedWindows = false;
+
 async function startRealmServer(): Promise<{ port: number; home: string; token: string }> {
   const home = realmHomePath();
   if (agentShellOnOwnersHome({ packaged: app.isPackaged, env: process.env, home, defaultHome: defaultRealmHome() })) {
@@ -2762,8 +2777,9 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
       replace: replaceServer,
       bundleOnDisk: (entry) => { try { return bundleIdOf(statSync(entry)); } catch { return "missing"; } },
       readMaintenance,
+      onWait: (marker) => { closeLaunchWait ??= showLaunchWait(marker.what, quiet ? QUIET_WINDOW_OPTIONS : {}); },
       clearStrays: () => clearStrayServers(home),
-      log: (line) => console.error(line),
+      log: launchLog,
     });
     staleDaemon = handle.stale;
     return { port: handle.port, home, token: useAppToken(home, handle.token) };
@@ -2851,6 +2867,8 @@ app.whenReady().then(async () => {
     // restarts the app is bounded too.
     void sweepTempFilesAtLaunch(info.home).catch(() => {});
     await restoreWindows(info);
+    launchedWindows = true;
+    closeLaunchWait?.();
     // Disabled builds return their existing state without loading electron-updater. Signed packaged
     // builds check the public feed and download in the background; failures remain visible in
     // Settings without blocking startup.
@@ -2880,7 +2898,7 @@ app.whenReady().then(async () => {
         pidAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } },
         spawn: () => startDaemonProcess(info.home),
         onState: (state) => {
-          console.error(`[daemon] ${state.kind === "failed" ? `giving up; see ${state.logPath}` : state.kind}`);
+          launchLog(`[daemon] ${state.kind === "failed" ? `giving up; see ${state.logPath}` : state.kind}`);
           publishDaemonState(state);
         },
       });
@@ -2953,7 +2971,7 @@ app.whenReady().then(async () => {
       onLog: (line) => console.error(line),
     });
   } catch (e) {
-    console.error(e);
+    launchLog("[launch] Realm failed to start:", e);
     dialog.showErrorBox("Realm failed to start", e instanceof Error ? e.message : String(e));
     // Out, rather than into the menu bar: with no server behind it a resident Realm could open nothing,
     // and only the tray's quit would ever end it.
@@ -2970,7 +2988,7 @@ app.whenReady().then(async () => {
  * the menu-bar item comes up, so there is always exactly one visible sign that something is running.
  */
 function lastWindowClosed(): void {
-  if (!quittingForReal) goResident();
+  if (lastWindowClosedStep({ quittingForReal, launched: launchedWindows }) === "go-resident") goResident();
 }
 app.on("window-all-closed", lastWindowClosed);
 
@@ -3017,7 +3035,7 @@ async function stopDaemon(): Promise<void> {
  *  left running when the server it stopped did not go (daemon-stop.ts). */
 async function clearStrayServers(home: string): Promise<void> {
   const strays = await stopStrayServers(home, []);
-  if (strays.length) console.error(`[daemon] stopped realm-server left running from before: pid ${strays.join(", ")}`);
+  if (strays.length) launchLog(`[daemon] stopped realm-server left running from before: pid ${strays.join(", ")}`);
 }
 
 /**
@@ -3315,7 +3333,7 @@ app.on("before-quit", (e) => {
     e.preventDefault();
     serverStoppedForQuit = true;
     detachFromDaemon();
-    void stopDaemon().catch((err: unknown) => console.error("[daemon] stopping realm-server:", err)).finally(() => app.quit());
+    void stopDaemon().catch((err: unknown) => launchLog("[daemon] stopping realm-server:", err)).finally(() => app.quit());
   }
 });
 /** Set once Windows' quit has asked the server to stop itself (above). */

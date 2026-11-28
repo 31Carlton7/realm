@@ -953,6 +953,24 @@ describe("ClaudeAdapter", () => {
       expect(await hook({ hook_event_name: "SessionStart", source: "resume" })).toEqual({});
     });
 
+    it("restates a delegated child's goal after a compaction, word for word, without adding it to any prompt", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      const goal = "Your conversation was compacted. The goal:\n\nrename  the flag\n";
+      for (const resume of [null, "psid-1"]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], resume, afterCompaction: () => goal });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      for (const o of captureOptions) {
+        const hooks = o.hooks as { SessionStart: { hooks: ((input: unknown) => Promise<unknown>)[] }[]; UserPromptSubmit?: unknown };
+        expect(await hooks.SessionStart[0]!.hooks[0]!({ hook_event_name: "SessionStart", source: "compact" }))
+          .toEqual({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: goal } });
+        expect(hooks.UserPromptSubmit).toBeUndefined();
+      }
+    });
+
     it("hands the first prompt its context once, never on a resume, and again after a compaction", async () => {
       const captureOptions: Record<string, unknown>[] = [];
       const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });

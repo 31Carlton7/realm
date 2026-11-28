@@ -1261,9 +1261,13 @@ export type AppState = TeammatesSlice & {
    * throws away a draft — nor the ones that spell out a named object and offer an explicit Cancel.
    */
   confirmDelete: boolean;
-  /** The items of every space of the active profile, archived ones included (the space's own lists
-   *  show those apart). Each space's slice is refreshed on its own `items.changed`. */
+  /** The items of every space of the active profile the window has read (`heldSpaces`), archived ones
+   *  included (the space's own lists show those apart). Each space's slice is refreshed on its own
+   *  `items.changed`. */
   items: Item[];
+  /** The spaces of the active profile whose items, sessions, checkouts and projects the window holds.
+   *  Boot reads the space it lands in; another is read the first time the window goes to it. */
+  heldSpaces: string[];
   /** The window's one view (contracts/view.ts): the main panes, the one side panel beside them with
    *  every on-screen session's tabs, the tabs of the sessions not on screen, and the panel's share of
    *  the room. Null before boot. The source of truth; `layout` mirrors it. Persisted per profile
@@ -1943,13 +1947,16 @@ export type AppState = TeammatesSlice & {
   boot(): Promise<void>;
   /**
    * Make a space current: its most recent session opens in the main view, in the focused pane's
-   * place. Nothing unloads and nothing slides — every space of the profile is already loaded. A space
-   * with no session shows its Overview, which says how to start one. A space in another profile
-   * switches the window to that profile first. A space open in ANOTHER window brings that window
-   * forward instead, and this one stays as it is: a space is open in at most one window. `by` says
-   * an agent asked, and then that window comes forward only inside Realm.
+   * place. Nothing unloads and nothing slides; a space is read the first time the window goes to it
+   * and held from then on. A space with no session shows its Overview, which says how to start one.
+   * A space in another profile switches the window to that profile first. A space open in ANOTHER
+   * window brings that window forward instead, and this one stays as it is: a space is open in at
+   * most one window. `by` says an agent asked, and then that window comes forward only inside Realm.
    */
   selectSpace(id: string, by?: "agent"): Promise<void>;
+  /** Read a space of the window's profile ahead of the window going there, once: a space already read,
+   *  or being read, is not read again. */
+  readSpace(id: string): Promise<void>;
   /** Switch the window to another profile: its spaces load, and its own view comes back. The one
    *  switch left, and a rare, deliberate one. A no-op for the profile already showing. */
   selectProfile(profileId: string): Promise<void>;
@@ -2059,6 +2066,11 @@ export type AppState = TeammatesSlice & {
    *  take whatever was deleted off the screen. */
   refreshItems(spaceId?: string | null): Promise<void>;
   refreshAllItems(): Promise<void>;
+  /** Put one space's list into `allItems` in place of the rows it had there, as `items.listAll` would
+   *  give them: archived rows left out, newest-updated first. */
+  putSpaceItems(spaceId: string, list: Item[]): void;
+  /** Re-read one space's rows into `allItems` (`items.list`), rather than every space's. */
+  refreshSpaceItems(spaceId: string): Promise<void>;
   /** Deep search scoped to the ACTIVE profile (Plan 16 W2). Returns results for the palette to append
    *  below its instant rows — deliberately not stored in state: the palette owns the debounce and the
    *  stale-response guard, and nothing else reads these. Null with no profile (an unscoped search
@@ -4727,9 +4739,41 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return p;
     };
 
-    /* ── One profile's work, loaded at once ───────────────────────────────────────────────────────
-       Every space of the window's profile is held: its items, sessions, checkouts and projects. The
-       focus moving between spaces loads nothing and unloads nothing; only a profile switch does. */
+    /* ── One profile's work, read a space at a time ───────────────────────────────────────────────
+       A space of the window's profile is held once it has been read: its items, sessions, checkouts
+       and projects. Boot reads the space the window lands in, and the spaces of any pane it puts back;
+       another space is read the first time the window goes to it, and held from then on. Only a
+       profile switch lets go. */
+
+    /** Each space's first read, by space id, so two asks for one space read it once. */
+    let holding = new Map<string, Promise<void>>();
+    const heldSpaceIds = (): string[] => profileSpaceIds().filter((sid) => get().heldSpaces.includes(sid));
+    const everySpaceHeld = () => heldSpaceIds().length === profileSpaceIds().length;
+    /** Read `sid` once, if it is a space of this profile the window does not hold yet. */
+    const holdSpace = (sid: string): Promise<void> => {
+      if (!inProfile(sid)) return Promise.resolve();
+      const ahead = holding.get(sid);
+      if (ahead) return ahead;
+      const epoch = profileEpoch;
+      const read = (async () => {
+        await Promise.all([get().refreshItems(sid), get().refreshSessions(sid), get().refreshEnvironments(sid), get().refreshProjects(sid)]);
+        if (epoch !== profileEpoch || !inProfile(sid) || get().heldSpaces.includes(sid)) return;
+        set({ heldSpaces: [...get().heldSpaces, sid] });
+      })();
+      holding.set(sid, read);
+      // A read that failed is asked again next time, rather than leaving the space never read.
+      read.catch(() => { if (holding.get(sid) === read) holding.delete(sid); });
+      return read;
+    };
+    const holdEverySpace = () => Promise.all(profileSpaceIds().map(holdSpace));
+    /** The read of the space `itemId` is in, owed before it goes on screen, or null when there is
+     *  none to wait for, so the open goes on in the same tick, as a switch must. One the window
+     *  cannot place is in a space it has not read, or nowhere, so every space not read yet is read. */
+    const holdSpaceOfItem = (itemId: string): Promise<unknown> | null => {
+      const at = get().items.find((i) => i.id === itemId)?.spaceId ?? get().allItems.find((i) => i.id === itemId)?.spaceId;
+      if (at) return inProfile(at) && !get().heldSpaces.includes(at) ? holdSpace(at) : null;
+      return everySpaceHeld() ? null : holdEverySpace();
+    };
 
     /** What may be on screen: every live item of the profile, and a peek from another profile. */
     const liveIds = (): Set<string> => {
@@ -4745,13 +4789,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       for (const id of liveIds()) all.add(id);
       return all;
     };
+    /** A remembered side pane belongs to a session that may be in a space not read yet. Until every
+     *  space is read, one whose session the window has no row for is not the window's to forget: it
+     *  is kept as it was, and judged once its space is read. */
+    const unjudged = (view: WindowView): string[] => {
+      if (everySpaceHeld()) return [];
+      const known = new Set(get().items.map((i) => i.id));
+      return Object.entries(view.sidePanes).filter(([owner]) => !known.has(owner)).flatMap(([owner, sp]) => [owner, ...sp.tabs]);
+    };
+    const pruneSets = (view: WindowView) => {
+      const keep = unjudged(view);
+      return { live: new Set([...liveIds(), ...keep]), exist: new Set([...existIds(), ...keep]) };
+    };
     /** Take off the screen — and out of every remembered side pane — what no longer exists. */
     const pruneOnScreen = () => {
       const view = get().view;
       if (!view || !layoutHydrated) return;
       const peek = get().peek;
       const live = liveIds();
-      const next = pruneView(view, live, existIds(), { keep: get().focusedLeafId, transient: peek ? new Set([peek.item.id]) : undefined });
+      const sets = pruneSets(view);
+      const next = pruneView(view, sets.live, sets.exist, { keep: get().focusedLeafId, transient: peek ? new Set([peek.item.id]) : undefined });
       if (next !== view) set(writeView(next));
       const kept = get().offscreenBrowsers.filter((id) => live.has(id));
       if (kept.length !== get().offscreenBrowsers.length) set({ offscreenBrowsers: kept });
@@ -4766,7 +4823,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A page over the workspace about a space that has gone is about nothing.
         if (get().pageOverlay && gone.has(get().pageOverlay!.spaceId)) set({ pageOverlay: null });
         const held = new Set([get().quickChat?.sessionId, get().peek?.item.refId].filter(Boolean));
+        for (const sid of gone) holding.delete(sid);
         set({
+          heldSpaces: get().heldSpaces.filter((sid) => !gone.has(sid)),
           items: get().items.filter((i) => !gone.has(i.spaceId)),
           projects: get().projects.filter((pr) => !gone.has(pr.spaceId)),
           environments: Object.fromEntries(Object.entries(get().environments).filter(([, e]) => !gone.has(e.spaceId))),
@@ -4774,9 +4833,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         });
         pruneOnScreen();
       }
-      if (added.length > 0) {
-        await Promise.all(added.flatMap((sid) => [get().refreshItems(sid), get().refreshSessions(sid), get().refreshEnvironments(sid), get().refreshProjects(sid)]));
-      }
+      if (added.length > 0) await Promise.all(added.map(holdSpace));
     };
     /**
      * A new space, opened on its first session — how first run ends and how the New space sheet's
@@ -4840,12 +4897,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * sees what they last saw. That migration is written straight back, so it happens once; the
      * spaces' own `groups_json` and `layout_json` are read for it and never written again.
      */
-    const restoreView = async (lastSpaceId: string | null) => {
+    const restoreView = async (lastSpaceId: string | null, saved: unknown) => {
       const pid = get().activeProfileId;
       if (!pid) return;
-      const epoch = profileEpoch;
-      const stored = parseStoredView(await api.getSetting(windowViewKey(pid)).catch(() => null));
-      if (epoch !== profileEpoch) return;
+      const stored = parseStoredView(saved);
       let view: WindowView;
       let focusItem: string | null;
       let focusLeaf: string | null = null;
@@ -4863,7 +4918,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       }
       // A Plan 27 view had a side pane per session; folded into the one panel, the strip the keyboard
       // was in keeps its tab showing.
-      view = pruneView(view, liveIds(), existIds(), { keep: focusLeaf });
+      const sets = pruneSets(view);
+      view = pruneView(view, sets.live, sets.exist, { keep: focusLeaf });
       const focus = (focusItem ? findLeafOfItem(view.layout, focusItem)?.id : undefined)
         ?? (focusLeaf && findLeaf(view.layout, focusLeaf) ? focusLeaf : undefined) ?? firstPaneLeaf(view.layout).id;
       set(writeView(view, { focusedLeafId: focus, peek: null }));
@@ -4871,15 +4927,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (!stored) await persist();
     };
     /**
-     * Make `pid` the window's profile: the last one's work is dropped, every space of this one loads,
+     * Make `pid` the window's profile: the last one's work is dropped, the space it lands in is read,
      * and its own view comes back. `lastSpaceId` is where a new session goes until something has focus.
      */
     const enterProfile = async (pid: string, lastSpaceId: string | null) => {
       profileEpoch++;
       layoutHydrated = false;
       const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
+      holding = new Map();
       set({
-        activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
+        activeProfileId: pid, heldSpaces: [], items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
         view: null, layout: null, focusedLeafId: null, peek: null, viewer: null, sheetSnap: null, offscreenBrowsers: [],
         // Diffs and patches are keyed by checkout path, and every pane that could show one belongs to
         // the profile being left.
@@ -4888,16 +4945,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       });
       const epoch = profileEpoch;
       const ids = profileSpaceIds();
-      const [screens] = await Promise.all([
+      const landing = last ?? (ids.includes(get().lastSpaceByProfile[pid] ?? "") ? get().lastSpaceByProfile[pid]! : ids[0]);
+      const [screens, saved] = await Promise.all([
         api.getSetting(screensSettingKey(pid, windowSpaceOf(pid))).catch(() => null),
-        // `refreshItems`, not a bare load: it also clears the page items an older build left behind.
-        ...ids.map((sid) => get().refreshItems(sid)),
-        get().refreshSessions(), get().refreshEnvironments(), get().refreshProjects(),
+        api.getSetting(windowViewKey(pid)).catch(() => null),
+        landing ? holdSpace(landing) : undefined,
       ]);
+      if (epoch !== profileEpoch) return;
+      /* The spaces of the panes the view puts back are read before it is, or the prune would take a
+         pane of a space not read yet off the screen. Its items name no space, so a pane the landing
+         space does not have means reading every space. A view never stored is built from one of the
+         spaces' own splits (a home upgraded from rooms), so any of those counts. */
+      const view = parseStoredView(saved);
+      const shown = view ? allItems(view.layout)
+        : get().spaces.filter((sp) => sp.profileId === pid).flatMap((sp) => allItems(viewFromGroups(seedGroups(sp), null).layout));
+      const known = new Set(get().items.map((i) => i.id));
+      if (shown.some((id) => !known.has(id))) await holdEverySpace();
       if (epoch !== profileEpoch) return;
       const stored = parseSpaceScreens(screens);
       spaceScreens = { ...spaceScreens, ...stored };
-      await restoreView(last);
+      await restoreView(last, saved);
       if (epoch !== profileEpoch) return;
       // The view brings back the panes; a page left up over the space the window comes back in is
       // the rest of what was on screen. Read from what was stored: landing in the restored view has
@@ -4977,6 +5044,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // Only the first window says where the app was left: a window opened for one profile is that
       // profile's, and its focus must not decide where the first window opens next launch.
       if (cur && layoutHydrated && api.boundProfileId() === null) void api.setSetting(SETTING_ACTIVE_SPACE, cur).catch(() => {});
+      // However the window got there, the space it is now in is read, once.
+      if (cur && !get().heldSpaces.includes(cur)) get().run(() => holdSpace(cur));
     });
     /* A focus move on its own is saved too, on the debounce: where the keyboard is belongs to the view
        a relaunch brings back, and with it the current space — where a new session goes. A write that
@@ -5046,7 +5115,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, queueTurns: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", documentsView: "list", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, queueTurns: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, look: DEFAULT_LOOK, clearOverPicture: false, themeBubble: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", documentsView: "list", sidebarActivityOrder: false, confirmDelete: true, items: [], heldSpaces: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -5254,12 +5323,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
         void get().refreshCliStatus().catch(() => {});
       },
+      readSpace(id) { return get().heldSpaces.includes(id) ? Promise.resolve() : holdSpace(id); },
       selectSpace(id, by) { return holdTrail(async () => {
         const space = get().spaces.find((s) => s.id === id);
         if (!space) return;
         if (id !== get().activeSpaceId && await api.focusSpaceWindow(id, undefined, by)) return;
         if (space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
         if (get().activeProfileId !== space.profileId) return;
+        if (!get().heldSpaces.includes(id)) {
+          // The log of the session the space comes back to is read alongside the space, not after it.
+          const back = spaceScreens[id]?.itemId;
+          const row = back ? get().allItems.find((i) => i.id === back) : undefined;
+          if (row?.kind === "session") get().prefetchSession(row.refId);
+          await holdSpace(id);
+          if (get().activeProfileId !== space.profileId) return;
+        }
         // Remembered first: with nothing focused, this is the space a new session goes to.
         set({ lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: id } });
         /* Where this window left the space, put back as it was: the same pane, with its side pane, and
@@ -5323,7 +5401,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
       },
       async refreshItems(spaceId = null) {
-        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();
+        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : heldSpaceIds();
         await Promise.all(ids.map(async (sid) => {
           if (!(await loadSpaceItems(sid))) return; // the profile changed, or a newer fetch owns the truth
           /* App-level pages used to be layout ITEMS, and a home upgraded from that version still holds
@@ -5346,6 +5424,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshAllItems() {
         set({ allItems: await api.listAllItems() });
+      },
+      putSpaceItems(spaceId, list) {
+        const live = list.filter((i) => !i.archived);
+        // The same rows keep the same list: a new one re-runs every derivation over every space's rows.
+        const had = new Set(get().allItems.filter((i) => i.spaceId === spaceId));
+        if (had.size === live.length && live.every((i) => had.has(i))) return;
+        const next = [...get().allItems.filter((i) => i.spaceId !== spaceId), ...live];
+        set({ allItems: next.sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt) });
+      },
+      async refreshSpaceItems(spaceId) {
+        get().putSpaceItems(spaceId, await api.listItems(spaceId));
       },
       /* No store slice: the Library page owns its own page list, because it is paged, filtered and
          open in at most one pane. A store slice would have to hold a cursor, a filter and a query
@@ -5439,7 +5528,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         return api.search(profileId, query);
       },
       async refreshProjects(spaceId = null) {
-        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();
+        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : heldSpaceIds();
         const epoch = profileEpoch;
         const lists = await Promise.all(ids.map(async (sid) => [sid, await api.listProjects(sid)] as const));
         if (epoch !== profileEpoch) return;
@@ -5448,7 +5537,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ projects: [...get().projects.filter((pr) => !replaced.has(pr.spaceId)), ...fresh.flatMap(([, list]) => list)] });
       },
       async refreshEnvironments(spaceId = null) {
-        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();
+        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : heldSpaceIds();
         const epoch = profileEpoch;
         const lists = await Promise.all(ids.map(async (sid) => [sid, await api.listEnvironments(sid)] as const));
         if (epoch !== profileEpoch) return;
@@ -5879,6 +5968,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        *  If the focused pane is empty, filling it is fine; with no room for another pane, the one
        *  beside it gives up its place. */
       async openItemBeside(itemId) {
+        const reading = holdSpaceOfItem(itemId);
+        if (reading) await reading;
         revealPanes();
         const view = viewNow();
         if (findLeafOfItem(view.layout, itemId)) { await get().openItem(itemId); return; }
@@ -5891,6 +5982,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async revealItem(itemId, spaceId) {
         const space = get().spaces.find((sp) => sp.id === spaceId);
         if (space && space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
+        if (!get().heldSpaces.includes(spaceId)) await holdSpace(spaceId);
         if (!get().items.some((i) => i.id === itemId)) return;
         await get().openItem(itemId);
       },
@@ -5979,7 +6071,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const where = get().sessionSpace[sessionId] ?? spaceId ?? get().activeSpaceId;
         if (!where) return false;
         const epoch = profileEpoch;
-        // A session of this profile has its row loaded already; another profile's is asked for.
+        if (inProfile(where) && !get().heldSpaces.includes(where)) {
+          await holdSpace(where);
+          if (epoch !== profileEpoch) return false;
+        }
+        // A session of this profile has its row once its space is read; another profile's is asked for.
         const item = inProfile(where)
           ? get().items.find((i) => i.kind === "session" && i.refId === sessionId)
           : (await api.listItems(where)).find((i) => i.kind === "session" && i.refId === sessionId);
@@ -6031,6 +6127,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await persist();
       },
       async openItem(itemId, leafId = null) {
+        const reading = holdSpaceOfItem(itemId);
+        if (reading) await reading;
         revealPanes(); // the row was clicked to be looked at — see `revealPanes`
         let view = viewNow();
         // Opening a session that is only being peeked at is the ordinary way in: the peek ends, and
@@ -6216,6 +6314,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().newSessionInstant(anchor?.id ?? null, dir === "row" ? "right" : "bottom", sid);
       },
       async openItemAt(itemId, leafId, edge) {
+        const reading = holdSpaceOfItem(itemId);
+        if (reading) await reading;
         // Self-drop: the item already occupies the target leaf. Splitting would first close the item
         // (pruning that very leaf) and teleport it to the far side; replacing is a no-op anyway.
         const current = get().layout ?? emptyLayout();
@@ -6543,7 +6643,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ terminalDriving: rest });
       },
       async refreshSessions(spaceId = null) {
-        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();
+        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : heldSpaceIds();
         const epoch = profileEpoch;
         const lists = await Promise.all(ids.map(async (sid) => [sid, await api.listSessions(sid)] as const));
         if (epoch !== profileEpoch) return;
@@ -7268,8 +7368,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ browserAllowlists: { ...get().browserAllowlists, [spaceId]: allowlist } });
         // The live half of the write (Plan 14 W4): every browser view of THIS space is re-fenced now —
         // new panes read the setting at create, but a pane already open would otherwise keep enforcing
-        // the old list until it was closed and reopened. Every space of the profile is loaded, so its
-        // browsers are in `items` whichever space the session in focus belongs to.
+        // the old list until it was closed and reopened. A browser open anywhere is in a space the window
+        // holds, so its browsers are in `items` whichever space the session in focus belongs to.
         const { host } = getBrowserBridges();
         for (const it of get().items) {
           if (it.kind === "browser" && it.spaceId === spaceId) void host.setAllowlist(it.refId, allowlist);
@@ -8565,7 +8665,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // must still end up on Connections.
         if (tab) get().setSpacePageTab(spaceId, tab);
         /* A space's Overview describes ONE space, and any of the window's spaces can be asked about —
-           every space of the profile is loaded. While it is up, that space is the current one. A space
+           one not read yet is read as it becomes current. While it is up, that space is the current one. A space
            of another profile is not this window's to show. */
         if (!inProfile(spaceId)) return;
         set({ pageOverlay: { kind: "space-page", refId: spaceId, spaceId } });
@@ -8897,8 +8997,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A space another window shows is opened there: that window comes forward and opens the
         // session itself, so the jump did land, just not here.
         if (target && target !== get().activeSpaceId && await api.focusSpaceWindow(target, sessionId)) return true;
-        // Every space of the profile is already loaded; only another profile's means a switch.
         if (space && space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
+        if (target && !get().heldSpaces.includes(target)) await holdSpace(target);
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
         // A session with no item in the space it claims has no pane to be brought forward, so callers
         // need to hear that the jump did NOT land.

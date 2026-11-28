@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Session } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { fenceAgentOutput } from "@realm/contracts";
+import { fenceAgentOutput, sessionLink } from "@realm/contracts";
 import { childPermissionMode, cleanupWorktree, errorMessage, modeLabel, rank, resolveAgentKind, resolveEnvironment, resolveSkillSubset, taskName, type ChildMode, type EnvironmentDeps } from "./dispatch";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok } from "../mcp/tool-result";
@@ -80,11 +80,16 @@ export type AgentChildRecord = {
   stopNote?: string;
 };
 
+/** How much of a cut-short child's last message `agent_wait` and `agent_run` hand back by default. */
+const LAST_MESSAGE_CHARS = 4_000;
+
 const RunArgs = z.object({
   goal: z.string().min(1).max(8000),
   /** The caller's short name for the task — the child's title and its worktree's branch. */
   title: z.string().trim().min(1).max(40).optional(),
   constraints: AgentRunConstraintsSchema.optional(),
+  /** agent_run only: hand back everything a cut-short child said, not just its last message. */
+  full: z.boolean().optional(),
 });
 
 /**
@@ -105,6 +110,7 @@ const WaitArgs = z.object({
   /** Return early when the person or another session messages the waiting session. False is the old
    *  wait, which hears nothing until its agents finish or it times out. */
   returnOnMessage: z.boolean().default(true),
+  full: z.boolean().default(false),
 });
 
 type SettingsLike = { get(key: string): unknown; getMany(keys: readonly string[]): Map<string, unknown>; set(key: string, value: unknown): void };
@@ -355,12 +361,16 @@ export class AgentRunService {
     const delegationRule = remaining > 0
       ? `- You may delegate further, but only ${remaining} level${remaining === 1 ? "" : "s"} deeper (you are at depth ${child.depth} of ${this.maxDepth}). Prefer doing the work yourself: every extra level is another agent the human has to follow.`
       : "- You cannot delegate: do the work yourself. There is no agent_run, agent_start or browser_agent_run here — the session that started you is the one that coordinates.";
+    // Claude gets its goal back after a compaction (`afterCompaction`), so the goal is sent once, in the
+    // first message, and the preamble stays the same for every child. Codex and ACP agents compact with
+    // no hook to restore it, so theirs stays here, where it survives.
+    const goalLines = this.d.sessions.get(sessionId).agentKind === "claude"
+      ? ["This session was spawned by another Realm session to accomplish ONE goal, given in full in its first message."]
+      : ["This session was spawned by another Realm session to accomplish ONE goal:", "", child.goal];
     return [
       "# Delegated agent (Realm)",
       "",
-      "This session was spawned by another Realm session to accomplish ONE goal:",
-      "",
-      child.goal,
+      ...goalLines,
       "",
       "Ground rules — restated for clarity; each is also enforced server-side:",
       delegationRule,
@@ -368,6 +378,14 @@ export class AgentRunService {
       "- You run in the same permission mode as the session that started you. When you need permission, ask: your request reaches the user in that session's Agents tab.",
       "- Finish with a concise final message reporting the outcome. The delegating session receives that message and the list of files you changed; if your time runs out, you will be asked for the report and have a short while to write it.",
     ].join("\n");
+  }
+
+  /** What a child is told after it compacts its conversation: its goal, word for word. The goal is in
+   *  its first message only, and a compaction replaces that message with a summary. */
+  afterCompaction(sessionId: string): string | undefined {
+    const child = this.childRecord(sessionId);
+    if (!child) return undefined;
+    return ["Your conversation was compacted. The goal you were delegated, as it was given in your first message:", "", child.goal].join("\n");
   }
 
   /** A session was deleted. As a parent: cancel its run. As a child: forget its persisted record and
@@ -610,7 +628,7 @@ export class AgentRunService {
       return err(`The call was cancelled before ${spawned.childId} finished. It is still running; collect its report with ${AGENT_WAIT_TOOL_NAME}.`);
     }
     try {
-      return reportOne(run.done!, spawned, this.childRecord(spawned.childId)?.stopNote);
+      return reportOne(run.done!, spawned, this.childRecord(spawned.childId)?.stopNote, RunArgs.parse(rawArgs).full);
     } finally {
       this.d.engine.end(ctx.sessionId, run);
     }
@@ -716,7 +734,7 @@ export class AgentRunService {
   async wait(ctx: ProviderCallContext, rawArgs: unknown): Promise<CallToolResult> {
     const parsed = WaitArgs.safeParse(rawArgs ?? {});
     if (!parsed.success) return err(`invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
-    const { handles, mode, timeoutMs, returnOnMessage } = parsed.data;
+    const { handles, mode, timeoutMs, returnOnMessage, full } = parsed.data;
 
     const mine = new Map(this.d.engine.runsOf(ctx.sessionId).map((r) => [r.childSessionId, r]));
     // No handles named = wait for everything this session started. The common shape, and it means an
@@ -752,7 +770,7 @@ export class AgentRunService {
     // watcher intact, so a wait that timed out has cost the caller nothing but the wait.
     for (const r of settledRuns) this.d.engine.end(ctx.sessionId, r);
 
-    const sections = settledRuns.map((r) => reportSection(r.done!, r.childSessionId, this.childRecord(r.childSessionId)?.stopNote));
+    const sections = settledRuns.map((r) => reportSection(r.done!, r.childSessionId, this.childRecord(r.childSessionId)?.stopNote, full));
     const stillRunning = runs.filter((r) => r.done === null).map((r) => r.childSessionId);
     const head = outcome === "woken"
       ? messageHead(settledRuns.length, runs.length, stillRunning.map((id) => `${id} ("${this.described(id).title}")`), queuedMessage)
@@ -810,10 +828,10 @@ function modeSentence(granted: ChildMode, parentMode: string, requested: string 
 
 /** The blocking tool's whole result: the outcome sentence, the structured trail, and the fenced
  *  report. `agent_wait` builds the same thing per handle through `reportSection`. */
-function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): CallToolResult {
+function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string, full = false): CallToolResult {
   const note = ` ${spawned.mode}`;
   const trail = trailFor(settled, spawned.childId, spawned.title, spawned.on);
-  const output = reportBody(settled, spawned.childId);
+  const output = reportBody(settled, spawned.childId, full);
   switch (settled.outcome) {
     case "done":
       return ok(`Delegated agent finished.${backgroundSentence(settled)}${note}${trail}\n\n${output}`);
@@ -847,12 +865,12 @@ function messageHead(finished: number, total: number, stillRunning: string[], qu
 
 /** One collected handle's block inside an `agent_wait` result. Deliberately the same vocabulary as
  *  `reportOne` — an agent that learned to read one should not have to learn the other. */
-function reportSection(settled: SettledRun, childId: string, stopNote?: string): string {
+function reportSection(settled: SettledRun, childId: string, stopNote?: string, full = false): string {
   const verdict = settled.outcome === "done" ? "finished" : `did NOT finish (${statusOf(settled)})`;
   const waited = settled.outcome === "done" && settled.background ? `\n\n${backgroundSentence(settled).trim()}` : "";
   const why = settled.outcome === "stopped" && stopNote ? `\n\n${stopNote}` : "";
   const timedOut = settled.outcome === "timeout" ? `\n\n${timeoutSentence(settled)}` : "";
-  return `## Agent ${childId} — ${verdict}${waited}${why}${timedOut}\n\n${reportBody(settled, childId)}`;
+  return `## Agent ${childId} — ${verdict}${waited}${why}${timedOut}\n\n${reportBody(settled, childId, full)}`;
 }
 
 function timeoutSentence(settled: SettledRun, budgetMs?: number): string {
@@ -874,23 +892,38 @@ function backgroundSentence(settled: SettledRun): string {
 
 /**
  * What the parent is handed of the child's work. A child that finished is handed back its final
- * message, and one that timed out but wrote its report when asked is handed back that report. One
- * that did not finish or report is handed back everything it said, because the last line of a
- * cut-short run is usually "waiting on CI" and the work is in the lines before it. Either way, the
- * files it changed follow.
+ * message, and one that timed out but wrote its report when asked is handed back that report, whole,
+ * however long. One that did not finish or report is handed back its last message, cut to its last
+ * `LAST_MESSAGE_CHARS` when it is longer, and where to read the rest: everything it said can run to
+ * hundreds of thousands of characters, and it stays in the parent's context from then on. With `full`
+ * it is handed back everything it said, in order. Either way, the files it changed follow.
  */
-function reportBody(settled: SettledRun, childId: string): string {
+function reportBody(settled: SettledRun, childId: string, full: boolean): string {
   const reported = settled.outcome === "timeout" && settled.reported === true;
   const said = settled.outcome === "done" ? (settled.finalText ? [settled.finalText] : [])
     : reported ? settled.report ?? []
     : settled.texts;
-  const output = said.length > 0
-    ? fenceAgentOutput(said.join("\n\n"), settled.outcome === "done" || reported
-      ? "the DELEGATED AGENT'S REPORT — a subagent's output"
-      : `everything the DELEGATED AGENT said (${said.length} message${said.length === 1 ? "" : "s"}, in order) — a subagent's output`)
-    : "(the agent produced no output)";
-  const transcript = reported ? `\n\nIts full transcript is available through session_read (session ${childId}).` : "";
-  return `${output}${transcript}\n\n${filesSection(settled)}`;
+  const output = said.length === 0 ? "(the agent produced no output)"
+    : settled.outcome === "done" || reported ? fenceAgentOutput(said.join("\n\n"), "the DELEGATED AGENT'S REPORT — a subagent's output")
+    : full ? fenceAgentOutput(said.join("\n\n"), `everything the DELEGATED AGENT said (${said.length} message${said.length === 1 ? "" : "s"}, in order) — a subagent's output`)
+    : lastMessage(said);
+  return `${output}\n\n${transcriptPointer(childId)}\n\n${filesSection(settled)}`;
+}
+
+/** A cut-short child's last message, and how much of what it said is not in it. */
+function lastMessage(said: string[]): string {
+  const last = said[said.length - 1]!;
+  const shown = last.length > LAST_MESSAGE_CHARS ? last.slice(-LAST_MESSAGE_CHARS) : last;
+  const total = said.reduce((n, t) => n + t.length, 0);
+  const cut = shown.length < last.length ? `, its last ${shown.length} of ${last.length} characters` : "";
+  return [
+    fenceAgentOutput(shown, "the DELEGATED AGENT'S LAST MESSAGE — a subagent's output; it did not write a report"),
+    `That is only its last message${cut}. It said ${said.length} message${said.length === 1 ? "" : "s"} (${total} characters) in all; read them with session_read, below.`,
+  ].join("\n\n");
+}
+
+function transcriptPointer(childId: string): string {
+  return `Its full transcript is available through session_read (session ${childId}): session_read {"sessionId":"${childId}","sinceSeq":0} reads it from the start. Link to it as ${sessionLink(childId)}.`;
 }
 
 function filesSection(settled: SettledRun): string {
@@ -965,12 +998,19 @@ export function agentRunTool(menu: readonly string[] = []): Tool {
   return {
     name: AGENT_RUN_TOOL_NAME,
     description:
-      `Hand ONE self-contained task to a sub-agent and BLOCK until it reports back: a real, visible Realm session in this space with the space's normal toolset (its MCP servers and skills), running in a named environment, a fresh worktree, or the space's primary checkout. ${MODELS_BY_NAME} Returns the sub-agent's fenced final report plus the child session's identity (that session's pane holds the full trace). ${SAME_MODE} ${NO_NESTING} Pass a short \`title\` naming the task. Use ${AGENT_START_TOOL_NAME} instead when you have SEVERAL independent tasks — running them one blocking call at a time wastes the parallelism.${availableNow(menu)}`,
-    inputSchema: spawnInputSchema(menu),
+      `Hand ONE self-contained task to a sub-agent and BLOCK until it reports back: a real, visible Realm session in this space with the space's normal toolset (its MCP servers and skills), running in a named environment, a fresh worktree, or the space's primary checkout. ${MODELS_BY_NAME} Returns the sub-agent's fenced final report, whole, plus the child session's identity and link (session_read reads its full transcript). One that did not finish or report returns its last message instead; pass \`full: true\` for everything it said. ${SAME_MODE} ${NO_NESTING} Pass a short \`title\` naming the task. Use ${AGENT_START_TOOL_NAME} instead when you have SEVERAL independent tasks — running them one blocking call at a time wastes the parallelism.${availableNow(menu)}`,
+    inputSchema: withFull(spawnInputSchema(menu)),
   };
 }
 
-/** `agent_run` and `agent_start` take byte-identical arguments — they differ only in who waits — so
+const FULL_PROPERTY = { type: "boolean", description: "Hand back everything a sub-agent that did not finish or report said, in order, instead of its last message. Default false: its transcript is one session_read call away either way." };
+
+/** `agent_run`'s schema: `agent_start`'s, plus `full`, which only a call that hands back a report can use. */
+function withFull(schema: Tool["inputSchema"]): Tool["inputSchema"] {
+  return { ...schema, properties: { ...schema.properties, full: FULL_PROPERTY } };
+}
+
+/** `agent_run` and `agent_start` take the same spawn arguments — they differ only in who waits — so
  *  the schema is built once. Two hand-maintained copies is how one of them quietly stops accepting
  *  `skills`. */
 function spawnInputSchema(menu: readonly string[]): Tool["inputSchema"] {
@@ -1011,7 +1051,7 @@ export function agentStartTool(menu: readonly string[] = []): Tool {
 export const AGENT_WAIT_TOOL: Tool = {
   name: AGENT_WAIT_TOOL_NAME,
   description:
-    `Block until agents started with ${AGENT_START_TOOL_NAME} finish, and return their reports. Reporting a handle SPENDS it: that agent's report is returned once, and the handle is then unknown. Agents that have already finished return instantly. This tool's timeout bounds how long YOU wait, not how long the agents run — timing out here leaves them running under their own budgets, so wait again rather than starting a replacement. A message to you from the person or another session ends the wait early: the result says which agents are still running, and once you have read and answered the message, call this again with the same handles to collect them.`,
+    `Block until agents started with ${AGENT_START_TOOL_NAME} finish, and return their reports. Reporting a handle SPENDS it: that agent's report is returned once, and the handle is then unknown. Each report is the agent's final message, whole, with a link to its session; one that did not finish or report returns its last message, and session_read reads the rest. Agents that have already finished return instantly. This tool's timeout bounds how long YOU wait, not how long the agents run — timing out here leaves them running under their own budgets, so wait again rather than starting a replacement. A message to you from the person or another session ends the wait early: the result says which agents are still running, and once you have read and answered the message, call this again with the same handles to collect them.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -1019,6 +1059,7 @@ export const AGENT_WAIT_TOOL: Tool = {
       mode: { type: "string", enum: ["all", "any"], description: "all (default) waits for every named handle; any returns as soon as one finishes, leaving the rest running and collectable later." },
       timeoutMs: { type: "number", description: "How long to wait, in ms (1s–1h; default 15min). Bounds the WAIT, never the agents. The call reports progress while it waits, so it is not cut off for being quiet: leave this at the default, or set it as long as the work needs — there is no need to keep it under a few minutes." },
       returnOnMessage: { type: "boolean", description: "true (default) returns early when a message for you arrives, so you can answer it; false waits through messages until the agents finish or the timeout ends." },
+      full: FULL_PROPERTY,
     },
     additionalProperties: false,
   },

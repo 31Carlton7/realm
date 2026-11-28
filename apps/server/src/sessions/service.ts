@@ -342,12 +342,14 @@ export class SessionService {
      *  delegation registries (browser-agent children and agent_run children). `parentInterrupted`
      *  cancels a session's in-flight delegated run when THAT session is interrupted; `release`
      *  forgets a deleted session's child record/run; `extraSystemContext` is the policy preamble a
-     *  delegated child starts with; `skillsFilter` (optional, Plan 13 W1) narrows which of the
+     *  delegated child starts with; `afterCompaction` (optional) is what a delegated child is told
+     *  again after it compacts its conversation; `skillsFilter` (optional, Plan 13 W1) narrows which of the
      *  space's enabled skills an agent_run child is staged — null/undefined for every other session.
      *  `modeSet` (optional) is told a session's permission mode was just set, so its running
      *  children come down with it (`AgentRunService.cascadeMode`).
      *  Optional — a harness without delegation behaves exactly as before. */
     browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null;
+      afterCompaction?(sessionId: string): string | undefined;
       modeSet?(sessionId: string, mode: string): Promise<void> };
     /** Plan 12 W5: the notifications feed's session hooks. `handleSessionEvent` gets the session row as
      *  it stood BEFORE the event (so a status event carries its previous status implicitly); it is
@@ -1131,7 +1133,7 @@ export class SessionService {
     this.d.failover?.cancel(id);
     this.notePersonTurn(id, false);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
-    await handle.send({ text: msg.text + (this.d.uncollectedNote?.(id) ?? ""), attachments: [] });
+    await handle.send({ text: msg.text + ((isFromSomeone(msg) && this.d.uncollectedNote?.(id)) || ""), attachments: [] });
     this.tellMessage(id, msg, false);
     return { interrupted };
   }
@@ -2431,6 +2433,8 @@ export class SessionService {
     // rather than in place of them, because a teammate works with every tool a session has.
     const teammateContext = this.d.teammateHome?.contextFor(id);
     const compactWindow = this.d.teammateHome?.compactWindowFor?.(id);
+    // A delegated child's goal is in its first message only, which a compaction replaces with a summary.
+    const goalAfterCompaction = this.d.browserAgents?.afterCompaction?.(id);
     // What Realm's own tools are for, named while the agent is still planning rather than left to be
     // discovered in a tool list it may never read (capabilities.ts). FIRST in the join: it is the most
     // general thing in the prompt, and the user's memory documents must be able to overrule it.
@@ -2472,7 +2476,10 @@ export class SessionService {
       ...(promptContext ? { firstPromptContext: promptContext } : {}),
       ...(memoryDir ? { memoryDirectory: memoryDir } : {}),
       // A teammate's home chat is compacted well short of a 1M window; its task sessions are not.
-      ...(compactWindow ? { autoCompactWindow: compactWindow, afterCompaction: () => this.d.teammateHome?.afterCompaction?.(id) } : {}),
+      ...(compactWindow ? { autoCompactWindow: compactWindow } : {}),
+      ...(compactWindow || goalAfterCompaction ? {
+        afterCompaction: () => [compactWindow ? this.d.teammateHome?.afterCompaction?.(id) : undefined, goalAfterCompaction].filter(Boolean).join("\n\n") || undefined,
+      } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
       // under, for a log line or a bug report to read. Nothing reads them back. Then
       // `REALM_AGENT_SHELL`, which keeps a dev Realm the agent starts off the screen

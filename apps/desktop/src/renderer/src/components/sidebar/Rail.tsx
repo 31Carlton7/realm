@@ -10,6 +10,7 @@ import { needsYou, profileWaiting, reorderWithin } from "./model";
 import { RailRecording } from "./RailRecording";
 import { useSpaceMenu } from "./space-menu";
 import { useChord, useOrderedSpaces, useSidebarState, useSpaceTint } from "./use-sidebar-model";
+import { useWarmSpaces } from "./use-warm-spaces";
 
 /** What a space tile carries in a drag, told apart from an item's. */
 const SPACE_DRAG_TYPE = "application/x-realm-space";
@@ -138,6 +139,7 @@ function RailSpaces() {
   const [overId, setOverId] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   useDissolve(scroller);
+  useWarmSpaces();
   const drop = (target: string) => {
     const from = dragId; setDragId(null); setOverId(null);
     const ids = from ? reorderWithin(all, handOrder, from, target) : null;
@@ -170,6 +172,7 @@ function RailSpace({ space, waiting, draggable, over, onDragStart, onDragEnd, on
 }) {
   const current = useApp((s) => s.activeSpaceId === space.id);
   const selectSpace = useApp((s) => s.selectSpace);
+  const readSpace = useApp((s) => s.readSpace);
   const run = useApp((s) => s.run);
   const tint = useSpaceTint(space.color);
   const menu = useSpaceMenu(space);
@@ -182,7 +185,9 @@ function RailSpace({ space, waiting, draggable, over, onDragStart, onDragEnd, on
         data-drag-over={over || undefined} draggable={draggable}
         onDragStart={(e) => { e.dataTransfer.setData(SPACE_DRAG_TYPE, space.id); e.dataTransfer.effectAllowed = "move"; onDragStart(); }}
         onDragEnd={onDragEnd} onDragOver={onDragOver} onDrop={onDrop}
-        onContextMenu={onContextMenu} onClick={() => run(() => selectSpace(space.id))}>
+        onContextMenu={onContextMenu} onClick={() => run(() => selectSpace(space.id))}
+        // Started on the way to a click, so a space the background pass has not reached is read sooner.
+        onPointerEnter={() => void readSpace(space.id).catch(() => {})}>
         <span className="rail-glyph">
           <span className="rail-space-tile" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={RAIL_GLYPH} /></span>
           {waiting > 0 && <span className="sb-badge" aria-hidden="true">{waiting > 99 ? "99+" : waiting}</span>}
