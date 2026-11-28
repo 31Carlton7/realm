@@ -1043,8 +1043,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      dials Realm's sockets (main's bridge, the CLI, the live checks) is `ws` from Node and sends no
      Origin at all. */
   const rendererOrigins = ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])];
+  /* Written only by Realm's own launcher, which records each quiet app it starts. */
+  const hiddenApps = new HiddenApps();
   const viewers = new ViewerService({
-    apps: new HiddenApps(),
+    apps: hiddenApps,
     ownDevtoolsPort: Number(process.env.REALM_DEVTOOLS_PORT) || null,
     allowedOrigins: rendererOrigins,
   });

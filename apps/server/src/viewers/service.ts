@@ -11,9 +11,10 @@ import type { HiddenApp } from "./hidden-apps";
  * Hidden apps shown as pictures. Each viewer is one live connection to a running process, so they
  * are kept in memory only: nothing about one outlives the app or this server.
  *
- * One loopback HTTP server carries every viewer's picture (`/<secret>/<id>/frames`) and input socket
- * (`/<secret>/<id>/input`), as `AndroidStream` does for emulators. The secret is in the path because
- * an `<img src>` cannot set headers, and each viewer has its own, so one viewer's URL opens no other.
+ * One loopback HTTP server carries every viewer's picture (`/<secret>/<id>/frames`), layers socket
+ * (`/<secret>/<id>/layers`) and input socket (`/<secret>/<id>/input`), as `AndroidStream` does for
+ * emulators. The secret is in the path because an `<img src>` cannot set headers, and each viewer has
+ * its own, so one viewer's URL opens no other.
  *
  * A viewer opens only on an app Realm's own launcher started (`HiddenApps`), never on a port a caller
  * names, and never on Realm's own DevTools port: CDP input skips the guards Realm's UI puts in front
@@ -45,6 +46,11 @@ export class ViewerService {
     const wss = new WebSocketServer({ noServer: true });
     server.on("upgrade", (req, socket, head) => {
       if (!originAllowed(req.headers.origin, this.opts.allowedOrigins)) { socket.destroy(); return; }
+      const layers = this.match(req.url ?? "", "layers");
+      if (layers) {
+        wss.handleUpgrade(req, socket, head, (ws) => layers.relay.serveLayers(ws));
+        return;
+      }
       const entry = this.match(req.url ?? "", "input");
       if (!entry) { socket.destroy(); return; }
       wss.handleUpgrade(req, socket, head, (ws) => {
@@ -64,7 +70,7 @@ export class ViewerService {
     this.wss = wss;
   }
 
-  private match(url: string, kind: "frames" | "input") {
+  private match(url: string, kind: "frames" | "layers" | "input") {
     const m = new RegExp(`^/([A-Za-z0-9_-]+)/([0-9A-Z]{26})/${kind}$`).exec(url.split("?")[0] ?? "");
     if (!m) return null;
     const entry = this.viewers.get(m[2]!);
@@ -95,7 +101,7 @@ export class ViewerService {
     const base = `127.0.0.1:${this.port}/${secret}/${id}`;
     const viewer: Viewer = {
       id, kind: "electron", title: params.title ?? target.title ?? "App",
-      streamUrl: `http://${base}/frames`, inputUrl: `ws://${base}/input`,
+      streamUrl: `http://${base}/frames`, inputUrl: `ws://${base}/input`, layersUrl: `ws://${base}/layers`,
       status: "connecting", pid: app.pid,
     };
     const inputs = new Set<WebSocket>();
