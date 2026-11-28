@@ -1388,6 +1388,22 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
+  it("leaves a session's prompt cache TTL to the CLI, which keeps the main loop on its 1 h cache", async () => {
+    // Only the one-shot helpers shorten or turn off the cache. A main loop reads ~97 % of its prompt
+    // back from the 1 h cache, so none of these switches may reach its env, skills or not.
+    const cacheEnv = ["DISABLE_PROMPT_CACHING", "CLAUDE_CODE_PROMPT_CACHE_TTL", "FORCE_PROMPT_CACHING_5M", "CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL"];
+    const plain = capture({});
+    await plain.handle.send({ text: "hi", attachments: [] });
+    const plainEnv = (await plain.options()).env as Record<string, string>;
+    await plain.handle.dispose();
+    settingsFile({});
+    const skills = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await skills.handle.send({ text: "hi", attachments: [] });
+    const skillsEnv = (await skills.options()).env as Record<string, string>;
+    await skills.handle.dispose();
+    for (const env of [plainEnv, skillsEnv]) for (const key of cacheEnv) expect(env[key], key).toBeUndefined();
+  });
+
   it("lifts the CLI's 25,000-token cap on one MCP result, skills or not, unless the user set their own", async () => {
     // THE MUTANT: leave MAX_MCP_OUTPUT_TOKENS unset, and every tool through the gateway, Realm's own
     // included, is cut at 25,000 tokens into a file the model has to go and read.

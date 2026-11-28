@@ -1,6 +1,6 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { BACKGROUND_MODEL } from "./background-model";
-import { noMcpServers } from "./no-mcp";
+import { noMcpServers, promptCacheDefault } from "./no-mcp";
 import { SUMMARY_MAX, cleanSummary } from "./generate-session-summary";
 import { HINT_MAX, cleanHint } from "./generate-prompt-hint";
 
@@ -70,7 +70,7 @@ export async function generateSessionRecap(input: RecapInput, deps: { query?: Qu
       // a quiet spell, past any cache's life, with a different transcript, and the only part sessions
       // share is the system prompt. A subscription would otherwise write the whole prompt to the
       // 1-hour cache at twice the input price.
-      ...noMcpServers({ DISABLE_PROMPT_CACHING: "1" }),
+      ...noMcpServers(promptCacheDefault({ DISABLE_PROMPT_CACHING: "1" })),
       model: BACKGROUND_MODEL,
       systemPrompt: [
         "You read a coding assistant's session and reply with exactly two lines, each on its own line,",

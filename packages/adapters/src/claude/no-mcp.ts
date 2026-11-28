@@ -22,3 +22,21 @@ export function noMcpServers(extraEnv: Record<string, string> = {}): Pick<Option
     env: { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: "false", ...extraEnv },
   };
 }
+
+/**
+ * The prompt-cache switches the CLI reads from the env of an SDK call. `DISABLE_PROMPT_CACHING` is
+ * checked before any TTL; then `FORCE_PROMPT_CACHING_5M`, `CLAUDE_CODE_PROMPT_CACHE_TTL`, the
+ * `promptCacheTtl` setting and `ENABLE_PROMPT_CACHING_1H`, in that order; and
+ * `CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL=5m` shortens whatever was picked (CLI 2.1.322).
+ */
+const PROMPT_CACHE_ENV = ["DISABLE_PROMPT_CACHING", "FORCE_PROMPT_CACHING_5M", "CLAUDE_CODE_PROMPT_CACHE_TTL", "ENABLE_PROMPT_CACHING_1H", "CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL"];
+
+/**
+ * A helper call's cache default, unless the person set a cache switch in their own environment.
+ * Then Realm sends none of its own, not just the same key: its `DISABLE_PROMPT_CACHING` would beat
+ * their `CLAUDE_CODE_PROMPT_CACHE_TTL=1h`, and its 5m TTL would beat their `ENABLE_PROMPT_CACHING_1H`.
+ * These calls pass `settingSources: []`, so their environment is the only choice of theirs that reaches them.
+ */
+export function promptCacheDefault(env: Record<string, string>): Record<string, string> {
+  return PROMPT_CACHE_ENV.some((key) => process.env[key] !== undefined) ? {} : env;
+}
