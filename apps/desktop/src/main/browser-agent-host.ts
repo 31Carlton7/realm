@@ -572,7 +572,6 @@ export class BrowserAgentHost {
     // tell the agent the page is empty. `describe` answers from what was kept, and `navigate` loads a
     // page of its own, so neither waits; `paneHealth` asks about the view as it is.
     // A pane whose space's window is still opening for it is waited for, not refused as not open.
-    // `describe` and `paneHealth` answer about the view as it is.
     if (browserId && op !== "describe" && op !== "paneHealth" && !this.d.hasView(browserId)) await this.d.mounting?.(browserId);
     if (browserId && op !== "describe" && op !== "navigate" && op !== "paneHealth" && this.d.hasView(browserId)) await this.d.revived?.(browserId);
     switch (op) {

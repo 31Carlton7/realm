@@ -231,6 +231,7 @@ export class PaneWindows<W extends RegisteredWindow> {
     return this.d.windows.spaceOf(win) ?? this.d.windows.landOf(win);
   }
 
+  /** A pane event names a browser: an op on it waits for its view (`mounted`). */
   private expect(spaceId: string, payload: unknown): void {
     const browserId = (payload as { browserId?: unknown } | null | undefined)?.browserId;
     if (typeof browserId !== "string" || this.mounting.has(browserId)) return;
