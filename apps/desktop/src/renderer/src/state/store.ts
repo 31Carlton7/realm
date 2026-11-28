@@ -8294,11 +8294,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshSubagents(sessionId) {
         const read = api.listDelegatedChildren(sessionId).then(({ children, dismissed, nextBefore, total }) => {
-          // Rows older than this page were brought by Show older, or read alone, and stay. The older
-          // pages keep their cursor only while they still reach this page: when more began since they
-          // were read than a page holds, the rows between are held by neither, and the cursor starts
-          // again under this page, keeping only the rows that are running or were read alone. A row
-          // inside this page's span that it no longer has was deleted.
+          // Rows older than this page came from Show older or were read alone. The older pages keep
+          // their cursor only while they still reach this page: when more than a page began since,
+          // the rows between are held by neither, so the cursor starts again under this page and only
+          // the rows running or read alone stay. A row in this page's span that it lacks was deleted.
           const top = pagesTop.get(sessionId) ?? null;
           const reaches = nextBefore !== null && top !== null && !olderThan(top, nextBefore);
           const alone = readAlone.get(sessionId);
@@ -8339,7 +8338,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         return read;
       },
       async loadEveryOlderSubagent(sessionId) {
-        while (get().subagentsBefore[sessionId]) await get().loadOlderSubagents(sessionId);
+        // Until a read moves the cursor no further, so a page that fails to move it ends the loop.
+        for (let at = get().subagentsBefore[sessionId]; at;) {
+          await get().loadOlderSubagents(sessionId);
+          const next = get().subagentsBefore[sessionId];
+          if (next === at) return;
+          at = next;
+        }
       },
       loadSubagent(sessionId, childId) {
         const held = get().subagents[sessionId];
