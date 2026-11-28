@@ -216,10 +216,16 @@ export const AGENT_MOTION = {
  */
 export const AGENT_CURSOR_PALETTE = ["violet", "orange", "teal", "pink", "lime", "yellow"] as const satisfies readonly TeammateColor[];
 
-/** A cursor's colour by its slot: 0 is the accent, then the palette, round again past its end. */
+/** The palette colour a slot takes, or null for slot 0, the accent: the palette, round again past its end.
+ *  The machine pane names its cursor's colour by this word, and `styles.css` holds the value. */
+export function cursorHue(slot: number): (typeof AGENT_CURSOR_PALETTE)[number] | null {
+  return slot === 0 ? null : AGENT_CURSOR_PALETTE[(slot - 1) % AGENT_CURSOR_PALETTE.length]!;
+}
+
+/** A cursor's colour by its slot. */
 export function cursorColour(slot: number, accent: string): string {
-  if (slot === 0) return accent;
-  return css(bodyOklch(AGENT_CURSOR_PALETTE[(slot - 1) % AGENT_CURSOR_PALETTE.length]!, "light"));
+  const hue = cursorHue(slot);
+  return hue ? css(bodyOklch(hue, "light")) : accent;
 }
 
 /**
@@ -249,12 +255,12 @@ export class CursorSlots {
 /**
  * The name pill that rides beside each cursor: the agent's mark and "Claude · checkout".
  *
- * On the chip rung (6px corner), in the caption type at the routine weight, with the mark at the
+ * On the chip rung (`--r-chip`, 10px), in the caption type at the routine weight, with the mark at the
  * caption's own size. It hangs off the glyph's bottom-right corner, clear of the hotspot, so it never
  * covers the point the input goes to.
  */
 export const AGENT_CURSOR_PILL = {
-  radius: 6,
+  radius: 10,
   padX: 6,
   padY: 2,
   gap: 4,
@@ -304,7 +310,7 @@ export function cursorIdentity(actor: BrowserActor | null, slot: number, accent:
  * The controlled-screen frame's line, naming who is driving: "Claude and Codex are using this page".
  *
  * Written as page script, because the page owns each cursor's idle-out and rewrites the line when one
- * leaves; `frameLabel` below is this same source, so the test reads what the page runs. One name per
+ * leaves; `agent-cursor.test.ts` evaluates this same source, so the test reads what the page runs. One name per
  * session, in the order they arrived; a null is a session nobody named.
  */
 export const FRAME_LABEL_JS = `function (names) {
@@ -319,5 +325,3 @@ export const FRAME_LABEL_JS = `function (names) {
   var line = who + (names.length > 1 ? " are" : " is") + " using this page";
   return line.charAt(0).toUpperCase() + line.slice(1);
 }`;
-
-export const frameLabel = new Function(`return (${FRAME_LABEL_JS});`)() as (names: readonly (string | null)[]) => string;

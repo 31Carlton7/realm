@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserAction } from "@realm/contracts";
 import { AppDriveHost, PICKING_REFUSAL } from "./app-drive";
+import { cursorColour } from "./agent-cursor";
 
 const CLICK: BrowserAction = { kind: "click", ref: 4, button: "left", clickCount: 1, modifiers: [] };
 const SCROLL: BrowserAction = { kind: "scroll", deltaX: 0, deltaY: 40 };
@@ -70,5 +71,52 @@ describe("AppDriveHost and a key with no ref", () => {
     const { drive, sent } = host(null);
     await drive.act({ kind: "key", key: "Enter" } as BrowserAction);
     expect(sent.length).toBeGreaterThan(1);
+  });
+});
+
+/** Realm's own window, driven by two sessions: each act is drawn as its session's own cursor. */
+describe("AppDriveHost draws each session's own cursor", () => {
+  const host = () => {
+    const scripts: string[] = [];
+    const drive = new AppDriveHost({
+      attach: () => ({ send: async (method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate" && typeof params?.expression === "string" && params.expression.includes("__realmAgents")) scripts.push(params.expression);
+        return method === "Page.getLayoutMetrics" ? { cssVisualViewport: { clientWidth: 800, clientHeight: 600, pageX: 0, pageY: 0 } } : {};
+      } }),
+    });
+    return { drive, scripts };
+  };
+  const claude = { sessionId: "s-claude", agentKind: "claude", label: "Claude · settings" };
+  const codex = { sessionId: "s-codex", agentKind: "codex", label: "Codex · themes" };
+
+  it("names the session's cursor and pill, and gives a second session a palette colour", async () => {
+    // THE MUTANT: drop the actor on the way to `markAct`. Every app_act is then one unnamed cursor in
+    // the accent, and two sessions in the window share a pointer that jumps between them.
+    const { drive, scripts } = host();
+    drive.setAccent("rgb(1, 2, 3)");
+    await drive.act(SCROLL, claude);
+    await drive.act(SCROLL, codex);
+    expect(scripts).toHaveLength(2);
+    expect(scripts[0]).toContain('"s-claude"');
+    expect(scripts[0]).toContain('"Claude · settings"');
+    expect(scripts[0]).toContain('stroke", "rgb(1, 2, 3)"');
+    expect(scripts[1]).toContain('"Codex · themes"');
+    expect(scripts[1]).toContain(`stroke", "${cursorColour(1, "rgb(1, 2, 3)")}"`);
+  });
+
+  it("keeps a session's colour across its acts", async () => {
+    const { drive, scripts } = host();
+    drive.setAccent("rgb(1, 2, 3)");
+    await drive.act(SCROLL, claude);
+    await drive.act(SCROLL, codex);
+    await drive.act(SCROLL, claude);
+    expect(scripts[2]).toContain('stroke", "rgb(1, 2, 3)"');
+  });
+
+  it("draws an actor it cannot read as one unnamed cursor", async () => {
+    const { drive, scripts } = host();
+    await drive.act(SCROLL, { sessionId: 4 });
+    expect(scripts[0]).toContain('var KEY = "";');
+    expect(scripts[0]).toContain("var LABEL = null");
   });
 });

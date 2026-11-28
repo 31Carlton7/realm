@@ -2,8 +2,22 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { browserActorLabel } from "@realm/contracts";
-import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_CURSOR_PALETTE, AGENT_MOTION, CURSOR_FORM_FOR_CSS, CursorSlots, cursorColour, cursorIdentity, frameLabel, type CursorFormName } from "./agent-cursor";
+import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_CURSOR_PALETTE, AGENT_MOTION, CURSOR_FORM_FOR_CSS, CursorSlots, cursorColour, cursorIdentity, FRAME_LABEL_JS, type CursorFormName } from "./agent-cursor";
 import { LINGER_MS } from "./computer-driving";
+
+/** The page's own line-writer, evaluated here and never in the module: the renderer imports this
+ *  module too, and its CSP (`script-src 'self'`) refuses `new Function`, which blanked the app. */
+const frameLabel = new Function(`return (${FRAME_LABEL_JS});`)() as (names: readonly (string | null)[]) => string;
+
+describe("agent-cursor.ts loads under the renderer's CSP", () => {
+  it("evaluates no code of its own", () => {
+    // THE MUTANT: put `frameLabel` back in the module. jsdom enforces no CSP, so only this sees it;
+    // the live app boots to an empty root.
+    const src = readFileSync(repoFile("apps/desktop/src/main/agent-cursor.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(src).not.toMatch(/new Function\(|\beval\(/);
+    expect(readFileSync(repoFile("apps/desktop/src/renderer/index.html"), "utf8")).not.toContain("unsafe-eval");
+  });
+});
 
 /* Vite rewrites `import.meta.url` to a non-file scheme under jsdom, so walk up from the cwd — the
    same trick `styles.test.ts` uses, and for the same reason. */

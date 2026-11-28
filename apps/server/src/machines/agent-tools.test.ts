@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MACHINE_PROVIDER_NAME, type Machine, type MachineState, type VmAction } from "@realm/contracts";
+import { MACHINE_PROVIDER_NAME, type BrowserActor, type Machine, type MachineState, type VmAction } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createMachineAgentProvider, describeAct } from "./agent-tools";
 import type { MachineDriver, DriverFrame } from "./driver";
@@ -23,6 +23,7 @@ function harness(over: {
   state?: Partial<MachineState>;
   driver?: MachineDriver | null;
   actThrows?: string;
+  actorOf?: (sessionId: string) => BrowserActor | null;
 } = {}) {
   const acts: VmAction[] = [];
   const shots: number[] = [];
@@ -69,6 +70,7 @@ function harness(over: {
     } as never,
     allowlist: { allows: () => over.preapproved ?? false, add: (_s: string, id: string) => { added.push(id); } },
     rpc: { broadcast: (name: string, payload: unknown) => { events.push({ name, payload }); } } as never,
+    ...(over.actorOf && { actorOf: over.actorOf }),
   });
 
   const ctx = { spaceId: "s1", sessionId: "sess1" } as never;
@@ -302,5 +304,33 @@ describe("what the card says", () => {
     const card = describeAct({ kind: "type", text: "hunter2" }, "Studio Mac");
     expect(card).toBe("Type 7 character(s) on Studio Mac");
     expect(card).not.toContain("hunter2");
+  });
+});
+
+describe("every act names the session it is for, so the pane draws that session's own cursor", () => {
+  const actor: BrowserActor = { sessionId: "sess1", agentKind: "claude", label: "Claude · checkout" };
+  const actorOf = (id: string) => (id === "sess1" ? actor : null);
+  const lit = (h: ReturnType<typeof harness>) => h.events.find((e) => e.name === "machine.driving")!.payload as Record<string, unknown>;
+
+  it("sends the actor and the framebuffer point on a click and on a scroll", async () => {
+    const h = harness({ actorOf });
+    await h.call("vm_act", { machineId: "m1", action: { kind: "click", x: 412, y: 300 } });
+    expect(lit(h)).toMatchObject({ driving: true, actor, point: { x: 412, y: 300, kind: "click" } });
+    const s = harness({ actorOf });
+    await s.call("vm_act", { machineId: "m1", action: { kind: "scroll", x: 5, y: 6, deltaY: -100 } });
+    expect(lit(s).point).toEqual({ x: 5, y: 6, kind: "scroll" });
+  });
+
+  it("sends the actor and no point for a key, which lands where the cursor already is", async () => {
+    const h = harness({ actorOf });
+    await h.call("vm_act", { machineId: "m1", action: { kind: "key", key: "Enter" } });
+    expect(lit(h).actor).toEqual(actor);
+    expect(lit(h).point).toBeUndefined();
+  });
+
+  it("sends no actor for a session the store no longer has", async () => {
+    const h = harness({ actorOf: () => null });
+    await h.call("vm_act", { machineId: "m1", action: { kind: "click", x: 1, y: 1 } });
+    expect(lit(h).actor).toBeUndefined();
   });
 });

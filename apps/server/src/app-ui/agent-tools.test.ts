@@ -14,7 +14,7 @@ const SPACE = "space1";
 const SESSION = "sess1";
 const CLICK = { kind: "click", ref: 11 } as const;
 
-function setup(opts: { gate?: GateResult; enabled?: boolean; actResult?: unknown; actThrows?: Error } = {}) {
+function setup(opts: { gate?: GateResult; enabled?: boolean; actResult?: unknown; actThrows?: Error; actorOf?: AppUiToolsDeps["actorOf"] } = {}) {
   const calls = {
     gates: [] as { toolKey: string; title: string }[],
     bridge: [] as { op: string; params: Record<string, unknown> }[],
@@ -36,6 +36,7 @@ function setup(opts: { gate?: GateResult; enabled?: boolean; actResult?: unknown
       },
     },
   };
+  if (opts.actorOf) deps.actorOf = opts.actorOf;
   const provider = createAppUiProvider(deps);
   return { provider, calls, call: (tool: string, args: unknown = {}) => provider.call({ sessionId: SESSION, spaceId: SPACE }, tool, args) };
 }
@@ -121,5 +122,21 @@ describe("acting", () => {
     const r = await call("app_act", { action: { kind: "drag", ref: 11 } });
     expect(r.isError).toBe(true);
     expect(calls.bridge).toEqual([]);
+  });
+});
+
+describe("every act names the session it is for, so main draws that session's own cursor", () => {
+  const actor = { sessionId: SESSION, agentKind: "codex" as const, label: "Codex · settings" };
+
+  it("sends the calling session's actor with app_act", async () => {
+    const { calls, call } = setup({ actorOf: (id) => (id === SESSION ? actor : null) });
+    await call("app_act", { action: CLICK });
+    expect(calls.bridge.find((b) => b.op === "appAct")!.params.actor).toEqual(actor);
+  });
+
+  it("sends no actor for a session the store no longer has", async () => {
+    const { calls, call } = setup({ actorOf: () => null });
+    await call("app_act", { action: CLICK });
+    expect(Object.keys(calls.bridge.find((b) => b.op === "appAct")!.params)).toEqual(["action"]);
   });
 });

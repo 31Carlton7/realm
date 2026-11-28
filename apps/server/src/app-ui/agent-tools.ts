@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BrowserActionSchema, BrowserSnapshotScopeSchema, refineKeyAction, SNAPSHOT_SCOPE_PROPERTIES, type BrowserActResult, type BrowserSnapshotResult } from "@realm/contracts";
+import { BrowserActionSchema, BrowserSnapshotScopeSchema, refineKeyAction, SNAPSHOT_SCOPE_PROPERTIES, type BrowserActResult, type BrowserActor, type BrowserSnapshotResult } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
@@ -51,6 +51,9 @@ export type AppUiToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
   broker: Pick<BrowserPermissionBroker, "gate">;
+  /** Who a session is, so main draws its acts as that session's own cursor. Absent, or null for a
+   *  session the store no longer has, and the act is drawn as one unnamed cursor. */
+  actorOf?: (sessionId: string) => BrowserActor | null;
 };
 
 export function createAppUiProvider(d: AppUiToolsDeps): RealmToolProvider {
@@ -125,7 +128,8 @@ const HANDLERS: Record<string, Handler> = {
        window nobody is otherwise touching. Here the thing being driven IS the window, and `markAct`
        has already drawn the frame — and the agent cursor with it — into this very document. A
        renderer overlay beside that would be a second frame saying the same thing. */
-    const result = (await d.bridge.call("appAct", { action: args.value.action })) as BrowserActResult;
+    const actor = d.actorOf?.(ctx.sessionId);
+    const result = (await d.bridge.call("appAct", { action: args.value.action, ...(actor && { actor }) })) as BrowserActResult;
     if (result.ok) return ok(result.detail);
     // The one refusal that is a hard block rather than a failure, and it must not read as something
     // to retry differently: there is no way to press that button from here.

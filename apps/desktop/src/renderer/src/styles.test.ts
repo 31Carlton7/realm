@@ -5,6 +5,7 @@ import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
 import { TOOLBAR_BUTTON, TOOLBAR_CHROME } from "./panes/simulator/toolbar-fit";
 import { REALM_SEED, accentFill, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, contrast, oklchToHex } from "@realm/contracts";
+import { AGENT_CURSOR, AGENT_CURSOR_PALETTE, AGENT_CURSOR_PILL, AGENT_MOTION, cursorColour, cursorHue } from "../../main/agent-cursor";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
 import { PRESSABLE } from "./press-tracking";
 
@@ -3900,6 +3901,10 @@ describe("light mode", () => {
     // …and the paper itself, white in both modes: the file is the file, never inverted for dark.
     [".pdf-page[data-painted]", "a page of the file is white paper on both faces"],
     [".pdf-thumb-page[data-painted]", "a page of the file is white paper on both faces"],
+    // An agent's cursor on a machine's screen: white with its colour outside, on both faces, as the
+    // injected one is on a page, and white words on a palette colour that does not flip either.
+    [".machine-cursor-glyph", "an agent's pointer is white on both faces"],
+    [".machine-cursor[data-hue]", "ink on a palette colour that does not flip"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -5371,6 +5376,62 @@ describe("the agent-controlled frame", () => {
     // The quiet list is an enumeration, not a wildcard: a new looping surface that nobody adds to it
     // keeps burning a core in an unfocused window, which is the audit this list came out of.
     expect(bodiesFor(":root[data-quiet] .drive-frame-glow").join(" ")).toContain("animation-play-state: paused");
+  });
+});
+
+/**
+ * The machine pane's per-session cursor, held to the table the injected browser cursor is drawn from
+ * (`main/agent-cursor.ts`): the same palette, pill, outline, press and motion, on a second surface.
+ */
+describe("the machine pane's agent cursors", () => {
+  it("takes each palette colour from the table, under the word the slot names it by", () => {
+    // THE MUTANT: retune one colour here, or add a hue the table does not have. Two agents' cursors
+    // would then wear different colours on a page and on a machine.
+    const hued = RULES.flatMap((r) => r.selectors).filter((sel) => sel.startsWith(".machine-cursor[data-hue=\""));
+    expect(hued.sort()).toEqual(AGENT_CURSOR_PALETTE.map((h) => `.machine-cursor[data-hue="${h}"]`).sort());
+    AGENT_CURSOR_PALETTE.forEach((hue, i) => {
+      expect(cursorHue(i + 1)).toBe(hue);
+      expect(bodiesFor(`.machine-cursor[data-hue="${hue}"]`).join(" "), hue).toBe(`--cursor: ${cursorColour(i + 1, "")};`);
+    });
+    expect(cursorHue(AGENT_CURSOR_PALETTE.length + 1)).toBe(AGENT_CURSOR_PALETTE[0]);
+  });
+
+  it("keeps the accent for the first session, and puts white words on every palette colour", () => {
+    expect(cursorHue(0)).toBeNull();
+    expect(bodiesFor(".machine-cursor").join(" ")).toContain("--cursor: var(--rl-accent)");
+    expect(bodiesFor(".machine-cursor[data-hue]").join(" ")).toContain("--cursor-ink: #fff");
+  });
+
+  it("draws the pill at the table's geometry and type", () => {
+    const P = AGENT_CURSOR_PILL;
+    const pill = bodiesFor(".machine-cursor-pill").join(" ");
+    for (const decl of [`gap: ${P.gap}px`, `padding: ${P.padY}px ${P.padX}px`, `max-width: ${P.maxWidth}px`, "border-radius: var(--r-chip)"]) expect(pill).toContain(decl);
+    // The rung and the weight are tokens here and numbers in the page, so the tokens are held to them.
+    expect(css).toContain(`--r-chip: ${P.radius}px;`);
+    const [, weight, size, line] = /^(\d+) (\d+)px\/(\d+)px/.exec(P.font)!;
+    expect(css).toContain(`--fw-label: calc(${weight} + var(--fw-shift))`);
+    expect(pill).toContain(`font-size: ${size}px; line-height: ${line}px; font-weight: var(--fw-label)`);
+    expect(bodiesFor(".machine-cursor-mark").join(" ")).toContain(`width: ${P.markSize}px; height: ${P.markSize}px`);
+  });
+
+  it("outlines the glyph outside its fill and presses it at the table's scale", () => {
+    const glyph = bodiesFor(".machine-cursor-glyph").join(" ");
+    expect(glyph).toContain("paint-order: stroke fill");
+    expect(glyph).toContain("stroke: var(--cursor)");
+    expect(css).toMatch(new RegExp(`@keyframes rl-agent-press \\{ 50% \\{ scale: ${AGENT_CURSOR.pressScale}; \\} \\}`));
+  });
+
+  it("moves on the motion rungs the injected cursor mirrors", () => {
+    const body = bodiesFor(".machine-cursor").join(" ");
+    expect(body).toContain("translate var(--dur-swap) var(--ease-out-strong)");
+    expect(body).toContain("opacity var(--dur-fast) linear");
+    expect(body).toContain("rl-fade-in var(--dur-enter) var(--ease-out-strong)");
+    const token = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(tokensCss)![1]!.trim();
+    expect(token("dur-swap")).toBe(`${AGENT_MOTION.swapMs}ms`);
+    expect(token("dur-fast")).toBe(`${AGENT_MOTION.fastMs}ms`);
+    expect(token("dur-enter")).toBe(`${AGENT_MOTION.enterMs}ms`);
+    expect(token("dur-press")).toBe(`${AGENT_MOTION.pressMs}ms`);
+    expect(token("ease-out-strong")).toBe(AGENT_MOTION.easeOutStrong);
   });
 });
 

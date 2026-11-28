@@ -1,5 +1,6 @@
-import { NO_AGENT_ATTR, type BrowserAction, type BrowserActResult, type BrowserSnapshotResult, type BrowserSnapshotScope } from "@realm/contracts";
-import { buildSnapshot, markAct, performAct, type CdpSend, type SnapshotIndex } from "./browser-agent";
+import { BrowserActorSchema, NO_AGENT_ATTR, type BrowserAction, type BrowserActResult, type BrowserSnapshotResult, type BrowserSnapshotScope } from "@realm/contracts";
+import { CursorSlots, cursorIdentity } from "./agent-cursor";
+import { DEFAULT_AGENT_ACCENT, buildSnapshot, markAct, performAct, type CdpSend, type SnapshotIndex } from "./browser-agent";
 
 /**
  * Realm driving its OWN interface: a snapshot of this window's DOM, and acts dispatched into it.
@@ -58,7 +59,9 @@ export class AppDriveHost {
   /** The previous snapshot's fingerprints, so `*[new]` markers mean the same thing here as in a
    *  page. One window, so one index — unlike the browser host, which keys them per view. */
   private index: SnapshotIndex | null = null;
-  private accent: string | undefined;
+  private accent = DEFAULT_AGENT_ACCENT;
+  /** Which colour each session's cursor holds in this window, as the browser host keeps per page. */
+  private readonly cursorSlots = new CursorSlots();
 
   constructor(private readonly d: AppDriveDeps) {}
 
@@ -74,7 +77,8 @@ export class AppDriveHost {
    *  blue, which is what `DEFAULT_AGENT_ACCENT` is for. */
   setAccent(accent: string): void { this.accent = accent; }
 
-  async act(action: BrowserAction): Promise<BrowserActResult> {
+  /** `actor` is the session acting, as the server sent it; one it could not name is drawn unnamed. */
+  async act(action: BrowserAction, actor?: unknown): Promise<BrowserActResult> {
     if (this.d.picking?.()) return { ok: false, error: PICKING_REFUSAL };
     const cdp = this.require();
     const ref = refOf(action);
@@ -92,7 +96,9 @@ export class AppDriveHost {
     }
     // The mark first, then the act, exactly as the browser path orders them: the press flash is what
     // marks the moment, so drawing after would depict the act late.
-    await markAct(cdp.send, action, this.accent);
+    const parsed = BrowserActorSchema.safeParse(actor);
+    const who = parsed.success ? parsed.data : null;
+    await markAct(cdp.send, action, this.accent, cursorIdentity(who, this.cursorSlots.take(who?.sessionId ?? ""), this.accent));
     return performAct(cdp.send, action);
   }
 

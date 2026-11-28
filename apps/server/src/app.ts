@@ -51,7 +51,7 @@ import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { AGENT_LOGIN_HINTS, browserActorLabel, DEFAULT_PERMISSION_MODE_KEY, EVENT_RETENTION_EVERY_HOURS, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
+import { AGENT_LOGIN_HINTS, browserActorLabel, type BrowserActor, DEFAULT_PERMISSION_MODE_KEY, EVENT_RETENTION_EVERY_HOURS, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
@@ -1596,6 +1596,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // settings row has to say — both are told rather than left to find out on their next fetch.
     onOfferedChange: () => { mcpGateway.notifyToolsChanged(); rpc.broadcast("mcp.changed", {}); },
   });
+  /** Who a session is, for the cursor its acts are drawn as on a page, a machine or Realm's own window. */
+  const actorOf = (sessionId: string): BrowserActor | null => {
+    const s = sessionsStore.get(sessionId);
+    return s ? { sessionId, agentKind: s.agentKind, label: browserActorLabel(s.agentKind, s.title) } : null;
+  };
   mcpGateway.registerProvider(createBrowserAgentProvider({
     browsers: browsersStore, projects, spaces, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc,
     constraints: browserAgents, signIn: signInTickets, simulatorStreams: simulatorTools,
@@ -1608,10 +1613,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
     profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
     transcript: { note: (sessionId, ev) => sessionService?.publishServerEvent(sessionId, ev) },
-    actorOf: (sessionId) => {
-      const s = sessionsStore.get(sessionId);
-      return s ? { sessionId, agentKind: s.agentKind, label: browserActorLabel(s.agentKind, s.title) } : null;
-    },
+    actorOf,
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is never a valid asker, and a target only for the session that started it once its run is
@@ -1661,7 +1663,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      `realm-computer`'s reasoning — that one reaches every app on the Mac, this one reaches the
      window the user answers questions in. The refusal that makes it survivable lives in main, where
      the live DOM is (`app-drive.ts`). */
-  mcpGateway.registerProvider(createAppUiProvider({ mcp, bridge: browserBridge, broker: browserBroker }));
+  mcpGateway.registerProvider(createAppUiProvider({ mcp, bridge: browserBridge, broker: browserBroker, actorOf }));
   // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
   // One extractor for the process: PDF text is memoized across every session's searches.
   const extractor = new TextExtractor();
@@ -1691,7 +1693,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // tool, and the card kept in bypassPermissions. Registered here and not conditionally — the
   // gateway's own per-space enablement is what decides whether a session sees the tools.
   const machineAllowlist = new MachineAllowlist({ settings });
-  mcpGateway.registerProvider(createMachineAgentProvider({ mcp, machines, broker: browserBroker, allowlist: machineAllowlist, rpc }));
+  mcpGateway.registerProvider(createMachineAgentProvider({ mcp, machines, broker: browserBroker, allowlist: machineAllowlist, rpc, actorOf }));
   /* On by default, unlike `realm-vm` above it: a simulator is a device on THIS Mac that the agent's
      own shell can already boot and install onto with `xcrun simctl`, so the tools add no reach — they
      add the pane, which is the point. Whether a session sees them at all is the toolchain's answer

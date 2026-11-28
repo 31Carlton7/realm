@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   MACHINE_PROVIDER_NAME, VmActionSchema, describeEndpoint, fenceUntrusted, firstUntypeable,
-  parseMachineAddress, type Machine, type MachineState, type VmAction,
+  parseMachineAddress, type BrowserActor, type Machine, type MachineState, type VmAction,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
@@ -52,6 +52,9 @@ export type MachineAgentToolsDeps = {
   broker: Pick<BrowserPermissionBroker, "gate">;
   allowlist: Pick<MachineAllowlist, "allows" | "add">;
   rpc: Pick<RpcServer, "broadcast">;
+  /** Who a session is, for the cursor the pane draws for its acts. Absent, or null for a session the
+   *  store no longer has, and the act is drawn as one unnamed cursor. */
+  actorOf?: (sessionId: string) => BrowserActor | null;
 };
 
 export function createMachineAgentProvider(d: MachineAgentToolsDeps): RealmToolProvider {
@@ -237,7 +240,9 @@ const HANDLERS: Record<string, Handler> = {
     );
     if (!gate.allowed) return err(gate.reason);
 
-    return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
+    const point = action.kind === "click" || action.kind === "scroll" ? { x: action.x, y: action.y, kind: action.kind } : undefined;
+    const actor = d.actorOf?.(ctx.sessionId) ?? undefined;
+    return runTracked(d, ctx.spaceId, row.value.id, title, { actor, point }, async () => {
       const driver = await d.machines.driverFor(row.value.id);
       if (!driver) return err(`machine "${row.value.name}" is not connected. vm_start connects it.`);
       const detail = await driver.act(action);
@@ -337,9 +342,14 @@ export function describeAct(action: VmAction, machineName: string): string {
 }
 
 /** `machine.driving` true → run → false in a `finally`, then one `machine.action` carrying the text
- *  the card showed. The browser's twin, so the sidebar dot and the pane read one vocabulary. */
-async function runTracked(d: Deps, spaceId: string, machineId: string, text: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
-  d.rpc.broadcast("machine.driving", { spaceId, machineId, driving: true });
+ *  the card showed. The browser's twin, so the sidebar dot and the pane read one vocabulary. The `true`
+ *  carries who is acting and where, which is what the pane draws that session's cursor from. */
+async function runTracked(
+  d: Deps, spaceId: string, machineId: string, text: string,
+  who: { actor?: BrowserActor; point?: { x: number; y: number; kind: "click" | "scroll" } },
+  fn: () => Promise<CallToolResult>,
+): Promise<CallToolResult> {
+  d.rpc.broadcast("machine.driving", { spaceId, machineId, driving: true, ...who });
   let succeeded = false;
   try {
     const result = await fn();

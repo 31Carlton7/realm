@@ -22,6 +22,7 @@ import {
 import { CatalogFontSchema, EditorThemeSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema, McpSignInOptionsSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
+import { BrowserActorSchema } from "./browser-agent";
 import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MemoryClaudeBackfillSchema, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { MemoryLibraryEntrySchema, MemoryLibraryFileSchema, MemoryLibrarySourceSchema, MemoryLibraryTypeSchema } from "./memory-library";
 import { NotificationSchema } from "./notifications";
@@ -2659,8 +2660,14 @@ export const Events = {
    *  little to a person, but they are the only thing telling two clicks apart. */
   "machine.action": z.object({ spaceId: IdSchema, machineId: IdSchema, text: z.string(), ok: z.boolean(), ts: z.number() }),
   /** An agent's act is in flight (`true`) or has settled (`false`) on this machine. Every `true` is
-   *  followed by a `false` whatever the outcome, so a failed act cannot leave the dot lit. */
-  "machine.driving": z.object({ spaceId: IdSchema, machineId: IdSchema, driving: z.boolean() }),
+   *  followed by a `false` whatever the outcome, so a failed act cannot leave the dot lit.
+   *  A `true` names the session acting (`actor`, absent for one the store no longer has) and, for a
+   *  click or a scroll, the framebuffer point it lands on, so the pane draws that session's cursor there. */
+  "machine.driving": z.object({
+    spaceId: IdSchema, machineId: IdSchema, driving: z.boolean(),
+    actor: BrowserActorSchema.optional(),
+    point: z.object({ x: z.number(), y: z.number(), kind: z.enum(["click", "scroll"]) }).optional(),
+  }),
   /** An image is being fetched (Plan 25 W5). A DETERMINATE fraction, because here one genuinely
    *  exists — unlike a boot, where drawing an empty meter would be a claim. `error` is a word from
    *  `IMAGE_ERRORS`, so every terminal state is something a person can act on rather than a spinner

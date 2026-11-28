@@ -2891,6 +2891,38 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-screen[data-scale="actual"] .machine-host canvas { image-rendering: pixelated; }
 .machine-starting { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px;
   color: var(--rl-terminal-ink-dim); font-size: 13px; pointer-events: none; }
+/* Each session's cursor over the screen: the browser pane's per-session cursor, drawn as DOM because
+   the screen is a canvas here (`MachineCursors.tsx`). Laid over the canvas's own box, so a framebuffer
+   point times the fit's scale is the pixel the input went to. The numbers are `main/agent-cursor.ts`'s,
+   and `styles.test.ts` holds this block to them: the outline, the press, the pill and the palette. */
+.machine-cursors { position: absolute; left: 50%; top: 50%; z-index: 1; width: var(--machine-w); height: var(--machine-h);
+  translate: -50% -50%; pointer-events: none; }
+/* The slot's colour: the accent for the first session on the screen, then the palette by its word.
+   One value on both faces, the light face's body, because the pill's words are white on it. */
+.machine-cursor { --cursor: var(--rl-accent); --cursor-fill: var(--rl-accent-fill); --cursor-ink: var(--rl-accent-contrast);
+  position: absolute; left: 0; top: 0;
+  transition: translate var(--dur-swap) var(--ease-out-strong), opacity var(--dur-fast) linear;
+  animation: rl-fade-in var(--dur-enter) var(--ease-out-strong); }
+.machine-cursor[data-hue] { --cursor-fill: var(--cursor); --cursor-ink: #fff; }
+.machine-cursor[data-hue="violet"] { --cursor: oklch(0.605 0.15 296); }
+.machine-cursor[data-hue="orange"] { --cursor: oklch(0.605 0.15 50); }
+.machine-cursor[data-hue="teal"] { --cursor: oklch(0.605 0.106 188); }
+.machine-cursor[data-hue="pink"] { --cursor: oklch(0.605 0.15 350); }
+.machine-cursor[data-hue="lime"] { --cursor: oklch(0.605 0.15 125); }
+.machine-cursor[data-hue="yellow"] { --cursor: oklch(0.605 0.128 95); }
+.machine-cursor[data-leaving] { opacity: 0; }
+/* White with the slot's outline drawn outside the fill, as on a page: the user's own pointer is white
+   with a black edge, so the colour is what says this one is an agent's. */
+.machine-cursor-glyph { display: block; overflow: visible; fill: #fff; stroke: var(--cursor); stroke-linejoin: round;
+  paint-order: stroke fill; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .32)); }
+/* The press contracts the glyph about its hotspot, never the pill beside it. */
+.machine-cursor-glyph[data-press] { animation: rl-agent-press var(--dur-press) var(--ease-out-strong) both; }
+@keyframes rl-agent-press { 50% { scale: 0.82; } }
+.machine-cursor-pill { position: absolute; display: flex; align-items: center; gap: 4px; padding: 2px 6px; max-width: 180px;
+  border-radius: var(--r-chip); background: var(--cursor-fill); color: var(--cursor-ink);
+  font-size: 12px; line-height: 16px; font-weight: var(--fw-label); white-space: nowrap; box-shadow: var(--shadow-pill); }
+.machine-cursor-mark { flex: none; width: 12px; height: 12px; fill: currentColor; }
+.machine-cursor-name { overflow: hidden; text-overflow: ellipsis; }
 
 .machine-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; --fade-h: 24px; --fade-top-h: 24px; }
 .machine-rest, .machine-connect { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
