@@ -490,6 +490,7 @@ contextBridge.exposeInMainWorld("realm", {
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
     drawn: (): void => ipcRenderer.send("window:drawn"),
+    unheardPanes: (): Promise<{ spaceId: string; itemId: string; openedBy: string }[]> => ipcRenderer.invoke("window:unheard-panes"),
     /** Main is about to unload this window (main/window-idle.ts). `save` writes its view down, or
      *  answers why the page must stay ("unsaved"); `abort` hears that main called the unload off. */
     onUnload: (save: () => Promise<string | null>, abort: () => void): (() => void) => {

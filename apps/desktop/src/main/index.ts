@@ -2922,7 +2922,7 @@ app.whenReady().then(async () => {
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); void wakeBusyWindows(payload); return; }
         // An agent needs a pane in a space held at launch: its window opens, behind the person's.
         const paneIn = paneSpace(event, payload);
-        if (paneIn) { void openHeld(paneIn, { behind: true }); return; }
+        if (paneIn) { void openForPane(paneIn, payload); return; }
         // A phone paired or removed: whether a waiting session keeps the Mac awake goes with it.
         if (event === "remote.changed") {
           const phones = (payload as { phones?: unknown } | undefined)?.phones;
@@ -3140,6 +3140,23 @@ function openHeld(spaceId: string, o: { behind?: boolean } = {}): Promise<Browse
   });
 }
 
+/** The pane events each window opened for an agent's pane was told before its page could hear them,
+ *  until its page asks (`window:unheard-panes`). */
+const unheardPanes = new Map<number, unknown[]>();
+
+/** An agent needs a pane in this space: the window held at launch for it opens behind the person's,
+ *  and its page, once booted, is handed the event it was too late to hear. A space with an open
+ *  window heard it already. */
+async function openForPane(spaceId: string, payload: unknown): Promise<void> {
+  const open = windows.windowForSpace(spaceId);
+  // Open already: it heard the event, unless its page has yet to ask for the ones it missed.
+  if (open) { unheardPanes.get(open.id)?.push(payload); return; }
+  const win = await openHeld(spaceId, { behind: true });
+  if (!win || win.isDestroyed() || windows.spaceOf(win) !== spaceId) return;
+  if (!unheardPanes.has(win.id)) win.once("closed", () => unheardPanes.delete(win.id));
+  unheardPanes.set(win.id, [...(unheardPanes.get(win.id) ?? []), payload]);
+}
+
 /** Every space with its profile and name, in the person's order, asked of the server — none when it
  *  cannot say. */
 async function listSpaces(): Promise<{ id: string; profileId: string; name: string }[]> {
@@ -3258,6 +3275,14 @@ ipcMain.handle("window:focus-space", async (e, spaceId: unknown, sessionId: unkn
 ipcMain.on("window:land", (e) => {
   e.returnValue = unloadedLand.get(e.sender.id) ?? null;
   unloadedLand.delete(e.sender.id);
+});
+/** A window opened for an agent's pane, its page booted: the pane events it was too late to hear. */
+ipcMain.handle("window:unheard-panes", (e): unknown[] => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return [];
+  const told = unheardPanes.get(win.id) ?? [];
+  unheardPanes.delete(win.id);
+  return told;
 });
 /** A Realm window's page has booted and drawn its first frame: the panel made ahead waits for it. */
 ipcMain.on("window:drawn", () => quickChatPanel.windowDrawn());

@@ -5,11 +5,13 @@
  * Boots the BUILT app twice on one scratch REALM_HOME and HOME under ~/realm-scratch, quietly
  * (`live-app.mjs`), with the scripted fake engine calling Realm's real browser tools (`kind: "call"`,
  * nothing billed). The first boot makes five spaces; windows.json then names a window for each, so the
- * second boot opens the three used last and holds the other two (`splitLaunch`). A session in a held
- * space opens a browser pane and reads it:
+ * second boot opens the three used last and holds the other two (`splitLaunch`). A session in held
+ * Space 2 is kept working (a scripted Bash call held for minutes) with no pane, and a session in held
+ * Space 1 opens a browser pane and reads it:
  *
- *   - the held window opens for the work, unshown, and nothing is focused or shown over the person's
+ *   - the held window opens for the pane, unshown, and nothing is focused or shown over the person's
  *     windows;
+ *   - Space 2, busy but with no pane, stays held: work alone opens no window;
  *   - the pane's view is in that window, not parked in the window of another space;
  *   - browser_snapshot reads the page, browser_list says it is open, and pane_show finds it mounted.
  *
@@ -110,6 +112,7 @@ const SCRIPT = [
   { on: "Snap {", emit: [{ kind: "call", tool: "realm-browser__browser_snapshot", input: {}, argsFromMessage: true }, { kind: "text", text: "Done." }] },
   { on: "List {", emit: [{ kind: "call", tool: "realm-browser__browser_list", input: {}, argsFromMessage: true }, { kind: "text", text: "Done." }] },
   { on: "Show {", emit: [{ kind: "call", tool: "realm-workspace__pane_show", input: {}, argsFromMessage: true }, { kind: "text", text: "Done." }] },
+  { on: "Busy {", emit: [{ kind: "tool", name: "Bash", input: { command: "sleep 600" }, result: "done", holdMs: 600_000 }, { kind: "text", text: "Done." }] },
 ];
 
 const WRAPPER = [
@@ -203,6 +206,15 @@ async function main() {
   const focusedTitle = () => mainEval(`return BrowserWindow.getFocusedWindow()?.getTitle().replace(/ \u2014 SCRATCH.*$/, "") ?? null;`);
   const focusedBefore = await focusedTitle();
 
+  step("a session in Space 2 (held) starts work that opens no pane");
+  const { session: busy } = await api.call("sessions.create", { spaceId: ordered[1].id, agentKind: "fake", title: "Busy agent", permissionMode: "bypassPermissions" });
+  await api.call("sessions.send", { id: busy.id, text: "Busy {}", attachments: [], mentions: [] });
+  const busyStatus = async () => (await api.call("sessions.listAll", {})).find((s) => s.id === busy.id)?.status;
+  await until(async () => (await busyStatus()) === "running", 30_000, "Space 2's session running");
+  await sleep(3000);
+  const whileBusy = await describeWindows();
+  check("Space 2, working with no pane, stays held: no window opens for it", !whileBusy.some((w) => w.title === "Space 2"), whileBusy.map((w) => w.title));
+
   const held = ordered[0];
   const { session } = await api.call("sessions.create", { spaceId: held.id, agentKind: "fake", title: "Held space agent", permissionMode: "bypassPermissions" });
   const events = () => api.call("sessions.events", { id: session.id, afterSeq: 0, limit: 5000 });
@@ -235,7 +247,7 @@ async function main() {
   check("it opened unshown and unfocused, over nothing the person was doing", !!opener && !opener.visible && !opener.focused, opener);
   const focusedAfter = await focusedTitle();
   check("the window in front is the one that was in front", focusedAfter === focusedBefore, { before: focusedBefore, after: focusedAfter });
-  check("Space 2, with no work, stays held", !after.some((w) => w.title === "Space 2"), after.map((w) => w.title));
+  check("Space 2 is still working, and still held after Space 1's pane opened", (await busyStatus()) === "running" && !after.some((w) => w.title === "Space 2"), { status: await busyStatus(), windows: after.map((w) => w.title) });
   const mounted = await mainEval(`return webContents.getAllWebContents().filter((wc) => !wc.isDestroyed() && wc.getURL().startsWith(${JSON.stringify(SITE)})).map((wc) => wc.getURL());`);
   check("the pane's page is loaded in a view", mounted.length === 1, mounted);
   const hosts = await mainEval(`return ${realmWindows}.map((w) => ({ title: w.getTitle().replace(/ \u2014 SCRATCH.*$/, ""), views: w.contentView.children.map((v) => v.webContents?.getURL?.() ?? null).filter((u) => u && u.startsWith(${JSON.stringify(SITE)})) }));`);
