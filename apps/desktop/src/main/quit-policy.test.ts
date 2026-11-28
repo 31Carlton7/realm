@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { EventEmitter, once } from "node:events";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals, type QuitTrigger } from "./quit-policy";
+import { beforeQuitStep, confirmQuitCopy, decideQuit, lastWindowClosedStep, quitFlagsFor, quitOnSignals, type QuitTrigger } from "./quit-policy";
 
 describe("decideQuit", () => {
   const cell = (trigger: QuitTrigger, working: number) => decideQuit({ trigger, working }).kind;
@@ -132,5 +132,18 @@ describe("main quits for real when told to by a signal or by macOS", () => {
     const fn = src.slice(src.indexOf("function quitWhenTold() {"), src.indexOf("app.whenReady().then("));
     expect(fn).toMatch(/quitOnSignals\(process, [\s\S]*?= quitFlagsFor\("signal"\)\);[\s\S]*?app\.quit\(\);/);
     expect(fn).toMatch(/powerMonitor\.on\("shutdown", \(\) => \{ \(\{ quittingForReal, detachOnQuit \} = quitFlagsFor\("system-shutdown"\)\); \}\)/);
+  });
+});
+
+describe("lastWindowClosedStep", () => {
+  it("goes to the menu bar once the launch has opened its windows", () => {
+    expect(lastWindowClosedStep({ quittingForReal: false, launched: true })).toBe("go-resident");
+    expect(lastWindowClosedStep({ quittingForReal: true, launched: true })).toBe("nothing");
+  });
+
+  it("does nothing when the only window was the launch's maintenance notice", () => {
+    // MUTANT: drop `launched` and closing the notice mid-wait hides the Dock and raises the tray,
+    // then the launch opens its window with no Dock icon and the tray still up.
+    expect(lastWindowClosedStep({ quittingForReal: false, launched: false })).toBe("nothing");
   });
 });

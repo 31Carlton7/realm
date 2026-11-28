@@ -90,6 +90,16 @@ export function beforeQuitStep(flags: QuitFlags): "detach" | "go-resident" | "st
 }
 
 /**
+ * What Electron's `window-all-closed` does. Before the launch has opened its first Realm window, the
+ * only window there can have been is the notice it shows while the server is busy with maintenance
+ * (launch-wait.ts), closed by hand. That is not Realm closing: the launch still opens its window when
+ * the server answers, and going resident first would leave that window with no Dock icon.
+ */
+export function lastWindowClosedStep(d: { quittingForReal: boolean; launched: boolean }): "go-resident" | "nothing" {
+  return d.launched && !d.quittingForReal ? "go-resident" : "nothing";
+}
+
+/**
  * Take over the signals Electron answers with a bare `app.quit()` (electron_browser_main_parts_posix.cc).
  * Each is handled once, as Electron's own handler is: with the listener gone Node restores the
  * default action, so a second signal still ends a quit that hangs. Call it after `ready` — Electron

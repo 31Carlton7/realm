@@ -20,8 +20,9 @@ import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
-import { beforeQuitStep, confirmQuitCopy, decideQuit, quitFlagsFor, quitOnSignals } from "./quit-policy";
+import { beforeQuitStep, confirmQuitCopy, decideQuit, lastWindowClosedStep, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
+import { showLaunchWait } from "./launch-wait";
 import { BROWSER_KEEP_HIDDEN_DEFAULT, WINDOW_UNLOAD_IDLE_DEFAULT, WINDOW_UNLOAD_IDLE_KEY, WINDOWS_OPENED_AT_LAUNCH, COMMAND_SIDE_DEFAULT, isCommandSide, isHoldKey, isLinksOpenIn, KEYS_ASSISTANT_DEFAULT, KEYS_ASSISTANT_KEY, KEYS_DOUBLE_TAP_DEFAULT, KEYS_DOUBLE_TAP_KEY, KEYS_DOUBLE_TAP_SIDE_KEY, KEYS_HOLD_KEY, LINKS_OPEN_IN_DEFAULT, MEETING_AUTO_START_DEFAULT, MEETING_AUTO_START_KEY, MEETING_CONSENT_KEY, MEETINGS_OPEN_KEY, meetingConsentAccepted, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
@@ -2750,6 +2751,12 @@ function startDaemonProcess(home: string): void {
  * left behind when the app exits. Both ends hand back the same three facts, so everything downstream
  * of here is written once.
  */
+/** Closes the notice a launch shows while its server is busy with maintenance (launch-wait.ts). Called
+ *  once the first Realm window is open, so closing it is never the last window closing. */
+let closeLaunchWait: (() => void) | null = null;
+/** Set once the launch has opened its Realm windows. A last window closed before then was the notice. */
+let launchedWindows = false;
+
 async function startRealmServer(): Promise<{ port: number; home: string; token: string }> {
   const home = realmHomePath();
   if (agentShellOnOwnersHome({ packaged: app.isPackaged, env: process.env, home, defaultHome: defaultRealmHome() })) {
@@ -2767,6 +2774,7 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
       replace: replaceServer,
       bundleOnDisk: (entry) => { try { return bundleIdOf(statSync(entry)); } catch { return "missing"; } },
       readMaintenance,
+      onWait: (marker) => { closeLaunchWait ??= showLaunchWait(marker.what, quiet ? QUIET_WINDOW_OPTIONS : {}); },
       clearStrays: () => clearStrayServers(home),
       log: (line) => console.error(line),
     });
@@ -2856,6 +2864,8 @@ app.whenReady().then(async () => {
     // restarts the app is bounded too.
     void sweepTempFilesAtLaunch(info.home).catch(() => {});
     await restoreWindows(info);
+    launchedWindows = true;
+    closeLaunchWait?.();
     // Disabled builds return their existing state without loading electron-updater. Signed packaged
     // builds check the public feed and download in the background; failures remain visible in
     // Settings without blocking startup.
@@ -2975,7 +2985,7 @@ app.whenReady().then(async () => {
  * the menu-bar item comes up, so there is always exactly one visible sign that something is running.
  */
 function lastWindowClosed(): void {
-  if (!quittingForReal) goResident();
+  if (lastWindowClosedStep({ quittingForReal, launched: launchedWindows }) === "go-resident") goResident();
 }
 app.on("window-all-closed", lastWindowClosed);
 

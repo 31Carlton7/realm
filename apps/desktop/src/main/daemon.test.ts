@@ -285,10 +285,14 @@ describe("ensureDaemon", () => {
     const busy = (m: MaintenanceMarker | null, answersAfterMs = Infinity) => {
       const w = world(state());
       const deps = w.deps();
+      const lines: string[] = [];
+      const waits: MaintenanceMarker[] = [];
       return {
-        w,
+        w, lines, waits,
         run: () => ensureDaemon({
           ...deps,
+          log: (l) => lines.push(l),
+          onWait: (mk) => waits.push(mk),
           // The vacuuming daemon is boot-a; the one spawned to replace it answers at once.
           probe: async (): Promise<Probe> => { const f = w.deps().readState(); if (!f) return null; return f.bootId !== "boot-a" || w.clock() >= answersAfterMs ? probe({ bootId: f.bootId }) : null; },
           readMaintenance: () => m,
@@ -320,6 +324,23 @@ describe("ensureDaemon", () => {
       expect(handle).toMatchObject({ adopted: true, state: { bootId: "boot-a" } });
       expect(b.w.replaced).toEqual([]);
       expect(b.w.clock()).toBeGreaterThanOrEqual(60_000);
+    });
+
+    it("says once what it is waiting on and since when, however many times it polls", async () => {
+      // MUTANT: drop the once-per-boot guard, and the log and the window hear it every 500 ms.
+      for (const what of ["vacuum", "heap-snapshot"] as const) {
+        const b = busy(marker({ what }), 60_000);
+        await b.run();
+        expect(b.waits).toEqual([marker({ what })]);
+        expect(b.lines.filter((l) => l.includes("busy with"))).toEqual([`[daemon] pid 4242 is busy with ${what} since ${new Date(WALL).toISOString()}; waiting for it`]);
+      }
+    });
+
+    it("says nothing of maintenance for a daemon it is not waiting on for it", async () => {
+      const b = busy(marker({ bootId: "boot-old" }));
+      await b.run();
+      expect(b.waits).toEqual([]);
+      expect(b.lines.some((l) => l.includes("busy with"))).toBe(false);
     });
 
     it("replaces it once the cap has passed, so a marker a crash left cannot hold a launch forever", async () => {
