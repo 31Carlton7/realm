@@ -153,6 +153,14 @@ export const DelegatedChildSchema: z.ZodType<DelegatedChild, z.ZodTypeDef, unkno
   children: z.array(DelegatedChildSchema).optional(),
 }));
 
+/** Where a page of a lead's sub-agents ends (`delegation.children`): the last child it held, by when
+ *  it was made and, for two made in the same millisecond, its id. */
+export const ChildrenCursorSchema = z.object({ createdAt: z.number().int(), id: IdSchema });
+export type ChildrenCursor = z.infer<typeof ChildrenCursorSchema>;
+/** The page `delegation.children` reads when it is not told: the newest few, which is what a lead's
+ *  prompter row and the tail of its transcript show. */
+export const CHILDREN_PAGE = 20;
+
 /**
  * A model the Agents tab's composer offers: one per MODEL, with the harness a delegation to it would
  * take and whether that harness can run right now.

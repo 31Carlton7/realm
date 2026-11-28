@@ -31,7 +31,7 @@ import {
   GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
   PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
 } from "./code-review";
-import { AddTeammateSchema, DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema, SubagentIdSchema } from "./delegation";
+import { AddTeammateSchema, ChildrenCursorSchema, DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema, SubagentIdSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema, GuideStorageSchema } from "./documents";
@@ -1980,12 +1980,15 @@ export const Methods = {
    *  with the process, so this is a read of live state, not of a table — a pane opened after a run
    *  began has no other way to learn about it, and `delegation.changed` carries it from then on. */
   "delegation.running": { params: z.object({ sessionId: IdSchema }), result: z.object({ running: z.array(DelegatedRunSchema) }) },
-  /** Every session this one delegated to — its sub-agents, settled ones included, in the order they
-   *  were started. A read of tables, not of the engine: it answers for runs the registry has already
-   *  let go, and after a relaunch. */
-  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema),
-    /** The ones the person took off the prompter's row of agents (`delegation.dismiss`). */
-    dismissed: z.array(SubagentIdSchema).default([]) }) },
+  /** The sessions this one delegated to — its sub-agents, settled ones included, newest first. A read
+   *  of tables, not of the engine: it answers for runs the registry has already let go, and after a
+   *  relaunch. A page of `limit` (CHILDREN_PAGE when absent; `null` is every one) started before
+   *  `before`; `nextBefore` is where the next page starts, null when there is none. */
+  "delegation.children": { params: z.object({ sessionId: IdSchema, limit: z.number().int().positive().nullable().optional(), before: ChildrenCursorSchema.optional() }),
+    result: z.object({ children: z.array(DelegatedChildSchema),
+      /** The ones the person took off the prompter's row of agents (`delegation.dismiss`). */
+      dismissed: z.array(SubagentIdSchema).default([]),
+      nextBefore: ChildrenCursorSchema.nullable().default(null) }) },
   /** Add a teammate from the prompter's "+": started as this session's sub-agent through `agent_start`'s
    *  own path, and the session's agent told about it on its next message. */
   "delegation.addTeammate": { params: AddTeammateSchema, result: z.object({ childId: IdSchema }) },

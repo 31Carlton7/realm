@@ -827,7 +827,7 @@ export type Api = TeammatesApi & {
    *  in memory, so this is the only way a pane mounted mid-run learns about it; from then on
    *  `delegation.changed` carries every change. */
   listDelegatedRuns(sessionId: string): Promise<DelegatedRun[]>;
-  /** `delegation.children` — every session this one delegated to, settled ones included, and the
+  /** `delegation.children` — every session this one delegated to, oldest first, settled ones included, and the
    *  sub-agents the person took off its prompter's row. */
   listDelegatedChildren(sessionId: string): Promise<{ children: DelegatedChild[]; dismissed: string[] }>;
   /** `delegation.addTeammate` — an agent added from the prompter's "+", as the session's sub-agent. */

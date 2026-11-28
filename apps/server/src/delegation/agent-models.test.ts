@@ -307,8 +307,9 @@ describe("the lead's list of its sub-agents", () => {
     await app.agentRuns.start(ctx, { goal: "Write the tests", constraints: { model: "GPT-6 Luna" } });
     await app.agentRuns.start(ctx, { goal: "Write the migration", constraints: { model: "Fable" } });
     const before = (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
-    expect(before.map((x) => [x.goal, x.session.agentKind, x.session.model])).toEqual([
-      ["Write the tests", "codex", "gpt-6-luna"], ["Write the migration", "claude", "claude-fable-5-2"]]);
+    // Newest first; two started in the same millisecond are in either order, so read by task.
+    expect(before.map((x) => [x.goal, x.session.agentKind, x.session.model]).sort()).toEqual([
+      ["Write the migration", "claude", "claude-fable-5-2"], ["Write the tests", "codex", "gpt-6-luna"]]);
     expect(await app.agentRuns.wait(ctx, {})).toMatchObject({ isError: false });
     // Collected: the engine has let both runs go. The list still says how each one ended.
     await waitFor(async () => (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children.every((x) => x.outcome === "done"));
