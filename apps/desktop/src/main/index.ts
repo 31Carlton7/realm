@@ -90,7 +90,7 @@ import { attachTextContextMenu } from "./text-context-menu";
 import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
-import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
+import { PaneWindows, WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
 import { WindowIdle, busySpaces, canBeSeen, pageFailed, pageLoaded, paneSpace, sendOnceUp, sharesRenderer, unloadAnswer, wakeForWork, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
 import { endRenderer } from "./pane-health";
 import { registerFileActions } from "./file-actions";
@@ -219,10 +219,12 @@ function profileOfPane(browserId: string): string | null {
 
 /** Whose browser this is, asked of the server (`browsers.profile`). Null for a pane, space or profile
  *  that is gone — such a pane gets no view rather than a guess at whose cookies to give it. */
-async function browserOwner(browserId: string): Promise<{ profileId: string; partition: string } | null> {
+async function browserOwner(browserId: string): Promise<{ profileId: string; partition: string; spaceId: string | null } | null> {
   try {
-    const r = (await askServer("browsers.profile", { browserId })) as { profileId?: unknown; partition?: unknown } | null;
-    return typeof r?.profileId === "string" && isBrowserPartition(r.partition) ? { profileId: r.profileId, partition: r.partition } : null;
+    const r = (await askServer("browsers.profile", { browserId })) as { profileId?: unknown; partition?: unknown; spaceId?: unknown } | null;
+    // A server from before `spaceId` was answered leaves the space unknown: the view is made where asked.
+    return typeof r?.profileId === "string" && isBrowserPartition(r.partition)
+      ? { profileId: r.profileId, partition: r.partition, spaceId: typeof r.spaceId === "string" ? r.spaceId : null } : null;
   } catch { return null; }
 }
 
@@ -1193,6 +1195,9 @@ ipcMain.handle("browser:create", async (e, id: string, url: string, allowlist: s
   // Known to main before the view is made, so the pane's profile can be read off its partition from
   // the first request its page makes — a profile made a moment ago may not be in the last answer yet.
   await profileDirectory.resolve(owner.profileId);
+  // Its space's own window makes it, when there is one, open or opening for it (`PaneWindows`).
+  const from = BrowserWindow.fromWebContents(e.sender);
+  if (!from || (owner.spaceId && !paneWindows.makesView(windows.spaceOf(from), owner.spaceId))) return;
   // A view composites into ONE window. The same browser asked for in another window — its profile
   // moved windows — is closed where it was before it opens here.
   for (const other of windowPanes.values()) if (other.pane !== pane) other.pane.host.destroy(browserId);
@@ -2922,7 +2927,7 @@ app.whenReady().then(async () => {
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); void wakeBusyWindows(payload); return; }
         // An agent needs a pane in a space held at launch: its window opens, behind the person's.
         const paneIn = paneSpace(event, payload);
-        if (paneIn) { void openForPane(paneIn, payload); return; }
+        if (paneIn) { void paneWindows.needed(paneIn, payload); return; }
         // A phone paired or removed: whether a waiting session keeps the Mac awake goes with it.
         if (event === "remote.changed") {
           const phones = (payload as { phones?: unknown } | undefined)?.phones;
@@ -3140,22 +3145,13 @@ function openHeld(spaceId: string, o: { behind?: boolean } = {}): Promise<Browse
   });
 }
 
-/** The pane events each window opened for an agent's pane was told before its page could hear them,
- *  until its page asks (`window:unheard-panes`). */
-const unheardPanes = new Map<number, unknown[]>();
-
-/** An agent needs a pane in this space: the window held at launch for it opens behind the person's,
- *  and its page, once booted, is handed the event it was too late to hear. A space with an open
- *  window heard it already. */
-async function openForPane(spaceId: string, payload: unknown): Promise<void> {
-  const open = windows.windowForSpace(spaceId);
-  // Open already: it heard the event, unless its page has yet to ask for the ones it missed.
-  if (open) { unheardPanes.get(open.id)?.push(payload); return; }
-  const win = await openHeld(spaceId, { behind: true });
-  if (!win || win.isDestroyed() || windows.spaceOf(win) !== spaceId) return;
-  if (!unheardPanes.has(win.id)) win.once("closed", () => unheardPanes.delete(win.id));
-  unheardPanes.set(win.id, [...(unheardPanes.get(win.id) ?? []), payload]);
-}
+/** An agent needs a pane in a space held at launch: its window opens behind the person's, its page is
+ *  handed the event once booted (`window:unheard-panes`), and the pane's view is made there only. */
+const paneWindows = new PaneWindows<BrowserWindow>({
+  windows,
+  openHeld: (spaceId) => openHeld(spaceId, { behind: true }),
+  onClosed: (win, fn) => win.once("closed", fn),
+});
 
 /** Every space with its profile and name, in the person's order, asked of the server — none when it
  *  cannot say. */
@@ -3279,10 +3275,7 @@ ipcMain.on("window:land", (e) => {
 /** A window opened for an agent's pane, its page booted: the pane events it was too late to hear. */
 ipcMain.handle("window:unheard-panes", (e): unknown[] => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  if (!win) return [];
-  const told = unheardPanes.get(win.id) ?? [];
-  unheardPanes.delete(win.id);
-  return told;
+  return win ? paneWindows.unheardBy(win) : [];
 });
 /** A Realm window's page has booted and drawn its first frame: the panel made ahead waits for it. */
 ipcMain.on("window:drawn", () => quickChatPanel.windowDrawn());

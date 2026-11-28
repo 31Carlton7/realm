@@ -153,6 +153,55 @@ export class WindowRegistry<W extends RegisteredWindow> {
 }
 
 /**
+ * The windows held at launch that open for an agent's pane (`paneSpace`). The window's page boots after
+ * the pane event that opened it, so the event is kept for the page until it asks; and the pane's browser
+ * view is made in that window only, so it mounts once, where it belongs.
+ */
+export class PaneWindows<W extends RegisteredWindow> {
+  /** The pane events told for a space whose window is opening for them, until its page asks. Keyed by
+   *  space from before the window is made: a page that asks before its window has finished opening
+   *  still gets them. */
+  private unheard = new Map<string, unknown[]>();
+
+  constructor(private d: {
+    windows: WindowRegistry<W>;
+    /** Open the window held for this space, behind the person's. */
+    openHeld: (spaceId: string) => Promise<W | null>;
+    onClosed: (win: W, fn: () => void) => void;
+  }) {}
+
+  /** An agent needs a pane in this space: the window held for it opens, and its page is handed the
+   *  event once booted. A space with a window open and booted heard the event itself; one with no
+   *  window open or held keeps nothing, and its pane mounts wherever it is heard. */
+  async needed(spaceId: string, payload: unknown): Promise<void> {
+    const told = this.unheard.get(spaceId);
+    if (told) { told.push(payload); return; }
+    if (this.d.windows.windowForSpace(spaceId) || !this.d.windows.heldFor(spaceId)) return;
+    this.unheard.set(spaceId, [payload]);
+    const win = await this.d.openHeld(spaceId);
+    if (!win || win.isDestroyed() || this.d.windows.spaceOf(win) !== spaceId) { this.unheard.delete(spaceId); return; }
+    this.d.onClosed(win, () => this.unheard.delete(spaceId));
+  }
+
+  /** A window's page has booted: the pane events its space was told before it could hear them, once. */
+  unheardBy(win: W): unknown[] {
+    const space = this.d.windows.spaceOf(win);
+    if (!space) return [];
+    const told = this.unheard.get(space) ?? [];
+    this.unheard.delete(space);
+    return told;
+  }
+
+  /** Whether a window on `senderSpace` makes the view of a browser in `spaceId`. A view composites into
+   *  one window, so a browser whose space has a window of its own, open or opening, is made there only:
+   *  made first in another window, it would be closed there when the space's own window takes it, and
+   *  its page would load again under the agent driving it. */
+  makesView(senderSpace: string | null, spaceId: string): boolean {
+    return senderSpace === spaceId || (!this.unheard.has(spaceId) && !this.d.windows.windowForSpace(spaceId));
+  }
+}
+
+/**
  * A window to bring back on the next launch. `profileId` and `spaceId` are what it was opened for, so
  * it comes back with the same view key and the same saved place; `showing` is the space it was on.
  */

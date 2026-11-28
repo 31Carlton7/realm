@@ -86,11 +86,11 @@ export class BrowserService {
 
   /** The profile a pane belongs to — its space's — and that profile's partition. NOT_FOUND for a pane,
    *  space or profile that is gone: main then gives the pane no view at all rather than a guess. */
-  profileOf(browserId: string, profiles: Pick<ProfilesStore, "get">): { profileId: string; partition: string } {
+  profileOf(browserId: string, profiles: Pick<ProfilesStore, "get">): { profileId: string; partition: string; spaceId: string } {
     const row = this.get(browserId);
     const space = this.d.spaces.get(row.spaceId); if (!space) throw new NotFoundError("space", row.spaceId);
     const profile = profiles.get(space.profileId); if (!profile) throw new NotFoundError("profile", space.profileId);
-    return { profileId: profile.id, partition: profile.browserPartition };
+    return { profileId: profile.id, partition: profile.browserPartition, spaceId: space.id };
   }
 
   /** One profile's history goes, as its partition's cookies and cache did a moment before. Another

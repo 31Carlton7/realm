@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { describe, expect, it } from "vitest";
 import { WINDOWS_OPENED_AT_LAUNCH } from "@realm/contracts";
-import { CASCADE_OFFSET, WindowRegistry, cascadeFrom, readSavedWindows, splitLaunch, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
+import { CASCADE_OFFSET, PaneWindows, WindowRegistry, cascadeFrom, readSavedWindows, splitLaunch, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
 
 const win = (id: number) => {
   const w = { id, destroyed: false, isDestroyed: () => w.destroyed };
@@ -317,5 +317,92 @@ describe("only the windows used last open at launch", () => {
     reg.setSpace(mine, "s6"); reg.setSpace(held, "s2");
     expect(reg.primary()).toBe(mine);
     expect(reg.saved().map((x) => x.showing)).toEqual(["s2", "s6"]);
+  });
+});
+
+describe("a window held at launch, opened for an agent's pane", () => {
+  type W = ReturnType<typeof win>;
+  /** Space s1 held, s5 open; `open` is what openHeld does, left to the test to finish. */
+  const setup = () => {
+    const reg = new WindowRegistry<W>();
+    reg.hold([{ profileId: "pWork", spaceId: "s1", land: "s1" }]);
+    const front = win(5);
+    reg.add(front, "pWork", "s5"); reg.setSpace(front, "s5");
+    const opens: string[] = [];
+    const closers: (() => void)[] = [];
+    let finish!: (w: W | null) => void;
+    const panes = new PaneWindows<W>({
+      windows: reg,
+      openHeld: (spaceId) => reg.openHeld(spaceId, () => { opens.push(spaceId); return new Promise<W | null>((r) => { finish = r; }); }),
+      onClosed: (_w, fn) => { closers.push(fn); },
+    });
+    /** createWindow's part: the window is known by its space before its page boots. */
+    const made = () => { const w = win(1); reg.add(w, "pWork", "s1", { behind: true }); reg.setSpace(w, "s1"); return w; };
+    return { reg, front, panes, opens, closers, made, finish: (w: W | null) => finish(w) };
+  };
+
+  it("hands its page the pane events, even when the page asks before the window has finished opening", async () => {
+    // THE MUTANT: the events kept only once the window has opened, so a page quicker than that asks,
+    // gets nothing, and the agent's pane never mounts in its space's window.
+    const { panes, opens, made, finish } = setup();
+    const opening = panes.needed("s1", { itemId: "a" });
+    void panes.needed("s1", { itemId: "b" });
+    const w = made();
+    expect(panes.unheardBy(w)).toEqual([{ itemId: "a" }, { itemId: "b" }]);
+    finish(w);
+    await opening;
+    expect(opens).toEqual(["s1"]);
+  });
+
+  it("hands them over once, and to no window on another space", async () => {
+    // THE MUTANT: the events kept after the page took them, so a reload applies them again.
+    const { panes, front, made, finish } = setup();
+    const opening = panes.needed("s1", { itemId: "a" });
+    const w = made();
+    finish(w);
+    await opening;
+    expect(panes.unheardBy(front)).toEqual([]);
+    expect(panes.unheardBy(w)).toEqual([{ itemId: "a" }]);
+    expect(panes.unheardBy(w)).toEqual([]);
+    await panes.needed("s1", { itemId: "b" });
+    expect(panes.unheardBy(w)).toEqual([]);
+  });
+
+  it("makes the pane's browser view in that space's own window only, while it opens and once open", async () => {
+    // THE MUTANT: the window in front makes the view first, the agent drives it, and the space's own
+    // window then takes it, loading the page again under the agent.
+    const { panes, made, finish } = setup();
+    expect(panes.makesView("s5", "s1")).toBe(true);
+    const opening = panes.needed("s1", { itemId: "a" });
+    expect(panes.makesView("s5", "s1")).toBe(false);
+    expect(panes.makesView("s1", "s1")).toBe(true);
+    const w = made();
+    finish(w);
+    await opening;
+    panes.unheardBy(w);
+    expect(panes.makesView("s5", "s1")).toBe(false);
+    expect(panes.makesView(null, "s1")).toBe(false);
+    expect(panes.makesView("s5", "s5")).toBe(true);
+  });
+
+  it("keeps nothing for a space with no window held, nor once its window closes or fails to open", async () => {
+    // THE MUTANT: what was kept outlives its window, so no window ever makes that space's views again.
+    const { reg, panes, opens, closers, made, finish } = setup();
+    await panes.needed("s3", { itemId: "a" });
+    expect(opens).toEqual([]);
+    expect(panes.makesView("s5", "s3")).toBe(true);
+    const opening = panes.needed("s1", { itemId: "a" });
+    const w = made();
+    finish(w);
+    await opening;
+    w.destroyed = true; reg.remove(w);
+    for (const fn of closers) fn();
+    expect(panes.makesView("s5", "s1")).toBe(true);
+
+    const failed = setup();
+    const gone = failed.panes.needed("s1", { itemId: "a" });
+    failed.finish(null);
+    await gone;
+    expect(failed.panes.makesView("s5", "s1")).toBe(true);
   });
 });

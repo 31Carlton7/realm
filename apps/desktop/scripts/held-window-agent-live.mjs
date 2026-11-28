@@ -13,7 +13,10 @@
  *     windows;
  *   - Space 2, busy but with no pane, stays held: work alone opens no window;
  *   - the pane's view is in that window, not parked in the window of another space;
- *   - browser_snapshot reads the page, browser_list says it is open, and pane_show finds it mounted.
+ *   - browser_snapshot reads the page, browser_list says it is open, and pane_show finds it mounted;
+ *   - the pane mounts once: one webContents ever loads the page, the site is asked for it once, and a
+ *     page the agent navigated and marked is still that page, unreloaded, after Space 1's window has
+ *     booted.
  *
  * LIVE_REPO_ROOT boots another checkout's build (the control run on main). LIVE_OUT is where the
  * report and the pictures go. Ports: LIVE_SERVER_PORT / LIVE_CDP_PORT / LIVE_INSPECT_PORT /
@@ -99,9 +102,14 @@ const text = (r) => (typeof r === "string" ? r : (r ?? []).filter((c) => c.type 
 const PAGE = `<!doctype html><html><head><title>Held space fixture</title><style>
   body{font:15px -apple-system,system-ui;margin:48px} @media (prefers-color-scheme: dark){body{background:#1c1d21;color:#e8e8ea}}
 </style></head><body><h1>Held space fixture</h1><p>An agent in a held space opened this page.</p></body></html>`;
+/** GET requests the fixture site served, by path: a page loaded again is asked for again. */
+const gets = {};
 function startSite() {
   return new Promise((resolve, reject) => {
-    const server = http.createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end(PAGE); });
+    const server = http.createServer((req, res) => {
+      if (req.method === "GET") gets[req.url] = (gets[req.url] ?? 0) + 1;
+      res.writeHead(200, { "content-type": "text/html" }); res.end(PAGE);
+    });
     server.once("error", reject);
     server.listen(SITE_PORT, "127.0.0.1", () => resolve(server));
   });
@@ -109,6 +117,7 @@ function startSite() {
 
 const SCRIPT = [
   { on: "Open {", emit: [{ kind: "call", tool: "realm-browser__browser_open", input: {}, argsFromMessage: true }, { kind: "text", text: "Done." }] },
+  { on: "Nav {", emit: [{ kind: "call", tool: "realm-browser__browser_navigate", input: {}, argsFromMessage: true }, { kind: "text", text: "Done." }] },
   { on: "Snap {", emit: [{ kind: "call", tool: "realm-browser__browser_snapshot", input: {}, argsFromMessage: true }, { kind: "text", text: "Done." }] },
   { on: "List {", emit: [{ kind: "call", tool: "realm-browser__browser_list", input: {}, argsFromMessage: true }, { kind: "text", text: "Done." }] },
   { on: "Show {", emit: [{ kind: "call", tool: "realm-workspace__pane_show", input: {}, argsFromMessage: true }, { kind: "text", text: "Done." }] },
@@ -205,6 +214,10 @@ async function main() {
   check("the relaunch opens the three windows used last, and holds Spaces 1 and 2", JSON.stringify(before.map((w) => w.title).sort()) === JSON.stringify(["Space 3", "Space 4", "Space 5"]), before);
   const focusedTitle = () => mainEval(`return BrowserWindow.getFocusedWindow()?.getTitle().replace(/ \u2014 SCRATCH.*$/, "") ?? null;`);
   const focusedBefore = await focusedTitle();
+  // Every webContents that ever commits a fixture page, from before the agent opens one.
+  await mainEval(`globalThis.__fixtureLoads = new Set();
+    require("electron").app.on("web-contents-created", (_e, wc) => wc.on("did-navigate", (_ev, url) => { if (url.startsWith(${JSON.stringify(SITE)})) globalThis.__fixtureLoads.add(wc.id); }));
+    return true;`);
 
   step("a session in Space 2 (held) starts work that opens no pane");
   const { session: busy } = await api.call("sessions.create", { spaceId: ordered[1].id, agentKind: "fake", title: "Busy agent", permissionMode: "bypassPermissions" });
@@ -234,6 +247,22 @@ async function main() {
   const snap = await agent("Snap", { browserId });
   const snapMs = Date.now() - t0;
   check("browser_snapshot reads the page in the held space's pane", !snap.isError && snap.text.includes("Held space fixture"), { ms: snapMs, text: snap.text.slice(0, 300) });
+
+  step("the agent navigates the pane on, and the page is marked");
+  const navigated = await agent("Nav", { browserId, url: `${SITE}/second` });
+  check("browser_navigate takes the pane to a second page", !navigated.isError, navigated.text);
+  const fixturePage = `webContents.getAllWebContents().find((wc) => !wc.isDestroyed() && wc.getURL().startsWith(${JSON.stringify(SITE)}))`;
+  await until(() => mainEval(`const wc = ${fixturePage}; return !!wc && wc.getURL().endsWith("/second") && !wc.isLoading();`), 30_000, "second page loaded");
+  await mainEval(`return ${fixturePage}.executeJavaScript("window.__heldMarker = 'kept'");`);
+  const booted = (title) => mainEval(`const w = ${realmWindows}.find((x) => x.getTitle().startsWith(${JSON.stringify(title)}));
+    return !!w && !w.webContents.isLoading() && await w.webContents.executeJavaScript("(() => { const b = document.getElementById('boot'); return !b || b.hasAttribute('data-done'); })()");`);
+  await until(() => booted("Space 1"), 60_000, "Space 1's window booted");
+  await sleep(5000);
+  const kept = await mainEval(`const wc = ${fixturePage}; return wc ? { url: wc.getURL(), marker: await wc.executeJavaScript("window.__heldMarker ?? null") } : null;`);
+  check("after Space 1's window booted, the page is still the one the agent navigated and marked", kept?.url === `${SITE}/second` && kept?.marker === "kept", kept);
+  const loads = await mainEval(`return globalThis.__fixtureLoads.size;`);
+  check("the pane mounted once: one webContents ever loaded the fixture", loads === 1, { webContents: loads });
+  check("the site was asked for each page once: no reload", gets["/held"] === 1 && gets["/second"] === 1, gets);
 
   const listed = await agent("List", {});
   check("browser_list says the pane is open in the app", !listed.isError && listed.text.includes(`browserId: ${browserId} \u2014 open`), listed.text);
