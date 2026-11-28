@@ -3987,8 +3987,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const prefetching = new Map<string, Promise<void>>();
     /** The read of each lead's sub-agents in flight, which `loadSubagents` joins. */
     const readingSubagents = new Map<string, Promise<void>>();
-    /** Put the one row `delegation.child` answers in place of the held one: replaced, added at the end
-     *  (the list is in the order they began), or dropped when it is no longer the lead's. */
+    /** Put the one row `delegation.child` answers in place of the held one: replaced, added at the end,
+     *  or dropped when it is no longer the lead's. Adding at the end relies on the held list being
+     *  oldest first, as `listDelegatedChildren` returns it. */
     const patchSubagent = async (leadId: string, childId: string) => {
       const child = await api.getDelegatedChild(leadId, childId);
       const held = get().subagents[leadId];
