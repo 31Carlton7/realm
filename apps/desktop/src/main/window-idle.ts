@@ -59,7 +59,8 @@ export class WindowIdle<W extends IdleWindow> {
 
   /** Load an unloaded window again, once its unload has finished; settled once its page has loaded.
    *  Its clock starts again from the wake. A window that is loaded, or already loading, is left as it
-   *  is; one whose page failed to load, or took too long, is unloaded still, for the next wake. */
+   *  is; one whose page failed to load is unloaded still, for the next wake. One that took too long is
+   *  left loading: it is unloaded again only if it then fails (`loadFailed`). */
   wake(win: W): Promise<void> {
     const unloading = this.unloaded.get(win.id);
     if (!unloading) return this.awake(win);
@@ -71,10 +72,16 @@ export class WindowIdle<W extends IdleWindow> {
       // Still loaded after all (focused while it was saving its view): its page is the one it had.
       if (kept !== null || win.isDestroyed()) return;
       const how = await this.d.load(win);
-      if ((how === "failed" || how === "timeout") && this.windows.has(win.id)) this.unloaded.set(win.id, Promise.resolve(null));
+      if (how === "failed") this.loadFailed(win);
     })().finally(() => { if (this.waking.get(win.id) === waking) this.waking.delete(win.id); });
     this.waking.set(win.id, waking);
     return waking;
+  }
+
+  /** The window's page failed to load (`pageFailed`), in a wake or after one gave up waiting: it is
+   *  unloaded still, so the next focus or wake loads it again. */
+  loadFailed(win: W): void {
+    if (this.windows.has(win.id) && !this.unloaded.has(win.id)) this.unloaded.set(win.id, Promise.resolve(null));
   }
 
   /** Wake every unloaded window `which` picks; settled as each page loads. */
@@ -133,25 +140,33 @@ export class WindowIdle<W extends IdleWindow> {
   }
 }
 
-/** A session in some space started work: an unloaded window on a busy space loads again, and a window
- *  held at launch for one opens (behind the person's), so the agent's panes mount in that space's own
- *  window rather than in another space's. Answers the busy spaces, or null when there was
- *  nothing unloaded or held to wake, or the server could not say which spaces are busy. */
+/** A session in some space started work: an unloaded window on a busy space loads again. Answers the
+ *  busy spaces, or null when there was nothing unloaded to wake, or the server could not say which
+ *  spaces are busy. A window held at launch stays held: it opens for a pane (`paneSpace`), not for
+ *  work alone. */
 export async function wakeForWork<W extends IdleWindow>(idle: WindowIdle<W>, d: {
   windows: readonly W[];
-  /** Whether any window is held at launch, not yet opened. */
-  holding: boolean;
   spaceOf: (win: W) => string | null;
   busySpaces: () => Promise<Set<string>>;
-  /** Open the window held for this space, if there is one. */
-  openHeld: (spaceId: string) => unknown;
 }): Promise<Set<string> | null> {
-  if (!d.holding && !d.windows.some((w) => idle.isUnloaded(w))) return null;
+  if (!d.windows.some((w) => idle.isUnloaded(w))) return null;
   let busy: Set<string>;
   try { busy = await d.busySpaces(); } catch { return null; }
   idle.wakeWhere((w) => { const space = d.spaceOf(w); return space !== null && busy.has(space); });
-  for (const space of busy) void d.openHeld(space);
   return busy;
+}
+
+/** The broadcasts that bring an agent's pane on screen: `browser_open`, `terminal_open`,
+ *  `simulator_open`, and `pane_show` before it waits for the pane to mount. */
+const PANE_EVENTS = ["browser.agentOpened", "terminal.agentOpened", "simulator.agentOpened"];
+
+/** The space an agent needs a pane in, or null for any other event: the window held at launch for that
+ *  space opens (behind the person's), so the pane mounts in that space's own window rather than in
+ *  another space's. */
+export function paneSpace(event: string, payload: unknown): string | null {
+  if (!PANE_EVENTS.includes(event)) return null;
+  const spaceId = (payload as { spaceId?: unknown } | null | undefined)?.spaceId;
+  return typeof spaceId === "string" ? spaceId : null;
 }
 
 /** Send to a window's page once there is one to hear it: an unloaded window loads first (sending is
@@ -200,14 +215,20 @@ export function pageLoaded(wc: LoadEvents, timeoutMs: number): Promise<PageLoad>
       resolve(how);
     };
     const loaded = () => finish("loaded");
-    // Every frame's failure is told; only the page's own ends its load.
-    const failed = (...args: unknown[]) => { if (args[4] === true) finish("failed"); else wc.once("did-fail-load", failed); };
+    const failed = (...args: unknown[]) => { if (pageFailed(args)) finish("failed"); else wc.once("did-fail-load", failed); };
     const gone = () => finish("gone");
     const timer = setTimeout(() => finish("timeout"), timeoutMs);
     wc.once("did-finish-load", loaded);
     wc.once("did-fail-load", failed);
     wc.once("destroyed", gone);
   });
+}
+
+/** Whether a `did-fail-load` (event, errorCode, errorDescription, validatedURL, isMainFrame) is the page
+ *  failing. Every frame's failure is told; only the page's own counts. ERR_ABORTED (-3) is one
+ *  navigation replaced by another, whose own load is still to end. */
+export function pageFailed(args: readonly unknown[]): boolean {
+  return args[4] === true && args[1] !== -3;
 }
 
 /** Whether a session's new status is work starting: what loads an unloaded window on its space. */

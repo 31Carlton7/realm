@@ -317,8 +317,5 @@ describe("only the windows used last open at launch", () => {
     reg.setSpace(mine, "s6"); reg.setSpace(held, "s2");
     expect(reg.primary()).toBe(mine);
     expect(reg.saved().map((x) => x.showing)).toEqual(["s2", "s6"]);
-    expect(reg.holding()).toBe(false);
-    reg.hold(splitLaunch(six, 3).held);
-    expect(reg.holding()).toBe(true);
   });
 });

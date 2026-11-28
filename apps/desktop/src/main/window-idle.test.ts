@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { WindowIdle, busySpaces, canBeSeen, fullyCovered, pageLoaded, sendOnceUp, sharesRenderer, unloadAnswer, wakeForWork, wakesWindows, type IdleKeep, type Sight } from "./window-idle";
+import { WindowIdle, busySpaces, canBeSeen, fullyCovered, pageFailed, pageLoaded, paneSpace, sendOnceUp, sharesRenderer, unloadAnswer, wakeForWork, wakesWindows, type IdleKeep, type Sight } from "./window-idle";
 
 const HOUR = 60 * 60_000;
 
@@ -268,9 +268,9 @@ describe("a window woken by work", () => {
     expect(unloaded).toEqual([1, 1]);
   });
 
-  it("whose reload fails or times out loads again at the next focus", async () => {
+  it("whose reload fails loads again at the next focus", async () => {
     // THE MUTANT: the window neither unloaded nor loading after a failed reload, so it stays blank.
-    const outcomes: ("loaded" | "failed" | "timeout")[] = ["failed", "timeout", "loaded"];
+    const outcomes: ("loaded" | "failed")[] = ["failed", "loaded"];
     let now = 0;
     const tries: number[] = [];
     const a = { id: 1, isDestroyed: () => false };
@@ -286,34 +286,112 @@ describe("a window woken by work", () => {
     await idle.focused(a);
     expect(idle.isUnloaded(a)).toBe(true);
     await idle.focused(a);
-    expect(idle.isUnloaded(a)).toBe(true);
-    await idle.focused(a);
     expect(idle.isUnloaded(a)).toBe(false);
     await idle.focused(a);
-    expect(tries).toEqual([1, 1, 1]);
+    expect(tries).toEqual([1, 1]);
+  });
+
+  it("whose reload is slow and then loads is not reloaded at the next focus, nor kept from a sweep", async () => {
+    // THE MUTANT: a reload past RELOAD_WAIT_MS put back as unloaded, so the next focus reloads a page
+    // that had loaded, and loses the prompt typed into it meanwhile.
+    let now = 0;
+    const tries: number[] = [];
+    const a = { id: 1, isDestroyed: () => false };
+    const b = { id: 2, isDestroyed: () => false };
+    const idle = new WindowIdle<typeof a>({
+      now: () => now, keep: () => null, unload: async () => null,
+      load: async (w) => { tries.push(w.id); return "timeout"; },
+    });
+    idle.opened(a);
+    idle.opened(b);
+    now = 5 * HOUR;
+    await idle.sweep(4 * HOUR);
+    await idle.focused(a);
+    await idle.focused(a);
+    expect(tries).toEqual([1]);
+    expect(idle.isUnloaded(a)).toBe(false);
+    await idle.focused(b);
+    now = 10 * HOUR;
+    expect((await idle.sweep(4 * HOUR)).unloaded).toEqual([1]);
+  });
+
+  it("whose reload is slow and then fails loads again at the next focus", async () => {
+    // THE MUTANT: a failure told after the wake gave up waiting is dropped, so the window stays blank.
+    let now = 0;
+    const tries: number[] = [];
+    const a = { id: 1, isDestroyed: () => false };
+    const b = { id: 2, isDestroyed: () => false };
+    const idle = new WindowIdle<typeof a>({
+      now: () => now, keep: () => null, unload: async () => null,
+      load: async (w) => { tries.push(w.id); return tries.length === 1 ? "timeout" : "loaded"; },
+    });
+    idle.opened(a);
+    idle.opened(b);
+    now = 5 * HOUR;
+    await idle.sweep(4 * HOUR);
+    await idle.focused(a);
+    idle.loadFailed(a);
+    expect(idle.isUnloaded(a)).toBe(true);
+    await idle.focused(a);
+    expect(tries).toEqual([1, 1]);
+    expect(idle.isUnloaded(a)).toBe(false);
+  });
+
+  it("is not marked unloaded by a failure told while it is being unloaded, nor once it is closed", async () => {
+    let finish!: (k: IdleKeep | null) => void;
+    const a = { id: 1, isDestroyed: () => false };
+    const b = { id: 2, isDestroyed: () => false };
+    let now = 0;
+    const idle = new WindowIdle<typeof a>({
+      now: () => now, keep: () => null, load: async () => "loaded",
+      unload: () => new Promise<IdleKeep | null>((resolve) => { finish = resolve; }),
+    });
+    idle.opened(a);
+    idle.opened(b);
+    now = 5 * HOUR;
+    const swept = idle.sweep(4 * HOUR);
+    idle.loadFailed(a);
+    finish("unsaved");
+    expect((await swept).kept).toContainEqual({ id: 1, reason: "unsaved" });
+    expect(idle.isUnloaded(a)).toBe(false);
+    idle.closed(a);
+    idle.loadFailed(a);
+    expect(idle.isUnloaded(a)).toBe(false);
   });
 });
 
-describe("a window held at launch whose space starts work", () => {
+describe("a window held at launch", () => {
   const space = new Map([[1, "sp-1"], [2, "sp-2"]]);
 
-  it("opens, though no open window is unloaded", async () => {
-    // THE MUTANT: the early return for "nothing unloaded", so a held space's agent never gets a window
-    // of its own, and its browser pane is parked in the window of another space.
+  it("stays held when a session only starts work, with nothing unloaded to wake", async () => {
+    // THE MUTANT: every busy space's held window opened on any session's status, so teammates on
+    // their clocks open every held window behind, each with a renderer of its own.
     const { idle, win, front } = setup();
     const a = win(1);
     idle.opened(a);
     front();
-    const opened: string[] = [];
+    let asked = 0;
     const busy = await wakeForWork(idle, {
-      windows: [a], holding: true, spaceOf: (w) => space.get(w.id) ?? null,
-      busySpaces: async () => new Set(["sp-1", "sp-5"]), openHeld: (s) => { opened.push(s); },
+      windows: [a], spaceOf: (w) => space.get(w.id) ?? null,
+      busySpaces: async () => { asked += 1; return new Set(["sp-1", "sp-5"]); },
     });
-    expect(opened).toEqual(["sp-1", "sp-5"]);
-    expect([...busy!]).toEqual(["sp-1", "sp-5"]);
+    expect(busy).toBeNull();
+    expect(asked).toBe(0);
+    expect(paneSpace("session.status", { sessionId: "s", spaceId: "sp-5", status: "running" })).toBeNull();
   });
 
-  it("wakes the unloaded windows on busy spaces alongside, and asks nothing with none unloaded or held", async () => {
+  it("opens for the space an agent needs a pane in, and for no other event", () => {
+    // THE MUTANT: a pane's event not heard, so a held space's agent never gets a window of its own,
+    // and its browser pane is parked in the window of another space.
+    expect(paneSpace("browser.agentOpened", { spaceId: "sp-1", browserId: "b", itemId: "i", openedBy: "s" })).toBe("sp-1");
+    expect(paneSpace("terminal.agentOpened", { spaceId: "sp-2", terminalId: "t", itemId: "i", openedBy: "s" })).toBe("sp-2");
+    expect(paneSpace("simulator.agentOpened", { spaceId: "sp-3", simulatorId: "d", itemId: "i", openedBy: "s" })).toBe("sp-3");
+    expect(paneSpace("browser.agentOpened", {})).toBeNull();
+    expect(paneSpace("browser.agentOpened", null)).toBeNull();
+    expect(paneSpace("spaces.changed", { spaceId: "sp-1" })).toBeNull();
+  });
+
+  it("wakes the unloaded windows on busy spaces when work starts, and asks nothing with none unloaded", async () => {
     const { idle, win, front, loaded, at } = setup();
     const a = win(1);
     const b = win(2);
@@ -322,16 +400,14 @@ describe("a window held at launch whose space starts work", () => {
     front();
     at(5 * HOUR);
     await idle.sweep(4 * HOUR);
-    const opened: string[] = [];
     let asked = 0;
-    const d = { windows: [a, b], spaceOf: (w: typeof a) => space.get(w.id) ?? null, openHeld: (s: string) => { opened.push(s); },
+    const d = { windows: [a, b], spaceOf: (w: typeof a) => space.get(w.id) ?? null,
       busySpaces: async () => { asked += 1; return new Set(["sp-2"]); } };
-    await wakeForWork(idle, { ...d, holding: false });
+    expect([...(await wakeForWork(idle, d))!]).toEqual(["sp-2"]);
     await idle.awake(b);
     expect(loaded).toEqual([2]);
-    expect(opened).toEqual(["sp-2"]);
     await idle.focused(a);
-    expect(await wakeForWork(idle, { ...d, holding: false })).toBeNull();
+    expect(await wakeForWork(idle, d)).toBeNull();
     expect(asked).toBe(1);
   });
 
@@ -425,6 +501,19 @@ describe("waiting for a window's page to come back", () => {
     expect(await gone).toBe("gone");
     expect(await pageLoaded(wc, 5)).toBe("timeout");
     expect(wc.eventNames()).toEqual([]);
+  });
+
+  it("waits on when one navigation replaces another, which Chromium tells as ERR_ABORTED", async () => {
+    // THE MUTANT: the abort read as the page failing, so a reload cut short by the next is unloaded
+    // again and reloads at every focus.
+    const wc = new EventEmitter();
+    const loading = pageLoaded(wc, 60_000);
+    wc.emit("did-fail-load", {}, -3, "ERR_ABORTED", "file:///index.html", true);
+    wc.emit("did-finish-load");
+    expect(await loading).toBe("loaded");
+    expect(pageFailed([{}, -3, "ERR_ABORTED", "file:///index.html", true])).toBe(false);
+    expect(pageFailed([{}, -6, "ERR_FILE_NOT_FOUND", "file:///index.html", true])).toBe(true);
+    expect(pageFailed([{}, -6, "ERR_FILE_NOT_FOUND", "https://x/", false])).toBe(false);
   });
 
   it("is what a raise waits for, until the page has finished loading", async () => {

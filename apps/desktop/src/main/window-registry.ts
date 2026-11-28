@@ -115,9 +115,6 @@ export class WindowRegistry<W extends RegisteredWindow> {
   /** Keep these windows for later, in place of any held before. */
   hold(windows: readonly RestoredWindow[]): void { this.held = [...windows]; }
 
-  /** Whether any window is held, not yet opened. */
-  holding(): boolean { return this.held.length > 0; }
-
   /** The held window that lands on this space, unless an open window has moved onto it since. */
   heldFor(spaceId: string): RestoredWindow | null {
     if (this.windowForSpace(spaceId)) return null;

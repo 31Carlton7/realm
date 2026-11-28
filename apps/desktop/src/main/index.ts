@@ -91,7 +91,7 @@ import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
-import { WindowIdle, busySpaces, canBeSeen, pageLoaded, sendOnceUp, sharesRenderer, unloadAnswer, wakeForWork, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
+import { WindowIdle, busySpaces, canBeSeen, pageFailed, pageLoaded, paneSpace, sendOnceUp, sharesRenderer, unloadAnswer, wakeForWork, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
 import { endRenderer } from "./pane-health";
 import { registerFileActions } from "./file-actions";
 import { registerPdfExport } from "./print-pdf";
@@ -546,15 +546,13 @@ const windowIdle = new WindowIdle<BrowserWindow>({
   },
 });
 
-/** A session in some space started work: an unloaded window on that space loads now, and one held at
- *  launch for it opens behind the person's (`wakeForWork`). */
+/** A session in some space started work: an unloaded window on that space loads now (`wakeForWork`). */
 async function wakeBusyWindows(payload: unknown): Promise<void> {
   const client = bridgeClient;
   if (!wakesWindows(payload) || !client) return;
   const busy = await wakeForWork(windowIdle, {
-    windows: windows.all(), holding: windows.holding(), spaceOf: (w) => windows.spaceOf(w),
+    windows: windows.all(), spaceOf: (w) => windows.spaceOf(w),
     busySpaces: async () => busySpaces(await client.call("sessions.listAll", {}) as { spaceId: string; status: string }[]),
-    openHeld: (space) => openHeld(space, { behind: true }),
   });
   if (busy) windowPolicy.busySpaces = busy;
 }
@@ -746,7 +744,7 @@ async function createWindow(info: { port: number; home: string; token: string },
     // head row's right end on Linux and Windows (window-chrome.ts).
     ...windowChrome(platform, nativeTheme.shouldUseDarkColors),
     ...(quiet ? QUIET_WINDOW_OPTIONS : {}),
-    // Opened for an agent's work (`wakeBusyWindows`): never over what the person is doing. It renders
+    // Opened for an agent's pane (`paneSpace`): never over what the person is doing. It renders
     // unshown (`paintWhenInitiallyHidden`), and shows the first time its space is asked for.
     ...(o.behind ? { show: false } : {}),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
@@ -762,6 +760,8 @@ async function createWindow(info: { port: number; home: string; token: string },
   presence.check();
   win.on("focus", () => { windows.focused(win); void windowIdle.focused(win); saveWindows(); });
   win.on("blur", () => windowIdle.blurred(win));
+  // A page that fails to load, even long after a wake gave up waiting for it, loads again next focus.
+  win.webContents.on("did-fail-load", (...args) => { if (pageFailed(args)) windowIdle.loadFailed(win); });
   // Shown now, as a window constructed visible would be — only never in front, and all but transparent.
   if (quiet && !o.behind) win.show();
   // The title is the space's name — what the Window menu, Mission Control and the Dock list the
@@ -2920,6 +2920,9 @@ app.whenReady().then(async () => {
         if (event === "spaces.changed") { void refreshSpaceNames(); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); void wakeBusyWindows(payload); return; }
+        // An agent needs a pane in a space held at launch: its window opens, behind the person's.
+        const paneIn = paneSpace(event, payload);
+        if (paneIn) { void openHeld(paneIn, { behind: true }); return; }
         // A phone paired or removed: whether a waiting session keeps the Mac awake goes with it.
         if (event === "remote.changed") {
           const phones = (payload as { phones?: unknown } | undefined)?.phones;
