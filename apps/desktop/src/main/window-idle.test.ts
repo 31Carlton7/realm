@@ -370,13 +370,12 @@ describe("a window held at launch", () => {
     const a = win(1);
     idle.opened(a);
     front();
-    let asked = 0;
-    const busy = await wakeForWork(idle, {
-      windows: [a], spaceOf: (w) => space.get(w.id) ?? null,
-      busySpaces: async () => { asked += 1; return new Set(["sp-1", "sp-5"]); },
-    });
-    expect(busy).toBeNull();
-    expect(asked).toBe(0);
+    const opened: string[] = [];
+    // All main has to hand when a status comes in, a window held for a busy space among it.
+    const heard = { windows: [a], holding: true, spaceOf: (w: typeof a) => space.get(w.id) ?? null,
+      busySpaces: async () => new Set(["sp-1", "sp-5"]), openHeld: (s: string) => { opened.push(s); } };
+    expect(await wakeForWork(idle, heard)).toBeNull();
+    expect(opened).toEqual([]);
     expect(paneSpace("session.status", { sessionId: "s", spaceId: "sp-5", status: "running" })).toBeNull();
   });
 
