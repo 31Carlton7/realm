@@ -53,8 +53,8 @@ export class DelegatedChildren {
     return this.describeAll([s], new Map([[s.id, kids]]))[0]!;
   }
 
-  /** `children` and the sub-agents each of them started (`nested`, by parent id), read in a fixed
-   *  handful of queries however many there are: their transcripts' newest lines, then their records. */
+  /** `children`, each with the sub-agents it started (`nested`, by parent id) under it, in the same
+   *  few reads however many there are. */
   private describeAll(children: Session[], nested: Map<string, Session[]>): DelegatedChild[] {
     // A sub-agent can no longer start its own, but one from before that rule may have: its children
     // are listed under it, one level, which is as deep as delegation ever went.
