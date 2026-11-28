@@ -524,6 +524,41 @@ describe("a lead with more sub-agents than a page", () => {
     expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
   });
 
+  it("counts the ones not held yet in the head, and Show older brings the first of them into view", async () => {
+    const scrolled: string[] = [];
+    const into = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) { const id = (this as HTMLElement).dataset.child; if (id) scrolled.push(id); };
+    try {
+      await mount({ children: MANY, idle: true });
+      await card(/^Task 25\./);
+      const head = screen.getByRole("heading", { name: /^Sub-agents/ });
+      // Mutant: the roll-up of the held rows alone, which says 20 of a lead with 25.
+      expect(head).toHaveTextContent("20 done · 5 older");
+      fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+      await card(/^Task 01\./);
+      expect(head).toHaveTextContent("25 done");
+      expect(head).not.toHaveTextContent("older");
+      // The older page lands above the fold, at the top of the ended ones; its first card is brought
+      // to view and takes the focus from the button, which has gone.
+      // Mutant: no scroll, and the press looks like it did nothing.
+      await waitFor(() => expect(scrolled).toEqual(["p01"]));
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Task 01\./ }));
+    } finally { Element.prototype.scrollIntoView = into; }
+  });
+
+  it("counts the ones not held yet in the strip's Show all, and that press reads every older page", async () => {
+    const { api, store } = await mount({ children: MANY, idle: true, transcripts: { se1: [] } });
+    await card(/^Task 25\./);
+    store.getState().showSubagent("se1", "p25");
+    const strip = await screen.findByRole("tablist", { name: "Sub-agents" });
+    // 19 held and folded, and 5 no page holds yet. Mutant: count only the held, "Show all 19".
+    const all = within(strip).getByRole("button", { name: "Show all, 24 ended" });
+    fireEvent.click(all);
+    await waitFor(() => expect(within(strip).getByRole("tab", { name: "Task 01, Done" })).toBeInTheDocument());
+    expect(within(strip).getAllByRole("tab")).toHaveLength(26);
+    expect(api.calls).toContain("listDelegatedChildren:se1:before:p06");
+  });
+
   it("has no Show older when every one fits on the first page", async () => {
     await mount({ children: MANY.slice(0, 20), idle: true });
     await card(/^Task 20\./);
@@ -613,6 +648,36 @@ describe("a change to one sub-agent of a paged lead", () => {
     const ids = held(store)!;
     // Mutant: append, as the store did when it held every one.
     expect(ids.indexOf("p15a")).toBe(ids.indexOf("p15") + 1);
+    // The newest began after the count was read, so it counts one more; the tie was already counted.
+    // Mutant: a patch moves no count, and the head says one fewer older than there are.
+    expect(store.getState().subagentsTotal.se1).toBe(26);
+  });
+
+  it("adds an older page among the held rows in order, past an older one read alone", async () => {
+    const { store } = await paged();
+    await store.getState().loadSubagent("se1", "p03");
+    expect(held(store)?.[0]).toBe("p03");
+    await store.getState().loadOlderSubagents("se1");
+    // Mutant: the page put before the held rows, which leaves Task 03 after Task 05.
+    expect(held(store)).toEqual(MANY.map((c) => c.session.id));
+  });
+
+  it("starts the pages again under a re-read that more began since than a page holds, so none is out of reach", async () => {
+    const fifty = Array.from({ length: 50 }, (_, i) => ended(i + 1));
+    const { store, data } = await paged(fifty);
+    store.setState({ delegatedRuns: { se1: [{ sessionId: "p02", startedAt: 0, detached: true, owned: true }] } });
+    await store.getState().loadSubagent("se1", "p02");
+    await store.getState().loadOlderSubagents("se1");
+    expect(held(store)).toHaveLength(41);
+    // 25 begin and settle with no patch reaching this window, then the list is read again.
+    data.se1.push(...Array.from({ length: 25 }, (_, i) => ended(i + 51)));
+    await store.getState().refreshSubagents("se1");
+    // Mutant: keep the older pages and their cursor, and Task 51 to 55 can never be reached.
+    expect(store.getState().subagentsBefore.se1?.id).toBe("p56");
+    // The one still running stays while the pages start again.
+    expect(held(store)?.[0]).toBe("p02");
+    while (store.getState().subagentsBefore.se1) await store.getState().loadOlderSubagents("se1");
+    expect(held(store)).toEqual(data.se1.map((c) => c.session.id));
   });
 
   it("keeps the older pages already shown when the list is read again", async () => {

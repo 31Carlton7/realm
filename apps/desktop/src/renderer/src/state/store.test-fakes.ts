@@ -2377,7 +2377,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const page = newestFirst.slice(from, from + CHILDREN_PAGE);
       const last = page.at(-1);
       const nextBefore = from + page.length < newestFirst.length && last ? { createdAt: last.session.createdAt, id: last.session.id } : null;
-      return { children: page.reverse(), dismissed: data.dismissedSubagents[sessionId] ?? [], nextBefore };
+      return { children: page.reverse(), dismissed: data.dismissedSubagents[sessionId] ?? [], nextBefore, total: newestFirst.length };
     },
     listAllDelegatedChildren: async (sessionId) => { calls.push(`listAllDelegatedChildren:${sessionId}`); return data.delegatedChildren[sessionId] ?? []; },
     getDelegatedChild: async (sessionId, childId) => { calls.push(`getDelegatedChild:${sessionId}:${childId}`); return (data.delegatedChildren[sessionId] ?? []).find((c) => c.session.id === childId) ?? null; },

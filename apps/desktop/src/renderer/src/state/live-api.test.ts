@@ -20,7 +20,7 @@ const { liveApi } = await import("./live-api");
 describe("liveApi wire params", () => {
   it("reads a lead's newest page of sub-agents, or the one before a cursor, and hands them over oldest first", async () => {
     calls.length = 0;
-    replies["delegation.children"] = { children: [{ session: { id: "newest" } }, { session: { id: "oldest" } }], dismissed: ["d"], nextBefore: { createdAt: 1, id: "oldest" } };
+    replies["delegation.children"] = { children: [{ session: { id: "newest" } }, { session: { id: "oldest" } }], dismissed: ["d"], nextBefore: { createdAt: 1, id: "oldest" }, total: 123 };
     const got = await liveApi().listDelegatedChildren("se1");
     await liveApi().listDelegatedChildren("se1", { createdAt: 1, id: "oldest" });
     // Mutant: `limit: null`, which reads all 123 of Release Captain's at every open.
@@ -28,7 +28,7 @@ describe("liveApi wire params", () => {
       { method: "delegation.children", params: { sessionId: "se1" } },
       { method: "delegation.children", params: { sessionId: "se1", before: { createdAt: 1, id: "oldest" } } },
     ]);
-    expect(got).toEqual({ children: [{ session: { id: "oldest" } }, { session: { id: "newest" } }], dismissed: ["d"], nextBefore: { createdAt: 1, id: "oldest" } });
+    expect(got).toEqual({ children: [{ session: { id: "oldest" } }, { session: { id: "newest" } }], dismissed: ["d"], nextBefore: { createdAt: 1, id: "oldest" }, total: 123 });
   });
 
   it("reads every sub-agent for a share, oldest first", async () => {

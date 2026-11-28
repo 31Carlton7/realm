@@ -363,8 +363,8 @@ export const liveApi = (): Api => ({
   listDelegatedRuns: async (sessionId) => (await rpc().call("delegation.running", { sessionId })).running,
   // The server's default page, newest first, turned oldest first, which is how the store holds them.
   listDelegatedChildren: async (sessionId, before) => {
-    const { children, dismissed, nextBefore } = await rpc().call("delegation.children", { sessionId, ...(before ? { before } : {}) });
-    return { children: [...children].reverse(), dismissed, nextBefore };
+    const { children, dismissed, nextBefore, total } = await rpc().call("delegation.children", { sessionId, ...(before ? { before } : {}) });
+    return { children: [...children].reverse(), dismissed, nextBefore, total: total ?? null };
   },
   listAllDelegatedChildren: async (sessionId) => [...(await rpc().call("delegation.children", { sessionId, limit: null })).children].reverse(),
   getDelegatedChild: async (sessionId, childId) => (await rpc().call("delegation.child", { sessionId, childId })).child,

@@ -37,11 +37,12 @@ export class DelegatedChildren {
   }) {}
 
   /** A page of the sub-agents `parentId` started, newest first: `limit` of them (CHILDREN_PAGE when
-   *  absent, every one for `null`) started before `before`. A fixed handful of reads whatever the
-   *  page holds: the sessions, then their transcripts' newest lines, then their records. */
-  list(parentId: string, page: { limit?: number | null; before?: ChildrenCursor } = {}): { children: DelegatedChild[]; nextBefore: ChildrenCursor | null } {
-    const { children, nested, nextBefore } = this.d.sessions.dispatchedPage(parentId, [...CHILD_ORIGINS], { limit: page.limit === undefined ? CHILDREN_PAGE : page.limit, before: page.before });
-    return { children: this.describeAll(children, nested), nextBefore };
+   *  absent, every one for `null`) started before `before`, and how many there are in all. A fixed
+   *  handful of reads whatever the page holds: the sessions, then their transcripts' newest lines,
+   *  then their records. */
+  list(parentId: string, page: { limit?: number | null; before?: ChildrenCursor } = {}): { children: DelegatedChild[]; nextBefore: ChildrenCursor | null; total: number } {
+    const { children, nested, nextBefore, total } = this.d.sessions.dispatchedPage(parentId, [...CHILD_ORIGINS], { limit: page.limit === undefined ? CHILDREN_PAGE : page.limit, before: page.before });
+    return { children: this.describeAll(children, nested), nextBefore, total };
   }
 
   /** One row of `list(parentId)`, read alone: what a window patches in when that one run moved. Null

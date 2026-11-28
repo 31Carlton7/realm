@@ -79,6 +79,16 @@ export function useSubagent(leadId: string | null, id: string | null): { found: 
   return { found, known };
 }
 
+/** How many of a lead's sub-agents no page held has yet: 0 once every one is, null when the server
+ *  does not count them. */
+export function useUnheldSubagents(leadId: string): number | null {
+  return useApp((s) => {
+    if ((s.subagentsBefore[leadId] ?? null) === null) return 0;
+    const total = s.subagentsTotal[leadId];
+    return total === undefined ? null : Math.max(0, total - (s.subagents[leadId]?.length ?? 0));
+  });
+}
+
 /**
  * A sub-agent opened as a session, read as its viewer reads it: its first message as the brief its
  * lead wrote, and once it has ended, its last as the report its lead collected. Nothing for any other
@@ -136,15 +146,23 @@ export function useAskedFor(goal: string | null, blocks: readonly Block[] | unde
  */
 export function SubagentSwitch({ leadId, agents, shown }: { leadId: string; agents: readonly SessionSubagent[]; shown: string | null }) {
   const showSubagent = useApp((s) => s.showSubagent);
+  const loadEveryOlderSubagent = useApp((s) => s.loadEveryOlderSubagent);
+  const run = useApp((s) => s.run);
+  // The ones no page holds yet have ended: a running one is read alone.
+  const unheld = useUnheldSubagents(leadId) ?? 0;
   const strip = useRef<HTMLDivElement>(null);
   const [unfolded, setUnfolded] = useState(false);
   useDissolve(strip, "x");
   const { tabs, folded, ended } = useMemo(() => {
     const ordered = orchestratorOrder(agents, (a) => a.state);
-    const ended = ordered.filter((a) => !isLive(a.state)).length;
+    const ended = ordered.filter((a) => !isLive(a.state)).length + unheld;
     const tabs = unfolded ? ordered : ordered.filter((a) => isLive(a.state) || a.id === shown);
-    return { tabs, folded: ordered.length - tabs.length, ended };
-  }, [agents, shown, unfolded]);
+    return { tabs, folded: ordered.length - tabs.length + unheld, ended };
+  }, [agents, shown, unfolded, unheld]);
+  const toggle = () => {
+    if (!unfolded && unheld > 0) run(() => loadEveryOlderSubagent(leadId));
+    setUnfolded((v) => !v);
+  };
   const ids = useMemo(() => [null, ...tabs.map((a) => a.id)], [tabs]);
   const at = ids.indexOf(shown);
   useEffect(() => {
@@ -177,7 +195,7 @@ export function SubagentSwitch({ leadId, agents, shown }: { leadId: string; agen
       ))}
       {(folded > 0 || (unfolded && ended > 0)) && (
         <button type="button" className="subagent-switch-tab subagent-switch-more" aria-expanded={unfolded}
-          aria-label={unfolded ? "Show fewer" : `Show all, ${folded} ended`} onClick={() => setUnfolded((v) => !v)}>
+          aria-label={unfolded ? "Show fewer" : `Show all, ${folded} ended`} onClick={toggle}>
           {unfolded ? "Show fewer" : <>Show all <span className="item-count">{folded}</span></>}
         </button>
       )}

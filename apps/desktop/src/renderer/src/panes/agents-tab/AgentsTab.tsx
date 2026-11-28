@@ -16,7 +16,7 @@ import { useElapsed } from "../session/use-elapsed";
 import { canSend, delegationBrief, type BriefPick } from "./brief";
 import { ModelChooser, OWN } from "./ModelChooser";
 import { StateMark } from "./StateMark";
-import { SubagentSwitch, SubagentViewer, useSubagent, whereLabel, type ShownSubagent } from "./SubagentViewer";
+import { SubagentSwitch, SubagentViewer, useSubagent, useUnheldSubagents, whereLabel, type ShownSubagent } from "./SubagentViewer";
 import { STATE_LABEL, childTitle, isLive, orchestratorOrder, reportSummary, rollup, sessionModelLabel, spentMs, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
 
 /** How many models the composer offers as one-click chips before the rest are a chooser away. */
@@ -120,8 +120,24 @@ function SubagentList({ leadId, children, loaded }: { leadId: string; children: 
   const runs = useApp((s) => s.delegatedRuns[leadId]);
   const leadBlocks = useApp((s) => s.transcripts[leadId]?.t.blocks ?? NO_BLOCKS);
   const older = useApp((s) => (s.subagentsBefore[leadId] ?? null) !== null);
+  const unheld = useUnheldSubagents(leadId);
   const loadOlderSubagents = useApp((s) => s.loadOlderSubagents);
   const run = useApp((s) => s.run);
+  // An older page lands at the top of each state's run of cards, far above the button that asked for
+  // it, so the first of them is brought into view and takes the focus the button may have lost.
+  const list = useRef<HTMLUListElement>(null);
+  const [arrived, setArrived] = useState<ReadonlySet<string> | null>(null);
+  const showOlder = () => {
+    const held = new Set(children.map((c) => c.session.id));
+    run(async () => { await loadOlderSubagents(leadId); setArrived(held); });
+  };
+  useEffect(() => {
+    if (!arrived) return;
+    setArrived(null);
+    const first = [...list.current?.querySelectorAll<HTMLElement>(":scope > [data-child]") ?? []].find((el) => !arrived.has(el.dataset.child!));
+    first?.scrollIntoView?.({ block: "start" });
+    first?.querySelector("button")?.focus({ preventScroll: true });
+  }, [arrived]);
   const leadStatus = sessionStatus[leadId];
   const leadLive = leadStatus === undefined || leadStatus === "running" || leadStatus === "waiting_permission";
   // The lead's OWN harness sub-agents — Claude's background `Agent` calls — which have no session and
@@ -148,15 +164,15 @@ function SubagentList({ leadId, children, loaded }: { leadId: string; children: 
           head, and the cards are what is read while scrolling (design.md). */}
       <h2 className="subagents-head">
         Sub-agents
-        <span className="subagents-count">{rollup(states)}</span>
+        <span className="subagents-count">{rollup(states)}{unheld ? ` · ${unheld} older` : ""}</span>
         {live.length > 0 && <span className="subagents-since" title="Since the oldest sub-agent still going started">{formatDuration(elapsed)}</span>}
       </h2>
-      <ul className="subagents-list">
+      <ul className="subagents-list" ref={list}>
         {ordered.map((e) => e.child
           ? <SubagentCard key={e.child.session.id} child={e.child} leadId={leadId} tabLead={leadId} />
           : <HarnessCard key={e.harness!.id} agent={e.harness!} leadId={leadId} />)}
       </ul>
-      {older && <button type="button" className="agents-more" onClick={() => run(() => loadOlderSubagents(leadId))}>Show older</button>}
+      {older && <button type="button" className="agents-more" onClick={showOlder}>Show older</button>}
     </section>
   );
 }
@@ -254,7 +270,7 @@ function SubagentCard({ child, leadId, tabLead, nested = false }: { child: Deleg
   const card = useRef<HTMLButtonElement>(null);
   const open = () => showSubagent(tabLead, id);
   return (
-    <li className="subagent subagent-card" data-state={state} data-nested={nested || undefined}>
+    <li className="subagent subagent-card" data-state={state} data-nested={nested || undefined} data-child={id}>
       <button ref={card} type="button" className="subagent-summary"
         aria-label={`${title}. ${model} on ${AGENT_META[kind].label}. ${STATE_LABEL[state]}, ${formatDuration(elapsed)}. Open it`}
         title="Open its transcript here" onClick={open}>
