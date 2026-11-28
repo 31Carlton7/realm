@@ -134,7 +134,8 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
   const filter = document.createElementNS(NS, "filter");
   filter.id = `rl-edge-blur-${++ids}`;
   defs.append(filter);
-  let images: { top: SVGFEImageElement[]; bottom: SVGFEImageElement[] } | null = null;
+  type Images = { top: SVGFEImageElement[]; bottom: SVGFEImageElement[] };
+  let images: Images | null = null;
   let shape: EdgeBlurShape | null = null;
   const want = { top: false, bottom: false };
   const shown = { top: 0, bottom: 0 };
@@ -149,7 +150,7 @@ export function attachEdgeBlur(el: HTMLElement): { set: (start: boolean, end: bo
   };
 
   /** What `place` last wrote, so a render that moves neither band writes nothing. */
-  let placed: { images: typeof images; top: number; bottom: number } | null = null;
+  let placed: { images: Images; top: number; bottom: number } | null = null;
   const place = () => {
     if (!images || !shape) return;
     if (placed?.images === images && placed.top === shown.top && placed.bottom === shown.bottom) return;
