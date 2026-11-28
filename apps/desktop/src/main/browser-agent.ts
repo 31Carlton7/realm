@@ -14,7 +14,7 @@ import {
 } from "@realm/contracts";
 import { posix } from "node:path";
 import { credentialSiteMatch } from "./password-match";
-import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
+import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_CURSOR_PILL, AGENT_MOTION, CURSOR_FORM_FOR_CSS, FRAME_LABEL_JS, cursorIdentity, pillOffset, type CursorForm, type CursorFormName, type CursorIdentity } from "./agent-cursor";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -1834,10 +1834,10 @@ function markStylesheet(): string {
     // intermediate point drawn, no trail and no afterimage, because the page received one
     // instantaneous arrival and a drawn traversal would depict a journey that never happened.
     `${cursor}{transition:translate ${swapMs}ms ${easeOutStrong},opacity ${enterMs}ms ${easeOutStrong}}`,
-    // The press scales about the HOTSPOT (`transform-origin` is set inline, per form): a pointer
-    // that contracts toward its own middle walks its tip off the pixel the input went to, which is
-    // the one thing the mark exists to be right about.
-    `${cursor}[data-press]{animation:rl-agent-press ${pressMs}ms ${easeOutStrong} both}`,
+    // The press scales the GLYPH about the HOTSPOT (`transform-origin` is set inline, per form): a
+    // pointer that contracts toward its own middle walks its tip off the pixel the input went to,
+    // which is the one thing the mark exists to be right about. The name pill beside it stays put.
+    `${cursor}[data-press] > svg{animation:rl-agent-press ${pressMs}ms ${easeOutStrong} both}`,
     `@keyframes rl-agent-press{50%{scale:${pressScale}}}`,
     // A white pointer has to survive a white page. `overflow:visible` so the accent outline, which
     // is drawn outside the fill, is never clipped by the glyph's own box.
@@ -1852,7 +1852,7 @@ function markStylesheet(): string {
     // carries the state has to survive when the motion carrying it is taken away.
     `@media (prefers-reduced-motion:reduce){`,
     `${cursor}{transition:opacity ${enterMs}ms ${easeOutStrong}}`,
-    `${cursor}[data-press]{animation-name:rl-agent-press-flat}`,
+    `${cursor}[data-press] > svg{animation-name:rl-agent-press-flat}`,
     `@keyframes rl-agent-press-flat{50%{opacity:.35}}`,
     `${glow}{animation:none}`,
     `}`,
@@ -1898,7 +1898,11 @@ export function tickStylesFor(press: CursorPress, accent: string): Record<string
  * of it, and it is what tells a reader at a glance whose pointer this is: theirs is white with a
  * black edge, this one is white with an edge in their own accent.
  */
-function formNode(name: CursorFormName): { css: string; svg: { box: readonly [number, number]; paths: readonly { d: string; evenOdd?: true }[]; stroke: number } } {
+function formNode(name: CursorFormName): {
+  css: string;
+  svg: { box: readonly [number, number]; paths: readonly { d: string; evenOdd?: true }[]; stroke: number; origin: string };
+  pill: readonly [number, number];
+} {
   // Widened deliberately: the table is `as const` so each entry keeps its own literal shape, and
   // only the barred circle declares a `stroke`. Read through the interface and the optional is back.
   const form: CursorForm = AGENT_CURSOR_FORMS[name];
@@ -1908,8 +1912,9 @@ function formNode(name: CursorFormName): { css: string; svg: { box: readonly [nu
     // `left:0;top:0` with a negative margin, so `translate` stays the act's own point and the swap
     // transition interpolates that point directly rather than some offset derived from it.
     css: `position:fixed;left:0;top:0;width:${w}px;height:${h}px;margin:${-hy}px 0 0 ${-hx}px;`
-      + `transform-origin:${hx}px ${hy}px;pointer-events:none;z-index:2147483647;opacity:0;`,
-    svg: { box: form.box, paths: form.paths, stroke: (form.stroke ?? AGENT_CURSOR.stroke) * 2 },
+      + "pointer-events:none;z-index:2147483647;opacity:0;",
+    svg: { box: form.box, paths: form.paths, stroke: (form.stroke ?? AGENT_CURSOR.stroke) * 2, origin: `${hx}px ${hy}px` },
+    pill: pillOffset(form),
   };
 }
 
@@ -1936,7 +1941,7 @@ function formNode(name: CursorFormName): { css: string; svg: { box: readonly [nu
  *   - EVERY failure path is swallowed. A failed mark must never fail — or even delay-fail — the act
  *     it decorates.
  */
-export async function markAct(send: CdpSend, action: BrowserAction, accent = DEFAULT_AGENT_ACCENT): Promise<void> {
+export async function markAct(send: CdpSend, action: BrowserAction, accent = DEFAULT_AGENT_ACCENT, who: CursorIdentity = cursorIdentity(null, 0, accent)): Promise<void> {
   try {
     const ringRef = highlightTargetRef(action);
     const cursor = cursorTargetFor(action);
@@ -1960,7 +1965,7 @@ export async function markAct(send: CdpSend, action: BrowserAction, accent = DEF
       if (!Number.isFinite(left + top + w + h)) return;
       if (ringRef !== null) {
         ring = `position:fixed;left:${left - 3}px;top:${top - 3}px;width:${w + 6}px;height:${h + 6}px;`
-          + `border:2px solid ${accent};border-radius:6px;box-shadow:0 0 0 3px color-mix(in srgb, ${accent} 28%, transparent);`
+          + `border:2px solid ${who.colour};border-radius:6px;box-shadow:0 0 0 3px color-mix(in srgb, ${who.colour} 28%, transparent);`
           + "background:transparent;pointer-events:none;z-index:2147483647;transition:opacity 220ms ease;";
       }
       if (cursor) point = { x: xs.reduce((a, b) => a + b, 0) / 4, y: ys.reduce((a, b) => a + b, 0) / 4 };
@@ -1968,33 +1973,60 @@ export async function markAct(send: CdpSend, action: BrowserAction, accent = DEF
     if (cursor && cursor.ref === null) {
       point = viewportCentre((await send("Page.getLayoutMetrics")) as LayoutMetrics);
     }
-    await send("Runtime.evaluate", { expression: markScript({ accent, ring, point, press: cursor?.press ?? null }) });
+    await send("Runtime.evaluate", { expression: markScript({ accent, who, ring, point, press: cursor?.press ?? null }) });
   } catch { /* the marks are decoration; the act must proceed untouched */ }
 }
 
+/** The shadow a label on the page casts: the frame's line and each cursor's name pill. */
+const LABEL_LIFT = "0 2px 10px rgba(0,0,0,0.25)";
+
 /** The page-side half, written as a string because it runs in the PAGE, whose globals are not ours.
- *  Every value it needs is `JSON.stringify`d in, so nothing here has to quote anything by hand. */
-function markScript(o: { accent: string; ring: string; point: { x: number; y: number } | null; press: CursorPress | null }): string {
+ *  Every value it needs is `JSON.stringify`d in, so nothing here has to quote anything by hand.
+ *
+ *  Each session draws its own cursor, found by `data-actor`, and the page keeps one record per
+ *  session in `window.__realmAgents`: who it is and its own idle timer. A session's cursor idles out
+ *  on its own clock; the frame goes with the last of them, and until then its line is rewritten from
+ *  whoever is left. */
+function markScript(o: { accent: string; who: CursorIdentity; ring: string; point: { x: number; y: number } | null; press: CursorPress | null }): string {
   const forms = Object.fromEntries(
     (Object.keys(AGENT_CURSOR_FORMS) as CursorFormName[]).map((name) => [name, formNode(name)]),
   );
-  const ticks = tickStylesFor(o.press ?? { kind: "click", count: 1 }, o.accent);
+  const ticks = tickStylesFor(o.press ?? { kind: "click", count: 1 }, o.who.colour);
   // The ring and the glow read their numbers from `AGENT_FRAME` rather than spelling them, because
   // Realm's own panes draw the same mark from the same table (`styles.css`, `DriveFrame.tsx`) and a
-  // literal here is how the two faces of one signal drift apart.
+  // literal here is how the two faces of one signal drift apart. The frame is the page's, not one
+  // session's, so it stays in the user's accent whoever is driving.
   const frameCss = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;opacity:1;"
     + `box-shadow:inset 0 0 0 ${AGENT_FRAME.ringPx}px ${o.accent};`;
   const glowCss = "position:absolute;inset:0;pointer-events:none;"
     + `box-shadow:inset 0 0 ${AGENT_FRAME.glowBlurPx}px ${AGENT_FRAME.glowSpreadPx}px ${o.accent};`;
   const labelCss = "position:absolute;left:50%;bottom:12px;translate:-50% 0;padding:4px 10px;border-radius:8px;"
     + `background:${o.accent};color:#fff;font:500 12px/1.4 ui-sans-serif,system-ui,sans-serif;white-space:nowrap;`
-    + "box-shadow:0 2px 10px rgba(0,0,0,0.25);pointer-events:none;";
+    + `box-shadow:${LABEL_LIFT};pointer-events:none;`;
+  const P = AGENT_CURSOR_PILL;
+  const pillCss = `position:absolute;display:flex;align-items:center;gap:${P.gap}px;padding:${P.padY}px ${P.padX}px;`
+    + `border-radius:${P.radius}px;background:${o.who.colour};color:#fff;font:${P.font};white-space:nowrap;`
+    + `max-width:${P.maxWidth}px;box-shadow:${LABEL_LIFT};pointer-events:none;`;
   const j = JSON.stringify;
   return `(() => { try {
     var A = ${j(HIGHLIGHT_ATTR)}, D = document, R = D.body || D.documentElement;
     if (!R) return;
+    var KEY = ${j(o.who.key)};
     var sel = function (v) { return D.querySelector("[" + A + "=\\"" + v + "\\"]"); };
     var make = function (v, css, tag) { var n = D.createElement(tag || "div"); n.setAttribute(A, v); n.style.cssText = css; return n; };
+    var cursorOf = function (k) {
+      var all = D.querySelectorAll("[" + A + "=\\"${MARK_CURSOR}\\"]");
+      for (var i = 0; i < all.length; i++) if (all[i].getAttribute("data-actor") === k) return all[i];
+      return null;
+    };
+    /* A node on its way out is renamed first, so an act landing inside the fade draws a new one
+       rather than reusing a node about to be removed. */
+    var fadeOut = function (n) {
+      if (!n) return;
+      n.setAttribute(A, n.getAttribute(A) + "-gone");
+      n.style.transition = "opacity ${AGENT_MOTION.fastMs}ms linear"; n.style.opacity = "0";
+      setTimeout(function () { try { n.remove(); } catch (e) {} }, ${AGENT_MOTION.fastMs});
+    };
     if (!sel(${j(MARK_CSS)})) { var st = make(${j(MARK_CSS)}, "", "style"); st.textContent = ${j(markStylesheet())}; (D.head || R).appendChild(st); }
     ${REMOVE_RINGS_JS};
     var ringCss = ${j(o.ring)};
@@ -2006,6 +2038,7 @@ function markScript(o: { accent: string; ring: string; point: { x: number; y: nu
     var pt = ${j(o.point)};
     if (pt) {
       var FORMS = ${j(forms)}, TICKS = ${j(ticks)}, MAP = ${j(CURSOR_FORM_FOR_CSS)};
+      var LABEL = ${j(o.who.label)}, BRAND = ${j(o.who.mark)};
       /* WHICH pointer to draw, asked of the page rather than guessed from the element.
          The page's computed \`cursor\` at this point is its own statement about what a real pointer
          here would look like — a hand over something it means to be clicked, an I-beam over a field,
@@ -2033,7 +2066,7 @@ function markScript(o: { accent: string; ring: string; point: { x: number; y: nu
         }
       } catch (e) { /* a cross-origin or detached point: the arrow is the honest fallback */ }
 
-      var mark = sel(${j(MARK_CURSOR)});
+      var mark = cursorOf(KEY);
       /* Rebuilt whenever the FORM changes — the box, the hotspot and the transform origin all move
          with it, so morphing one glyph into another would leave the tip off the point. Position and
          the swap transition survive the rebuild because they are re-applied below either way. */
@@ -2043,6 +2076,7 @@ function markScript(o: { accent: string; ring: string; point: { x: number; y: nu
         var spec = FORMS[form];
         mark = make(${j(MARK_CURSOR)}, spec.css);
         mark.setAttribute("data-form", form);
+        mark.setAttribute("data-actor", KEY);
         var NS = "http://www.w3.org/2000/svg";
         var svg = D.createElementNS(NS, "svg");
         svg.setAttribute(A, ${j(MARK_CURSOR)} + "-glyph");
@@ -2050,9 +2084,10 @@ function markScript(o: { accent: string; ring: string; point: { x: number; y: nu
         svg.setAttribute("width", String(spec.svg.box[0]));
         svg.setAttribute("height", String(spec.svg.box[1]));
         svg.setAttribute("fill", "#fff");
-        svg.setAttribute("stroke", ${j(o.accent)});
+        svg.setAttribute("stroke", ${j(o.who.colour)});
         svg.setAttribute("stroke-width", String(spec.svg.stroke));
         svg.setAttribute("stroke-linejoin", "round");
+        svg.style.transformOrigin = spec.svg.origin;
         /* The outline is drawn UNDER the fill, so it sits outside the white instead of eating half
            of it — the difference between a pointer with an accent edge and a pointer that has gone
            thin. Built node by node rather than through innerHTML, which is a Trusted Types sink and
@@ -2065,6 +2100,30 @@ function markScript(o: { accent: string; ring: string; point: { x: number; y: nu
           svg.appendChild(pth);
         }
         mark.appendChild(svg);
+        /* The name pill: whose pointer this is, in words and the agent's own mark. */
+        if (LABEL) {
+          var pill = make(${j(MARK_CURSOR)} + "-label", ${j(pillCss)} + "left:" + spec.pill[0] + "px;top:" + spec.pill[1] + "px;");
+          if (BRAND) {
+            var logo = D.createElementNS(NS, "svg");
+            logo.setAttribute(A, ${j(MARK_CURSOR)} + "-mark");
+            logo.setAttribute("viewBox", BRAND.viewBox);
+            logo.setAttribute("width", "${P.markSize}");
+            logo.setAttribute("height", "${P.markSize}");
+            logo.setAttribute("fill", "currentColor");
+            logo.style.flex = "none";
+            for (var bi = 0; bi < BRAND.paths.length; bi++) {
+              var bp = D.createElementNS(NS, "path");
+              bp.setAttribute("d", BRAND.paths[bi].d);
+              if (BRAND.paths[bi].evenOdd) bp.setAttribute("fill-rule", "evenodd");
+              logo.appendChild(bp);
+            }
+            pill.appendChild(logo);
+          }
+          var name = make(${j(MARK_CURSOR)} + "-name", "overflow:hidden;text-overflow:ellipsis;", "span");
+          name.textContent = LABEL;
+          pill.appendChild(name);
+          mark.appendChild(pill);
+        }
         R.appendChild(mark);
       }
       var tick = mark.querySelector("i");
@@ -2085,29 +2144,40 @@ function markScript(o: { accent: string; ring: string; point: { x: number; y: nu
       mark.style.opacity = "1";
       /* Removed and re-added around a reflow so a second click in the same burst replays the press
          rather than sitting on a finished animation. */
+      var glyph = mark.querySelector("svg");
       mark.removeAttribute("data-press");
       void mark.offsetWidth;
-      mark.style.animationIterationCount = String(${o.press?.kind === "click" ? Math.max(1, o.press.count) : 1});
+      glyph.style.animationIterationCount = String(${o.press?.kind === "click" ? Math.max(1, o.press.count) : 1});
       mark.setAttribute("data-press", ${j(o.press?.kind ?? "click")});
     }
-    if (!sel(${j(MARK_FRAME)})) {
-      var frame = make(${j(MARK_FRAME)}, ${j(frameCss)});
+    var frame = sel(${j(MARK_FRAME)});
+    if (!frame) {
+      frame = make(${j(MARK_FRAME)}, ${j(frameCss)});
       frame.appendChild(make(${j(MARK_FRAME)} + "-glow", ${j(glowCss)}, "u"));
-      var label = make(${j(MARK_FRAME)} + "-label", ${j(labelCss)});
-      label.textContent = "An agent is controlling this page";
-      frame.appendChild(label);
+      frame.appendChild(make(${j(MARK_FRAME)} + "-label", ${j(labelCss)}));
       R.appendChild(frame);
     }
-    /* The dwell watchdog, owned by the PAGE and reset on every placement: a dead bridge, a crashed
-       host or a lost driving:false must not be able to leave a pointer stuck on someone's page. */
-    if (window.__realmAgentIdle) clearTimeout(window.__realmAgentIdle);
-    window.__realmAgentIdle = setTimeout(function () {
+    /* Who is driving, one record per session, each with its own dwell watchdog. Owned by the PAGE
+       and reset on every act of that session: a dead bridge, a crashed host or a lost driving:false
+       must not be able to leave a pointer stuck on someone's page. */
+    var AG = window.__realmAgents || (window.__realmAgents = {});
+    var relabel = function () {
+      var f = sel(${j(MARK_FRAME)}), line = f && f.querySelector("[" + A + "=\\"${MARK_FRAME}-label\\"]");
+      if (!line) return;
+      var names = [];
+      for (var k in AG) names.push(AG[k].agent);
+      line.textContent = (${FRAME_LABEL_JS})(names);
+    };
+    if (AG[KEY]) clearTimeout(AG[KEY].timer);
+    AG[KEY] = { agent: ${j(o.who.agent)}, timer: setTimeout(function () {
       try {
-        var gone = D.querySelectorAll("[" + A + "=\\"${MARK_CURSOR}\\"],[" + A + "=\\"${MARK_FRAME}\\"]");
-        for (var i = 0; i < gone.length; i++) { gone[i].style.transition = "opacity ${AGENT_MOTION.fastMs}ms linear"; gone[i].style.opacity = "0"; }
-        setTimeout(function () { try { for (var k = 0; k < gone.length; k++) gone[k].remove(); } catch (e) {} }, ${AGENT_MOTION.fastMs});
+        delete AG[KEY];
+        fadeOut(cursorOf(KEY));
+        if (Object.keys(AG).length === 0) fadeOut(sel(${j(MARK_FRAME)}));
+        else relabel();
       } catch (e) {}
-    }, ${AGENT_CURSOR.idleMs});
+    }, ${AGENT_CURSOR.idleMs}) };
+    relabel();
   } catch (e) {} })()`;
 }
 

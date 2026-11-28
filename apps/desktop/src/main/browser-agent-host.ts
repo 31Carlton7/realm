@@ -5,12 +5,13 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential, type AgentFillKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, BrowserActorSchema, type BrowserAction, type BrowserActor, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type PaneHealth, type SiteCredential, type AgentFillKind } from "@realm/contracts";
 import { isAbsolute } from "node:path";
 import { missedCodeError, type CodeWait } from "./security-codes";
 import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, REMOVE_REF_BOXES_JS, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, refBoxes, refBoxesScript, refLegend, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { credentialSiteMatch } from "./password-match";
+import { CursorSlots, cursorIdentity, type CursorIdentity } from "./agent-cursor";
 import { bothReads, readSecretRects, type SecretFields } from "./phone-frame";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
@@ -325,7 +326,37 @@ export class BrowserAgentHost {
    */
   private accent = DEFAULT_AGENT_ACCENT;
 
+  /** Per view, which colour each session's cursor holds (`CursorSlots`). */
+  private readonly cursorSlots = new Map<string, CursorSlots>();
+
+  /**
+   * Per view, the act in progress. Acts on one page take turns: each one's marks, its scroll into
+   * view and its input events run under this lease, because a second session's scroll landing
+   * between another's geometry read and its click would send that click somewhere else. What runs
+   * at once is what the page animates on its own clock after the lease is handed on: each cursor's
+   * glide, its press, its pill and its idle-out.
+   */
+  private readonly actLeases = new Map<string, Promise<void>>();
+
   constructor(private readonly d: BrowserAgentHostDeps) {}
+
+  /** The cursor an act on this view is drawn as: its session's own, or one nobody named. */
+  private cursorFor(browserId: string, rawActor: unknown): CursorIdentity {
+    const parsed = BrowserActorSchema.safeParse(rawActor);
+    const actor: BrowserActor | null = parsed.success ? parsed.data : null;
+    let slots = this.cursorSlots.get(browserId);
+    if (!slots) { slots = new CursorSlots(this.d.now); this.cursorSlots.set(browserId, slots); }
+    return cursorIdentity(actor, slots.take(actor?.sessionId ?? ""), this.accent);
+  }
+
+  /** Run `fn` once every act queued before it on this view has finished. */
+  private async withActLease<T>(browserId: string, fn: () => Promise<T>): Promise<T> {
+    const before = this.actLeases.get(browserId) ?? Promise.resolve();
+    const run = before.then(fn);
+    const after = run.then(() => {}, () => {});
+    this.actLeases.set(browserId, after);
+    try { return await run; } finally { if (this.actLeases.get(browserId) === after) this.actLeases.delete(browserId); }
+  }
 
   /** The renderer's theme changed. Fire-and-forget from the renderer's side: nothing waits on the
    *  colour, and an act that lands a frame ahead of it is drawn in the previous accent, not wrongly. */
@@ -383,6 +414,7 @@ export class BrowserAgentHost {
       waiter?.(null);
     }
     this.attached.delete(browserId);
+    this.cursorSlots.delete(browserId);
   }
 
   /**
@@ -635,34 +667,37 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         // The action was schema-validated server-side; this cast is the two processes' contract.
         const action = params.action as BrowserAction;
-        // Mark the act inside the page before performing it — the ring, the cursor and the
-        // controlled-screen frame, in one evaluate. Only acts already PERMITTED reach this op (the
-        // gate is server-side), so a mark never points at something that was refused; and `markAct`
-        // swallows every failure — a page where it cannot draw acts anyway.
-        await markAct(entry.binding.send, action, this.accent);
-        /*
-         * Arm file-chooser interception BEFORE a click or a key, and hold it for a short window
-         * afterwards.
-         *
-         * Not an upload feature — a safety one, and the reason there is no `browser_act` that can
-         * wedge a pane any more. Any click can be the one that opens a picker: a "Choose files"
-         * button, a menu item, an `<input type=file>` reached with Enter. If that picker becomes a
-         * native NSOpenPanel it is modal, CDP cannot see or close it, and the pane belongs to nobody
-         * until a human dismisses it by hand. Armed, the same click yields `Page.fileChooserOpened`
-         * — nothing appears on screen, the agent is told, and `browser_upload` or
-         * `browser_dismiss_dialog` can answer it.
-         *
-         * The window is short (`UPLOAD_ARM_WINDOW_MS`) because interception belongs to the PAGE and
-         * not to the caller: while it is on, the user's own click on a file input gets no panel
-         * either. That race is real and it is the trade — a couple of seconds after an agent act, in
-         * a pane the agent is visibly driving, against a class of unrecoverable wedge. `arm` is
-         * awaited and the act is not: the ordering is what the property depends on.
-         */
-        if (action.kind === "click" || action.kind === "key") await this.armChooser(entry);
-        const result = await performAct(entry.binding.send, action);
-        // Whatever the method: inserted text sends no key event for the keyboard's own record to hear.
-        if (result.ok && (action.kind === "type" || action.kind === "key")) this.d.typed?.(browserId);
-        const acted = await this.withChooserNote(entry, result);
+        const who = this.cursorFor(browserId, params.actor);
+        const acted = await this.withActLease(browserId, async () => {
+          // Mark the act inside the page before performing it — the ring, the session's cursor and the
+          // controlled-screen frame, in one evaluate. Only acts already PERMITTED reach this op (the
+          // gate is server-side), so a mark never points at something that was refused; and `markAct`
+          // swallows every failure — a page where it cannot draw acts anyway.
+          await markAct(entry.binding.send, action, this.accent, who);
+          /*
+           * Arm file-chooser interception BEFORE a click or a key, and hold it for a short window
+           * afterwards.
+           *
+           * Not an upload feature — a safety one, and the reason there is no `browser_act` that can
+           * wedge a pane any more. Any click can be the one that opens a picker: a "Choose files"
+           * button, a menu item, an `<input type=file>` reached with Enter. If that picker becomes a
+           * native NSOpenPanel it is modal, CDP cannot see or close it, and the pane belongs to nobody
+           * until a human dismisses it by hand. Armed, the same click yields `Page.fileChooserOpened`
+           * — nothing appears on screen, the agent is told, and `browser_upload` or
+           * `browser_dismiss_dialog` can answer it.
+           *
+           * The window is short (`UPLOAD_ARM_WINDOW_MS`) because interception belongs to the PAGE and
+           * not to the caller: while it is on, the user's own click on a file input gets no panel
+           * either. That race is real and it is the trade — a couple of seconds after an agent act, in
+           * a pane the agent is visibly driving, against a class of unrecoverable wedge. `arm` is
+           * awaited and the act is not: the ordering is what the property depends on.
+           */
+          if (action.kind === "click" || action.kind === "key") await this.armChooser(entry);
+          const result = await performAct(entry.binding.send, action);
+          // Whatever the method: inserted text sends no key event for the keyboard's own record to hear.
+          if (result.ok && (action.kind === "type" || action.kind === "key")) this.d.typed?.(browserId);
+          return this.withChooserNote(entry, result);
+        });
         if (!acted.ok || (action.kind !== "click" && action.kind !== "key")) return acted;
         const tabs = await this.openedTabsNote(browserId, TAB_SETTLE_MS);
         return tabs ? { ...acted, detail: `${acted.detail} — that opened ${tabs}` } : acted;
@@ -947,6 +982,7 @@ export class BrowserAgentHost {
         }
         const entry = this.ensure(browserId);
         const ref = Number(params.ref);
+        const who = this.cursorFor(browserId, params.actor);
         return governor.run(
           browserId,
           { origin, dir, expiresAt: Date.now() + DOWNLOAD_GRANT_TTL_MS },
@@ -954,8 +990,10 @@ export class BrowserAgentHost {
           // same highlight. A download is a click that happens to produce a file.
           async () => {
             const click: BrowserAction = { kind: "click", ref, button: "left", clickCount: 1, modifiers: [] };
-            await markAct(entry.binding.send, click, this.accent);
-            const result = await performAct(entry.binding.send, click);
+            const result = await this.withActLease(browserId, async () => {
+              await markAct(entry.binding.send, click, this.accent, who);
+              return performAct(entry.binding.send, click);
+            });
             return result.ok ? { ok: true } : { ok: false, error: result.error };
           },
         );

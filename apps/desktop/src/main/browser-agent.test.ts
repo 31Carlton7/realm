@@ -1348,7 +1348,7 @@ describe("the marks an act leaves in the page (W4; the cursor and the frame, Pla
     // on both of its edges leaves no white between them, so it declares a narrower one.
     expect(expr).toContain(`"stroke":${AGENT_CURSOR_FORMS["not-allowed"].stroke! * 2}`);
     expect(expr).toContain(`scale:${AGENT_CURSOR.pressScale}`);
-    expect(expr).toContain(`}, ${AGENT_CURSOR.idleMs});`);      // the dwell watchdog's deadline
+    expect(expr).toContain(`}, ${AGENT_CURSOR.idleMs}) };`);    // the dwell watchdog's deadline
     expect(expr).toContain('animationIterationCount = String(3)'); // one contraction per click
   });
 
@@ -1366,7 +1366,7 @@ describe("the marks an act leaves in the page (W4; the cursor and the frame, Pla
       expect(expr, name).toContain(`width:${w}px;height:${h}px;margin:${-hy}px 0 0 ${-hx}px`);
       // The press pivots on the hotspot: a pointer that contracts toward its middle walks its own
       // tip off the pixel the input went to.
-      expect(expr, name).toContain(`transform-origin:${hx}px ${hy}px`);
+      expect(expr, name).toContain(`"origin":"${hx}px ${hy}px"`);
     }
     // The mapping rides along, so the page picks a form rather than main guessing one.
     expect(expr).toContain(JSON.stringify(CURSOR_FORM_FOR_CSS));
@@ -1435,13 +1435,13 @@ describe("the marks an act leaves in the page (W4; the cursor and the frame, Pla
     expect(expr).toContain('mark.setAttribute("data-form", form)');
   });
 
-  it("the dwell watchdog is reset on every placement and takes BOTH drive marks with it", async () => {
+  it("each session's dwell watchdog is reset on its own placement, and the frame goes with the last", async () => {
     const { send, calls } = fakeSend({ quads: QUAD });
     await markAct(send, click());
     const expr = exprOf(calls);
-    expect(expr).toContain("clearTimeout(window.__realmAgentIdle)");   // reset, not a second timer
-    expect(expr).toContain(`"${MARK_CURSOR}\\"],[`);                    // cursor…
-    expect(expr).toContain(`"${MARK_FRAME}\\"]`);                       // …and frame, together
+    expect(expr).toContain("if (AG[KEY]) clearTimeout(AG[KEY].timer)");  // reset, not a second timer
+    expect(expr).toContain("fadeOut(cursorOf(KEY))");                     // its own cursor…
+    expect(expr).toContain(`if (Object.keys(AG).length === 0) fadeOut(sel("${MARK_FRAME}"))`); // …and the frame after the last
   });
 
   it("the ring is INVISIBLE to snapshots — tagged node never listed, even clickable (mutant: agent chases its own ring)", async () => {

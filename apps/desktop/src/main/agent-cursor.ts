@@ -1,4 +1,6 @@
-import { AGENT_FRAME } from "@realm/contracts";
+import { AGENT_FRAME, AGENT_META, css, type BrowserActor, type TeammateColor } from "@realm/contracts";
+import { brandMarks, isBrandName } from "../../../../packages/ui/src/brand-icons";
+import { bodyOklch } from "../../../../packages/ui/src/teammate-icon/palette";
 
 /**
  * The numbers behind the agent's in-page cursor and the controlled-screen frame (Plan 25 W2).
@@ -200,3 +202,122 @@ export const AGENT_MOTION = {
    */
   framePulseMs: AGENT_FRAME.pulseMs,
 } as const;
+
+/**
+ * The colours a second, third… session's cursor takes on one page. The first session keeps the
+ * user's accent, so one agent on a page looks exactly as it always has.
+ *
+ * Teammate colours, because they are already Realm's identity hues ("a teammate's colour says who"),
+ * set at one lightness so only the hue moves, and drawn at the light face's body, the deeper of the
+ * two, since a page under the cursor can be either and the pill's words are white. Red, amber and
+ * green are left out: on someone's page they read as an error, a warning and a success. Blue and sky
+ * are left out because the accent is a blue, and a second cursor beside it has to differ by more
+ * than a shade.
+ */
+export const AGENT_CURSOR_PALETTE = ["violet", "orange", "teal", "pink", "lime", "yellow"] as const satisfies readonly TeammateColor[];
+
+/** A cursor's colour by its slot: 0 is the accent, then the palette, round again past its end. */
+export function cursorColour(slot: number, accent: string): string {
+  if (slot === 0) return accent;
+  return css(bodyOklch(AGENT_CURSOR_PALETTE[(slot - 1) % AGENT_CURSOR_PALETTE.length]!, "light"));
+}
+
+/**
+ * Which slot each session's cursor holds on one page. A session keeps its slot while its cursor is
+ * up and gives it back once the cursor has idled out, and a new session takes the lowest slot free,
+ * so the accent goes to whoever is first on the page now rather than to whoever was first an hour ago.
+ */
+export class CursorSlots {
+  private readonly held = new Map<string, { slot: number; until: number }>();
+  constructor(private readonly now: () => number = Date.now) {}
+
+  take(key: string): number {
+    const now = this.now();
+    for (const [k, h] of this.held) if (h.until <= now) this.held.delete(k);
+    let slot = this.held.get(key)?.slot;
+    if (slot === undefined) {
+      const used = new Set([...this.held.values()].map((h) => h.slot));
+      slot = 0;
+      while (used.has(slot)) slot += 1;
+    }
+    // Held a fade longer than the page shows it, so a slot is never handed on under a cursor still fading.
+    this.held.set(key, { slot, until: now + AGENT_CURSOR.idleMs + AGENT_MOTION.fastMs });
+    return slot;
+  }
+}
+
+/**
+ * The name pill that rides beside each cursor: the agent's mark and "Claude · checkout".
+ *
+ * On the chip rung (6px corner), in the caption type at the routine weight, with the mark at the
+ * caption's own size. It hangs off the glyph's bottom-right corner, clear of the hotspot, so it never
+ * covers the point the input goes to.
+ */
+export const AGENT_CURSOR_PILL = {
+  radius: 6,
+  padX: 6,
+  padY: 2,
+  gap: 4,
+  markSize: 12,
+  font: "500 12px/16px ui-sans-serif,system-ui,sans-serif",
+  /** Past this the title gives way to an ellipsis; the agent's name comes first, so it stays. */
+  maxWidth: 180,
+  /** The pill's top-left, measured from the glyph's box: its right edge, and a little above its foot. */
+  rise: 4,
+} as const;
+
+/** Where a form's pill sits, in the cursor node's own coordinates. */
+export function pillOffset(form: CursorForm): readonly [number, number] {
+  return [form.box[0], form.box[1] - AGENT_CURSOR_PILL.rise];
+}
+
+/** An agent's mark as the page draws it: the sidebar's brand mark, or none for an agent that has only
+ *  one of Realm's stroke glyphs (the fake agent, Hermes). */
+export type CursorMark = { viewBox: string; paths: readonly { d: string; evenOdd?: true }[] };
+
+function markOf(agentKind: BrowserActor["agentKind"]): CursorMark | null {
+  const icon = AGENT_META[agentKind].icon;
+  if (!isBrandName(icon)) return null;
+  const mark = brandMarks[icon] as { d: string | readonly string[]; viewBox?: string; evenOdd?: true };
+  const ds = typeof mark.d === "string" ? [mark.d] : mark.d;
+  return { viewBox: mark.viewBox ?? "0 0 24 24", paths: ds.map((d) => (mark.evenOdd ? { d, evenOdd: true as const } : { d })) };
+}
+
+/** Everything one session's cursor is drawn with. `key` names its node in the page. */
+export type CursorIdentity = {
+  key: string;
+  colour: string;
+  /** The pill's words, or null for an act nobody named, which draws the cursor alone. */
+  label: string | null;
+  /** The agent's name in the frame's line, or null for "an agent". */
+  agent: string | null;
+  mark: CursorMark | null;
+};
+
+export function cursorIdentity(actor: BrowserActor | null, slot: number, accent: string): CursorIdentity {
+  const colour = cursorColour(slot, accent);
+  if (!actor) return { key: "", colour, label: null, agent: null, mark: null };
+  return { key: actor.sessionId, colour, label: actor.label, agent: AGENT_META[actor.agentKind].label, mark: markOf(actor.agentKind) };
+}
+
+/**
+ * The controlled-screen frame's line, naming who is driving: "Claude and Codex are using this page".
+ *
+ * Written as page script, because the page owns each cursor's idle-out and rewrites the line when one
+ * leaves; `frameLabel` below is this same source, so the test reads what the page runs. One name per
+ * session, in the order they arrived; a null is a session nobody named.
+ */
+export const FRAME_LABEL_JS = `function (names) {
+  var order = [], count = Object.create(null);
+  for (var i = 0; i < names.length; i++) {
+    var n = names[i] || "an agent";
+    if (!count[n]) { count[n] = 0; order.push(n); }
+    count[n] += 1;
+  }
+  var parts = order.map(function (n) { return count[n] > 1 ? count[n] + " " + n + " sessions" : n; });
+  var who = parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : (parts[0] || "an agent");
+  var line = who + (names.length > 1 ? " are" : " is") + " using this page";
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}`;
+
+export const frameLabel = new Function(`return (${FRAME_LABEL_JS});`)() as (names: readonly (string | null)[]) => string;

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { KEY_MODIFIERS } from "./key-chord";
 import { bareToolName } from "./library";
+import { AgentKindSchema, type AgentKind } from "./entities";
+import { AGENT_META } from "./presets";
 import type { BrowserLoadError } from "./browser-load-error";
 import type { PageField } from "./tab-context";
 
@@ -73,6 +75,18 @@ export const BrowserActionSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type BrowserAction = z.infer<typeof BrowserActionSchema>;
+
+/**
+ * Who an `act` (or the click a `download` makes) is for. Main draws one cursor per `sessionId` in
+ * the page, wearing the agent's mark and `label`, so two sessions on one pane are two pointers
+ * rather than one pointer that jumps between them. `label` is the pill's words, "Claude · checkout".
+ */
+export const BrowserActorSchema = z.object({ sessionId: z.string(), agentKind: AgentKindSchema, label: z.string() });
+export type BrowserActor = z.infer<typeof BrowserActorSchema>;
+
+/** The pill's words: the agent's name, then the session's title. */
+export const browserActorLabel = (agentKind: AgentKind, title: string): string =>
+  (title.trim() ? `${AGENT_META[agentKind].label} · ${title.trim()}` : AGENT_META[agentKind].label);
 
 /** What `browser_read` can read. `text` is the page's article-first inner text; `console` and
  *  `network` are the host's ring buffers since the pane opened (or the buffers' capacity). */
