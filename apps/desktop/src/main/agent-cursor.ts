@@ -325,4 +325,3 @@ export const FRAME_LABEL_JS = `function (names) {
   var line = who + (names.length > 1 ? " are" : " is") + " using this page";
   return line.charAt(0).toUpperCase() + line.slice(1);
 }`;
-
