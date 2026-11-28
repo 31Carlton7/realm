@@ -391,12 +391,13 @@ describe("a window held at launch, opened for an agent's pane", () => {
     void panes.needed("s1", pane("a"));
     let done = false;
     const waiting = panes.mounted("a", 60_000).then(() => { done = true; });
-    await panes.mounted("other", 60_000);
+    expect(await panes.mounted("other", 60_000)).toBe(false);
     await Promise.resolve();
     expect(done).toBe(false);
     panes.made("a");
     await waiting;
     expect(done).toBe(true);
+    expect(await panes.mounted("a", 60_000)).toBe(false);
   });
 
   it("waits for a view that is never made only as long as it is told, and only once", async () => {

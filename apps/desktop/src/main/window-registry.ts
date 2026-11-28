@@ -214,14 +214,16 @@ export class PaneWindows<W extends RegisteredWindow> {
   }
 
   /** Settled once the view of a browser a window is opening for is made, or after `ms`, whichever is
-   *  first; at once for any other. Waited for once: an op after a wait that ran out finds it as it is. */
-  async mounted(browserId: string, ms: number): Promise<void> {
+   *  first, answering true; at once and false for any other. Waited for once: an op after a wait that
+   *  ran out finds it as it is. */
+  async mounted(browserId: string, ms: number): Promise<boolean> {
     const m = this.mounting.get(browserId);
-    if (!m) return;
+    if (!m) return false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([m.until, new Promise<void>((r) => { timer = setTimeout(r, ms); })]);
     clearTimeout(timer);
     this.mounting.delete(browserId);
+    return true;
   }
 
   /** The space a window is on: what its renderer last said, else, while it boots, the one it opened on. */

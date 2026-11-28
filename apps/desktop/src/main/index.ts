@@ -1109,7 +1109,7 @@ ipcMain.handle("browser:password-offer", (e, browserId: unknown, offerId: unknow
 const agentHost = new BrowserAgentHost({
   attach: (id) => paneFor(id)?.attachCdp(id) ?? null,
   revived: async (id) => { await paneFor(id)?.host.revivedPage(id); },
-  mounting: (id) => paneWindows.mounted(id, PANE_MOUNT_WAIT_MS),
+  mounting: async (id) => { if (await paneWindows.mounted(id, PANE_MOUNT_WAIT_MS)) await paneFor(id)?.host.revivedPage(id, { made: true }); },
   typed: (id) => paneFor(id)?.markTyped(id),
   hasView: (id) => paneFor(id) !== null,
   health: async (id) => (await paneFor(id)?.health(id)) ?? "gone",
