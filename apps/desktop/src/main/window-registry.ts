@@ -48,9 +48,10 @@ export class WindowRegistry<W extends RegisteredWindow> {
   get size(): number { return this.live().length; }
 
   /** A new window, opened for `profileId` (null for the first window). It counts as the most recently
-   *  used, since a window that has just opened is the one in front. */
-  add(win: W, profileId: string | null, spaceId: string | null = null): void {
-    this.entries.set(win.id, { win, bound: profileId, boundSpace: spaceId, showing: profileId, space: null, focusedAt: ++this.clock });
+   *  used, since a window that has just opened is the one in front; one opened `behind` the person's,
+   *  for an agent's work, counts as used longest ago. */
+  add(win: W, profileId: string | null, spaceId: string | null = null, o: { behind?: boolean } = {}): void {
+    this.entries.set(win.id, { win, bound: profileId, boundSpace: spaceId, showing: profileId, space: null, focusedAt: o.behind ? 0 : ++this.clock });
   }
 
   remove(win: W): void { this.entries.delete(win.id); }
@@ -67,10 +68,13 @@ export class WindowRegistry<W extends RegisteredWindow> {
     if (e) e.showing = profileId;
   }
 
-  /** The window's renderer says which space it is showing now. */
+  /** The window's renderer says which space it is showing now. A window held for that space is
+   *  forgotten: the space is this window's now, and stays this window's when it moves on. */
   setSpace(win: W, spaceId: string | null): void {
     const e = this.entries.get(win.id);
-    if (e) e.space = spaceId;
+    if (!e) return;
+    e.space = spaceId;
+    if (spaceId !== null) this.held = this.held.filter((h) => h.land !== spaceId);
   }
 
   showing(win: W): string | null { return this.entries.get(win.id)?.showing ?? null; }
@@ -110,6 +114,9 @@ export class WindowRegistry<W extends RegisteredWindow> {
 
   /** Keep these windows for later, in place of any held before. */
   hold(windows: readonly RestoredWindow[]): void { this.held = [...windows]; }
+
+  /** Whether any window is held, not yet opened. */
+  holding(): boolean { return this.held.length > 0; }
 
   /** The held window that lands on this space, unless an open window has moved onto it since. */
   heldFor(spaceId: string): RestoredWindow | null {

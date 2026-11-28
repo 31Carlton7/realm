@@ -91,7 +91,7 @@ import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
-import { WindowIdle, busySpaces, canBeSeen, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
+import { WindowIdle, busySpaces, canBeSeen, pageLoaded, sendOnceUp, sharesRenderer, unloadAnswer, wakeForWork, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
 import { endRenderer } from "./pane-health";
 import { registerFileActions } from "./file-actions";
 import { registerPdfExport } from "./print-pdf";
@@ -472,7 +472,7 @@ async function sweepBrowsers(params: unknown): Promise<{ discarded: string[]; ke
  */
 let windowPolicy = { unloadIdle: WINDOW_UNLOAD_IDLE_DEFAULT, busySpaces: new Set<string>() };
 const liveWindowIdleMs = liveScratch({ packaged: app.isPackaged, env: process.env })?.windowIdleMs ?? null;
-/** How long a window's page may take to write down its view before it is unloaded anyway. */
+/** How long a window's page may take to write down its view; one that has not answered by then stays. */
 const UNLOAD_SAVE_MS = 3_000;
 /** How long a window brought back waits for its page before what was waiting on it goes ahead. */
 const RELOAD_WAIT_MS = 15_000;
@@ -516,13 +516,9 @@ async function unloadWindow(win: BrowserWindow): Promise<IdleKeep | null> {
   const wc = win.webContents;
   const space = windows.spaceOf(win);
   if (space) unloadedLand.set(wc.id, space);
-  const refused = await new Promise<IdleKeep | null>((resolve) => {
-    const done = (keep: IdleKeep | null) => { clearTimeout(timer); ipcMain.off("window:unload-ready", ready); resolve(keep); };
-    const ready = (e: Electron.IpcMainEvent, keep: unknown) => { if (e.sender === wc) done(keep === "unsaved" ? "unsaved" : null); };
-    const timer = setTimeout(() => done(null), UNLOAD_SAVE_MS);
-    ipcMain.on("window:unload-ready", ready);
-    wc.send("window:unload");
-  });
+  const answer = unloadAnswer(ipcMain, wc, UNLOAD_SAVE_MS);
+  wc.send("window:unload");
+  const refused = await answer;
   const kept = win.isDestroyed() ? "focused" : refused ?? (windowIdle.isUnloaded(win) ? null : "focused");
   if (kept !== null) {
     // Called off: this page stays, and nothing it kept for a reload may land on a later one.
@@ -546,20 +542,21 @@ const windowIdle = new WindowIdle<BrowserWindow>({
     // Main's own replay to a new window (`createWindow`): the page that loads has heard nothing yet.
     wc.once("did-finish-load", () => { if (lastDaemonState && !win.isDestroyed()) wc.send("daemon:state", lastDaemonState); });
     wc.reload();
-    return loaded.then(() => {});
+    return loaded;
   },
 });
 
-/** A session in some space started work: an unloaded window on that space loads now, so its panes are
- *  there for the agent (a browser pane's view exists only once its page mounts it). */
+/** A session in some space started work: an unloaded window on that space loads now, and one held at
+ *  launch for it opens behind the person's (`wakeForWork`). */
 async function wakeBusyWindows(payload: unknown): Promise<void> {
-  if (!wakesWindows(payload) || !windows.all().some((w) => windowIdle.isUnloaded(w)) || !bridgeClient) return;
-  let busy: Set<string>;
-  try {
-    busy = busySpaces(await bridgeClient.call("sessions.listAll", {}) as { spaceId: string; status: string }[]);
-  } catch { return; }
-  windowPolicy.busySpaces = busy;
-  windowIdle.wakeWhere((w) => { const space = windows.spaceOf(w); return space !== null && busy.has(space); });
+  const client = bridgeClient;
+  if (!wakesWindows(payload) || !client) return;
+  const busy = await wakeForWork(windowIdle, {
+    windows: windows.all(), holding: windows.holding(), spaceOf: (w) => windows.spaceOf(w),
+    busySpaces: async () => busySpaces(await client.call("sessions.listAll", {}) as { spaceId: string; status: string }[]),
+    openHeld: (space) => openHeld(space, { behind: true }),
+  });
+  if (busy) windowPolicy.busySpaces = busy;
 }
 
 /** realm-server's clock: unload every window not focused for `idleMs` that has no reason to stay. A
@@ -728,7 +725,7 @@ app.commandLine.appendSwitch("disk-cache-size", String(256 * 1024 * 1024));
  * line (`window.realm.profileId`) so its first paint is already that profile's. With a `spaceId` too it
  * is that space's window (`window.realm.spaceId`), opened on it, with a view and a place of its own.
  */
-async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null, spaceId: string | null = null, land: string | null = null) {
+async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null, spaceId: string | null = null, land: string | null = null, o: { behind?: boolean } = {}) {
   if (relaunchIfBundleReplaced()) return;
   // Where it was left (window-state.ts) — each profile window its own place. The primary display
   // first: a place that can no longer be reached is replaced by the saved size, centred there. A
@@ -749,21 +746,24 @@ async function createWindow(info: { port: number; home: string; token: string },
     // head row's right end on Linux and Windows (window-chrome.ts).
     ...windowChrome(platform, nativeTheme.shouldUseDarkColors),
     ...(quiet ? QUIET_WINDOW_OPTIONS : {}),
+    // Opened for an agent's work (`wakeBusyWindows`): never over what the person is doing. It renders
+    // unshown (`paintWhenInitiallyHidden`), and shows the first time its space is asked for.
+    ...(o.behind ? { show: false } : {}),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       ...(quiet ? { backgroundThrottling: false } : {}),
       additionalArguments: windowArguments({ ...info, profileId, spaceId, land }) },
   });
-  windows.add(win, profileId, spaceId);
+  windows.add(win, profileId, spaceId, o);
   // Known by its space from the start, not once its page says so: an ask for that space meanwhile
   // finds this window rather than opening a second one on it.
   if (land ?? spaceId) windows.setSpace(win, land ?? spaceId);
-  windowIdle.opened(win);
+  windowIdle.opened(win, o);
   presence.check();
   win.on("focus", () => { windows.focused(win); void windowIdle.focused(win); saveWindows(); });
   win.on("blur", () => windowIdle.blurred(win));
   // Shown now, as a window constructed visible would be — only never in front, and all but transparent.
-  if (quiet) win.show();
+  if (quiet && !o.behind) win.show();
   // The title is the space's name — what the Window menu, Mission Control and the Dock list the
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
   win.on("page-title-updated", (e) => e.preventDefault());
@@ -807,10 +807,14 @@ async function createWindow(info: { port: number; home: string; token: string },
     win.setIgnoreMouseEvents(true);
     win.webContents.on("did-finish-load", () => void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {}));
     void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {});
-    win.showInactive();
+    if (!o.behind) win.showInactive();
   }
-  if (savedWindow?.fullScreen) win.setFullScreen(true);
-  else if (savedWindow?.maximized) win.maximize();
+  // Either would show a window opened behind: it takes its saved size once it is shown.
+  const restoreSize = () => {
+    if (savedWindow?.fullScreen) win.setFullScreen(true);
+    else if (savedWindow?.maximized) win.maximize();
+  };
+  if (o.behind) win.once("show", restoreSize); else restoreSize();
   trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
   wireFullScreen(win);
@@ -2290,10 +2294,9 @@ const desktopNotifier = new DesktopNotifier({
     reopening = null;
     // The window showing the row's space opens it. With none, the one used last does, and switches.
     const win = windows.windowToOpen(spaceId);
-    // A click that recreated the window has no renderer listening yet — the send would land nowhere.
-    // Waiting for the first paint is the honest fix; `did-finish-load` is when a listener exists.
-    if (win && !win.webContents.isLoading()) win.webContents.send("realm:notification-activate", id);
-    else win?.webContents.once("did-finish-load", () => win.webContents.send("realm:notification-activate", id));
+    // A click that recreated or unloaded the window has no renderer listening yet: the send waits for
+    // its page to load (`did-finish-load` is when a listener exists).
+    if (win) void sendOnceUp(windowIdle, win, () => win.webContents.send("realm:notification-activate", id));
   }),
   setBadge: (count) => { app.setBadgeCount(count); },
 });
@@ -3122,13 +3125,14 @@ async function raiseAwake(win: BrowserWindow, by: RaiseBy = "person"): Promise<v
 }
 
 /** Open the window held at launch for this space (`splitLaunch`), as it was saved but in the profile the
- *  space is in now, or null when none is held for it. Once, however many ask while it opens. */
-function openHeld(spaceId: string): Promise<BrowserWindow | null> {
+ *  space is in now, or null when none is held for it. Once, however many ask while it opens. `behind`
+ *  opens it unshown, for an agent's work. */
+function openHeld(spaceId: string, o: { behind?: boolean } = {}): Promise<BrowserWindow | null> {
   const info = serverInfo;
   if (!info) return Promise.resolve(null);
   return windows.openHeld(spaceId, async (held) => {
     const profileId = (held.land ? await profileOfSpace(held.land) : null) ?? held.profileId;
-    await createWindow(info, profileId, held.spaceId, held.land);
+    await createWindow(info, profileId, held.spaceId, held.land, o);
     return windows.windowForSpace(spaceId) ?? windows.primary();
   });
 }

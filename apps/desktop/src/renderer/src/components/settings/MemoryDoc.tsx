@@ -2,6 +2,7 @@ import { MEMORY_DOC_MAX } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { Markdown } from "../../panes/session/Markdown";
+import { holdMemoryEdit } from "./memory-doc-edits";
 
 const fmt = (n: number): string => n.toLocaleString("en-US");
 
@@ -66,6 +67,9 @@ export function MemoryDoc({ label, doc, placeholder, onSave, editorRef }: {
       if (latest.current.draft === d) { setDraft(null); setStatus("saved"); }
     }, () => { if (mounted.current) setStatus("failed"); });
   }, []);
+
+  const unsaved = draft !== null && draft !== doc;
+  useEffect(() => (unsaved ? holdMemoryEdit(ids) : undefined), [unsaved, ids]);
 
   // Leaving — the page closed, the tab changed — writes what was typed rather than dropping it.
   useEffect(() => {

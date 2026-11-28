@@ -292,4 +292,33 @@ describe("only the windows used last open at launch", () => {
     expect(reg.heldFor("s1")).toBeNull();
     expect(reg.saved().map((x) => x.showing)).toEqual(["s2", "s3", "s1"]);
   });
+
+  it("forgets a held window an open window moved onto, after that window moves on or closes", () => {
+    // THE MUTANT: still held while hidden from what is saved, so it comes back in windows.json once
+    // the other window leaves its space: a window the person never saw.
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    reg.hold(splitLaunch(six, 3).held);
+    const w = win(9);
+    reg.add(w, "pWork", "s6"); reg.setSpace(w, "s1");
+    reg.setSpace(w, "s4");
+    expect(reg.saved().map((x) => x.showing)).toEqual(["s2", "s3", "s4"]);
+    expect(reg.heldFor("s1")).toBeNull();
+    reg.remove(w);
+    expect(reg.saved().map((x) => x.showing)).toEqual(["s2", "s3"]);
+  });
+
+  it("a window opened behind the person's is not the one used last, and saves as used longest ago", () => {
+    // THE MUTANT: a held window an agent's work opened becomes where toasts and the menu bar go.
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    const mine = win(1);
+    reg.add(mine, "pWork", "s6");
+    const held = win(2);
+    reg.add(held, "pWork", "s2", { behind: true });
+    reg.setSpace(mine, "s6"); reg.setSpace(held, "s2");
+    expect(reg.primary()).toBe(mine);
+    expect(reg.saved().map((x) => x.showing)).toEqual(["s2", "s6"]);
+    expect(reg.holding()).toBe(false);
+    reg.hold(splitLaunch(six, 3).held);
+    expect(reg.holding()).toBe(true);
+  });
 });

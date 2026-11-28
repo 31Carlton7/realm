@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { WindowIdle, busySpaces, canBeSeen, fullyCovered, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep, type Sight } from "./window-idle";
+import { WindowIdle, busySpaces, canBeSeen, fullyCovered, pageLoaded, sendOnceUp, sharesRenderer, unloadAnswer, wakeForWork, wakesWindows, type IdleKeep, type Sight } from "./window-idle";
 
 const HOUR = 60 * 60_000;
 
@@ -22,7 +22,7 @@ function setup(o: { keep?: (id: number) => IdleKeep | null; refuse?: (id: number
       if (refused === null) unloaded.push(w.id);
       return refused;
     },
-    load: async (w) => { loaded.push(w.id); },
+    load: async (w) => { loaded.push(w.id); return "loaded" as const; },
   });
   /** A window opened after the others: the one used last, which no sweep unloads. */
   const front = () => { const f = win(100); idle.opened(f); return f; };
@@ -118,7 +118,7 @@ describe("a window nobody has focused for hours", () => {
     const idle = new WindowIdle<typeof a>({
       now: () => now, keep: () => null,
       unload: () => new Promise<IdleKeep | null>((resolve) => { finish = () => { order.push("unloaded"); resolve(null); }; }),
-      load: async () => { order.push("loaded"); },
+      load: async () => { order.push("loaded"); return "loaded" as const; },
     });
     idle.opened(a);
     idle.opened(b);
@@ -140,7 +140,7 @@ describe("a window nobody has focused for hours", () => {
     const idle = new WindowIdle<typeof a>({
       now: () => now, keep: () => null,
       unload: () => new Promise<IdleKeep | null>((resolve) => { finish = resolve; }),
-      load: async (w) => { loaded.push(w.id); },
+      load: async (w) => { loaded.push(w.id); return "loaded" as const; },
     });
     idle.opened(a);
     idle.opened(b);
@@ -247,6 +247,168 @@ describe("an unloaded window whose space starts work", () => {
   });
 });
 
+describe("a window woken by work", () => {
+  it("counts afresh from its wake, so the next sweep leaves it loaded", async () => {
+    // THE MUTANT: its clock left where the unload found it, so the first sweep after the turn ends
+    // unloads it again, and every turn costs a reload.
+    const { idle, win, front, unloaded, loaded, at } = setup();
+    const a = win(1);
+    idle.opened(a);
+    front();
+    at(5 * HOUR);
+    await idle.sweep(4 * HOUR);
+    at(6 * HOUR);
+    await Promise.all(idle.wakeWhere((w) => w.id === 1));
+    expect(loaded).toEqual([1]);
+    at(6 * HOUR + 60_000);
+    await idle.sweep(4 * HOUR);
+    expect(unloaded).toEqual([1]);
+    at(10 * HOUR);
+    await idle.sweep(4 * HOUR);
+    expect(unloaded).toEqual([1, 1]);
+  });
+
+  it("whose reload fails or times out loads again at the next focus", async () => {
+    // THE MUTANT: the window neither unloaded nor loading after a failed reload, so it stays blank.
+    const outcomes: ("loaded" | "failed" | "timeout")[] = ["failed", "timeout", "loaded"];
+    let now = 0;
+    const tries: number[] = [];
+    const a = { id: 1, isDestroyed: () => false };
+    const b = { id: 2, isDestroyed: () => false };
+    const idle = new WindowIdle<typeof a>({
+      now: () => now, keep: () => null, unload: async () => null,
+      load: async (w) => { tries.push(w.id); return outcomes.shift()!; },
+    });
+    idle.opened(a);
+    idle.opened(b);
+    now = 5 * HOUR;
+    await idle.sweep(4 * HOUR);
+    await idle.focused(a);
+    expect(idle.isUnloaded(a)).toBe(true);
+    await idle.focused(a);
+    expect(idle.isUnloaded(a)).toBe(true);
+    await idle.focused(a);
+    expect(idle.isUnloaded(a)).toBe(false);
+    await idle.focused(a);
+    expect(tries).toEqual([1, 1, 1]);
+  });
+});
+
+describe("a window held at launch whose space starts work", () => {
+  const space = new Map([[1, "sp-1"], [2, "sp-2"]]);
+
+  it("opens, though no open window is unloaded", async () => {
+    // THE MUTANT: the early return for "nothing unloaded", so a held space's agent never gets a window
+    // and every browser_open there answers "pane not open in the app".
+    const { idle, win, front } = setup();
+    const a = win(1);
+    idle.opened(a);
+    front();
+    const opened: string[] = [];
+    const busy = await wakeForWork(idle, {
+      windows: [a], holding: true, spaceOf: (w) => space.get(w.id) ?? null,
+      busySpaces: async () => new Set(["sp-1", "sp-5"]), openHeld: (s) => { opened.push(s); },
+    });
+    expect(opened).toEqual(["sp-1", "sp-5"]);
+    expect([...busy!]).toEqual(["sp-1", "sp-5"]);
+  });
+
+  it("wakes the unloaded windows on busy spaces alongside, and asks nothing with none unloaded or held", async () => {
+    const { idle, win, front, loaded, at } = setup();
+    const a = win(1);
+    const b = win(2);
+    idle.opened(a);
+    idle.opened(b);
+    front();
+    at(5 * HOUR);
+    await idle.sweep(4 * HOUR);
+    const opened: string[] = [];
+    let asked = 0;
+    const d = { windows: [a, b], spaceOf: (w: typeof a) => space.get(w.id) ?? null, openHeld: (s: string) => { opened.push(s); },
+      busySpaces: async () => { asked += 1; return new Set(["sp-2"]); } };
+    await wakeForWork(idle, { ...d, holding: false });
+    await idle.awake(b);
+    expect(loaded).toEqual([2]);
+    expect(opened).toEqual(["sp-2"]);
+    await idle.focused(a);
+    expect(await wakeForWork(idle, { ...d, holding: false })).toBeNull();
+    expect(asked).toBe(1);
+  });
+
+  it("opened behind the person's window, is not the window used last", async () => {
+    // THE MUTANT: a window nobody has seen counted as the one used last, so the person's own window
+    // loses the protection and is unloaded under them.
+    const { idle, win, unloaded, at } = setup();
+    const mine = win(1);
+    idle.opened(mine);
+    const held = win(2);
+    idle.opened(held, { behind: true });
+    at(5 * HOUR);
+    await idle.sweep(4 * HOUR);
+    expect(unloaded).toEqual([2]);
+  });
+});
+
+describe("a toast clicked for an unloaded window", () => {
+  it("reaches the page once it has loaded again, not the renderer that ended", async () => {
+    // THE MUTANT: sent at once, to a page that is not there, and the row clicked never opens.
+    const order: string[] = [];
+    let done!: () => void;
+    let now = 0;
+    const page = new EventEmitter();
+    const wc = { isLoading: () => false, once: (e: string, fn: () => void) => page.once(e, fn) };
+    const a = { id: 1, isDestroyed: () => false, webContents: wc };
+    const b = { id: 2, isDestroyed: () => false, webContents: wc };
+    const idle = new WindowIdle<typeof a>({
+      now: () => now, keep: () => null, unload: async () => null,
+      load: () => new Promise<"loaded">((resolve) => { done = () => { order.push("loaded"); resolve("loaded"); }; }),
+    });
+    idle.opened(a);
+    idle.opened(b);
+    now = 5 * HOUR;
+    await idle.sweep(4 * HOUR);
+    const sent = sendOnceUp(idle, a, () => order.push("activate"));
+    await Promise.resolve();
+    expect(order).toEqual([]);
+    done();
+    await sent;
+    expect(order).toEqual(["loaded", "activate"]);
+    expect(idle.isUnloaded(a)).toBe(false);
+  });
+
+  it("waits for a page still loading to finish", async () => {
+    const order: string[] = [];
+    const page = new EventEmitter();
+    let loading = true;
+    const a = { id: 1, isDestroyed: () => false, webContents: { isLoading: () => loading, once: (e: string, fn: () => void) => page.once(e, fn) } };
+    const idle = new WindowIdle<typeof a>({ now: () => 0, keep: () => null, unload: async () => null, load: async () => "loaded" });
+    idle.opened(a);
+    await sendOnceUp(idle, a, () => order.push("activate"));
+    expect(order).toEqual([]);
+    loading = false;
+    page.emit("did-finish-load");
+    expect(order).toEqual(["activate"]);
+  });
+});
+
+describe("a page asked to write its view down before an unload", () => {
+  it("goes ahead only on its answer: unsaved stays, and no answer in time stays too", async () => {
+    // THE MUTANT: the timeout read as go ahead, so a page too busy to answer is unloaded with its work.
+    const ipc = new EventEmitter();
+    const page = {};
+    const other = {};
+    const ready = unloadAnswer(ipc, page, 60_000);
+    ipc.emit("window:unload-ready", { sender: other }, "unsaved");
+    ipc.emit("window:unload-ready", { sender: page }, null);
+    expect(await ready).toBeNull();
+    const unsaved = unloadAnswer(ipc, page, 60_000);
+    ipc.emit("window:unload-ready", { sender: page }, "unsaved");
+    expect(await unsaved).toBe("unsaved");
+    expect(await unloadAnswer(ipc, page, 5)).toBe("unanswered");
+    expect(ipc.eventNames()).toEqual([]);
+  });
+});
+
 describe("waiting for a window's page to come back", () => {
   it("waits until the page loads, fails to, or goes, and no longer than its timeout", async () => {
     // THE MUTANT: only did-finish-load ends the wait, so a page that fails or dies holds it forever.
@@ -274,7 +436,7 @@ describe("waiting for a window's page to come back", () => {
     const b = { id: 2, isDestroyed: () => false };
     const idle = new WindowIdle<typeof a>({
       now: () => now, keep: () => null, unload: async () => null,
-      load: () => new Promise<void>((resolve) => { done = () => { order.push("loaded"); resolve(); }; }),
+      load: () => new Promise<"loaded">((resolve) => { done = () => { order.push("loaded"); resolve("loaded"); }; }),
     });
     idle.opened(a);
     idle.opened(b);

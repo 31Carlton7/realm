@@ -5,5 +5,5 @@ export default defineConfig({
   plugins: [react()],
   // The glyphs the build draws, Pro or free (electron.vite.config.ts), so a test sees what the app shows.
   resolve: { alias: hugeiconsAlias() },
-  test: { name: "desktop", environment: "jsdom", include: ["src/renderer/**/*.test.{ts,tsx}", "src/main/**/*.test.ts", "scripts/**/*.test.ts"], setupFiles: ["src/renderer/src/test-setup.ts"] },
+  test: { name: "desktop", environment: "jsdom", include: ["src/renderer/**/*.test.{ts,tsx}", "src/main/**/*.test.ts", "src/preload/**/*.test.ts", "scripts/**/*.test.ts"], setupFiles: ["src/renderer/src/test-setup.ts"] },
 });
