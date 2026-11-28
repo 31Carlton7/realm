@@ -1,4 +1,4 @@
-import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel, type AddTeammate } from "@realm/contracts";
+import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type ChildrenCursor, type DelegableModel, type AddTeammate } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape, type UnlockPolicy, type UnlockPolicyStatus } from "@realm/contracts";
 import { SETTING_THEME_NAME, type EditorTheme } from "@realm/contracts";
 import { destinationTarget } from "./page-item";
@@ -827,9 +827,14 @@ export type Api = TeammatesApi & {
    *  in memory, so this is the only way a pane mounted mid-run learns about it; from then on
    *  `delegation.changed` carries every change. */
   listDelegatedRuns(sessionId: string): Promise<DelegatedRun[]>;
-  /** `delegation.children` — every session this one delegated to, oldest first, settled ones included, and the
-   *  sub-agents the person took off its prompter's row. */
-  listDelegatedChildren(sessionId: string): Promise<{ children: DelegatedChild[]; dismissed: string[] }>;
+  /** `delegation.children`: a page of the sessions this one delegated to, settled ones included, the
+   *  newest ones started before `before` (the newest of all without it), handed back oldest first;
+   *  `nextBefore` is where the next older page starts, null when there is none; `total` is how many
+   *  there are in all, null from a server that does not count them. And the sub-agents the person
+   *  took off its prompter's row. */
+  listDelegatedChildren(sessionId: string, before?: ChildrenCursor): Promise<{ children: DelegatedChild[]; dismissed: string[]; nextBefore: ChildrenCursor | null; total: number | null }>;
+  /** `delegation.children` with no limit: every one, oldest first, for a share of the whole transcript. */
+  listAllDelegatedChildren(sessionId: string): Promise<DelegatedChild[]>;
   /** `delegation.child`: one of them, as the list has it; null when it is not this session's. */
   getDelegatedChild(sessionId: string, childId: string): Promise<DelegatedChild | null>;
   /** `delegation.addTeammate` — an agent added from the prompter's "+", as the session's sub-agent. */
@@ -1707,10 +1712,22 @@ export type AppState = TeammatesSlice & {
    *  delegation registry, mirrored. A session waiting on nothing holds no entry rather than an empty
    *  array, so the map stays the size of the delegation actually happening. */
   delegatedRuns: Record<string, DelegatedRun[]>;
-  /** Every sub-agent a lead session started (`delegation.children`), by LEAD session id — what its
-   *  Agents tab lists and its transcript's delegation lines read. Fetched while either is on screen,
-   *  and re-read on each `delegation.changed` for the lead, which is every begin, settle and collect. */
+  /** The sub-agents a lead session started (`delegation.children`), by LEAD session id, oldest first:
+   *  what its Agents tab lists and its transcript's delegation lines read. The newest page, and each
+   *  older page Show older asked for; besides those, any older one still running or that something
+   *  named (`loadSubagent`). Fetched while either is on screen, and kept current by each
+   *  `delegation.changed` for the lead, which is every begin, settle and collect. */
   subagents: Record<string, DelegatedChild[]>;
+  /** Where each lead's next older page of `subagents` starts, by LEAD session id: the oldest row of
+   *  the run of pages held. Null once every one is held. */
+  subagentsBefore: Record<string, ChildrenCursor | null>;
+  /** How many sub-agents each lead has in all, held or not, by LEAD session id, as the last page read
+   *  counted them and moved by each one a patch adds or drops since. Absent when the server does not
+   *  count. */
+  subagentsTotal: Record<string, number>;
+  /** The ids `delegation.child` said are not a lead's sub-agents, by LEAD session id, so a line or a
+   *  viewer naming one stops waiting for it. */
+  subagentMisses: Record<string, string[]>;
   /** The sub-agents taken off each lead's prompter row (`delegation.dismiss`), by LEAD session id:
    *  child session ids, and launching call ids for the harness's own. Read with `subagents`. */
   dismissedSubagents: Record<string, string[]>;
@@ -2864,8 +2881,15 @@ export type AppState = TeammatesSlice & {
   /** The `delegation.changed` handler. The payload is the WHOLE set, so it replaces rather than
    *  merges; an empty one drops the key instead of parking an empty array nobody will clear. */
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[]; childId?: string }): void;
-  /** Re-read a lead's sub-agents into `subagents`. */
+  /** Re-read a lead's newest page of sub-agents into `subagents`, keeping the older pages held. */
   refreshSubagents(sessionId: string): Promise<void>;
+  /** Show older: read the page before the cursor, and add it among the rows held, in order. */
+  loadOlderSubagents(sessionId: string): Promise<void>;
+  /** Show older until there is none left: what "Show all" over the viewer asks for. */
+  loadEveryOlderSubagent(sessionId: string): Promise<void>;
+  /** Read one of a lead's sub-agents that something names but no page held has (`delegation.child`),
+   *  and put it in its place, or remember that it is not the lead's. */
+  loadSubagent(sessionId: string, childId: string): Promise<void>;
   /** Read a lead's sub-agents on a mount: joins a read already in flight for the lead, so a lead's pane
    *  and its Agents tab opening together read once. A change re-reads with `refreshSubagents`. */
   loadSubagents(sessionId: string): Promise<void>;
@@ -3997,19 +4021,63 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  waits for rather than reading the same end twice. */
     const tails = new TailCache<TailRead>(TAIL_CACHE_SIZE, TAIL_CACHE_EVENTS);
     const prefetching = new Map<string, Promise<void>>();
-    /** The read of each lead's sub-agents in flight, which `loadSubagents` joins. */
+    /** The read of each lead's sub-agents in flight, which `loadSubagents` joins; and of its older
+     *  pages and single rows, which a second ask joins. */
     const readingSubagents = new Map<string, Promise<void>>();
-    /** Put the one row `delegation.child` answers in place of the held one: replaced, added at the end,
-     *  or dropped when it is no longer the lead's. Adding at the end relies on the held list being
-     *  oldest first, as `listDelegatedChildren` returns it. */
+    const readingOlderSubagents = new Map<string, Promise<void>>();
+    const readingSubagent = new Map<string, Promise<void>>();
+    /** The newest row of each lead's newest page as it was last read: the top of the run of pages held,
+     *  every row between it and the cursor held. Rows a patch added above it may have gaps under them. */
+    const pagesTop = new Map<string, ChildrenCursor | null>();
+    /** The rows of each lead's that `loadSubagent` read alone, outside any page. */
+    const readAlone = new Map<string, Set<string>>();
+    /** The server's order: by when the session was made, then by id. */
+    const olderThan = (a: ChildrenCursor, b: ChildrenCursor) => a.createdAt < b.createdAt || (a.createdAt === b.createdAt && a.id < b.id);
+    const byStart = (a: DelegatedChild, b: DelegatedChild) => (olderThan(a.session, b.session) ? -1 : olderThan(b.session, a.session) ? 1 : 0);
+    const setTotal = (leadId: string, total: number | null) => {
+      const { [leadId]: _old, ...rest } = get().subagentsTotal;
+      set({ subagentsTotal: total === null ? rest : { ...rest, [leadId]: total } });
+    };
+    const moveTotal = (leadId: string, by: number) => {
+      const total = get().subagentsTotal[leadId];
+      if (total !== undefined) set({ subagentsTotal: { ...get().subagentsTotal, [leadId]: Math.max(0, total + by) } });
+    };
+    /** A held list, oldest first, with `child` added in that order. */
+    const placeSubagent = (held: DelegatedChild[], child: DelegatedChild) => {
+      const after = held.findIndex((c) => olderThan(child.session, c.session));
+      return after < 0 ? [...held, child] : [...held.slice(0, after), child, ...held.slice(after)];
+    };
+    /** Put the one row `delegation.child` answers in place of the held one: replaced, or dropped when
+     *  it is no longer the lead's. One not held goes where it started among the held rows, unless it is
+     *  older than the oldest page held and not running: Show older brings that one with its page, and
+     *  taking it in alone would leave a gap above it. A new one is the newest, so it always comes in. */
     const patchSubagent = async (leadId: string, childId: string) => {
       const child = await api.getDelegatedChild(leadId, childId);
       const held = get().subagents[leadId];
       if (!held) return;
       const at = held.findIndex((c) => c.session.id === childId);
-      if (child === null && at < 0) return;
-      const next = child === null ? held.filter((_, i) => i !== at) : at < 0 ? [...held, child] : held.map((c, i) => (i === at ? child : c));
-      set({ subagents: { ...get().subagents, [leadId]: next } });
+      if (at >= 0) {
+        set({ subagents: { ...get().subagents, [leadId]: child === null ? held.filter((_, i) => i !== at) : held.map((c, i) => (i === at ? child : c)) } });
+        if (child === null) moveTotal(leadId, -1);
+        return;
+      }
+      if (child === null) return;
+      const before = get().subagentsBefore[leadId] ?? null;
+      const running = get().delegatedRuns[leadId]?.some((r) => r.sessionId === childId) ?? false;
+      if (before && olderThan(child.session, before) && !running) return;
+      set({ subagents: { ...get().subagents, [leadId]: placeSubagent(held, child) } });
+      // Newer than every row held, it began after the count was read; any other was counted in it.
+      const newest = held.at(-1);
+      if (!newest || olderThan(newest.session, child.session)) moveTotal(leadId, 1);
+    };
+    /** Runs of the lead's in flight that no held page has: a sub-agent started before the newest page
+     *  and still working, which the prompter's row and the tab's working ones must not leave out. */
+    const readRunningSubagents = (leadId: string) => {
+      const held = get().subagents[leadId];
+      if (!held) return;
+      for (const r of get().delegatedRuns[leadId] ?? []) {
+        if (!held.some((c) => c.session.id === r.sessionId)) void get().run(() => get().loadSubagent(leadId, r.sessionId));
+      }
     };
     const setDelegatedRuns = (sessionId: string, running: DelegatedRun[]) => {
       const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
@@ -5061,7 +5129,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, draftTabs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", sessionCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelDefaults: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, subagentsBefore: {}, subagentsTotal: {}, subagentMisses: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null, voicePrefs: DEFAULT_VOICE_PREFS,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -7109,7 +7177,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           probe: get().agentProbe,
           now: Date.now(),
           readLog,
-          children: async () => (await api.listDelegatedChildren(id)).children,
+          children: () => api.listAllDelegatedChildren(id),
           resolve: async (path, base) => (await window.realm?.files?.resolve?.(path, base ?? undefined)) ?? null,
           image: async (path) => (await window.realm?.shareImage?.(path)) ?? null,
         });
@@ -8312,6 +8380,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshDelegatedRuns(sessionId) {
         // Only the runs: every caller (a mount, a reconnect) reads the list of sub-agents itself.
         setDelegatedRuns(sessionId, await api.listDelegatedRuns(sessionId));
+        readRunningSubagents(sessionId);
       },
       applyDelegationChanged({ sessionId, running, childId }) {
         setDelegatedRuns(sessionId, running);
@@ -8324,11 +8393,81 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         else void get().run(() => get().refreshSubagents(sessionId));
       },
       async refreshSubagents(sessionId) {
-        const read = api.listDelegatedChildren(sessionId).then(({ children, dismissed }) => {
-          set({ subagents: { ...get().subagents, [sessionId]: children }, dismissedSubagents: { ...get().dismissedSubagents, [sessionId]: dismissed } });
+        const read = api.listDelegatedChildren(sessionId).then(({ children, dismissed, nextBefore, total }) => {
+          // Rows older than this page came from Show older or were read alone. The older pages keep
+          // their cursor only while they still reach this page: when more than a page began since,
+          // the rows between are held by neither, so the cursor starts again under this page and only
+          // the rows running or read alone stay. A row in this page's span that it lacks was deleted.
+          const top = pagesTop.get(sessionId) ?? null;
+          const reaches = nextBefore !== null && top !== null && !olderThan(top, nextBefore);
+          const alone = readAlone.get(sessionId);
+          const running = get().delegatedRuns[sessionId] ?? [];
+          const kept = nextBefore ? (get().subagents[sessionId] ?? []).filter((c) => olderThan(c.session, nextBefore)
+            && (reaches || alone?.has(c.session.id) || running.some((r) => r.sessionId === c.session.id))) : [];
+          const last = children.at(-1);
+          pagesTop.set(sessionId, last ? { createdAt: last.session.createdAt, id: last.session.id } : null);
+          set({
+            subagents: { ...get().subagents, [sessionId]: [...kept, ...children] },
+            subagentsBefore: { ...get().subagentsBefore, [sessionId]: reaches ? get().subagentsBefore[sessionId] ?? null : nextBefore },
+            dismissedSubagents: { ...get().dismissedSubagents, [sessionId]: dismissed },
+          });
+          setTotal(sessionId, total);
+          readRunningSubagents(sessionId);
         });
         readingSubagents.set(sessionId, read);
         try { await read; } finally { if (readingSubagents.get(sessionId) === read) readingSubagents.delete(sessionId); }
+      },
+      loadOlderSubagents(sessionId) {
+        const before = get().subagentsBefore[sessionId];
+        if (!before) return Promise.resolve();
+        const reading = readingOlderSubagents.get(sessionId);
+        if (reading) return reading;
+        const read = api.listDelegatedChildren(sessionId, before).then(({ children, nextBefore, total }) => {
+          // A re-read that moved the cursor meanwhile holds a different run of pages.
+          const now = get().subagentsBefore[sessionId];
+          if (!now || now.createdAt !== before.createdAt || now.id !== before.id) return;
+          // In order, not under the held rows: those can include an older one read alone.
+          const held = get().subagents[sessionId] ?? [];
+          set({
+            subagents: { ...get().subagents, [sessionId]: [...held, ...children.filter((c) => !held.some((h) => h.session.id === c.session.id))].sort(byStart) },
+            subagentsBefore: { ...get().subagentsBefore, [sessionId]: nextBefore },
+          });
+          setTotal(sessionId, total);
+        }).finally(() => readingOlderSubagents.delete(sessionId));
+        readingOlderSubagents.set(sessionId, read);
+        return read;
+      },
+      async loadEveryOlderSubagent(sessionId) {
+        // Until a read moves the cursor no further, so a page that fails to move it ends the loop.
+        for (let at = get().subagentsBefore[sessionId]; at;) {
+          await get().loadOlderSubagents(sessionId);
+          const next = get().subagentsBefore[sessionId];
+          if (next === at) return;
+          at = next;
+        }
+      },
+      loadSubagent(sessionId, childId) {
+        const held = get().subagents[sessionId];
+        if (!held || held.some((c) => c.session.id === childId) || (get().subagentsBefore[sessionId] ?? null) === null
+          || get().subagentMisses[sessionId]?.includes(childId)) return Promise.resolve();
+        const key = `${sessionId}:${childId}`;
+        const reading = readingSubagent.get(key);
+        if (reading) return reading;
+        const read = api.getDelegatedChild(sessionId, childId).then((child) => {
+          const now = get().subagents[sessionId];
+          if (!now || now.some((c) => c.session.id === childId)) return;
+          if (child) {
+            readAlone.set(sessionId, new Set(readAlone.get(sessionId)).add(childId));
+            set({ subagents: { ...get().subagents, [sessionId]: placeSubagent(now, child) } });
+            return;
+          }
+          set({ subagentMisses: { ...get().subagentMisses, [sessionId]: [...(get().subagentMisses[sessionId] ?? []), childId] } });
+          // A sub-agent's own sub-agent is listed under it, so it is that one that is read.
+          const parent = (get().sessions[childId] ?? get().allSessions[childId])?.dispatchedBy?.sessionId;
+          if (parent && parent !== sessionId) return get().loadSubagent(sessionId, parent);
+        }).finally(() => readingSubagent.delete(key));
+        readingSubagent.set(key, read);
+        return read;
       },
       loadSubagents(sessionId) {
         return readingSubagents.get(sessionId) ?? get().refreshSubagents(sessionId);
