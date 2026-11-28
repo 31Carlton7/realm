@@ -26,7 +26,7 @@ import { BROWSER_KEEP_HIDDEN_DEFAULT, WINDOW_UNLOAD_IDLE_DEFAULT, WINDOW_UNLOAD_
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
-import { startBackdropState } from "./backdrop-state";
+import { startBackdropState, windowFrames, windowNumber } from "./backdrop-state";
 import { MeetingWatch, meetingWatchPath, startMeetingWatchHelper } from "./meeting-watch";
 import { RealmKeys } from "./realm-keys";
 import { AssistantKeys, onPageGone, PageInbox } from "./assistant-keys";
@@ -90,7 +90,7 @@ import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
-import { WindowIdle, busySpaces, onAnotherDisplay, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep } from "./window-idle";
+import { WindowIdle, busySpaces, canBeSeen, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
 import { endRenderer } from "./pane-health";
 import { registerFileActions } from "./file-actions";
 import { registerPdfExport } from "./print-pdf";
@@ -475,6 +475,8 @@ const RELOAD_WAIT_MS = 15_000;
 /** The space each unloaded window showed, by its webContents, for its page to land on when it loads
  *  again (`window:land`). */
 const unloadedLand = new Map<number, string>();
+/** Where macOS has each window and what covers it, by window number, as the latest sweep found it. */
+let sweepFrames: Map<number, WindowFrame> | null = null;
 
 /** An agent's op reached one of this window's browser panes within the grace the hidden-pane sweep
  *  gives one (`AGENT_GRACE_MS`). */
@@ -490,7 +492,8 @@ function idleKeep(win: BrowserWindow): IdleKeep | null {
   const front = windows.primary();
   if (win === front && win.isVisible() && !win.isMinimized()) return "front";
   const displayOf = (w: BrowserWindow) => screen.getDisplayMatching(w.getBounds()).id;
-  if (onAnotherDisplay({ visible: win.isVisible(), minimized: win.isMinimized(), display: displayOf(win) }, front && !front.isDestroyed() ? displayOf(front) : null)) return "visible";
+  const frame = sweepFrames?.get(windowNumber(win) ?? -1) ?? null;
+  if (canBeSeen({ visible: win.isVisible(), minimized: win.isMinimized(), display: displayOf(win), frame }, front && !front.isDestroyed() ? displayOf(front) : null)) return "visible";
   if (agentDriving(win) || computerDriving.showing) return "agent";
   const space = windows.spaceOf(win);
   if (space && windowPolicy.busySpaces.has(space)) return "working";
@@ -561,8 +564,10 @@ async function sweepWindows(params: unknown): Promise<{ unloaded: number[]; kept
   const p = (params ?? {}) as { idleMs?: unknown; unloadIdle?: unknown; busySpaces?: unknown };
   if (typeof p.unloadIdle === "boolean") windowPolicy.unloadIdle = p.unloadIdle;
   if (Array.isArray(p.busySpaces)) windowPolicy.busySpaces = new Set(p.busySpaces.filter((x): x is string => typeof x === "string"));
-  const idleMs = typeof p.idleMs === "number" && p.idleMs >= 0 ? p.idleMs : null;
-  return windowIdle.sweep(windowPolicy.unloadIdle ? liveWindowIdleMs ?? idleMs : null);
+  const idleMs = windowPolicy.unloadIdle ? liveWindowIdleMs ?? (typeof p.idleMs === "number" && p.idleMs >= 0 ? p.idleMs : null) : null;
+  if (idleMs === null) return windowIdle.sweep(null);
+  sweepFrames = await windowFrames(windows.all().map(windowNumber).filter((n): n is number => n !== null));
+  return windowIdle.sweep(idleMs);
 }
 if (liveWindowIdleMs !== null) setInterval(() => { void sweepWindows({}); }, 1_000).unref();
 

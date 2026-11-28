@@ -6,6 +6,11 @@
 //                            (hidden, minimised, another Space) or every part of it under ordinary
 //                            windows; asleep is on displays that are all asleep; locked is the session's
 //                            screen locked, whose shield is not a window of the ordinary layer
+//   backdropstate --frames 1234 5678
+//                            prints {"frames":[{"window":1234,"onScreen":true,"bounds":[x,y,w,h],"above":[[x,y,w,h]]}]}
+//                            once and exits: where each window is, and the opaque windows of the ordinary
+//                            layer above it, for main's idle sweep to tell a window partly showing from
+//                            one wholly covered (window-idle.ts `canBeSeen`)
 // Reads lines of window numbers to watch ("1234 5678", or an empty line for none) on stdin, and looks
 // once a second while there are any. Realm keeps covered windows compositing for its browser agent
 // (--disable-backgrounding-occluded-windows), so the page itself is never told.
@@ -25,18 +30,25 @@ func bounds(_ w: [String: Any]) -> CGRect? {
   return CGRect(dictionaryRepresentation: d)
 }
 
-/// Not listed or off screen, or every point of a 12x12 grid over it inside an opaque window of the ordinary layer
-/// above it. The layer keeps out the menu bar, the Dock and overlays that draw nothing over it.
+func json(_ r: CGRect) -> String { "[\(r.minX),\(r.minY),\(r.width),\(r.height)]" }
+
+/// Opaque windows of the ordinary layer above the window: the layer keeps out the menu bar, the Dock
+/// and overlays that draw nothing over it.
+func opaqueAbove(_ id: CGWindowID) -> [CGRect] {
+  let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements], id) as? [[String: Any]]) ?? []
+  return above.compactMap { w -> CGRect? in
+    guard (w[kCGWindowLayer as String] as? Int) == 0, ((w[kCGWindowAlpha as String] as? Double) ?? 0) >= 0.99 else { return nil }
+    return bounds(w)
+  }
+}
+
+/// Not listed or off screen, or every point of a 12x12 grid over it inside an opaque window above it.
 func covered(_ id: CGWindowID) -> Bool {
   // A window ordered out (hidden) is not listed at all; one minimised or on another Space is listed off screen.
   guard let me = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]])?.first else { return true }
   if (me[kCGWindowIsOnscreen as String] as? Bool) != true { return true }
   guard let rect = bounds(me) else { return false }
-  let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements], id) as? [[String: Any]]) ?? []
-  let opaque = above.compactMap { w -> CGRect? in
-    guard (w[kCGWindowLayer as String] as? Int) == 0, ((w[kCGWindowAlpha as String] as? Double) ?? 0) >= 0.99 else { return nil }
-    return bounds(w)
-  }
+  let opaque = opaqueAbove(id)
   if opaque.isEmpty { return false }
   for i in 0..<12 {
     for j in 0..<12 {
@@ -71,6 +83,20 @@ func look(locked: Bool? = nil) {
     last = now
     print(now)
   }
+}
+
+func frame(_ id: CGWindowID) -> String {
+  guard let me = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]])?.first else { return "{\"window\":\(id),\"onScreen\":false}" }
+  let onScreen = (me[kCGWindowIsOnscreen as String] as? Bool) == true
+  let place = bounds(me).map { ",\"bounds\":\(json($0))" } ?? ""
+  let above = onScreen ? opaqueAbove(id).map(json).joined(separator: ",") : ""
+  return "{\"window\":\(id),\"onScreen\":\(onScreen)\(place),\"above\":[\(above)]}"
+}
+
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "--frames" {
+  let ids = CommandLine.arguments.dropFirst(2).compactMap { CGWindowID($0) }
+  print("{\"frames\":[\(ids.map(frame).joined(separator: ","))]}")
+  exit(0)
 }
 
 reportPower()
