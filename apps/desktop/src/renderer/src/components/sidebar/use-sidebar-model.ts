@@ -88,11 +88,17 @@ export function useAllItemsFresh(): () => void {
   }, [flush]);
 
   const first = useRef(true);
+  const shownSpaces = useRef(spaces);
   useEffect(() => {
+    const was = shownSpaces.current;
+    shownSpaces.current = spaces;
     if (first.current) { first.current = false; refresh(); return; }
+    // Boot publishing the spaces into a sidebar that mounted before them: the read on mount already
+    // has every space's rows, and a second one (1.26 MB on the owner's home) holds up boot's own reads.
+    if (was.length === 0 && !store.getState().booted) return;
     owed.current.all = true;
     flush();
-  }, [spaces, refresh, flush]);
+  }, [spaces, refresh, flush, store]);
   // The room on screen, from the list the window holds (which carries a few rows of other spaces too,
   // and only the room's own are its whole list). An empty one cannot be told from a list not read yet
   // (a space switch clears it first), so that one is read.
@@ -100,8 +106,11 @@ export function useAllItemsFresh(): () => void {
     const { activeSpaceId } = store.getState();
     if (!activeSpaceId) return;
     const own = items.filter((i) => i.spaceId === activeSpaceId);
-    if (own.length > 0) store.getState().putSpaceItems(activeSpaceId, own);
-    else owe(activeSpaceId);
+    if (own.length > 0) {
+      store.getState().putSpaceItems(activeSpaceId, own);
+      // Owed while it was empty; its list has arrived since.
+      owed.current.spaces.delete(activeSpaceId);
+    } else owe(activeSpaceId);
   }, [items, store, owe]);
   const seen = useRef({ status, sessionSpace });
   useEffect(() => {

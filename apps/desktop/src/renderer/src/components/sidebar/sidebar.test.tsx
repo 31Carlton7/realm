@@ -420,6 +420,32 @@ describe("a session's row", () => {
     expect(store.getState().allItems.map((i) => i.id).sort()).toEqual(["i-a", "i-b", "i-c", "i-term"]);
   });
 
+  it("a sidebar up before boot reads every space's rows once, not again when boot puts the spaces in", async () => {
+    /* The sidebar mounts while boot is still reading the home, and its read on mount already holds
+       every space's rows. THE MUTANTS: boot publishing the spaces re-reading them all (1.26 MB on the
+       owner's home, queued ahead of boot's own reads); the room's own read, owed while its list was
+       still empty, made after that list arrived. */
+    const api = fakeApi(home());
+    const store = createAppStore(api);
+    render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
+    await act(() => store.getState().boot());
+    const count = (c: string) => api.calls.filter((x) => x === c).length;
+    const room = `listItems:${store.getState().activeSpaceId}`;
+    const roomReads = count(room);
+    await new Promise((r) => setTimeout(r, ALL_ITEMS_SETTLE_MS * 2));
+    expect(count("listAllItems")).toBe(1);
+    expect(count(room)).toBe(roomReads);
+  });
+
+  it("the first space in an empty home re-reads every space's rows", async () => {
+    // THE MUTANT: no re-read whenever the spaces were empty, booted or not.
+    const { api, store } = await mount({ profiles: [profile("p1", "Work")], spaces: [], items: {} });
+    await new Promise((r) => setTimeout(r, ALL_ITEMS_SETTLE_MS + 50));
+    const all = api.calls.filter((x) => x === "listAllItems").length;
+    act(() => store.setState({ spaces: [space("s1", "p1", "Versed")] }));
+    await waitFor(() => expect(api.calls.filter((x) => x === "listAllItems").length).toBe(all + 1), { timeout: ALL_ITEMS_SETTLE_MS * 4 });
+  });
+
   it("a session new to the window re-reads its own space, and new spaces re-read every space", async () => {
     // THE MUTANTS: a session made in another space never reaching the list; a new space's rows never read.
     const { api, store } = await mount(home());
