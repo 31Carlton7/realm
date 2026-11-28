@@ -1218,6 +1218,74 @@ describe("file-chooser interception", () => {
     expect(read.text).toContain("file chooser was intercepted");
   });
 
+  describe("several agents on one pane at once (#740)", () => {
+    /** The op's answer, or "hung" if it has none within `ms` — a wait that is overwritten never settles. */
+    const within = <T,>(op: Promise<T>, ms = 1500) =>
+      Promise.race([op, new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), ms))]);
+
+    it("every act finishes when three land on a fresh pane together, each waiting out its own chooser check", async () => {
+      // Two clicks and a scroll: once the first click has armed, every act waits a moment for a
+      // chooser. THE MUTANT is one waiting slot, where each act's wait replaces the last and only the
+      // newest one is ever settled.
+      const { host } = setup();
+      const acts = [
+        { kind: "click", ref: 5 },
+        { kind: "click", ref: 6 },
+        { kind: "scroll", deltaY: 100 },
+      ].map((action) => within(host.handleOp("act", { browserId: "b1", action })));
+      const results = (await Promise.all(acts)) as ({ ok: boolean } | "hung")[];
+      expect(results.map((r) => (r === "hung" ? r : r.ok))).toEqual([true, true, true]);
+    });
+
+    it("a first snapshot, read and acts at once all finish, on one attachment", async () => {
+      const { host, attached } = setup();
+      const ops = [
+        host.handleOp("snapshot", { browserId: "b1" }),
+        host.handleOp("read", { browserId: "b1", kind: "console" }),
+        host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } }),
+        host.handleOp("act", { browserId: "b1", action: { kind: "key", key: "Enter" } }),
+        host.handleOp("snapshot", { browserId: "b1" }),
+      ].map((op) => within(op));
+      expect((await Promise.all(ops)).filter((r) => r === "hung")).toEqual([]);
+      expect(attached).toEqual(["b1"]);
+    });
+
+    it("a chooser that opens while two acts wait is told to both, and answered once", async () => {
+      const { host, emitEvent } = setup();
+      const acts = [5, 6].map((ref) => within(host.handleOp("act", { browserId: "b1", action: { kind: "click", ref } })));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectSingle" });
+      const results = (await Promise.all(acts)) as ({ detail: string } | "hung")[];
+      expect(results.map((r) => (r === "hung" ? r : r.detail.includes("intercepted")))).toEqual([true, true]);
+      expect(((await host.handleOp("dismissDialog", { browserId: "b1" })) as { dismissed: boolean }).dismissed).toBe(true);
+      expect(((await host.handleOp("dismissDialog", { browserId: "b1" })) as { dismissed: boolean }).dismissed).toBe(false);
+    });
+
+    it("an upload waiting on its click's chooser still gets it while an act is waiting too", async () => {
+      const { host, emitEvent } = setup({
+        responses: { "Runtime.callFunctionOn": { result: { value: { accept: "", multiple: true, names: ["hero.png"] } } } },
+      });
+      // The act is waiting first, so a chooser handed only to the first wait would miss the upload.
+      const act = within(host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 6 } }), 3000);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const upload = within(host.handleOp("upload", { browserId: "b1", ref: 5, files: [{ path: "/space/hero.png", name: "hero.png", bytes: 10 }] }), 3000);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectMultiple" });
+      const [u, a] = (await Promise.all([upload, act])) as ({ ok: boolean; method?: string } | "hung")[];
+      expect(a).not.toBe("hung");
+      expect(u).not.toBe("hung");
+      expect(u).toMatchObject({ method: "chooser" });
+    });
+
+    it("a pane closed while acts wait on a chooser lets every one of them go", async () => {
+      const { host, liveViews } = setup();
+      const acts = [5, 6].map((ref) => within(host.handleOp("act", { browserId: "b1", action: { kind: "click", ref } }), 100));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      liveViews.delete("b1");
+      host.release("b1");
+      expect((await Promise.all(acts)).filter((r) => r === "hung")).toEqual([]);
+    });
+  });
 });
 
 describe("the upload op", () => {

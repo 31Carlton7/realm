@@ -288,17 +288,20 @@ type Attached = {
  *     that node; `browser_upload` fills it and `browser_dismiss_dialog` cancels it. Interception
  *     stays armed while one is pending, because disarming would not un-intercept it and the next
  *     click would open a native panel on top of a page already waiting for files.
- *   - `waiter` — a `browser_upload` blocked on the next `Page.fileChooserOpened`.
+ *   - `waiters` — everyone waiting on the next `Page.fileChooserOpened`: a `browser_upload` that
+ *     clicked, and every act checking whether its click opened one. Several agents can act on one
+ *     pane at once, so each wait has its own entry; with one slot, a second wait replaced the first
+ *     and the first never settled (#740). Called with `false` when the view is gone.
  */
 type FileChooserState = {
   armed: boolean;
   disarmAt: number;
   timer: ReturnType<typeof setTimeout> | null;
   pending: InterceptedChooser | null;
-  waiter: ((c: InterceptedChooser | null) => void) | null;
+  waiters: Set<(opened: boolean) => void>;
 };
 
-const newChooserState = (): FileChooserState => ({ armed: false, disarmAt: 0, timer: null, pending: null, waiter: null });
+const newChooserState = (): FileChooserState => ({ armed: false, disarmAt: 0, timer: null, pending: null, waiters: new Set() });
 
 export class BrowserAgentHost {
   private readonly attached = new Map<string, Attached>();
@@ -373,14 +376,12 @@ export class BrowserAgentHost {
     const entry = this.attached.get(browserId);
     entry?.pick?.(null);
     if (entry?.annotate) this.finishAnnotate(entry, { outcome: "closed" });
-    // A chooser waiter on a dead view resolves empty rather than hanging out its timeout, and the
+    // Chooser waits on a dead view resolve empty rather than hanging out their timeouts, and the
     // disarm timer is cleared — it would otherwise fire against a binding whose view is gone.
     if (entry) {
       this.clearChooserTimer(entry);
-      const waiter = entry.chooser.waiter;
-      entry.chooser.waiter = null;
       entry.chooser.pending = null;
-      waiter?.(null);
+      for (const wake of [...entry.chooser.waiters]) wake(false);
     }
     this.attached.delete(browserId);
   }
@@ -1086,20 +1087,26 @@ export class BrowserAgentHost {
     return pending;
   }
 
-  /** The next intercepted chooser, or null after `timeoutMs`. One already pending satisfies it
-   *  immediately — the event can land between the click returning and this being called. */
-  private awaitChooser(entry: Attached, timeoutMs: number): Promise<InterceptedChooser | null> {
-    const already = this.takePendingChooser(entry);
-    if (already) return Promise.resolve(already);
-    return new Promise<InterceptedChooser | null>((resolve) => {
-      const timer = setTimeout(() => {
-        if (entry.chooser.waiter !== settle) return;
-        entry.chooser.waiter = null;
-        resolve(null);
-      }, timeoutMs);
+  /** The next intercepted chooser, taken, or null after `timeoutMs`. One already pending satisfies
+   *  it immediately — the event can land between the click returning and this being called. One
+   *  another upload took first is not this one's, so the wait goes on to the deadline. */
+  private async awaitChooser(entry: Attached, timeoutMs: number): Promise<InterceptedChooser | null> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const chooser = this.takePendingChooser(entry);
+      if (chooser) return chooser;
+      const left = deadline - Date.now();
+      if (left <= 0 || !(await this.chooserOpened(entry, left))) return null;
+    }
+  }
+
+  /** Resolves true when the page next opens a chooser, false after `timeoutMs` or if the view goes. */
+  private chooserOpened(entry: Attached, timeoutMs: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const wake = (opened: boolean) => { clearTimeout(timer); entry.chooser.waiters.delete(wake); resolve(opened); };
+      const timer = setTimeout(() => wake(false), timeoutMs);
       timer.unref?.();
-      const settle = (c: InterceptedChooser | null) => { clearTimeout(timer); entry.chooser.waiter = null; resolve(c); };
-      entry.chooser.waiter = settle;
+      entry.chooser.waiters.add(wake);
     });
   }
 
@@ -1115,7 +1122,7 @@ export class BrowserAgentHost {
    */
   private async withChooserNote(entry: Attached, result: BrowserActResult): Promise<BrowserActResult> {
     if (!result.ok || !entry.chooser.armed) return result;
-    if (!entry.chooser.pending) await this.awaitChooser(entry, CHOOSER_SETTLE_MS).then((c) => { if (c) entry.chooser.pending = c; });
+    if (!entry.chooser.pending) await this.chooserOpened(entry, CHOOSER_SETTLE_MS);
     if (!entry.chooser.pending) return result;
     return {
       ok: true,
@@ -1226,10 +1233,8 @@ export class BrowserAgentHost {
          `mode` is the page's own statement of how many files that input takes. */
       const backendNodeId = Number(p.backendNodeId ?? 0);
       if (backendNodeId > 0) {
-        const chooser: InterceptedChooser = { backendNodeId, multiple: p.mode === "selectMultiple" };
-        const waiter = entry.chooser.waiter;
-        if (waiter) waiter(chooser);
-        else entry.chooser.pending = chooser;
+        entry.chooser.pending = { backendNodeId, multiple: p.mode === "selectMultiple" };
+        for (const wake of [...entry.chooser.waiters]) wake(true);
         pushRing(entry.consoleLines, "[realm] a file chooser was intercepted (no macOS panel was shown) — browser_upload attaches files to it, browser_dismiss_dialog cancels it", CONSOLE_MAX);
       }
     } else if (method === "Page.frameNavigated" && (p.frame as { parentId?: string } | undefined)?.parentId === undefined) {
