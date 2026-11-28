@@ -310,7 +310,7 @@ export function cursorIdentity(actor: BrowserActor | null, slot: number, accent:
  * The controlled-screen frame's line, naming who is driving: "Claude and Codex are using this page".
  *
  * Written as page script, because the page owns each cursor's idle-out and rewrites the line when one
- * leaves; `frameLabel` below is this same source, so the test reads what the page runs. One name per
+ * leaves; `agent-cursor.test.ts` evaluates this same source, so the test reads what the page runs. One name per
  * session, in the order they arrived; a null is a session nobody named.
  */
 export const FRAME_LABEL_JS = `function (names) {
@@ -326,4 +326,3 @@ export const FRAME_LABEL_JS = `function (names) {
   return line.charAt(0).toUpperCase() + line.slice(1);
 }`;
 
-export const frameLabel = new Function(`return (${FRAME_LABEL_JS});`)() as (names: readonly (string | null)[]) => string;
