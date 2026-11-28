@@ -16,7 +16,7 @@ import { SERVER_ENTRY_SUFFIX, STOP_WAIT_MS, realProcessOps, runsServer, stopServ
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
 import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState } from "@realm/contracts";
-import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
+import { closeDaemonLog, daemonLogPath, launcherLog, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
@@ -132,8 +132,11 @@ if (agentHomeDir) {
   process.env.REALM_HOME = agentHomeDir;
   // One home per checkout, so Laya installing itself in each would fill the disk (layaAutoInstallOn).
   process.env.REALM_NO_LAYA_AUTO_INSTALL = "1";
-  console.error(`[home] ${agentHomeDir}: started from an agent's shell, so not the default home, whose server is the owner's`);
+  launchLog(`[home] ${agentHomeDir}: started from an agent's shell, so not the default home, whose server is the owner's`);
 }
+/** A launcher line, to the console and to `launcher.log` in the home this launch resolved — after
+ *  `agentHome`, so an agent's run writes into its own scratch home (daemon-log.ts). */
+function launchLog(...parts: unknown[]): void { launcherLog(realmHomePath(), ...parts); }
 // Windows shows a notification only for an app it can name, and names it by this id — the appId
 // electron-builder registers the Start menu shortcut under.
 if (process.platform === "win32") app.setAppUserModelId("co.charmtechnologies.realm");
@@ -185,7 +188,7 @@ function serverEndpoint(): { port: number; home: string; token: string } | null 
   if (!serverInfo) return null;
   const now = followDaemon(serverInfo, readDaemonState(serverInfo.home));
   if (now.port !== serverInfo.port || now.token !== serverInfo.token) {
-    console.error(`[daemon] realm-server is on port ${now.port} now`);
+    launchLog(`[daemon] realm-server is on port ${now.port} now`);
     serverInfo = { ...serverInfo, ...now };
   }
   return serverInfo;
@@ -2657,11 +2660,11 @@ async function handOff(state: DaemonState, why: HandoffWhy): Promise<HandoffResu
   if (mode === "drain") {
     try {
       await callDaemon(running, "daemon.drain", {});
-      console.error("[daemon] draining the previous server; waiting for it to finish");
+      launchLog("[daemon] draining the previous server; waiting for it to finish");
       if (await waitForExit(running.pid, DRAIN_WAIT_MS, realProcessOps)) return { kind: "replaced" };
-      console.error("[daemon] drain did not finish in time; stopping it");
+      launchLog("[daemon] drain did not finish in time; stopping it");
     } catch (e) {
-      console.error(`[daemon] drain refused (${e instanceof Error ? e.message : String(e)}); stopping it`);
+      launchLog(`[daemon] drain refused (${e instanceof Error ? e.message : String(e)}); stopping it`);
     }
   }
   // Stop it, and for certain. It used to be SIGTERM and ten seconds' grace, after which the launcher
@@ -2683,11 +2686,11 @@ const DRAIN_WAIT_MS = 120_000;
  */
 async function replaceServer(state: DaemonState, why?: "unresponsive" | "draining" | "unowned"): Promise<void> {
   if (!runsServer(state.pid, state.entry, realProcessOps)) { forgetDeadServer(state); return; }
-  console.error(`[daemon] stopping realm-server pid ${state.pid}`);
+  launchLog(`[daemon] stopping realm-server pid ${state.pid}`);
   // One that has not answered a probe in ten seconds will not run its own shutdown in ten more, and
   // this is all time the launch spends with nothing on screen.
   const grace = why === "unresponsive" ? UNRESPONSIVE_STOP_WAIT_MS : STOP_WAIT_MS;
-  if (!(await stopServerProcess(state.pid, realProcessOps, grace))) console.error(`[daemon] pid ${state.pid} survived SIGKILL`);
+  if (!(await stopServerProcess(state.pid, realProcessOps, grace))) launchLog(`[daemon] pid ${state.pid} survived SIGKILL`);
 }
 const UNRESPONSIVE_STOP_WAIT_MS = 3_000;
 
@@ -2738,7 +2741,7 @@ function appTokenFor(home: string, state: DaemonState): string | null {
 function startDaemonProcess(home: string): void {
   const token = ourAppToken(home);
   // Sealed for the next launch, which finds this daemon still running and has no other way to it.
-  if (!sealAppToken(home, token, safeStorage)) console.error("[daemon] no Keychain to seal the app's token with; the next launch will restart the server");
+  if (!sealAppToken(home, token, safeStorage)) launchLog("[daemon] no Keychain to seal the app's token with; the next launch will restart the server");
   const fd = openDaemonLog(home);
   try { daemonChild = spawnDaemon({ home, logFd: fd, appToken: token }); } finally { closeDaemonLog(fd); }
 }
@@ -2776,7 +2779,7 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
       readMaintenance,
       onWait: (marker) => { closeLaunchWait ??= showLaunchWait(marker.what, quiet ? QUIET_WINDOW_OPTIONS : {}); },
       clearStrays: () => clearStrayServers(home),
-      log: (line) => console.error(line),
+      log: launchLog,
     });
     staleDaemon = handle.stale;
     return { port: handle.port, home, token: useAppToken(home, handle.token) };
@@ -2895,7 +2898,7 @@ app.whenReady().then(async () => {
         pidAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } },
         spawn: () => startDaemonProcess(info.home),
         onState: (state) => {
-          console.error(`[daemon] ${state.kind === "failed" ? `giving up; see ${state.logPath}` : state.kind}`);
+          launchLog(`[daemon] ${state.kind === "failed" ? `giving up; see ${state.logPath}` : state.kind}`);
           publishDaemonState(state);
         },
       });
@@ -2968,7 +2971,7 @@ app.whenReady().then(async () => {
       onLog: (line) => console.error(line),
     });
   } catch (e) {
-    console.error(e);
+    launchLog("[launch] Realm failed to start:", e);
     dialog.showErrorBox("Realm failed to start", e instanceof Error ? e.message : String(e));
     // Out, rather than into the menu bar: with no server behind it a resident Realm could open nothing,
     // and only the tray's quit would ever end it.
@@ -3032,7 +3035,7 @@ async function stopDaemon(): Promise<void> {
  *  left running when the server it stopped did not go (daemon-stop.ts). */
 async function clearStrayServers(home: string): Promise<void> {
   const strays = await stopStrayServers(home, []);
-  if (strays.length) console.error(`[daemon] stopped realm-server left running from before: pid ${strays.join(", ")}`);
+  if (strays.length) launchLog(`[daemon] stopped realm-server left running from before: pid ${strays.join(", ")}`);
 }
 
 /**
@@ -3330,7 +3333,7 @@ app.on("before-quit", (e) => {
     e.preventDefault();
     serverStoppedForQuit = true;
     detachFromDaemon();
-    void stopDaemon().catch((err: unknown) => console.error("[daemon] stopping realm-server:", err)).finally(() => app.quit());
+    void stopDaemon().catch((err: unknown) => launchLog("[daemon] stopping realm-server:", err)).finally(() => app.quit());
   }
 });
 /** Set once Windows' quit has asked the server to stop itself (above). */
