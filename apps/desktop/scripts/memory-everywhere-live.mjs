@@ -224,7 +224,7 @@ async function main() {
   await api.ready;
   const daemon = JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8"));
   if (daemon.pid) daemonPids.push(daemon.pid);
-  const sessions = await api.call("sessions.listAll", { profileId: null });
+  const sessions = await api.call("sessions.listAllFull", { profileId: null });
   for (const s of sessions) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await api.call("settings.set", { key: "ui.lastAgentKind", value: "fake" });
 

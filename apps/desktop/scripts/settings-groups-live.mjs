@@ -477,7 +477,7 @@ async function archivedChecks(c, size) {
   await del(`Really delete ${made[0].title}`);
   const gone = await until(async () => {
     const items = await api.call("items.list", { spaceId: first.id });
-    const sessions = await api.call("sessions.listAll", {});
+    const sessions = await api.call("sessions.listAllFull", {});
     return !items.some((i) => i.id === made[0].item.id) && !sessions.some((x) => x.id === made[0].session.id) ? true : null;
   }, 5000, "deleted").catch(() => false);
   check("the second press deletes the session itself, not only its row", gone === true, null);

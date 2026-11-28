@@ -185,7 +185,7 @@ try {
   await until(() => ev(`!!document.querySelector('.composer')`), 30_000, "composer");
   api = rpc(app.ports.server, await daemonToken(app.home));
   await api.ready;
-  const [lead] = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15_000, "onboarding session");
+  const [lead] = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15_000, "onboarding session");
   // The prompter's foot names this Mac; the frames go in a public PR, so the window says "This Mac".
   const { machineName } = await api.call("system.info", {});
   await ev(`(() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);

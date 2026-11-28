@@ -183,7 +183,7 @@ async function main() {
 
   // A browser pane on the long page, shown in the session's side panel, and scrolled.
   const { browserId } = await api.call("browsers.create", { spaceId: space.id, url: pageUrl });
-  const lead = (await api.call("sessions.listAll", {}).catch(() => null))?.[0]?.id
+  const lead = (await api.call("sessions.listAllFull", {}).catch(() => null))?.[0]?.id
     ?? (await api.call("items.list", { spaceId: space.id })).find((i) => i.kind === "session").refId;
   await api.call("sessions.send", { id: lead, text: `Show the pane ${JSON.stringify({ browserId })}`, attachments: [], mentions: [] });
   const viewTarget = await until(async () => (await targets()).find((t) => t.url === pageUrl), 30_000, "the page's own target");

@@ -191,7 +191,7 @@ async function main() {
 
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session");
   const spaceId = sessions[0].spaceId;
 
   // A real file on disk, written through the server's own document API, opened through the real

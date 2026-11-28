@@ -203,7 +203,7 @@ async function main() {
   // rule in session-summary.ts: the agent typed it and no tool fetched it.
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session to drive");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session to drive");
   await api.call("sessions.setAgent", { id: sessions[0].id, agentKind: "fake" });
   /* One button for the summary and the files: with nothing to summarise it opens on the files, and
      the summary is offered once the session has something in it. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { sessionEvent } from "@realm/contracts";
+import { waitFor } from "@testing-library/react";
+import { SessionListRowSchema, sessionEvent } from "@realm/contracts";
 import { emptyTranscript } from "../panes/session/transcript-model";
 import { isUnread } from "./attention";
 import { createAppStore } from "./store";
@@ -30,6 +31,31 @@ describe("allSessions — a row for every session, in every profile", () => {
     expect(store.getState().sessions["se3"]).toBeUndefined();
     expect(store.getState().allSessions["se2"]).toMatchObject({ title: "Port the picker", spaceId: "s2" });
     expect(store.getState().allSessions["se3"]).toMatchObject({ title: "Draft chapter two", spaceId: "s3" });
+  });
+
+  it("holds list rows, and reads a session whole when it opens", async () => {
+    const { api, store } = await boot({ ...elsewhere(), sessions: [...elsewhere().sessions.slice(0, 1),
+      session("se3", "s3", { title: "Draft chapter two", model: "fake-xl", permissionMode: "plan", cwd: "/thesis" })] });
+    // `sessions.listAll` answers list rows: a session's options and checkout are not in them.
+    expect(Object.keys(store.getState().allSessions["se3"]!).sort()).toEqual(Object.keys(SessionListRowSchema.shape).sort());
+    await store.getState().openSession("se3");
+    expect(api.calls).toContain("getSession:se3");
+    expect(store.getState().sessions["se3"]).toMatchObject({ model: "fake-xl", permissionMode: "plan", cwd: "/thesis" });
+  });
+
+  it("loadSession reads a session held only as a list row once, and answers a held one as it is", async () => {
+    const { api, store } = await boot({ ...elsewhere(), sessions: [...elsewhere().sessions.slice(0, 1), session("se3", "s3", { model: "fake-xl" })] });
+    expect(await store.getState().loadSession("se3")).toMatchObject({ id: "se3", model: "fake-xl" });
+    expect(store.getState().sessions["se3"]).toMatchObject({ model: "fake-xl" });
+    expect(await store.getState().loadSession("se3")).toBe(store.getState().sessions["se3"]);
+    expect(api.calls.filter((c) => c === "getSession:se3")).toHaveLength(1);
+    expect(await store.getState().loadSession("nope")).toBeNull();
+  });
+
+  it("a message sent to a session held only as a list row remembers the model it went on", async () => {
+    const { store } = await boot({ ...elsewhere(), sessions: [...elsewhere().sessions.slice(0, 1), session("se3", "s3", { agentKind: "claude", model: "claude-opus-5-5" })] });
+    await store.getState().sendMessage("se3", "Go on");
+    await waitFor(() => expect(store.getState().lastModels).toEqual({ claude: "claude-opus-5-5" }));
   });
 
   it("a persisted event in another room moves its log on, so a finished turn reads as unread there", async () => {
@@ -67,7 +93,7 @@ describe("allSessions — a row for every session, in every profile", () => {
     const { store } = await boot(elsewhere());
     await store.getState().selectSpace("s2");
     await store.getState().setSessionOptions("se2", { model: "fake-xl" });
-    expect(store.getState().allSessions["se2"]!.model).toBe("fake-xl");
+    expect(store.getState().allSessions["se2"]).toMatchObject({ model: "fake-xl" });
   });
 
   it("the optimistic read mark lands here too, and moves nothing but the mark", async () => {

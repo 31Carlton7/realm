@@ -70,7 +70,7 @@ try {
   await page.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
   api = rpc(app.ports.server, await daemonToken(app.home));
   await api.ready;
-  const [first] = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15_000, "onboarding session");
+  const [first] = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15_000, "onboarding session");
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });
   await api.call("sessions.setOptions", { id: first.id, permissionMode: "default" });
   const spaceId = first.spaceId;

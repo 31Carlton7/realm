@@ -234,7 +234,7 @@ async function main() {
   for (const [k, want] of Object.entries(CODEX)) check(`${k} is Codex's ${want}`, near(t[k], want, 1), { got: t[k] });
 
   // A session on the fake engine, with a code block, so the transcript has something to show.
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session");
   const sessionId = sessions[0].id;
   await api.call("sessions.setAgent", { id: sessionId, agentKind: "fake" });
   await api.call("sessions.send", { id: sessionId, text: "Standardize the button design tokens and show me the diff.", attachments: [], mentions: [] });

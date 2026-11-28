@@ -196,7 +196,7 @@ async function main() {
   /* ── 1. A fenced code block wears the prompter's curve, and the worklet really paints it ── */
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session to drive");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session to drive");
   const sid = sessions[0].id;
   await api.call("sessions.setAgent", { id: sid, agentKind: "fake" });
   // The fake agent echoes what it is sent, so a fenced block in the message comes back as one in the

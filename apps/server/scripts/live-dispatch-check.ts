@@ -50,7 +50,7 @@ async function wsApi(port: number): Promise<{ api: Api; close(): void }> {
     listProjects: (spaceId) => call("projects.list", { spaceId }),
     listEnvironments: (spaceId) => call("environments.list", { spaceId }),
     listSessions: (spaceId) => call("sessions.list", { spaceId }),
-    listAllSessions: () => call("sessions.listAll", {}),
+    listAllSessions: () => call("sessions.listAllFull", {}),
     getSession: (id) => call("sessions.get", { id }),
     createSession: (input) => call("sessions.create", input),
     sendMessage: async (id, text, attachments, mentions) => { await call("sessions.send", { id, text, attachments, mentions }); },

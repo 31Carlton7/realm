@@ -283,7 +283,7 @@ async function main() {
   const size = (width, height = 900) => c.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: false });
   await size(1440, 900);
 
-  const sessions = await api.call("sessions.listAll", {});
+  const sessions = await api.call("sessions.listAllFull", {});
   const session = sessions[0];
   // Before anything else: the onboarding session runs a REAL engine.
   await api.call("sessions.setAgent", { id: session.id, agentKind: "fake" });

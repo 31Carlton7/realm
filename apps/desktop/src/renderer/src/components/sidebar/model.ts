@@ -1,4 +1,4 @@
-import type { Item, Profile, Session, SessionStatus, Space } from "@realm/contracts";
+import type { Item, Profile, Session, SessionListRow, SessionStatus, Space } from "@realm/contracts";
 import { agentsAtWork, isChild, liveItems, listedIds, nestChildren, rootLeadOf, sessionItems, sessionOf } from "@realm/view";
 import { isUnread, STATUS_LABEL } from "../../state/attention";
 import { spaceActivity } from "../../state/store";
@@ -26,7 +26,7 @@ export type SidebarState = {
   allItems: readonly Item[];
   /** The active space's session rows (fresher than `allSessions` for that space). */
   sessions: Readonly<Record<string, Session>>;
-  allSessions: Readonly<Record<string, Session>>;
+  allSessions: Readonly<Record<string, SessionListRow>>;
   sessionStatus: Readonly<Record<string, SessionStatus>>;
   sessionSpace: Readonly<Record<string, string>>;
   /** When each session's status last moved: how long Needs you has waited. Never an order. */
@@ -55,7 +55,7 @@ export type SessionRow = {
   id: string;
   item: Item;
   /** The session's row, when this window holds one. */
-  session: Session | undefined;
+  session: SessionListRow | undefined;
   /** The item's title: what a rename in the sidebar or a pane bar changes. */
   title: string;
   spaceId: string;

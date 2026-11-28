@@ -240,7 +240,7 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20_000, "composer");
   await dial();
   // Belt and braces over the stand-ins: every session there is runs the scripted agent.
-  for (const s of await api.call("sessions.listAll", { profileId: null })) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api.call("sessions.listAllFull", { profileId: null })) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await api.call("settings.set", { key: "ui.lastAgentKind", value: "fake" });
   const [profile] = await api.call("profiles.list", {});
   const key = `memory.learning:${profile.id}`;
@@ -283,7 +283,7 @@ async function main() {
 
   // 4. The harness gate. A session under a real agent's name, which the learner would read, talks
   //    twice and is archived: under REALM_ENABLE_FAKE_AGENT=1 nothing reads it.
-  const spaceId = (await api.call("sessions.listAll", { profileId: null }))[0].spaceId;
+  const spaceId = (await api.call("sessions.listAllFull", { profileId: null }))[0].spaceId;
   const { session, itemId } = await api.call("sessions.create", { spaceId, agentKind: "claude" });
   for (const text of ["Dana owns billing; ask her before changing invoices.", "Invoices go out on the 1st."]) {
     await api.call("sessions.send", { id: session.id, text });

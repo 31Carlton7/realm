@@ -154,7 +154,7 @@ async function main() {
   const c = await boot();
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
-  for (const s of await api.call("sessions.listAll", {})) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api.call("sessions.listAllFull", {})) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await c.send("Emulation.setDeviceMetricsOverride", { width: WINDOW.width, height: WINDOW.height, deviceScaleFactor: 2, mobile: false });
   await sleep(800);
 

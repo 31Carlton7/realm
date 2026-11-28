@@ -452,7 +452,7 @@ async function main() {
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const first = (await until(async () => {
-    const all = await api.call("sessions.listAll", {});
+    const all = await api.call("sessions.listAllFull", {});
     return all.length ? all : null;
   }, 15000, "a session"))[0];
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });

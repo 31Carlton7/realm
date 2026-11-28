@@ -242,7 +242,7 @@ async function main() {
   await api.ready;
   const daemon = JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8"));
   if (daemon.pid) daemonPids.push(daemon.pid);
-  for (const s of await api.call("sessions.listAll", { profileId: null })) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api.call("sessions.listAllFull", { profileId: null })) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await api.call("settings.set", { key: "ui.lastAgentKind", value: "fake" });
 
   // ── The profile's memory, made the way the page makes it ────────────────────────────────────────

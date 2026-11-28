@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { findSidePane, sessionEvent, type DelegatedChild, type SessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore, type DelegableModels } from "../../state/store";
-import { fakeApi, item, session } from "../../state/store.test-fakes";
+import { fakeApi, item, session, space } from "../../state/store.test-fakes";
 import { reduceAll } from "../session/transcript-model";
 import { SessionPane } from "../session/SessionPane";
 import { AgentsTab } from "./AgentsTab";
@@ -369,6 +369,19 @@ describe("Build with", () => {
     expect(leave).toBeGreaterThan(deny);
     expect(brief).toBeGreaterThan(leave);
     expect(store.getState().sessions["se1"]!.permissionMode).toBe("default");
+  });
+
+  it("reads a lead it holds only as a list row whole, and says what sending will do to its mode", async () => {
+    // Another profile's lead: `sessions.listAll` gave this window its list row, which has no mode.
+    const lead = session("se9", "s9", { title: "Thesis lead", agentKind: "claude", model: "claude-opus-5-5", permissionMode: "plan" });
+    const tab = item("i29", "s9", { kind: "agents", title: "Agents", refId: "se9" });
+    const api = fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s9", "p2", "Thesis")], items: { s9: [item("i19", "s9", { kind: "session", title: "Thesis lead", refId: "se9" }), tab] },
+      sessions: [lead], delegatedChildren: { se9: [] }, delegableModels: CATALOG });
+    const store = createAppStore(api); await store.getState().boot();
+    expect(store.getState().sessions.se9).toBeUndefined();
+    render(<StoreContext.Provider value={store}><AgentsTab item={tab} visible /></StoreContext.Provider>);
+    expect(await screen.findByText("Sending switches this session from Plan to Build.")).toBeInTheDocument();
+    expect(api.calls).toContain("getSession:se9");
   });
 });
 

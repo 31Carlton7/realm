@@ -395,7 +395,7 @@ async function main() {
   await connectApi();
   const [homework] = await api.call("spaces.list", {});
   const profileId = homework.profileId;
-  for (const s of await api.call("sessions.listAll", { profileId })) {
+  for (const s of await api.call("sessions.listAllFull", { profileId })) {
     if (s.agentKind !== "fake") await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   }
   await holdKey(c);

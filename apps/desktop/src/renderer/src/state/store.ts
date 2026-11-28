@@ -28,7 +28,7 @@ import {
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
-  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type MeetingNotesList, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type QueueTurn, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
+  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type MeetingNotesList, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type QueueTurn, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionListRow, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -322,7 +322,7 @@ export type Api = TeammatesApi & {
   /** Every session across every space (sessionId→spaceId map for cross-space badges). `null` = every
    *  profile. The chat feed passes the active one; callers resolving a session by id pass null. Scoped
    *  by the server's space→profile join, never by a filter here. */
-  listAllSessions(profileId?: string | null): Promise<Session[]>;
+  listAllSessions(profileId?: string | null): Promise<SessionListRow[]>;
   /** Each of a space's sessions' newest reply, as one line — null where it has not replied. */
   sessionsDigest(spaceId: string): Promise<{ sessionId: string; lastReply: string | null }[]>;
   getSession(id: string): Promise<Session>;
@@ -1457,7 +1457,7 @@ export type AppState = TeammatesSlice & {
    * every space: a persisted `session.event` moves `lastEventSeq` on (`applySessionEvent`), and every
    * row the server answers a write with lands here too (`mergeSession`).
    */
-  allSessions: Record<string, Session>;
+  allSessions: Record<string, SessionListRow>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what a clicked toast is
@@ -2269,10 +2269,14 @@ export type AppState = TeammatesSlice & {
   refreshSessions(spaceId?: string | null): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
+  /** A session's full row, read from the server when this window holds only its list row
+   *  (`allSessions` has what `sessions.listAll` lists, not a session's options or checkout). Lands in
+   *  `sessions`, like an opened session's. Null when the session is gone. */
+  loadSession(id: string): Promise<Session | null>;
   /** Every session in the profile, as rows — what the MCP activity list names its calls from.
    *  Fetched on demand rather than held in state: the store keeps rows for the spaces that are open,
    *  and a list that wants all of them asks the server, which already has them in one query. */
-  listAllSessions(profileId?: string | null): Promise<Session[]>;
+  listAllSessions(profileId?: string | null): Promise<SessionListRow[]>;
   /** Put a waiting_permission session's pane in front of the user — switching space if needed — which
    *  is what surfaces its card, since Transcript autofocuses the first pending permission of a focused
    *  pane. With no argument it chooses one (the active space first); a permission notification passes
@@ -3955,10 +3959,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** Recorded on SEND, never on pick: a model picked and abandoned is not the one the user used. */
     const rememberSentOn = (sessionId: string) => {
-      const row = get().sessions[sessionId] ?? get().allSessions[sessionId];
-      if (!row) return;
-      rememberModel(row.agentKind, row.model);
-      rememberAgent(row.agentKind);
+      const remember = (row: Session) => { rememberModel(row.agentKind, row.model); rememberAgent(row.agentKind); };
+      const row = get().sessions[sessionId];
+      if (row) remember(row);
+      else get().run(async () => { const full = await get().loadSession(sessionId); if (full) remember(full); });
     };
     /** `newSession`, answering with the session it made — null when there was no space to make it in. */
     const makeSession = async (input: Parameters<AppState["newSession"]>[0], targetLeafId: string | null, edge: DropEdge | undefined): Promise<string | null> => {
@@ -6507,13 +6511,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
         // are written before each session.status broadcast), so they simply overwrite.
         const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
-        const sessionUpdatedAt: Record<string, number> = {}; const allSessions: Record<string, Session> = {};
+        const sessionUpdatedAt: Record<string, number> = {}; const allSessions: Record<string, SessionListRow> = {};
         const sessionActivityAt: Record<string, number> = {};
         for (const s of all) {
           sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; allSessions[s.id] = s;
           sessionActivityAt[s.id] = Math.max(get().sessionActivityAt[s.id] ?? 0, s.activityAt);
         }
         set({ sessionSpace, sessionStatus, sessionUpdatedAt, sessionActivityAt, allSessions });
+      },
+      async loadSession(id) {
+        const held = get().sessions[id];
+        if (held) return held;
+        const row = await api.getSession(id).catch(() => null);
+        if (row && !get().sessions[id]) mergeSession(row);
+        return get().sessions[id] ?? row;
       },
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
@@ -6990,7 +7001,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        * needed until someone shares.
        */
       async gatherShare(id) {
-        const session = get().sessions[id] ?? get().allSessions[id];
+        const session = await get().loadSession(id);
         if (!session) return null;
         const { gatherShare } = await import("../panes/session/share/gather");
         const readLog = async (sessionId: string) => {

@@ -363,7 +363,7 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   const [space] = await api.call("spaces.list", {});
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15_000, "a session");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15_000, "a session");
   for (const s of sessions) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   const sessionId = sessions[0].id;
   // Something to summarise: a url in the answer is an output (session-summary.ts), and a long reply

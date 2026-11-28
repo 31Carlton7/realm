@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, RestartRequiredError } from "@realm/adapters";
 import { createApp, type App } from "../app";
-import { DEFAULT_PERMISSION_MODE_KEY, adaptIdleMinutes, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { DEFAULT_PERMISSION_MODE_KEY, SessionListRowSchema, adaptIdleMinutes, sessionEvent, sessionListRow, type SessionEvent } from "@realm/contracts";
 import { AGENT_PROBE_TTL_MS, ENGINE_IDLE_MINUTES_KEY, PROBE_CRASH_BACKOFF_MS, titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
@@ -74,6 +74,25 @@ describe("SessionService over rpc", () => {
     expect(all.map((s: Any) => [s.id, s.spaceId])).toEqual([[a.id, sp.id], [b.id, sp2.id]]);
     // per-space list stays scoped
     expect((await c.call("sessions.list", { spaceId: sp2.id })).result.map((s: Any) => s.id)).toEqual([b.id]);
+    c.close();
+  });
+
+  it("sessions.listAll answers list rows, a fraction of the whole sessions sessions.listAllFull answers", async () => {
+    const { c, sp } = await boot();
+    for (let i = 0; i < 20; i++) {
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", title: `Session ${i}` })).result;
+      await c.call("sessions.setOptions", { id: session.id, model: "fake-xl", effort: "high", permissionMode: "acceptEdits" });
+    }
+    const rows = (await c.call("sessions.listAll", { profileId: null })).result;
+    const whole = (await c.call("sessions.listAllFull", { profileId: null })).result;
+    expect(rows).toHaveLength(20);
+    for (const row of rows) expect(Object.keys(row).sort()).toEqual(Object.keys(SessionListRowSchema.shape).sort());
+    expect(rows.map((r: Any) => r.id)).toEqual(whole.map((s: Any) => s.id));
+    expect(rows[0]).toEqual(sessionListRow(whole[0]));
+    // The options and the checkout come whole only where they are asked for.
+    expect(whole[0]).toMatchObject({ model: "fake-xl", effort: "high", permissionMode: "acceptEdits", cwd: sp.folderPath });
+    const bytes = (v: unknown) => JSON.stringify(v).length;
+    expect(bytes(rows)).toBeLessThan(bytes(whole) * 0.6);
     c.close();
   });
 

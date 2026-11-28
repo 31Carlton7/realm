@@ -189,7 +189,7 @@ async function main() {
   const api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   // The onboarding session runs the first engine this Mac has — a real, billed one. Fake, first.
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session");
   for (const s of sessions) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   const session = sessions[0];
   // …and something it "generated" in its own working directory.

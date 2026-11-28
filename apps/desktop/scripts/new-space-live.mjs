@@ -302,7 +302,7 @@ async function main() {
   // Nothing here talks to a real engine: onboarding's session goes to the fake agent, and so does
   // every session made after it.
   const api = rpc(SERVER_PORT, await daemonToken(home)); await api.ready;
-  const first = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "onboarding's session row");
+  const first = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "onboarding's session row");
   for (const s of first) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await api.call("settings.set", { key: "ui.lastAgentKind", value: "fake" });
   await api.call("settings.set", { key: "ui.theme", value: "dark" });
@@ -417,7 +417,7 @@ async function main() {
   check("the space carries the icon and colour picked", versed?.icon === "rocket" && versed?.color === "#ff6b8b", versed && { icon: versed.icon, color: versed.color });
   const projects = versed ? await api.call("projects.list", { spaceId: versed.id }) : [];
   check("the dropped repo is the space's first project", projects.length === 1 && projects[0].rootPath === repo, projects.map((p) => p.rootPath));
-  const sessions = versed ? (await api.call("sessions.listAll", {})).filter((s) => s.spaceId === versed.id) : [];
+  const sessions = versed ? (await api.call("sessions.listAllFull", {})).filter((s) => s.spaceId === versed.id) : [];
   check("one session, on the fake agent, working in the repo", sessions.length === 1 && sessions[0].agentKind === "fake" && sessions[0].cwd === repo,
     sessions.map((s) => ({ agent: s.agentKind, cwd: s.cwd })));
   const memory = versed ? await api.call("memory.get", { spaceId: versed.id }) : null;
@@ -475,7 +475,7 @@ async function main() {
   const resilient = (await api.call("spaces.list", {})).filter((s) => s.name === "Resilient");
   check("…in the one space the failed run made — not a second beside it", resilient.length === 1, resilient.map((s) => s.id));
   const rProjects = resilient[0] ? await api.call("projects.list", { spaceId: resilient[0].id }) : [];
-  const rSessions = resilient[0] ? (await api.call("sessions.listAll", {})).filter((s) => s.spaceId === resilient[0].id) : [];
+  const rSessions = resilient[0] ? (await api.call("sessions.listAllFull", {})).filter((s) => s.spaceId === resilient[0].id) : [];
   check("…with one project and one session, working in the dropped repo", rProjects.length === 1 && rSessions.length === 1 && rSessions[0].cwd === repo2,
     { projects: rProjects.map((p) => p.rootPath), sessions: rSessions.map((s) => s.cwd) });
 
@@ -513,7 +513,7 @@ async function main() {
   await settingsSeam(c, "light");
   const notes = (await api.call("spaces.list", {})).find((s) => s.name === "Field notes");
   check("light: the emoji is the space's icon", notes?.icon?.startsWith("emoji:"), notes?.icon);
-  const notesSessions = notes ? (await api.call("sessions.listAll", {})).filter((s) => s.spaceId === notes.id) : [];
+  const notesSessions = notes ? (await api.call("sessions.listAllFull", {})).filter((s) => s.spaceId === notes.id) : [];
   check("light: with no folder, the session works in the folder the sheet named", notesSessions.length === 1 && notesSessions[0].cwd === notes.folderPath
     && notes.folderPath === path.join(home, "personal", "field-notes"), { cwd: notesSessions[0]?.cwd, folder: notes?.folderPath });
 

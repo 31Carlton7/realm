@@ -1,5 +1,5 @@
 import { useEffect, type KeyboardEvent } from "react";
-import type { Session } from "@realm/contracts";
+import type { SessionListRow } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { PendingRequest, sessionAsker } from "./PendingRequest";
 import { emptyTranscript } from "./transcript-model";
@@ -16,7 +16,7 @@ const NO_REQUESTS = emptyTranscript().pendingPermissions;
  * own Escape.
  */
 export function AnswerHere({ id, session, asker, onLeave }: {
-  id: string; session: Session;
+  id: string; session: SessionListRow;
   /** Who is asking, for the group's accessible name — where the session's own title is not the name
    *  the surface shows it by (a sub-agent's card is titled by its task). */
   asker?: string;

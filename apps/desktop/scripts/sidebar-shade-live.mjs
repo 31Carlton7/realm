@@ -557,7 +557,7 @@ async function main() {
   if (daemon.pid) daemonPids.push(daemon.pid);
   // Onboarding's session runs the person's real engine; it is switched to the fake before anything
   // could reach it, and every later session starts on the fake.
-  for (const s of await api.call("sessions.listAll", { profileId: null })) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api.call("sessions.listAllFull", { profileId: null })) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await api.call("settings.set", { key: "ui.lastAgentKind", value: "fake" });
 
   const faces = {};

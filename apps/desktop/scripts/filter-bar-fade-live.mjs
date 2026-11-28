@@ -244,7 +244,7 @@ async function main() {
      (`artifactsFromEvent`), which is the real write path rather than a row poked into the table. */
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const session = (await api.call("sessions.listAll", {}))[0];
+  const session = (await api.call("sessions.listAllFull", {}))[0];
   // Onboarding's session runs the first engine this Mac can — the signed-in, billed one — whatever
   // REALM_ENABLE_FAKE_AGENT says. Onto the fake before anything is sent: the uploads index off the
   // user's message, which records its attachments whichever agent reads them.

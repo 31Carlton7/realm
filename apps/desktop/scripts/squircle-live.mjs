@@ -449,7 +449,7 @@ async function main() {
      the worklet doing it. */
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session");
   await api.call("sessions.setAgent", { id: sessions[0].id, agentKind: "fake" });
   await api.call("sessions.send", { id: sessions[0].id, text: "a sent message, to measure the corner of", attachments: [], mentions: [] });
   await until(() => evalIn(c, `!!document.querySelector('.msg-user')`), 20000, "a user bubble");

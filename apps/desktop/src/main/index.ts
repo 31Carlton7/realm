@@ -15,10 +15,10 @@ import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon,
 import { SERVER_ENTRY_SUFFIX, STOP_WAIT_MS, realProcessOps, runsServer, stopServerProcess, stopStrayServers, waitForExit } from "./daemon-stop";
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
-import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState } from "@realm/contracts";
+import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState, type MethodResult } from "@realm/contracts";
 import { closeDaemonLog, daemonLogPath, launcherLog, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
-import { SessionTray, type TraySession } from "./session-tray";
+import { SessionTray, traySessions, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { beforeQuitStep, confirmQuitCopy, decideQuit, lastWindowClosedStep, quitFlagsFor, quitOnSignals } from "./quit-policy";
 import { askAppModal, askInSheet } from "./message-box";
@@ -392,20 +392,14 @@ async function readMeetingsPreference() {
   } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
 
-/** The sessions worth naming in the menu: the ones waiting on an answer first, then the ones working.
- *  An idle session is not a reason to open the app, so it is not in the list. */
+/** The sessions worth naming in the menu (`traySessions`). */
 async function trayCandidates(): Promise<TraySession[]> {
   try {
     const [rows, spaces] = await Promise.all([
-      bridgeClient!.call("sessions.listAll", {}) as Promise<{ id: string; title: string; status: string; spaceId: string }[]>,
-      bridgeClient!.call("spaces.list", {}) as Promise<{ id: string; name: string }[]>,
+      bridgeClient!.call("sessions.listAll", {}) as Promise<MethodResult<"sessions.listAll">>,
+      bridgeClient!.call("spaces.list", {}) as Promise<MethodResult<"spaces.list">>,
     ]);
-    const nameOf = new Map(spaces.map((sp) => [sp.id, sp.name]));
-    const rank = (status: string) => (status === "waiting_permission" ? 0 : status === "running" ? 1 : 2);
-    return rows
-      .filter((r) => rank(r.status) < 2)
-      .sort((a, b) => rank(a.status) - rank(b.status))
-      .map((r) => ({ id: r.id, spaceId: r.spaceId, title: r.title, spaceName: nameOf.get(r.spaceId) ?? null }));
+    return traySessions(rows, spaces);
   } catch { return []; }
 }
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */

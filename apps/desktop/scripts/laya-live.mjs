@@ -237,7 +237,7 @@ async function main() {
   });
   await api.ready;
   // The onboarding session runs a real, billed engine: it is moved to the fake before anything else.
-  const onboarding = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all[0] : null; }, 15000, "onboarding session");
+  const onboarding = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all[0] : null; }, 15000, "onboarding session");
   await api.call("sessions.setAgent", { id: onboarding.id, agentKind: "fake" });
   const spaceId = onboarding.spaceId;
 

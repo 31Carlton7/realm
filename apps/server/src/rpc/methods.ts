@@ -3,7 +3,7 @@ import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@r
 import type { z } from "zod";
 import type { CallContext, RpcServer } from "./server";
 import type { ServerOwner } from "./cli-methods";
-import { LIVE_SETTINGS, REMOTE_RELAY_KEY, TERMINALS_HISTORY_KEY } from "@realm/contracts";
+import { LIVE_SETTINGS, REMOTE_RELAY_KEY, sessionListRow, TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
 /** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
@@ -1267,7 +1267,8 @@ export function registerMethods(d: Deps): void {
     return d.graphify.update(p.spaceId);
   });
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
-  reg("sessions.listAll", (p) => d.sessions.listAll(p.profileId));
+  reg("sessions.listAll", (p) => d.sessions.listAll(p.profileId).map(sessionListRow));
+  reg("sessions.listAllFull", (p) => d.sessions.listAll(p.profileId));
   reg("sessions.digest", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     return d.sessions.lastReplies(p.spaceId);

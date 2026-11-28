@@ -219,7 +219,7 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 30_000, "composer");
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
-  const onboarding = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all[0] : null; }, 15_000, "onboarding session");
+  const onboarding = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all[0] : null; }, 15_000, "onboarding session");
   await api.call("sessions.setAgent", { id: onboarding.id, agentKind: "fake" });
   await api.call("settings.set", { key: "notifications.desktop", value: false });
   const [space] = await api.call("spaces.list", {});

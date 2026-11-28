@@ -306,7 +306,7 @@ async function capture(c, face, width) {
 
 async function main() {
   const c = await boot();
-  const [first] = await api.call("sessions.listAll", {});
+  const [first] = await api.call("sessions.listAllFull", {});
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });
   fs.mkdirSync(first.cwd, { recursive: true });
 

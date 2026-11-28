@@ -167,7 +167,7 @@ async function main() {
 
   const api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
-  const session = await until(async () => (await api.call("sessions.listAll", {}))[0] ?? null, 15000, "a session");
+  const session = await until(async () => (await api.call("sessions.listAllFull", {}))[0] ?? null, 15000, "a session");
   await api.call("sessions.setAgent", { id: session.id, agentKind: "claude" });
   await api.call("sessions.setOptions", { id: session.id, ...TURN_ON });
   await api.call("sessions.send", { id: session.id, text: LONG_TURN });

@@ -49,7 +49,8 @@ export function ActivityCard({ row, space, usual, now, onChanged }: {
 }) {
   const layout = useApp((s) => s.layout);
   const focused = useApp((s) => (s.layout ? itemIdOfLeaf(s.layout, s.focusedLeafId) === row.item.id : false));
-  const env = useApp((s) => (row.session ? s.environments[row.session.environmentId] : undefined));
+  // The worktree line reads the session's full row: a list row does not say which checkout it runs in.
+  const env = useApp((s) => { const at = s.sessions[row.id]?.environmentId; return at ? s.environments[at] : undefined; });
   const openItemBeside = useApp((s) => s.openItemBeside);
   const run = useApp((s) => s.run);
   const tint = useSpaceTint(space?.color);

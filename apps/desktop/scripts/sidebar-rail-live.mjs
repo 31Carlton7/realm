@@ -311,7 +311,7 @@ async function main() {
   const profileId = liveSpace.profileId;
   // Onboarding's session runs the person's real engine. Nothing here sends to it, and it is switched
   // to the fake before anything could.
-  for (const s of await api.call("sessions.listAll", { profileId: null })) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api.call("sessions.listAllFull", { profileId: null })) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
 
   /* ── Before anything waits: no Needs you, no pill, no strip ─────────────────────────────────── */
   await reload(c, `!!document.querySelector('.sb-section')`, "sections at rest");
@@ -366,7 +366,7 @@ async function main() {
   const over = await make(seminar, "Asks over there about the reading list for the next seminar week");
   void api.call("sessions.send", { id: over.id, text: "ask me" }).catch(() => {});
   await until(async () => {
-    const all = await api.call("sessions.listAll", { profileId: null });
+    const all = await api.call("sessions.listAllFull", { profileId: null });
     const st = Object.fromEntries(all.map((s) => [s.id, s.status]));
     return st[asks.id] === "waiting_permission" && st[over.id] === "waiting_permission" && st[works.id] === "running" && st[long.id] === "running";
   }, 30_000, "the held states");
@@ -511,7 +511,7 @@ async function main() {
   const lensRecent = lensNow.find((l) => l.text === "Recent"), lensSpaces = lensNow.find((l) => l.text === "Spaces");
   check("the lens lights the reading on screen, at once", lensRecent?.selected === true && lensSpaces?.selected === false
     && !clear(lensRecent.bg) && clear(lensSpaces.bg), lensNow);
-  const all = await api.call("sessions.listAll", { profileId });
+  const all = await api.call("sessions.listAllFull", { profileId });
   const movedAt = new Map(all.map((s) => [s.title, s.updatedAt]));
   const flatRecent = days.flatMap((d) => d.rows);
   const times = flatRecent.map((r) => (r.title.startsWith("Fan-out: ") ? Math.max(...all.filter((s) => s.title === "Migrate the API").map((s) => s.updatedAt)) : movedAt.get(r.title) ?? null));

@@ -39,7 +39,7 @@ gw.start();
 
 // One space and one session to look at, made on the first run only.
 const spaces = await rpc.call("spaces.list", {});
-let sessionId = (await rpc.call("sessions.listAll", { profileId: null }))[0]?.id;
+let sessionId = (await rpc.call("sessions.listAllFull", { profileId: null }))[0]?.id;
 if (!sessionId) {
   const [profile] = await rpc.call("profiles.list", {});
   const space = spaces[0] ?? await rpc.call("spaces.create", { profileId: profile!.id, name: "Spike" });

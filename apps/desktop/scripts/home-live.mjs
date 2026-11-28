@@ -259,7 +259,7 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   const [space] = await api.call("spaces.list", {});
-  const first = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15_000, "a session");
+  const first = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15_000, "a session");
   for (const s of first) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   // A second space, so an Overview can be about somewhere other than the session's own.
   await api.call("spaces.create", { profileId: space.profileId, name: "Other" });
@@ -315,7 +315,7 @@ async function main() {
         up?.page && back.page === null && back.front === front && back.composer, { up: up?.page ?? null, back });
       if (label === "Settings" || label === "Library") { await sleep(500); await shot(c, `${face}-home-from-${label.toLowerCase()}`); }
     }
-    const made = (await api.call("sessions.listAll", {})).length;
+    const made = (await api.call("sessions.listAllFull", {})).length;
     check(`${face}: Home made no session on the way — there was one in front every time`, made === first.length + 1, { sessions: made });
 
     /* ── 3. The foot of Settings ───────────────────────────────────────────────────────────── */

@@ -307,7 +307,7 @@ async function main() {
 
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const [first] = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session to drive");
+  const [first] = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session to drive");
   const sid = first.id, spaceId = first.spaceId;
   // The scripted agent, or every turn below would be a billed call to a real engine.
   await api.call("sessions.setAgent", { id: sid, agentKind: "fake" });

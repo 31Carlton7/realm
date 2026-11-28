@@ -163,7 +163,7 @@ async function main() {
   // ── 4. A task session carries the teammate and runs in its mode ──
   await api.call("sessions.setOptions", { id: cto.homeSessionId, permissionMode: "default" });
   await api.call("teammates.message", { id: cto.id, text: "start a task" });
-  const task = await until(async () => (await api.call("sessions.listAll", {})).find((s) => s.dispatchedBy?.sessionId === cto.homeSessionId), 20_000, "the CTO's task session");
+  const task = await until(async () => (await api.call("sessions.listAllFull", {})).find((s) => s.dispatchedBy?.sessionId === cto.homeSessionId), 20_000, "the CTO's task session");
   check("a task session started from the chat carries teammateId, leads with the handle, and runs in the teammate's mode",
     task.teammateId === cto.id && task.teammateHome === false && task.title === "cto - sqlite search" && task.permissionMode === "acceptEdits",
     { teammateId: task.teammateId, title: task.title, permissionMode: task.permissionMode });
@@ -194,11 +194,11 @@ async function main() {
     { mode: chat.permissionMode, unread: after.unread, lastRunAt: after.schedule.lastRunAt });
   const sinceFired = api.events.slice(firedAt);
   check("no pane was opened for it, and no session was made for it",
-    !sinceFired.some((e) => e.event === "session.agentOpened") && (await api.call("sessions.listAll", {})).filter((s) => s.teammateId === design.id).length === 1,
+    !sinceFired.some((e) => e.event === "session.agentOpened") && (await api.call("sessions.listAllFull", {})).filter((s) => s.teammateId === design.id).length === 1,
     sinceFired.filter((e) => e.event === "session.agentOpened"));
 
   // Nothing in this check may have reached a real engine.
-  const engines = [...new Set((await api.call("sessions.listAll", {})).map((s) => s.agentKind))];
+  const engines = [...new Set((await api.call("sessions.listAllFull", {})).map((s) => s.agentKind))];
   check("every session in the check ran on the scripted agent", engines.length === 1 && engines[0] === "fake", engines);
 
   // ── 6. Changes are announced ──

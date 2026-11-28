@@ -256,7 +256,7 @@ async function boot(env, label) {
   // The probe of every stub, and the public price catalog, land before anything is measured.
   await until(async () => (await api.call("agents.probe", { force: false })).length > 0, 30000, "probe");
   await sleep(2500);
-  const [sess] = await api.call("sessions.listAll", { profileId: null });
+  const [sess] = await api.call("sessions.listAllFull", { profileId: null });
   return { c, api, home, sessionId: sess.id };
 }
 
@@ -398,7 +398,7 @@ const shootBoltTip = async (c, name) => {
 /** The owner's Mac: Claude signed in, Codex installed, no ACP agents. A brand-new Claude session. */
 async function owner() {
   const { c, api, home, sessionId } = await boot(stubs(path.join(scratch, "bin-owner"), { acp: false }), "owner");
-  const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
+  const mine = async () => (await api.call("sessions.listAllFull", { profileId: null })).find((s) => s.id === sessionId);
   const effortIs = (want) => until(async () => ((await mine())?.effort ?? null) === want, 5000, `effort ${want}`).then(() => true, () => false);
   try {
     await setTheme(c, api, "dark");
@@ -649,7 +649,7 @@ async function longList() {
 async function ownerReal() {
   const journalFile = path.join(scratch, "claude-journal.jsonl");
   const { c, api, home, sessionId } = await boot({ ...stubs(path.join(scratch, "bin-real"), { acp: false, claudeCli: true }), FAKE_CLAUDE_JOURNAL: journalFile }, "real");
-  const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
+  const mine = async () => (await api.call("sessions.listAllFull", { profileId: null })).find((s) => s.id === sessionId);
   const flagWrites = () => { try { return fs.readFileSync(journalFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.subtype === "apply_flag_settings").map((r) => r.settings); } catch { return []; } };
   const replies = async () => (await api.call("sessions.events", { id: sessionId, afterSeq: 0 })).map((e) => e.event)
     .filter((e) => e.type === "assistant_text").map((e) => e.payload.text);
@@ -789,7 +789,7 @@ async function review() {
     await sleep(200);
     await key(c, "Enter");
     const sid = await until(thread, 20000, "the request's session").catch(() => null);
-    const row = sid ? (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sid) : null;
+    const row = sid ? (await api.call("sessions.listAllFull", { profileId: null })).find((s) => s.id === sid) : null;
     check("review: the first question starts its session at Max, fast, on Opus 5.5", row?.effort === "max" && row.fastMode === true && row.model === "claude-opus-5-5", row && { effort: row.effort, fastMode: row.fastMode, model: row.model });
     const reply = sid ? await until(async () => (await api.call("sessions.events", { id: sid, afterSeq: 0 })).map((e) => e.event)
       .filter((e) => e.type === "assistant_text").map((e) => e.payload.text).at(-1) ?? null, 20000, "the answer").catch(() => null) : null;
@@ -900,7 +900,7 @@ async function reviewer() {
   const reviewOf = async () => (await api.call("codeReview.reviewGet", { ref })).review;
   const replyOf = async (sid) => (await api.call("sessions.events", { id: sid, afterSeq: 0 })).map((e) => e.event)
     .filter((e) => e.type === "assistant_text").map((e) => e.payload.text).at(-1) ?? null;
-  const sessionOf = async (sid) => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sid) ?? null;
+  const sessionOf = async (sid) => (await api.call("sessions.listAllFull", { profileId: null })).find((s) => s.id === sid) ?? null;
   /** A real press on the body, and the review it started once it has settled. */
   const runReview = async () => {
     const before = (await reviewOf())?.sessionId ?? null;
@@ -1131,7 +1131,7 @@ const changed = (c, a, b) => evalIn(c, `(async () => {
  */
 async function lightPhase() {
   const { c, api, home, sessionId } = await boot(stubs(path.join(scratch, "bin-light"), { acp: false }), "light");
-  const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
+  const mine = async () => (await api.call("sessions.listAllFull", { profileId: null })).find((s) => s.id === sessionId);
   const trackClip = async () => { const t = (await runCard(c)).track.box; return { x: t.x + 2, y: t.y + 2, width: t.w - 4, height: t.h - 4 }; };
   // The run every level fills — the first two-fifths — so a brightness there compares light with light.
   const filledClip = async () => { const t = (await runCard(c)).track.box; return { x: t.x + 4, y: t.y + 4, width: Math.round(t.w * 0.4), height: t.h - 8 }; };
@@ -1271,7 +1271,7 @@ const sameBox = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.w === b.
  */
 async function stayOpen() {
   const { c, api, home, sessionId } = await boot(stubs(path.join(scratch, "bin-stay"), { acp: true }), "stay");
-  const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
+  const mine = async () => (await api.call("sessions.listAllFull", { profileId: null })).find((s) => s.id === sessionId);
   const becomes = (fn, tag) => until(async () => fn(await mine()), 5000, tag).then(() => true, () => false);
   try {
     for (const mode of ["dark", "light"]) {
@@ -1461,7 +1461,7 @@ async function schedulePhase() {
           return r.length === 1 && r[0].state === "succeeded" ? r : null;
         }, 40000, "the run settling").catch(() => null);
         const sid = runs?.[0]?.sessionId;
-        const ran = sid ? (await api.call("sessions.listAll", { profileId: null })).find((x) => x.id === sid) : null;
+        const ran = sid ? (await api.call("sessions.listAllFull", { profileId: null })).find((x) => x.id === sid) : null;
         check("schedule: Run now starts a session on Opus 5.5 at XHigh, fast, accepting edits",
           ran?.model === "claude-opus-5-5" && ran.effort === "xhigh" && ran.fastMode === true && ran.permissionMode === "acceptEdits", ran && { model: ran.model, effort: ran.effort, fastMode: ran.fastMode, permissionMode: ran.permissionMode });
         const reply = sid ? (await api.call("sessions.events", { id: sid, afterSeq: 0 })).map((e) => e.event).filter((e) => e.type === "assistant_text").map((e) => e.payload.text).at(-1) : null;

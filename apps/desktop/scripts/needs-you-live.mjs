@@ -277,7 +277,7 @@ async function main() {
   }
   /** The sub-agent a lead started, once it waits. */
   async function childOf(leadId, tag) {
-    const child = await until(async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.dispatchedBy?.sessionId === leadId), 30_000, tag);
+    const child = await until(async () => (await api.call("sessions.listAllFull", { profileId: null })).find((s) => s.dispatchedBy?.sessionId === leadId), 30_000, tag);
     if (child.agentKind !== "fake") throw new Error(`${tag} is not on the scripted agent`);
     await reach(child.id, "waiting_permission", tag);
     return child;

@@ -246,7 +246,7 @@ async function boot() {
 
 async function main() {
   const c = await boot();
-  const [session] = await api.call("sessions.listAll", {});
+  const [session] = await api.call("sessions.listAllFull", {});
   // Before anything else: the onboarding session runs a REAL engine.
   await api.call("sessions.setAgent", { id: session.id, agentKind: "fake" });
   fs.mkdirSync(session.cwd, { recursive: true });

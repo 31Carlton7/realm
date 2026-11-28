@@ -221,7 +221,7 @@ async function main() {
   const api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   const space = (await api.call("spaces.list", {}))[0];
-  const session = (await api.call("sessions.listAll", {}))[0];
+  const session = (await api.call("sessions.listAllFull", {}))[0];
   // Never a billed turn: the onboarding session is moved to the fake agent, and nothing is sent to it.
   await api.call("sessions.setAgent", { id: session.id, agentKind: "fake" }).catch(() => {});
 

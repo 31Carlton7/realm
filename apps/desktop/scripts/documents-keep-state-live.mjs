@@ -311,7 +311,7 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   // Every session on the scripted agent before anything else, and nothing is ever sent.
-  for (const s of await api.call("sessions.listAll", {})) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api.call("sessions.listAllFull", {})) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   const [school] = await api.call("spaces.list", {});
   fs.mkdirSync(path.join(school.folderPath, "guides"), { recursive: true });
   fs.copyFileSync(RG_GUIDE, path.join(school.folderPath, "guides", path.basename(RG_GUIDE)));
@@ -324,7 +324,7 @@ async function main() {
   await api.call("sessions.create", { spaceId: school.id, agentKind: "fake", title: STUDY, permissionMode: "default" });
   const away = await api.call("spaces.create", { profileId: school.profileId, name: AWAY });
   await api.call("sessions.create", { spaceId: away.id, agentKind: "fake", title: "Away session", permissionMode: "default" });
-  for (const s of await api.call("sessions.listAll", {})) if (s.agentKind !== "fake") await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api.call("sessions.listAllFull", {})) if (s.agentKind !== "fake") await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
 
   await until(() => evalIn(c, clickRow(STUDY)), 20_000, "Study row");
   await sleep(800);

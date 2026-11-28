@@ -3,7 +3,7 @@ import { PairRequestSchema, PairingWindowSchema, RemoteStatusSchema } from "./re
 import { LIVE_ANSWER_TRIGGERS, LiveAnswerEventSchema, ScreenPictureSchema } from "./meetings";
 import type { CliJobStart, CliStatus } from "./cli";
 import { DICTATION_MAX } from "./voice";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema, QueueTurnSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, SessionListRowSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema, QueueTurnSchema } from "./entities";
 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
@@ -2167,8 +2167,14 @@ export const Methods = {
   /** Every session Realm holds, or every session in ONE profile — the client's sessionId→spaceId map
    *  for cross-space badges. Scoped by the server's space→profile join when `profileId` is given — the
    *  same rule `search.query` states, for the same reason: a client-side filter is not trusted to keep
-   *  one profile's work out of another's surfaces. */
-  "sessions.listAll": { params: z.object({ profileId: IdSchema.nullable().default(null) }), result: z.array(SessionSchema) },
+   *  one profile's work out of another's surfaces.
+   *
+   *  As list rows (`SessionListRowSchema`): a window reads this at boot and on every reconnect, for
+   *  every session in the home, and draws a session's options only once it opens it (`sessions.get`). */
+  "sessions.listAll": { params: z.object({ profileId: IdSchema.nullable().default(null) }), result: z.array(SessionListRowSchema) },
+  /** `sessions.listAll` with every session whole — for a reader that names each one's model, mode or
+   *  checkout without opening it: the phone's lists, and the live scripts. */
+  "sessions.listAllFull": { params: z.object({ profileId: IdSchema.nullable().default(null) }), result: z.array(SessionSchema) },
   /**
    * Record how far this user has read a session's transcript.
    *
