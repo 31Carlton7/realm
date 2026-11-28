@@ -90,10 +90,11 @@ export class SessionsStore {
    * A page of the sessions `id` dispatched with one of `kinds`, newest first (by `created_at`, then id),
    * started before `before` when given — and the sessions each of those dispatched with one of `kinds`,
    * oldest first, by the dispatcher's id. One statement, on `sessions_dispatched_by`. `limit: null` is
-   * every one. `nextBefore` is the last of the page when there are more past it.
+   * every one. `nextBefore` is the last of the page when there are more past it; `total` is how many
+   * there are in all, counted on the same index.
    */
   dispatchedPage(id: string, kinds: readonly DispatchKind[], page: { limit: number | null; before?: { createdAt: number; id: string } }): {
-    children: Session[]; nested: Map<string, Session[]>; nextBefore: { createdAt: number; id: string } | null;
+    children: Session[]; nested: Map<string, Session[]>; nextBefore: { createdAt: number; id: string } | null; total: number;
   } {
     const kindList = JSON.stringify(kinds);
     const before = page.before ? "AND (s.created_at < ? OR (s.created_at = ? AND s.id < ?))" : "";
@@ -114,7 +115,9 @@ export class SessionsStore {
       if (under) under.push(toSession(r)); else nested.set(r.dispatched_by_session_id!, [toSession(r)]);
     }
     const last = children.at(-1);
-    return { children, nested, nextBefore: all.length > children.length && last ? { createdAt: last.createdAt, id: last.id } : null };
+    const { total } = this.db.prepare("SELECT COUNT(*) AS total FROM sessions WHERE dispatched_by_session_id = ? AND dispatched_by_kind IN (SELECT value FROM json_each(?))")
+      .get(id, kindList) as { total: number };
+    return { children, nested, nextBefore: all.length > children.length && last ? { createdAt: last.createdAt, id: last.id } : null, total };
   }
   /** Every provider session id Realm holds — the import's dedup key (`ImportService`). One set
    *  rather than a query per candidate: the question is asked of ~1100 transcripts per scan, and the

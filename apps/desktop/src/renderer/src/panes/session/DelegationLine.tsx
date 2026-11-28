@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { Spinner } from "../../components/Spinner";
 import { useApp } from "../../state/store";
 import { STATE_VERB, isLive, sessionModelLabel, subagentElapsed, subagentState, taskTitle, type SubagentState } from "../agents-tab/subagent-state";
+import { useSubagent } from "../agents-tab/SubagentViewer";
 import { delegatedChildIds, harnessState, labelOf } from "./DelegatedRuns";
 import { formatDuration, type ToolBlock } from "./tool-group";
 
@@ -36,15 +37,18 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
   const goal = typeof block.input.goal === "string" ? block.input.goal : "";
   /* By the id its result names — and, for an `agent_run` still blocking (no result yet), by its task:
      the only thing the call and the child share before the call returns. */
-  const child = children?.find((c) => ids.includes(c.session.id))
+  const held = children?.find((c) => ids.includes(c.session.id))
     ?? (block.result ? undefined : children?.find((c) => c.goal === goal));
+  // One older than the pages held is read alone.
+  const byId = useSubagent(lead, held ? null : ids[0] ?? null);
+  const child = held ?? byId.found?.child;
   const id = child?.session.id ?? null;
   const live = useApp((s) => (id ? s.sessionStatus[id] : undefined));
   const inFlight = useApp((s) => (id && lead ? s.delegatedRuns[lead]?.some((r) => r.sessionId === id) ?? false : false));
   const probe = useApp((s) => s.agentProbe);
   /* A call whose child this window cannot find once the list has loaded — the session was deleted —
      says only what it was asked; claiming it is still starting would leave a spinner on it forever. */
-  const gone = loaded && !child && block.result !== null;
+  const gone = loaded && !child && block.result !== null && (ids.length === 0 || byId.known);
   const state: SubagentState = child ? subagentState(child, live, inFlight) : "queued";
   const ticking = child ? isLive(state) : !gone && (sessionStatus === "running" || sessionStatus === "waiting_permission");
   const runningFor = useElapsed(child?.startedAt ?? block.ts, ticking);
