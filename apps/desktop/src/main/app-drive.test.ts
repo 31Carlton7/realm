@@ -78,15 +78,13 @@ describe("AppDriveHost and a key with no ref", () => {
 describe("AppDriveHost draws each session's own cursor", () => {
   const host = () => {
     const scripts: string[] = [];
-    let t = 0;
     const drive = new AppDriveHost({
-      now: () => t,
       attach: () => ({ send: async (method: string, params?: Record<string, unknown>) => {
         if (method === "Runtime.evaluate" && typeof params?.expression === "string" && params.expression.includes("__realmAgents")) scripts.push(params.expression);
         return method === "Page.getLayoutMetrics" ? { cssVisualViewport: { clientWidth: 800, clientHeight: 600, pageX: 0, pageY: 0 } } : {};
       } }),
     });
-    return { drive, scripts, advance: (ms: number) => { t += ms; } };
+    return { drive, scripts };
   };
   const claude = { sessionId: "s-claude", agentKind: "claude", label: "Claude · settings" };
   const codex = { sessionId: "s-codex", agentKind: "codex", label: "Codex · themes" };

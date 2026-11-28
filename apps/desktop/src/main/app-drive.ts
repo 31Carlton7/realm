@@ -49,7 +49,6 @@ export type AppDriveDeps = {
   /** Whether the person is pointing at a part of the window for their prompter (app-pick.ts). Every
    *  act waits that out: a click landing while they aim would be taken as THEIR pick. */
   picking?(): boolean;
-  now?: () => number;
 };
 
 /** What an act is told while the person is picking. A plain failure rather than `realm_protected`:
@@ -62,11 +61,9 @@ export class AppDriveHost {
   private index: SnapshotIndex | null = null;
   private accent = DEFAULT_AGENT_ACCENT;
   /** Which colour each session's cursor holds in this window, as the browser host keeps per page. */
-  private readonly cursorSlots: CursorSlots;
+  private readonly cursorSlots = new CursorSlots();
 
-  constructor(private readonly d: AppDriveDeps) {
-    this.cursorSlots = new CursorSlots(d.now);
-  }
+  constructor(private readonly d: AppDriveDeps) {}
 
   async snapshot(scope: BrowserSnapshotScope = {}): Promise<BrowserSnapshotResult> {
     const cdp = this.require();
