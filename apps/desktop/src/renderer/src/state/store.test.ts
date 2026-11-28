@@ -1138,7 +1138,7 @@ describe("app store", () => {
 
     it("a row of a space not read yet opens by reading that space alone, from any list", async () => {
       api.data.spaces.push(space("s3", "p1", "Errands"));
-      api.data.items["s2"] = [item("i2", "s2", { kind: "session", refId: "se2" }), item("d2", "s2", { kind: "document" })];
+      api.data.items["s2"] = [item("i2", "s2", { kind: "session", refId: "se2" }), item("d2", "s2", { kind: "documents" })];
       api.data.sessions.push(session("se2", "s2"));
       const store = createAppStore(api);
       await store.getState().boot();
@@ -1153,7 +1153,7 @@ describe("app store", () => {
     it("a session or an item revealed in a space not read yet reads that space, and opens", async () => {
       api.data.spaces.push(space("s3", "p1", "Errands"));
       api.data.items["s2"] = [item("i2", "s2", { kind: "session", refId: "se2" })];
-      api.data.items["s3"] = [item("d3", "s3", { kind: "document" })];
+      api.data.items["s3"] = [item("d3", "s3", { kind: "documents" })];
       api.data.sessions.push(session("se2", "s2"));
       const store = createAppStore(api);
       await store.getState().boot();

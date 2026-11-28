@@ -1929,10 +1929,10 @@ export type AppState = TeammatesSlice & {
   /**
    * Make a space current: its most recent session opens in the main view, in the focused pane's
    * place. Nothing unloads and nothing slides; a space is read the first time the window goes to it
-   * and held from then on. A space with no session shows its Overview, which says how to start one. A space in another profile
-   * switches the window to that profile first. A space open in ANOTHER window brings that window
-   * forward instead, and this one stays as it is: a space is open in at most one window. `by` says
-   * an agent asked, and then that window comes forward only inside Realm.
+   * and held from then on. A space with no session shows its Overview, which says how to start one.
+   * A space in another profile switches the window to that profile first. A space open in ANOTHER
+   * window brings that window forward instead, and this one stays as it is: a space is open in at
+   * most one window. `by` says an agent asked, and then that window comes forward only inside Realm.
    */
   selectSpace(id: string, by?: "agent"): Promise<void>;
   /** Switch the window to another profile: its spaces load, and its own view comes back. The one
@@ -4663,6 +4663,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** Each space's first read, by space id, so two asks for one space read it once. */
     let holding = new Map<string, Promise<void>>();
     const heldSpaceIds = (): string[] => profileSpaceIds().filter((sid) => get().heldSpaces.includes(sid));
+    const everySpaceHeld = () => heldSpaceIds().length === profileSpaceIds().length;
     /** Read `sid` once, if it is a space of this profile the window does not hold yet. */
     const holdSpace = (sid: string): Promise<void> => {
       if (!inProfile(sid)) return Promise.resolve();
@@ -4686,7 +4687,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const holdSpaceOfItem = (itemId: string): Promise<unknown> | null => {
       const at = get().items.find((i) => i.id === itemId)?.spaceId ?? get().allItems.find((i) => i.id === itemId)?.spaceId;
       if (at) return inProfile(at) && !get().heldSpaces.includes(at) ? holdSpace(at) : null;
-      return heldSpaceIds().length < profileSpaceIds().length ? holdEverySpace() : null;
+      return everySpaceHeld() ? null : holdEverySpace();
     };
 
     /** What may be on screen: every live item of the profile, and a peek from another profile. */
@@ -4707,7 +4708,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  space is read, one whose session the window has no row for is not the window's to forget: it
      *  is kept as it was, and judged once its space is read. */
     const unjudged = (view: WindowView): string[] => {
-      if (heldSpaceIds().length === profileSpaceIds().length) return [];
+      if (everySpaceHeld()) return [];
       const known = new Set(get().items.map((i) => i.id));
       return Object.entries(view.sidePanes).filter(([owner]) => !known.has(owner)).flatMap(([owner, sp]) => [owner, ...sp.tabs]);
     };
