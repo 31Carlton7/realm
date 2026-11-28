@@ -299,7 +299,7 @@ describe("a window held at launch whose space starts work", () => {
 
   it("opens, though no open window is unloaded", async () => {
     // THE MUTANT: the early return for "nothing unloaded", so a held space's agent never gets a window
-    // and every browser_open there answers "pane not open in the app".
+    // of its own, and its browser pane is parked in the window of another space.
     const { idle, win, front } = setup();
     const a = win(1);
     idle.opened(a);

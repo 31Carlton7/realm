@@ -134,8 +134,8 @@ export class WindowIdle<W extends IdleWindow> {
 }
 
 /** A session in some space started work: an unloaded window on a busy space loads again, and a window
- *  held at launch for one opens (behind the person's), so its panes are there for the agent: a browser
- *  pane's view exists only once its page mounts it. Answers the busy spaces, or null when there was
+ *  held at launch for one opens (behind the person's), so the agent's panes mount in that space's own
+ *  window rather than in another space's. Answers the busy spaces, or null when there was
  *  nothing unloaded or held to wake, or the server could not say which spaces are busy. */
 export async function wakeForWork<W extends IdleWindow>(idle: WindowIdle<W>, d: {
   windows: readonly W[];
