@@ -43,7 +43,15 @@ afterEach(async () => { await app?.close(); });
 class CaptureFake extends FakeAdapter {
   readonly seen: StartOptions[] = [];
   constructor(cfg: ConstructorParameters<typeof FakeAdapter>[0]) { super(cfg); }
-  override start(o: StartOptions): AgentHandle { this.seen.push(o); return super.start(o); }
+  /** Every message's text as it reached an engine, Realm's notes included. */
+  readonly sent: string[] = [];
+  override start(o: StartOptions): AgentHandle {
+    this.seen.push(o);
+    const handle = super.start(o);
+    const send = handle.send.bind(handle);
+    handle.send = (m) => { this.sent.push(m.text); return send(m); };
+    return handle;
+  }
 }
 
 /** The agent child's one message begins "You are a delegated agent." — distinct from the browser
@@ -1072,6 +1080,87 @@ describe("agent_wait returns early when a message for the lead arrives", () => {
     setTimeout(() => void app.sessions.send(parentId, { text: "Continue toward the goal.", attachments: [], goal: "continuation" }), 200);
     const result = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle], timeoutMs: 30_000 });
     expect(text(result)).toContain("All 1 delegated agent finished");
+  }, 40_000);
+});
+
+/**
+ * Nothing wakes an idle lead when its agents finish. A lead told by agent_wait to end its turn and
+ * read a message could answer it and stop, leaving their reports unread, so the message itself says
+ * which agents are still to collect.
+ */
+describe("a message to a lead with agents not yet collected names them", () => {
+  const hello = { text: "are you there?", attachments: [], byPerson: true };
+  const toLead = (fake: CaptureFake) => fake.sent.filter((t) => t.startsWith(hello.text));
+
+  it("a queued message delivered when the turn ends names the uncollected agents and agent_wait", async () => {
+    // THE MUTANT: no line — the lead reads the message with nothing about its agents.
+    const leadTurn: FakeScript = [{ on: "LEAD TURN", emit: Array.from({ length: 10 }, (_, i) => ({ kind: "text" as const, text: `lead ${i}` })) }];
+    const { spaceId, parentId, fake } = await boot({ script: [...leadTurn, ...longScript(60)], delayMs: 100, caps: { perParent: 4 } });
+    const a = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files", title: "Count files" })));
+    const b = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Read the docs", title: "Read docs" })));
+    await app.sessions.send(parentId, { text: "LEAD TURN", attachments: [], byPerson: true });
+    await waitFor(() => app.sessions.get(parentId).status === "running");
+    await app.sessions.send(parentId, hello);
+    expect(app.sessions.queuedFor(parentId)).toHaveLength(1);
+    expect(toLead(fake)).toHaveLength(0);
+    // The lead's turn ends, and the queue delivers the message.
+    await waitFor(() => toLead(fake).length === 1, { timeout: 10_000 });
+    expect(app.sessions.get(a).status).not.toBe("idle");
+    expect(toLead(fake)[0]).toContain(`Your agents not yet collected: ${a} ("Count files"), ${b} ("Read docs"). After you answer this, call ${AGENT_WAIT_TOOL_NAME} with those handles.`);
+  }, 40_000);
+
+  it("a message steered into the running turn carries the line", async () => {
+    const leadTurn: FakeScript = [{ on: "LEAD TURN", emit: Array.from({ length: 10 }, (_, i) => ({ kind: "text" as const, text: `lead ${i}` })) }];
+    const { spaceId, parentId, fake } = await boot({ script: [...leadTurn, ...longScript(60)], delayMs: 100 });
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files", title: "Count files" })));
+    await app.sessions.send(parentId, { text: "LEAD TURN", attachments: [] });
+    await waitFor(() => app.sessions.get(parentId).status === "running");
+    await app.sessions.send(parentId, hello, "steer");
+    await waitFor(() => toLead(fake).length === 1);
+    expect(toLead(fake)[0]).toContain(`not yet collected: ${handle} ("Count files")`);
+  }, 40_000);
+
+  it("a lead with no agents gets the message unchanged", async () => {
+    // THE MUTANT: the line goes on every message, an empty list and all.
+    const { parentId, fake } = await boot();
+    await app.sessions.send(parentId, hello);
+    await waitFor(() => toLead(fake).length === 1);
+    expect(toLead(fake)[0]).toBe(hello.text);
+  });
+
+  it("agents already collected are not named, and once all are collected the line goes", async () => {
+    // THE MUTANT: name every run the lead ever started, collected ones included.
+    const script: FakeScript = [{ on: "QUICK", emit: [{ kind: "text", text: "FINAL: quick one done" }] }, ...longScript(40)];
+    const { spaceId, parentId, fake } = await boot({ script, delayMs: 100, caps: { perParent: 4 } });
+    const quick = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "QUICK" })));
+    const slow = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "slow", title: "Slow one" })));
+    await waitFor(() => app.sessions.get(quick).status === "idle");
+    expect(text(await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [quick] }))).toContain("FINAL: quick one done");
+    await app.sessions.send(parentId, hello);
+    await waitFor(() => toLead(fake).length === 1);
+    expect(toLead(fake)[0]).toContain(`not yet collected: ${slow} ("Slow one").`);
+    expect(toLead(fake)[0]).not.toContain(quick);
+    await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [slow], timeoutMs: 30_000, returnOnMessage: false });
+    await waitFor(() => app.sessions.get(parentId).status === "idle");
+    await app.sessions.send(parentId, hello);
+    await waitFor(() => toLead(fake).length === 2);
+    expect(toLead(fake)[1]).toBe(hello.text);
+  }, 40_000);
+
+  it("a question through agent_ask carries the line too", async () => {
+    const { spaceId, parentId, fake } = await boot({ script: longScript(40), delayMs: 100 });
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files", title: "Count files" })));
+    await app.sessions.deliverInterjection(parentId, { text: "which file?", from: { sessionId: handle, title: "peer" } }, { interruptFirst: false });
+    const asked = fake.sent.find((t) => t.startsWith("which file?"));
+    expect(asked).toContain(`not yet collected: ${handle} ("Count files")`);
+  }, 40_000);
+
+  it("Realm's own messages, like a goal's next turn, carry no line", async () => {
+    const { spaceId, parentId, fake } = await boot({ script: longScript(40), delayMs: 100 });
+    handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" })));
+    await app.sessions.send(parentId, { text: "Continue toward the goal.", attachments: [], goal: "continuation" });
+    await waitFor(() => fake.sent.some((t) => t.startsWith("Continue toward the goal.")));
+    expect(fake.sent.find((t) => t.startsWith("Continue toward the goal."))).not.toContain("not yet collected");
   }, 40_000);
 });
 

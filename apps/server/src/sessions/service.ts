@@ -403,6 +403,9 @@ export class SessionService {
     /** Teammates the person added (`delegation/teammates.ts`): what this session's agent is told about
      *  them on its next message, spent by asking. Optional — without it nothing is ever added. */
     teammates?: { joinedNote(sessionId: string): string };
+    /** The `agent_start` agents this session has not collected, as a line for a message from someone
+     *  (`AgentRunService.uncollectedNote`). Empty, or absent, when there are none. */
+    uncollectedNote?: (sessionId: string) => string;
     /** A teammate's home session is told who it is and who its team is on every start
      *  (`teammates/service.ts`). Undefined for every other session. `seen` hears a teammate
      *  session's read mark move. */
@@ -934,6 +937,8 @@ export class SessionService {
     // failover keeps the message, so a retry of the turn says it again.
     const joined = this.d.teammates?.joinedNote(id);
     if (joined) msg = { ...msg, note: `${msg.note ?? ""}${joined}` };
+    const uncollected = isFromSomeone(msg) ? this.d.uncollectedNote?.(id) : "";
+    if (uncollected) msg = { ...msg, note: `${msg.note ?? ""}${uncollected}` };
     // The first message after a move tells the agent it moved, once (`moved`'s `preface`).
     const preface = this.d.settings.get(movePrefaceKey(id));
     if (typeof preface === "string") {
@@ -1126,7 +1131,7 @@ export class SessionService {
     this.d.failover?.cancel(id);
     this.notePersonTurn(id, false);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
-    await handle.send({ text: msg.text, attachments: [] });
+    await handle.send({ text: msg.text + (this.d.uncollectedNote?.(id) ?? ""), attachments: [] });
     this.tellMessage(id, msg, false);
     return { interrupted };
   }

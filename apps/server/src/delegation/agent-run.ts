@@ -640,6 +640,16 @@ export class AgentRunService {
     }
   }
 
+  /** The line a message from the person or another session carries while this session has agents
+   *  from `agent_start` it has not collected. Nothing wakes an idle lead when they finish, so a lead
+   *  that answers and stops would leave their reports unread. Empty when there are none. */
+  uncollectedNote(sessionId: string): string {
+    const open = this.d.engine.runsOf(sessionId).filter((r) => r.detached)
+      .map((r) => `${r.childSessionId} ("${this.described(r.childSessionId).title}")`);
+    if (open.length === 0) return "";
+    return `\n\nYour agents not yet collected: ${open.join(", ")}. After you answer this, call ${AGENT_WAIT_TOOL_NAME} with those handles.`;
+  }
+
   /** `agent_run`'s progress: "Dark-mode toggle working, 2:10". */
   private runningLine(run: ActiveRun): string {
     const { title, needsYou } = this.described(run.childSessionId);
