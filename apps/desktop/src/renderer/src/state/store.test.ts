@@ -1136,6 +1136,35 @@ describe("app store", () => {
       expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
     });
 
+    it("a row of a space not read yet opens by reading that space alone, from any list", async () => {
+      api.data.spaces.push(space("s3", "p1", "Errands"));
+      api.data.items["s2"] = [item("i2", "s2", { kind: "session", refId: "se2" }), item("d2", "s2", { kind: "document" })];
+      api.data.sessions.push(session("se2", "s2"));
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().refreshAllItems();
+      // THE MUTANTS: open without reading its space (the pane has no row), or read every space for it.
+      await store.getState().openItem("d2");
+      expect(allItems(store.getState().layout!)).toContain("d2");
+      expect(spaceReads("s2")).toEqual(READ("s2"));
+      expect(spaceReads("s3")).toEqual([]);
+    });
+
+    it("a session or an item revealed in a space not read yet reads that space, and opens", async () => {
+      api.data.spaces.push(space("s3", "p1", "Errands"));
+      api.data.items["s2"] = [item("i2", "s2", { kind: "session", refId: "se2" })];
+      api.data.items["s3"] = [item("d3", "s3", { kind: "document" })];
+      api.data.sessions.push(session("se2", "s2"));
+      const store = createAppStore(api);
+      await store.getState().boot();
+      // THE MUTANT: look for its row before its space is read, and the jump lands nowhere.
+      expect(await store.getState().revealSession("se2", "s2")).toBe(true);
+      expect(allItems(store.getState().layout!)).toContain("i2");
+      expect(spaceReads("s3")).toEqual([]);
+      await store.getState().revealItem("d3", "s3");
+      expect(allItems(store.getState().layout!)).toContain("d3");
+    });
+
     it("an item of a space not read yet opens once its space is read", async () => {
       api.data.items["s2"] = [item("i2", "s2")];
       const store = createAppStore(api);

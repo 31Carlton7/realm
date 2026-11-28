@@ -4673,8 +4673,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await Promise.all([get().refreshItems(sid), get().refreshSessions(sid), get().refreshEnvironments(sid), get().refreshProjects(sid)]);
         if (epoch !== profileEpoch || !inProfile(sid) || get().heldSpaces.includes(sid)) return;
         set({ heldSpaces: [...get().heldSpaces, sid] });
-        // What a remembered side pane named in this space can be judged now (`unjudged`).
-        pruneOnScreen();
       })();
       holding.set(sid, read);
       // A read that failed is asked again next time, rather than leaving the space never read.
@@ -8834,11 +8832,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // session itself, so the jump did land, just not here.
         if (target && target !== get().activeSpaceId && await api.focusSpaceWindow(target, sessionId)) return true;
         if (space && space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
-        // Its space is read first; a session the window cannot place may be in any space not read yet.
         if (target && !get().heldSpaces.includes(target)) await holdSpace(target);
-        const find = () => get().items.find((i) => i.kind === "session" && i.refId === sessionId);
-        let item = find();
-        if (!item && heldSpaceIds().length < profileSpaceIds().length) { await holdEverySpace(); item = find(); }
+        const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
         // A session with no item in the space it claims has no pane to be brought forward, so callers
         // need to hear that the jump did NOT land.
         if (!item) return false;
