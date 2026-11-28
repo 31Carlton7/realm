@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { WindowIdle, busySpaces, onAnotherDisplay, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep } from "./window-idle";
+import { WindowIdle, busySpaces, canBeSeen, fullyCovered, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep, type Sight } from "./window-idle";
 
 const HOUR = 60 * 60_000;
 
@@ -301,9 +301,65 @@ describe("what main reads of a window before unloading it", () => {
   });
 
   it("knows a window on another display from the one in front, which someone may be looking at", () => {
-    expect(onAnotherDisplay({ visible: true, minimized: false, display: 2 }, 1)).toBe(true);
-    expect(onAnotherDisplay({ visible: true, minimized: false, display: 1 }, 1)).toBe(false);
-    expect(onAnotherDisplay({ visible: true, minimized: true, display: 2 }, 1)).toBe(false);
-    expect(onAnotherDisplay({ visible: false, minimized: false, display: 2 }, 1)).toBe(false);
+    const sight = (o: Partial<Sight>): Sight => ({ visible: true, minimized: false, display: 2, frame: null, ...o });
+    expect(canBeSeen(sight({}), 1)).toBe(true);
+    expect(canBeSeen(sight({ minimized: true }), 1)).toBe(false);
+    expect(canBeSeen(sight({ visible: false }), 1)).toBe(false);
+  });
+
+  it("knows a window wholly under the windows above it, and one with any part showing", () => {
+    const win = { x: 100, y: 100, width: 1200, height: 800 };
+    expect(fullyCovered(win, [])).toBe(false);
+    expect(fullyCovered(win, [{ x: 0, y: 0, width: 2000, height: 2000 }])).toBe(true);
+    expect(fullyCovered(win, [{ x: 100, y: 100, width: 1200, height: 800 }])).toBe(true);
+    // Two windows that tile it between them, neither alone.
+    expect(fullyCovered(win, [{ x: 0, y: 0, width: 700, height: 2000 }, { x: 700, y: 0, width: 1000, height: 2000 }])).toBe(true);
+    // A window cascaded 30 points down and right of it: its title bar and left edge still show.
+    expect(fullyCovered(win, [{ x: 130, y: 130, width: 1200, height: 800 }])).toBe(false);
+    // A strip one point wide, between two windows that cover the rest.
+    expect(fullyCovered(win, [{ x: 0, y: 0, width: 700, height: 2000 }, { x: 701, y: 0, width: 1000, height: 2000 }])).toBe(false);
+    // Covered top and bottom but not across its middle.
+    expect(fullyCovered(win, [{ x: 0, y: 0, width: 2000, height: 450 }, { x: 0, y: 460, width: 2000, height: 1000 }])).toBe(false);
+    expect(fullyCovered(win, [{ x: 1300, y: 100, width: 500, height: 800 }])).toBe(false);
+  });
+});
+
+describe("a window that can be seen stays loaded past the idle window", () => {
+  const front = { x: 200, y: 150, width: 1200, height: 800 };
+  const back = { x: 100, y: 100, width: 1200, height: 800 };
+  const run = async (sight: Sight) => {
+    const s = setup({ keep: (id) => (id === 1 && canBeSeen(sight, 1) ? "visible" : null) });
+    const w = s.win(1);
+    s.idle.opened(w);
+    s.front();
+    s.at(5 * HOUR);
+    const out = await s.idle.sweep(4 * HOUR);
+    return { unloaded: s.unloaded.includes(1), kept: out.kept.find((k) => k.id === 1)?.reason ?? null };
+  };
+  const sight = (o: Partial<Sight>): Sight => ({ visible: true, minimized: false, display: 1, frame: { onScreen: true, bounds: back, above: [front] }, ...o });
+
+  it("keeps a window partly covered by the one in front on the same display", async () => {
+    expect(await run(sight({}))).toEqual({ unloaded: false, kept: "visible" });
+  });
+
+  it("unloads one wholly covered by the windows above it", async () => {
+    expect(await run(sight({ frame: { onScreen: true, bounds: back, above: [front, { x: 0, y: 0, width: 400, height: 1200 }, { x: 0, y: 0, width: 1600, height: 200 }] } }))).toEqual({ unloaded: true, kept: null });
+  });
+
+  it("unloads one minimised", async () => {
+    expect(await run(sight({ minimized: true, frame: { onScreen: false, bounds: back, above: [] } }))).toEqual({ unloaded: true, kept: null });
+  });
+
+  it("unloads one on another Space, which macOS lists off screen", async () => {
+    expect(await run(sight({ frame: { onScreen: false, bounds: back, above: [] } }))).toEqual({ unloaded: true, kept: null });
+  });
+
+  it("keeps one on another display from the one in front, covered or not, as before", async () => {
+    expect(await run(sight({ display: 2 }))).toEqual({ unloaded: false, kept: "visible" });
+    expect(await run(sight({ display: 2, frame: { onScreen: true, bounds: back, above: [{ x: 0, y: 0, width: 2000, height: 2000 }] } }))).toEqual({ unloaded: false, kept: "visible" });
+  });
+
+  it("keeps one on screen when there is no look at what covers it", async () => {
+    expect(await run(sight({ frame: null }))).toEqual({ unloaded: false, kept: "visible" });
   });
 });

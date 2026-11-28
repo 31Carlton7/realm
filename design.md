@@ -1099,7 +1099,8 @@ A window nobody has focused for four hours (sooner when memory is short) gives u
 window; focused again, it loads on the space, panes, page and scroll it had, never a fresh boot. The one
 in front, one an agent drives, one whose space has work under way and one with live audio stay loaded.
 So do the window used last, minimised or hidden, since its page is what still posts "needs you" and
-"done"; one on another display, which someone may be looking at; and one holding anything kept only in
+"done"; one someone may be looking at, on another display or with any part of it showing past the
+windows over it, since an unloaded window draws an empty frame; and one holding anything kept only in
 its page: a prompt or attachment not sent, a commit message, a review being written, a file edit not
 on disk, an open sheet. Unloading never costs work, only a reload. A window whose space starts work
 while it is unloaded loads at once, so the agent finds its panes there.
