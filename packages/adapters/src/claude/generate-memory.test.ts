@@ -104,4 +104,12 @@ describe("the background model", () => {
     await generateMemoryTidyPlan(TIDY, { query: tidy.query });
     for (const f of [extraction, tidy]) expect(f.asked[0]!.options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
   });
+
+  it("sends no tool definitions and writes nothing to the prompt cache in either call", async () => {
+    const extraction = fakeQuery('{"memories": []}');
+    const tidy = fakeQuery('{"operations": []}');
+    await generateMemoryExtraction(INPUT, { query: extraction.query });
+    await generateMemoryTidyPlan(TIDY, { query: tidy.query });
+    for (const f of [extraction, tidy]) expect(f.asked[0]!.options).toMatchObject({ tools: [], env: expect.objectContaining({ DISABLE_PROMPT_CACHING: "1" }) });
+  });
 });

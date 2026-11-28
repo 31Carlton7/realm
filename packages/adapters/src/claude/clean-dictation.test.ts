@@ -64,6 +64,14 @@ describe("cleanDictation", () => {
     expect(calls[0]!.options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
   });
 
+  it("caches for five minutes, not the CLI's hour", async () => {
+    const calls: Call[] = [];
+    await cleanDictation("hello", { query: gullibleModel(calls) });
+    const env = (calls[0]!.options as { env?: Record<string, string | undefined> }).env!;
+    expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
+    expect(env.DISABLE_PROMPT_CACHING).toBeUndefined();
+  });
+
   it("throws on a failed result, so the caller keeps the raw words", async () => {
     const failed = (() => (async function* () { yield { type: "result", subtype: "error_during_execution" } as never; })()) as never;
     await expect(cleanDictation("x", { query: failed })).rejects.toThrow(/clean-up failed/);

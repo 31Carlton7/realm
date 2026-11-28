@@ -69,6 +69,15 @@ describe("ClaudeLiveAnswers", () => {
     live.close();
   });
 
+  it("caches for five minutes, not the CLI's hour", async () => {
+    const { started, startup } = engines();
+    const live = new ClaudeLiveAnswers({ startup });
+    await ask(live).done;
+    expect(started[0]!.options.env?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
+    expect(started[0]!.options.env?.DISABLE_PROMPT_CACHING).toBeUndefined();
+    live.close();
+  });
+
   it("answers on the engine started ahead of it, and starts the next as it ends", async () => {
     const { started, startup } = engines();
     const live = new ClaudeLiveAnswers({ startup });

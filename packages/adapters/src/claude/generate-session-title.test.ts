@@ -40,6 +40,16 @@ describe("generateSessionTitle", () => {
     expect(options).toMatchObject({ mcpServers: {}, strictMcpConfig: true, env: expect.objectContaining({ ENABLE_CLAUDEAI_MCP_SERVERS: "false", PATH: process.env.PATH }) });
   });
 
+  it("sends no tool definitions and writes nothing to the prompt cache", async () => {
+    let options: unknown;
+    const query = ((args: { options: unknown }) => {
+      options = args.options;
+      return (async function* () { yield { type: "result", subtype: "success", result: "Fix login" } as never; })();
+    }) as never;
+    await generateSessionTitle("fix the login flow", { query });
+    expect(options).toMatchObject({ tools: [], env: expect.objectContaining({ DISABLE_PROMPT_CACHING: "1" }) });
+  });
+
   it("throws on a non-success result instead of returning a blank or garbage title", async () => {
     await expect(generateSessionTitle("x", { query: fakeQuery([{ type: "result", subtype: "error_max_turns" }]) }))
       .rejects.toThrow(/title generation failed/);

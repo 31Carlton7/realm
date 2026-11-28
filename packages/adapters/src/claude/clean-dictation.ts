@@ -82,7 +82,10 @@ export async function cleanDictation(raw: string, deps: { query?: QueryFn } = {}
       tools: [],
       allowedTools: [],
       settingSources: [],
-      ...noMcpServers(),
+      // The 5-minute cache, not the 1 h one the CLI picks on a subscription at twice the write price:
+      // a 1 h entry only pays for itself when it is read after five minutes, and these repeat within
+      // one burst if at all.
+      ...noMcpServers({ CLAUDE_CODE_PROMPT_CACHE_TTL: "5m" }),
       thinking: { type: "disabled" },
       model: DICTATION_MODEL,
       persistSession: false,

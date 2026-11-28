@@ -21,8 +21,12 @@ export async function generateSessionTitle(text: string, deps: { query?: QueryFn
     prompt: `Write a short sidebar title for a coding session that opens with this request:\n\n${text}`,
     options: {
       maxTurns: 1,
+      // No tools: it answers in text alone, and their definitions were ~29k chars of every call.
+      tools: [],
       allowedTools: [],
-      ...noMcpServers(),
+      // And no prompt cache. Nothing reads it back: on a subscription the CLI wrote all of it to the
+      // 1 h cache, at twice the price of input, for a hit rate of 0-20 % (Nov 13-27).
+      ...noMcpServers({ DISABLE_PROMPT_CACHING: "1" }),
       model: BACKGROUND_MODEL,
       systemPrompt: [
         "You write short titles that summarize a coding assistant's chat session for a sidebar list.",
