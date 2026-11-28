@@ -22,7 +22,7 @@ const store = strip(Object.values(STORE)[0]!);
 
 describe("the machine pane is DOM, not a native view", () => {
   it("scans the real sources", () => {
-    expect(Object.keys(SOURCES).sort()).toEqual(["./MachineBar.tsx", "./MachinePane.tsx"]);
+    expect(Object.keys(SOURCES).sort()).toEqual(["./MachineBar.tsx", "./MachineCursors.tsx", "./MachinePane.tsx"]);
     expect(store).toContain("browserRects");
   });
 

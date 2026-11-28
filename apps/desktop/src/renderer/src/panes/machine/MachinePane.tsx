@@ -8,6 +8,7 @@ import { rpc } from "../../rpc/client";
 import { getMachineHub, loadRfb } from "./machine-hub";
 import { fitFramebuffer, scaleLabel, PICTURE_RADIUS, type FitMode } from "./fit";
 import { squirclePath } from "./squircle-path";
+import { MachineCursors } from "./MachineCursors";
 import { E2B_STREAM_PORT, SANDBOX_NOTES, describeEndpoint, parseMachineAddress, type SandboxProvider } from "@realm/contracts";
 
 /**
@@ -663,6 +664,7 @@ function Screen({ machineId, state }: { machineId: string; state: MachineState }
         ["--machine-h" as string]: `${fit.cssHeight}px`,
         ["--machine-clip" as string]: clip ? `path("${clip}")` : "none",
       }}>
+      <MachineCursors machineId={machineId} framebuffer={fb} size={{ width: fit.cssWidth, height: fit.cssHeight }} />
       {!ready && (
         <div className="machine-starting" role="status">
           <span className="spinner" aria-hidden="true" />
