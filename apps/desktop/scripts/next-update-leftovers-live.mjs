@@ -224,7 +224,7 @@ async function boot() {
   await api.ready;
   // The onboarding session runs on whatever this Mac can run; it is never typed into, and is put on
   // the scripted agent all the same.
-  for (const s of await api.call("sessions.listAll", {})) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api.call("sessions.listAllFull", {})) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await api.call("agents.probe", { force: false });
   return c;
 }
@@ -438,7 +438,7 @@ async function activity(c, first) {
     return { card: !!card, active: card?.hasAttribute('data-active') ?? false, inView: !!r && r.top >= sr.top - 1 && r.bottom <= sr.bottom + 1,
       space: card?.querySelector('.sb-card-head')?.textContent ?? null, scrollTop: Math.round(s.scrollTop),
       focus: a ? (a.tagName + '.' + (a.className || '').toString().slice(0, 40)) : null, focusPane: pane?.getAttribute('data-item') ?? null, inComposer: !!a?.closest('.composer') }; })()`);
-  const sessionsNow = async () => new Set((await api.call("sessions.listAll", {})).map((s) => s.id));
+  const sessionsNow = async () => new Set((await api.call("sessions.listAllFull", {})).map((s) => s.id));
   const items = async (spaceId) => api.call("items.list", { spaceId });
 
   const paths = [
@@ -466,7 +466,7 @@ async function activity(c, first) {
     await act();
     const id = await until(async () => [...(await sessionsNow())].find((x) => !before.has(x)), 15_000, `${name}: a new session`).catch(() => null);
     if (!id) { check(`${name}: made a session`, false); continue; }
-    const made = (await api.call("sessions.listAll", {})).find((s) => s.id === id);
+    const made = (await api.call("sessions.listAllFull", {})).find((s) => s.id === id);
     await sleep(1600);
     const st = await state(id);
     const own = (await items(made.spaceId)).find((i) => i.refId === id);

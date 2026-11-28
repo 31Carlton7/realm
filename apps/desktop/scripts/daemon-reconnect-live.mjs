@@ -202,7 +202,7 @@ async function main() {
   const api1 = rpc(first.port, first.token);
   await api1.ready;
   // Every session here runs on the scripted agent — the onboarding one included.
-  for (const s of await api1.call("sessions.listAll", {})) await api1.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
+  for (const s of await api1.call("sessions.listAllFull", {})) await api1.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   const [space] = await api1.call("spaces.list", {});
   const { session } = await api1.call("sessions.create", { spaceId: space.id, agentKind: "fake", title: "Reconnect check" });
   await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes("Reconnect check"))`), 20_000, "the session's row");

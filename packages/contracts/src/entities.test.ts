@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newId, IdSchema } from "./ids";
-import { SpaceSchema, ItemKindSchema, PAGE_REF_IDS, FAVICON_MAX_BYTES, QueuedPromptSchema, isFaviconDataUrl } from "./entities";
+import { SpaceSchema, ItemKindSchema, PAGE_REF_IDS, FAVICON_MAX_BYTES, QueuedPromptSchema, SessionListRowSchema, SessionSchema, isFaviconDataUrl, sessionListRow, type Session } from "./entities";
 import { Methods } from "./rpc";
 
 describe("entities", () => {
@@ -82,5 +82,19 @@ describe("a queued message", () => {
     const edit = Methods["sessions.editQueued"].params;
     expect(edit.safeParse({ id: newId(), queuedId: "q1", text: "", attachments: [] }).success).toBe(false);
     expect(edit.safeParse({ id: newId(), queuedId: "q1", text: "fixed" }).success).toBe(true);
+  });
+
+  it("a session's list row carries what the home's lists route and draw by, and none of its options or checkout", () => {
+    expect(Object.keys(SessionListRowSchema.shape).sort()).toEqual(["activityAt", "agentKind", "createdAt", "dispatchedBy", "id", "lastEventSeq", "seenSeq",
+      "spaceId", "status", "teammateHome", "teammateId", "title", "updatedAt"]);
+    const session: Session = SessionSchema.parse({ id: newId(), spaceId: newId(), projectId: newId(), agentKind: "fake", model: "fake-xl", effort: "high",
+      permissionMode: "plan", fastMode: true, environmentId: newId(), cwd: "/work/repo", status: "idle", providerSessionId: "p-1", title: "Fix it",
+      lastEventSeq: 9, seenSeq: 4, terminalItemId: newId(), dispatchedBy: { sessionId: newId(), kind: "agent_run" }, teammateId: newId(), teammateHome: false,
+      activityAt: 3, accountId: "acct", createdAt: 1, updatedAt: 2 });
+    const row = sessionListRow(session);
+    expect(Object.keys(row).sort()).toEqual(Object.keys(SessionListRowSchema.shape).sort());
+    expect(SessionListRowSchema.strict().parse(row)).toEqual(row);
+    expect(Methods["sessions.listAll"].result.element).toBe(SessionListRowSchema);
+    expect(Methods["sessions.listAllFull"].result.element).toBe(SessionSchema);
   });
 });

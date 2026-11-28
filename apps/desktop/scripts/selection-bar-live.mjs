@@ -282,7 +282,7 @@ async function main() {
      structured card (deliberately not). */
   api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const session = await until(async () => (await api.call("sessions.listAll", {}))[0], 15000, "a session");
+  const session = await until(async () => (await api.call("sessions.listAllFull", {}))[0], 15000, "a session");
   /* The scripted fake agent, not whichever real one the onboarding picked. Without this the send
      reaches a live CLI, which spends tokens, runs tools and parks on a permission card — so the
      transcript this check needs never arrives, and what does arrive is different every run. */

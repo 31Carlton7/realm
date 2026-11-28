@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MenuItemConstructorOptions } from "electron";
-import { SessionTray, TRAY_SESSION_LIMIT, trayHeader, trayMenu, trayTitle, trayTooltip, type SessionTrayHandle, type TraySession } from "./session-tray";
+import { SessionTray, TRAY_SESSION_LIMIT, trayHeader, trayMenu, traySessions, trayTitle, trayTooltip, type SessionTrayHandle, type TraySession } from "./session-tray";
+import { sessionListRow, type Session, type SessionListRow } from "@realm/contracts";
 
 const actions = () => ({ reattach: vi.fn(), stopAllAgents: vi.fn(), quitAndStop: vi.fn() });
 const labels = (t: MenuItemConstructorOptions[]) => t.map((i) => (i.type === "separator" ? "—" : String(i.label)));
@@ -94,5 +95,23 @@ describe("SessionTray", () => {
     tray.hide();
     expect(h.destroyed).toBe(1);
     expect(tray.showing).toBe(false);
+  });
+});
+
+describe("the sessions the menu names", () => {
+  // `sessions.listAll`'s rows as the server answers them: list rows, with no options or checkout.
+  const row = (id: string, status: Session["status"], spaceId = "s1"): SessionListRow => sessionListRow({
+    id, spaceId, projectId: null, agentKind: "fake", model: "fake-xl", effort: null, permissionMode: "default", fastMode: false, environmentId: "e1", cwd: "/w",
+    status, providerSessionId: null, title: `Session ${id}`, lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, teammateId: null,
+    teammateHome: false, activityAt: 0, createdAt: 0, updatedAt: 0,
+  });
+
+  it("lists the waiting first, then the working, from list rows, named by their space", () => {
+    const rows = [row("a", "running"), row("b", "idle"), row("c", "waiting_permission", "s2"), row("d", "running", "gone")];
+    expect(traySessions(rows, [{ id: "s1", name: "Work" }, { id: "s2", name: "Home" }])).toEqual([
+      { id: "c", spaceId: "s2", title: "Session c", spaceName: "Home" },
+      { id: "a", spaceId: "s1", title: "Session a", spaceName: "Work" },
+      { id: "d", spaceId: "gone", title: "Session d", spaceName: null },
+    ]);
   });
 });

@@ -311,7 +311,7 @@ async function main() {
 
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
-  const [session] = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15_000, "a session");
+  const [session] = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15_000, "a session");
   // Before anything is sent: no turn of this check may reach a real, billed agent.
   await api.call("sessions.setAgent", { id: session.id, agentKind: "fake" });
   check("the session is on the scripted agent before anything is sent", (await api.call("sessions.get", { id: session.id })).agentKind === "fake");

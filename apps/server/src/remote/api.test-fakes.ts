@@ -1,4 +1,4 @@
-import type { Goal, Item, Machine, MachineState, MethodName, MethodParams, MethodResult, Profile, QueuedPrompt, Session, Simulator, SimulatorState, Space } from "@realm/contracts";
+import { sessionListRow, type Goal, type Item, type Machine, type MachineState, type MethodName, type MethodParams, type MethodResult, type Profile, type QueuedPrompt, type Session, type Simulator, type SimulatorState, type Space } from "@realm/contracts";
 import type { ChannelContext } from "./api";
 import type { RpcPort } from "./rpc-port";
 
@@ -48,7 +48,10 @@ export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) =>
     switch (method) {
       case "profiles.list": return h.profiles ?? [profile("p1"), profile("p2")];
       case "spaces.list": return h.spaces ?? [space("s1"), space("s2", "p2")];
-      case "sessions.listAll": return h.sessions;
+      // The server's list rows, not its sessions: a reader that needs a session's options and takes
+      // them from here must be able to fail.
+      case "sessions.listAll": return h.sessions.map(sessionListRow);
+      case "sessions.listAllFull": return h.sessions;
       case "items.listAll": return h.items.filter((i) => !i.archived);
       case "settings.get": return { value: h.settings?.[(params as { key: string }).key] ?? null };
       case "sessions.get": {

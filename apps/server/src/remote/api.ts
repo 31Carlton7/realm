@@ -171,7 +171,7 @@ type Probe = MethodResult<"agents.probe">;
 
 /**
  * Needs you's input (`@realm/view`), built from the lists the desktop's own store is seeded from:
- * `sessions.listAll` for every session's row, status, space and the time its status last moved;
+ * `sessions.listAllFull` for every session's row, status, space and the time its status last moved;
  * `items.listAll` for titles and what is listed (archived rows already left out); `spaces.list`; and
  * the quick chat's setting. A server holds no window, so no profile is the window's own: every item
  * comes in through `allItems`, as another profile's would in the sidebar.
@@ -477,10 +477,12 @@ export class MobileApi {
     }
   }
 
+  /** Every session whole (`sessions.listAllFull`): a phone's row names the model, the level and the
+   *  mode, which `sessions.listAll`'s list rows leave out. */
   private async lists(rpc: RpcPort): Promise<Lists> {
     const [spaces, sessions, items, quickChat] = await Promise.all([
       rpc.call("spaces.list", {}),
-      rpc.call("sessions.listAll", { profileId: null }),
+      rpc.call("sessions.listAllFull", { profileId: null }),
       rpc.call("items.listAll", {}),
       rpc.call("settings.get", { key: QUICK_CHAT_SETTING }),
     ]);
@@ -562,12 +564,13 @@ export class MobileApi {
   /** Every space's newest few and Needs you, across every profile; `recent` in the profile asked for.
    *  A profile the Mac no longer has gathers `recent` from every profile, and says so (`profileId: null`). */
   async home(rpc: RpcPort, profileId: string | null): Promise<Home> {
-    const [{ spaces, spaceById, waiting, listed, row }, profiles] = await Promise.all([this.listing(rpc), rpc.call("profiles.list", {})]);
+    const [{ spaces, spaceById, waiting, listed, row, sessions }, profiles] = await Promise.all([this.listing(rpc), rpc.call("profiles.list", {})]);
+    const whole = new Map(sessions.map((s) => [s.id, s]));
     const profileOf = (spaceId: string) => spaceById.get(spaceId)?.profileId;
     const scope = profiles.some((pr) => pr.id === profileId) ? profileId : null;
     return {
       mac: { name: this.o.macName() },
-      needsYou: waiting.map((r) => row(r.session, r.title, r.spaceId)),
+      needsYou: waiting.flatMap((r) => { const s = whole.get(r.session.id); return s ? [row(s, r.title, r.spaceId)] : []; }),
       spaces: spaces.map((sp) => {
         const mine = listed.filter((s) => s.spaceId === sp.id);
         return {

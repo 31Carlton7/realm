@@ -3,7 +3,7 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-li
 import type { ReactNode } from "react";
 import { sessionEvent, type DelegatedChild, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../../state/store";
-import { fakeApi, item, session } from "../../../state/store.test-fakes";
+import { fakeApi, item, session, space } from "../../../state/store.test-fakes";
 import { useSessionMenuItems } from "../SessionPane";
 import { ShareSheet } from "./ShareSheet";
 
@@ -85,6 +85,23 @@ describe("gathering a session to share", () => {
     expect(realm.files.resolve).toHaveBeenCalledWith("out/chart.png", "/Users/bob/w");
     expect(realm.shareImage.mock.calls.map((c) => c[0])).toEqual(["/Users/bob/shot.png", "/Users/bob/w/out/chart.png"]);
     expect(shared.images).toEqual({ "/Users/bob/shot.png": PNG, "out/chart.png": PNG });
+  });
+
+  it("reads a session of another profile whole first: its list row carries no folder to resolve its pictures in", async () => {
+    const realm = bridge();
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed"), space("s9", "p2", "Thesis")],
+      items: { s9: [item("i9", "s9", { kind: "session", refId: "se9", title: "Chapter two" })] },
+      sessions: [session("se9", "s9", { cwd: "/Users/bob/thesis" })],
+      sessionEvents: { se9: [{ seq: 1, sessionId: "se9", event: sessionEvent("assistant_text", { messageId: "a", text: "![chart](out/chart.png)" }, 1) }] },
+    });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(store.getState().sessions.se9).toBeUndefined();
+    const shared = (await store.getState().gatherShare("se9"))!;
+    expect(api.calls).toContain("getSession:se9");
+    expect(shared.space).toBe("Thesis");
+    expect(realm.files.resolve).toHaveBeenCalledWith("out/chart.png", "/Users/bob/thesis");
   });
 });
 

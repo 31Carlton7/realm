@@ -124,7 +124,7 @@ try {
   await until(() => ev(`!!document.querySelector('.composer')`), 30_000, "composer");
   api = rpc(app.ports.server, await daemonToken(app.home));
   await api.ready;
-  const [first] = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15_000, "onboarding session");
+  const [first] = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15_000, "onboarding session");
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });
   const home = (await api.call("spaces.list", {})).find((s) => s.id === first.spaceId);
   const captain = await api.call("teammates.create", { spaceId: home.id, agentKind: "fake", name: "Captain", handle: "captain", lead: true,
@@ -212,7 +212,7 @@ try {
   check("space_create with switchTo moved the window", moved.isError === false && moved.content.includes(`The window is in "Errands" now.`), moved.content);
   check("the window says it shows Errands", errands && (await shown()) === errands.id);
   await until(async () => (await railNames()).some((n) => n.includes("Errands")), 10_000, "Errands on the rail");
-  const landed = await until(async () => (await api.call("sessions.listAll", {})).find((x) => x.spaceId === errands.id) ?? null, 10_000, "a session in Errands");
+  const landed = await until(async () => (await api.call("sessions.listAllFull", {})).find((x) => x.spaceId === errands.id) ?? null, 10_000, "a session in Errands");
   await until(() => ev(`!!document.querySelector('.hero-greeting') && !!document.querySelector('.composer')`), 10_000, "the new session's greeting and prompter");
   check("it lands on a new session in Errands, as the New space sheet does, not on the space's Overview",
     landed && await ev(`!document.body.textContent.includes("Delete space")`), landed);

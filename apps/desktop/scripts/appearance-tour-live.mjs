@@ -190,7 +190,7 @@ async function main() {
     const made = await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title });
     await api.call("sessions.send", { id: made.session.id, text: "hello", attachments: [], mentions: [] });
   }
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length >= 4 ? all : null; }, 15000, "sessions");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length >= 4 ? all : null; }, 15000, "sessions");
   const main = sessions.find((s) => !["Port the importer", "Fix the diff gutter", "Teach the rail to wrap"].includes(s.title)) ?? sessions[0];
   await api.call("sessions.setAgent", { id: main.id, agentKind: "fake" });
   const md = [

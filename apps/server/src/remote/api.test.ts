@@ -488,6 +488,18 @@ describe("home.get, one profile at a time", () => {
     expect(h.recent?.[0]).toMatchObject({ id: "planning", createdAt: 77, effort: "xhigh", permissionMode: "plan" });
     expect(h.spaces[0]!.sessions[0]).toMatchObject({ createdAt: 77, effort: "xhigh", permissionMode: "plan" });
   });
+
+  it("reads every session whole for its rows, where sessions.listAll's list rows carry no options", async () => {
+    const rpc = fakeRpc({
+      sessions: [session("opus", "s1", { agentKind: "claude", model: "claude-opus-5-5", effort: "high", permissionMode: "acceptEdits", status: "waiting_permission" })],
+      items: [item("opus", "s1", "On Opus")],
+    });
+    const h = HomeSchema.parse(await api().handle(channel(rpc), "home.get", {}));
+    for (const row of [h.needsYou[0], h.spaces[0]!.sessions[0], h.recent?.[0]]) {
+      expect(row).toMatchObject({ id: "opus", model: "claude-opus-5-5", effort: "high", permissionMode: "acceptEdits" });
+    }
+    expect(rpc.calls).toContain("sessions.listAllFull");
+  });
 });
 
 describe("Home's order is the conversation's", () => {

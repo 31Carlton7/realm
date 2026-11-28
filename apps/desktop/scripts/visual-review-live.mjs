@@ -181,7 +181,7 @@ async function main() {
   // A real conversation, on the fake agent so nothing bills an account.
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session");
   await api.call("sessions.setAgent", { id: sessions[0].id, agentKind: "fake" });
   await api.call("sessions.send", { id: sessions[0].id, text: "Walk me through how the sidebar decides which rows to show, and where the code for it lives.", attachments: [], mentions: [] });
   await until(() => evalIn(c, `document.querySelectorAll('.msg-assistant-row').length > 0`), 20000, "a reply");

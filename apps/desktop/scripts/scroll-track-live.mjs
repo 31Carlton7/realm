@@ -281,7 +281,7 @@ async function openRow(c, title) {
 
 async function main() {
   const c = await boot();
-  const [onboarding] = await api.call("sessions.listAll", {});
+  const [onboarding] = await api.call("sessions.listAllFull", {});
   // Before anything else: the onboarding session runs a REAL engine.
   await api.call("sessions.setAgent", { id: onboarding.id, agentKind: "fake" });
   fs.mkdirSync(onboarding.cwd, { recursive: true });

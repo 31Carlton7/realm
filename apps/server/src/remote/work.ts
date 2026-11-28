@@ -64,7 +64,7 @@ const cut = (text: string): string => (text.length <= TASK_ERROR_MAX ? text : `$
 
 /** A task, with how its last run went: the run `lastRunId` names, and that run's session for whether it
  *  has been read. */
-export function scheduledTask(s: Schedule, spaceName: string, run: Run | null, session: Session | undefined, now = Date.now()): ScheduledTask {
+export function scheduledTask(s: Schedule, spaceName: string, run: Run | null, session: Pick<Session, "seenSeq" | "lastEventSeq"> | undefined, now = Date.now()): ScheduledTask {
   return {
     id: s.id, spaceId: s.spaceId, spaceName, title: s.title, when: cadenceSentence(s.cron, now), enabled: s.enabled,
     nextRunAt: s.nextRunAt, lastRunAt: s.lastRunAt,

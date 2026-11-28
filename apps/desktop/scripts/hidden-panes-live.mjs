@@ -90,7 +90,7 @@ try {
   await api.call("settings.set", { key: "browser.discardHiddenMinutes", value: 1 });
   await api.call("settings.set", { key: "browser.keepHidden", value: 1 });
 
-  const [lead] = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15_000, "onboarding session");
+  const [lead] = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15_000, "onboarding session");
   const one = (await api.call("spaces.list", {})).find((s) => s.id === lead.spaceId);
   const two = await api.call("spaces.create", { profileId: one.profileId, name: "Elsewhere", icon: "folder" });
   await ev(`window.realm.windows.openSpace(${js(two.id)}).then(() => true)`);

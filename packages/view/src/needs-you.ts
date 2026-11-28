@@ -1,10 +1,10 @@
-import type { DispatchKind, Item, Session, SessionStatus, Space } from "@realm/contracts";
+import type { DispatchKind, Item, Session, SessionListRow, SessionStatus, Space } from "@realm/contracts";
 
 /**
  * Needs you (Plan 27): what waits on an answer, across every space and every profile.
  *
  * Two readers draw this list. The desktop's sidebar builds the input from its store; realm-server
- * builds the same input from `sessions.listAll`, `items.listAll`, `spaces.list` and the quick chat's
+ * builds the same input from `sessions.listAllFull`, `items.listAll`, `spaces.list` and the quick chat's
  * setting, and answers Realm Mobile's `home.get` with it (Plan 28). One rule, so the phone's list is
  * the sidebar's by construction rather than by a copy kept in step.
  */
@@ -25,7 +25,8 @@ export type NeedsYouState = {
   allItems: readonly Item[];
   /** The active space's session rows (fresher than `allSessions` for that space). */
   sessions: Readonly<Record<string, Session>>;
-  allSessions: Readonly<Record<string, Session>>;
+  /** Every session in the home, as `sessions.listAll` lists it. */
+  allSessions: Readonly<Record<string, SessionListRow>>;
   sessionStatus: Readonly<Record<string, SessionStatus>>;
   sessionSpace: Readonly<Record<string, string>>;
   /** When each session's status last moved: how long Needs you has waited. Never an order. */
@@ -45,12 +46,12 @@ export function quickChatIdOf(value: unknown): string | null {
 }
 
 /** The session row the window holds for `id`: the active space's copy first, it is the fresher. */
-export function sessionOf(s: Pick<NeedsYouState, "sessions" | "allSessions">, id: string): Session | undefined {
+export function sessionOf(s: Pick<NeedsYouState, "sessions" | "allSessions">, id: string): SessionListRow | undefined {
   return s.sessions[id] ?? s.allSessions[id];
 }
 
 /** Where a session lives: the live map wins over the row, which may predate a move. */
-export function spaceOfSession(s: Pick<NeedsYouState, "sessionSpace">, session: Session): string {
+export function spaceOfSession(s: Pick<NeedsYouState, "sessionSpace">, session: SessionListRow): string {
   return s.sessionSpace[session.id] ?? session.spaceId;
 }
 
@@ -110,8 +111,8 @@ const MAX_HOPS = 4;
 
 /** The session a sub-agent's chain of leads ends at — the one the person started — or null when
  *  this window does not hold a link in the chain. A session that is nobody's sub-agent is its own. */
-export function rootLeadOf(s: Pick<NeedsYouState, "sessions" | "allSessions">, session: Session): string | null {
-  let at: Session | undefined = session;
+export function rootLeadOf(s: Pick<NeedsYouState, "sessions" | "allSessions">, session: SessionListRow): string | null {
+  let at: SessionListRow | undefined = session;
   for (let hop = 0; hop < MAX_HOPS && isChild(at); hop++) {
     const lead: string | null | undefined = at!.dispatchedBy?.sessionId;
     at = lead ? sessionOf(s, lead) : undefined;
@@ -166,7 +167,7 @@ export function listedIds(s: NeedsYouState): Set<string> {
 
 /** A row Needs you lists: waiting on a permission or a question, or failed. */
 export type NeedsYouRow = {
-  session: Session;
+  session: SessionListRow;
   status: "waiting_permission" | "error";
   title: string;
   spaceId: string;

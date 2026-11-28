@@ -36,7 +36,7 @@ describe("the Activity view while a session works", () => {
     // An event in "b": its row in `sessions` moves, as `logGrew` moves it on every persisted event.
     act(() => {
       const s = store.getState();
-      const b = s.sessions.b ?? s.allSessions.b!;
+      const b = s.sessions.b!;
       store.setState({ sessions: { ...s.sessions, b: { ...b, lastEventSeq: b.lastEventSeq + 1 } } });
     });
     expect(titled.filter((t) => t === B).length).toBeGreaterThan(0);

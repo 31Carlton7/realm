@@ -232,7 +232,7 @@ async function main() {
 
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15_000, "a session");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15_000, "a session");
   const sid = sessions[0].id;
   // The scripted agent, standing in under Claude's name: a session that runs, on an agent with accounts.
   await api.call("sessions.setAgent", { id: sid, agentKind: "claude" });

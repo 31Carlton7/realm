@@ -168,7 +168,7 @@ async function main() {
 
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session to drive");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session to drive");
   const sessionId = sessions[0].id;
   await api.call("sessions.setAgent", { id: sessionId, agentKind: "fake" });
   const send = (text) => api.call("sessions.send", { id: sessionId, text, attachments: [], mentions: [] });

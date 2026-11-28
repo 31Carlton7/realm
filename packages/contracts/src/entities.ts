@@ -436,6 +436,24 @@ export const SessionSchema = z.object({
 export type Session = z.infer<typeof SessionSchema>;
 
 /**
+ * A session as `sessions.listAll` lists it: what every reader of the whole home's list draws or
+ * routes by (a row's title and status, its space, its read mark, whose child or teammate it is, and
+ * when it last moved), and nothing a session's own pane reads. That list is every session in every
+ * profile, read at boot and on every reconnect, so each field it carries is paid once per session in
+ * the home; the rest come with the session itself (`sessions.get`, `sessions.list`).
+ */
+export const SessionListRowSchema = SessionSchema.pick({
+  id: true, spaceId: true, agentKind: true, status: true, title: true, lastEventSeq: true, seenSeq: true,
+  dispatchedBy: true, teammateId: true, teammateHome: true, activityAt: true, createdAt: true, updatedAt: true,
+});
+export type SessionListRow = z.infer<typeof SessionListRowSchema>;
+/** A session's list row: `SessionListRowSchema`'s fields of it, and nothing else on the wire. */
+export const sessionListRow = (s: Session): SessionListRow => ({
+  id: s.id, spaceId: s.spaceId, agentKind: s.agentKind, status: s.status, title: s.title, lastEventSeq: s.lastEventSeq, seenSeq: s.seenSeq,
+  dispatchedBy: s.dispatchedBy, teammateId: s.teammateId, teammateHome: s.teammateHome, activityAt: s.activityAt, createdAt: s.createdAt, updatedAt: s.updatedAt,
+});
+
+/**
  * A message the user typed while a turn was running and chose not to interrupt it with.
  *
  * Not a `user_message` yet, and that is the point: the transcript records what an agent was actually

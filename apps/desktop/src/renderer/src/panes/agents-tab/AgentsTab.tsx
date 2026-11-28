@@ -45,6 +45,10 @@ const NO_CHILDREN: readonly DelegatedChild[] = [];
 export function AgentsTab({ item, visible }: PaneProps) {
   const leadId = item.refId;
   const lead = useApp((s) => s.sessions[leadId] ?? s.allSessions[leadId]);
+  /* The composer reads the lead's options (its plan mode, its model), which a list row does not carry:
+     a lead held only as another profile's row is read whole when the tab shows it. */
+  const full = useApp((s) => s.sessions[leadId]);
+  const loadSession = useApp((s) => s.loadSession);
   const children = useApp((s) => s.subagents[leadId]) ?? NO_CHILDREN;
   const loaded = useApp((s) => s.subagents[leadId] !== undefined);
   const leadRead = useApp((s) => s.transcripts[leadId] !== undefined);
@@ -61,6 +65,8 @@ export function AgentsTab({ item, visible }: PaneProps) {
   // that is about to start from one whose run is gone. Every later change arrives as a broadcast.
   useEffect(() => { run(() => loadSubagents(leadId)); run(() => refreshDelegatedRuns(leadId)); }, [leadId, loadSubagents, refreshDelegatedRuns, run]);
   useEffect(() => { run(() => hydrateAgentsShown()); }, [hydrateAgentsShown, run]);
+  const known = lead !== undefined;
+  useEffect(() => { if (known && !full) run(() => loadSession(leadId)); }, [known, full, leadId, loadSession, run]);
   // And again whenever a child changes state: a wait starting or ending is what moves its spent
   // budget from ticking to held, and only the server knows how long it was held.
   const statuses = useApp((s) => (s.subagents[leadId] ?? NO_CHILDREN).map((c) => `${c.session.id}=${s.sessionStatus[c.session.id] ?? ""}`).join(","));
@@ -108,7 +114,7 @@ export function AgentsTab({ item, visible }: PaneProps) {
             <ScrollFades scroller={scroller} />
             <SubagentList leadId={leadId} children={children} loaded={loaded} />
           </div>
-          <BuildWith lead={lead} prefill={prefill} />
+          {full && <BuildWith lead={full} prefill={prefill} />}
         </>
       )}
     </div>

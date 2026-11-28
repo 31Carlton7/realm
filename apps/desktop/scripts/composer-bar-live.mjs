@@ -249,7 +249,7 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const sessions = await until(async () => {
-    const all = await api.call("sessions.listAll", {});
+    const all = await api.call("sessions.listAllFull", {});
     return all.length ? all : null;
   }, 15000, "a session to drive");
   const session = sessions[0];

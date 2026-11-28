@@ -10,6 +10,7 @@
  * split `computer-driving.ts` uses for the same reason.
  */
 import type { MenuItemConstructorOptions } from "electron";
+import type { SessionListRow, Space } from "@realm/contracts";
 
 /** The part of Electron's `Tray` this needs. */
 export type SessionTrayHandle = {
@@ -21,6 +22,18 @@ export type SessionTrayHandle = {
 
 export type TrayCounts = { working: number; needsYou: number };
 export type TraySession = { id: string; spaceId: string | null; title: string; spaceName: string | null };
+
+/** The sessions worth naming in the menu, from `sessions.listAll`'s rows: the ones waiting on an
+ *  answer first, then the ones working. An idle session is not a reason to open the app, so it is not
+ *  in the list. */
+export function traySessions(rows: readonly Pick<SessionListRow, "id" | "title" | "status" | "spaceId">[], spaces: readonly Pick<Space, "id" | "name">[]): TraySession[] {
+  const nameOf = new Map(spaces.map((sp) => [sp.id, sp.name]));
+  const rank = (status: string) => (status === "waiting_permission" ? 0 : status === "running" ? 1 : 2);
+  return rows
+    .filter((r) => rank(r.status) < 2)
+    .sort((a, b) => rank(a.status) - rank(b.status))
+    .map((r) => ({ id: r.id, spaceId: r.spaceId, title: r.title, spaceName: nameOf.get(r.spaceId) ?? null }));
+}
 
 /** How many session titles the menu lists before it stops. A menu long enough to scroll is a menu
  *  that has stopped being a summary. */

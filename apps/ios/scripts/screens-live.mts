@@ -508,7 +508,7 @@ async function runUiTests(): Promise<boolean> {
   const startedAt = Date.now();
   await phase("testP1_newSession", parity);
   if (runs("testP1_newSession")) {
-    const made = (await rpc.call("sessions.listAll", { profileId: null })).filter((s) => s.spaceId === site.id && s.createdAt >= startedAt);
+    const made = (await rpc.call("sessions.listAllFull", { profileId: null })).filter((s) => s.spaceId === site.id && s.createdAt >= startedAt);
     const first = made.length === 1 ? (await rpc.call("sessions.events", { id: made[0]!.id, afterSeq: 0, limit: 20 })).find((e) => e.event.type === "user_message") : undefined;
     results.push(["testP1_newSession: the Mac made one session in Site, with its first message",
       first?.event.type === "user_message" && first.event.payload.text === "Write the release notes for 2.4"]);

@@ -153,7 +153,7 @@ async function main() {
 
   const api = rpc(await daemonToken(home));
   await api.ready;
-  const session = await until(async () => (await api.call("sessions.listAll", {}))[0] ?? null, 15_000, "onboarding's session");
+  const session = await until(async () => (await api.call("sessions.listAllFull", {}))[0] ?? null, 15_000, "onboarding's session");
   await api.call("sessions.setAgent", { id: session.id, agentKind: "acp:gemini" });
   check("the session runs on the fake ACP agent before anything is sent", (await api.call("sessions.get", { id: session.id })).agentKind === "acp:gemini");
   await api.call("memory.set", { spaceId: session.spaceId, doc: MEMORY });

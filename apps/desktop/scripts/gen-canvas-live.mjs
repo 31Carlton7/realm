@@ -225,7 +225,7 @@ const canvases = (c) => evalIn(c, `(() => [...document.querySelectorAll(".gen-ca
 
 async function main() {
   const c = await boot();
-  const [first] = await api.call("sessions.listAll", {});
+  const [first] = await api.call("sessions.listAllFull", {});
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });
   const made = await api.call("sessions.create", { spaceId: first.spaceId, agentKind: "fake" });
   const id = made.session?.id ?? made.id;

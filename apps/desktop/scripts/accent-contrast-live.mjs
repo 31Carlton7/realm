@@ -311,7 +311,7 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   // The onboarding session runs the first engine this Mac has — a real, billed one. Fake, first.
-  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
+  const sessions = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "a session");
   for (const s of sessions) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await api.call("sessions.send", { id: sessions[0].id, text: "Build the dark-mode toggle", attachments: [], mentions: [] });
   await until(() => evalIn(c, `!!document.querySelector('.permission-card')`), 45000, "permission card");

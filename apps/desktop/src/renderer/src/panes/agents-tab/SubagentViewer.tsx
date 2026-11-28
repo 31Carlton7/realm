@@ -387,7 +387,8 @@ function HarnessLog({ leadId, node, working }: { leadId: string; node: ToolNode;
   const sessionStatus = useApp((s) => s.sessionStatus[leadId] ?? "idle");
   const respondPermission = useApp((s) => s.respondPermission);
   const run = useApp((s) => s.run);
-  const lead = useApp((s) => s.sessions[leadId] ?? s.allSessions[leadId]);
+  // The lead's checkout, which only its full row carries: the Agents tab around this reads that row.
+  const lead = useApp((s) => s.sessions[leadId]);
   const files = useCheckoutFiles(leadId, lead?.environmentId ?? null, lead?.cwd ?? "");
   const scroller = useRef<HTMLDivElement>(null);
   useDissolve(scroller);

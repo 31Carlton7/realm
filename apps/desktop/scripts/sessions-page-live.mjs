@@ -337,7 +337,7 @@ async function main() {
     input.closest('form').requestSubmit();
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20_000, "composer");
-  const first = await api.call("sessions.listAll", { profileId: null });
+  const first = await api.call("sessions.listAllFull", { profileId: null });
   for (const s of first) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   await api.call("settings.set", { key: "ui.lastAgentKind", value: "fake" });
   const spaceId = first[0].spaceId;
@@ -361,7 +361,7 @@ async function main() {
     live[name] = session.id;
   }
   await sleep(2500);
-  const states = await api.call("sessions.listAll", { profileId: null });
+  const states = await api.call("sessions.listAllFull", { profileId: null });
   note("the live sessions' states", Object.fromEntries(Object.entries(live).map(([k, id]) => [k, states.find((s) => s.id === id)?.status])));
   for (const mode of ["dark", "light"]) {
     await setFace(c, mode);

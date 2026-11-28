@@ -185,7 +185,7 @@ async function main() {
 
   const api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
-  const first = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "onboarding's session");
+  const first = await until(async () => { const all = await api.call("sessions.listAllFull", {}); return all.length ? all : null; }, 15000, "onboarding's session");
   // Onboarding's session runs the first engine this Mac has — a real, billed one. Fake, before anything.
   for (const s of first) await api.call("sessions.setAgent", { id: s.id, agentKind: "fake" });
   const spaceId = first[0].spaceId;
