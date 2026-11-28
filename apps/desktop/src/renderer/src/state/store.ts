@@ -4673,6 +4673,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await Promise.all([get().refreshItems(sid), get().refreshSessions(sid), get().refreshEnvironments(sid), get().refreshProjects(sid)]);
         if (epoch !== profileEpoch || !inProfile(sid) || get().heldSpaces.includes(sid)) return;
         set({ heldSpaces: [...get().heldSpaces, sid] });
+        // What a remembered side pane named in this space can be judged now (`unjudged`).
+        pruneOnScreen();
       })();
       holding.set(sid, read);
       // A read that failed is asked again next time, rather than leaving the space never read.
@@ -4703,13 +4705,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       for (const id of liveIds()) all.add(id);
       return all;
     };
-    /** A remembered side pane names items of the session it belongs to, which may be in a space not
-     *  read yet. Until every space is read, an id the window has no row for is not the window's to
-     *  forget: it is kept as it was, and judged once its space is read. */
+    /** A remembered side pane belongs to a session that may be in a space not read yet. Until every
+     *  space is read, one whose session the window has no row for is not the window's to forget: it
+     *  is kept as it was, and judged once its space is read. */
     const unjudged = (view: WindowView): string[] => {
       if (heldSpaceIds().length === profileSpaceIds().length) return [];
       const known = new Set(get().items.map((i) => i.id));
-      return Object.entries(view.sidePanes).flatMap(([owner, sp]) => [owner, ...sp.tabs]).filter((id) => !known.has(id));
+      return Object.entries(view.sidePanes).filter(([owner]) => !known.has(owner)).flatMap(([owner, sp]) => [owner, ...sp.tabs]);
     };
     const pruneSets = (view: WindowView) => {
       const keep = unjudged(view);

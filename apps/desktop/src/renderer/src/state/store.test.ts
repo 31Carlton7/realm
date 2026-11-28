@@ -1110,6 +1110,32 @@ describe("app store", () => {
       expect(spaceReads("s2")).toEqual(READ("s2"));
     });
 
+    it("a remembered side pane of a session in a space not read yet is kept, and judged once it is read", async () => {
+      api.data.spaces.push(space("s3", "p1", "Errands"));
+      api.data.items["s2"] = [item("i2", "s2", { kind: "session", refId: "se2" }), item("w2", "s2", { kind: "browser" })];
+      api.data.settings["ui.view:p1"] = { v: 1, layout: leaf("l1", "i1"), zoomedLeafId: null,
+        sidePanes: { i2: { tabs: ["w2", "gone"], itemId: "w2" } }, focusedItemId: "i1" };
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().refreshItems();
+      // THE MUTANT: judge it against the landing space's rows alone, and the session's tabs are forgotten.
+      expect(store.getState().view!.sidePanes).toEqual({ i2: { tabs: ["w2", "gone"], itemId: "w2" } });
+      // Read, its session opens with the tab it kept, and the one that is gone is dropped.
+      await store.getState().selectSpace("s2");
+      expect(allItems(store.getState().layout!).sort()).toEqual(["i2", "w2"]);
+    });
+
+    it("a page about a space not read yet reads it", async () => {
+      api.data.items["s2"] = [item("i2", "s2")];
+      const store = createAppStore(api);
+      await store.getState().boot();
+      // THE MUTANT: read a space only from selectSpace; its Overview then lists nothing it has.
+      store.getState().openSpacePage("s2");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(store.getState().heldSpaces).toEqual(["s1", "s2"]);
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
+    });
+
     it("an item of a space not read yet opens once its space is read", async () => {
       api.data.items["s2"] = [item("i2", "s2")];
       const store = createAppStore(api);
