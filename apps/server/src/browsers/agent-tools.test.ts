@@ -46,6 +46,8 @@ function setup(opts: {
   assist?: LayaAssist;
   /** A real bridge in place of the canned answers. */
   bridge?: BrowserAgentToolsDeps["bridge"];
+  /** Who each session is, for its cursor. Omitted = no `actorOf` dep, and acts go unnamed. */
+  actorOf?: BrowserAgentToolsDeps["actorOf"];
 } = {}) {
   const rows = new Map<string, Browser>();
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
@@ -140,6 +142,7 @@ function setup(opts: {
   if (opts.streamAt) deps.simulatorStreams = { streamAt: opts.streamAt };
   if (opts.observe) deps.observe = opts.observe;
   if (opts.assist) deps.assist = opts.assist;
+  if (opts.actorOf) deps.actorOf = opts.actorOf;
   // A walk waits on this clock rather than on real time: a click that changes nothing is a five-second
   // wait on a real page, and a moment here.
   const clock = { t: 0, now: () => clock.t, sleep: async (ms: number) => { clock.t += ms; } };
@@ -2269,5 +2272,32 @@ describe("what a browser card names beside the tool", () => {
   it("leaves another server's browser_ tool to the ordinary summary", () => {
     expect(browserToolSummary("mcp__playwright__browser_click", { element: "Submit" })).toBeNull();
     expect(summarize("mcp__playwright__browser_click", { element: "Submit" })).toBe("Submit");
+  });
+});
+
+describe("every act names the session it is for, so main draws that session's own cursor", () => {
+  const actor = { sessionId: "sess1", agentKind: "claude" as const, label: "Claude · checkout" };
+  const actorOf = (id: string) => (id === "sess1" ? actor : null);
+
+  /* The mutant is any one route that forgets the actor: its clicks would land under a cursor with no
+     name, in the accent, beside the session's own labelled one. */
+  it("on browser_act, a batched act, browser_do and a download's click", async () => {
+    const s = setup({ actorOf, projectRoot: "/p" });
+    await s.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 3 } });
+    await s.call("browser_batch", { actions: [{ tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 3 } } }] });
+    await s.call("browser_download", { browserId: "b1", ref: 11 });
+    const sent = s.calls.bridge.filter((b) => b.op === "act" || b.op === "download");
+    expect(sent.map((b) => b.op)).toEqual(["act", "act", "download"]);
+    for (const b of sent) expect(b.params.actor, b.op).toEqual(actor);
+    const page = docsSite();
+    const walked = setup({ actorOf, bridgeResults: page.bridgeResults });
+    await walk(walked, { path: ["Docs"] });
+    expect(walked.calls.bridge.filter((b) => b.op === "act").map((b) => b.params.actor)).toEqual([actor]);
+  });
+
+  it("sends no actor for a session the store no longer has", async () => {
+    const s = setup({ actorOf: () => null });
+    await s.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 3 } });
+    expect(Object.keys(s.calls.bridge.find((b) => b.op === "act")!.params)).not.toContain("actor");
   });
 });

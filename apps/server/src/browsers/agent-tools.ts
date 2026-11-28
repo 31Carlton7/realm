@@ -5,7 +5,7 @@ import {
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
   PANE_SHOW_WIRE_NAME, SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin, paneNotOpenError,
-  type AgentFillKind, type SessionEvent, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type SiteCredential, type BrowserDescribeResult,
+  type AgentFillKind, type SessionEvent, type BrowserAction, type BrowserActor, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type SiteCredential, type BrowserDescribeResult,
   type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserFillCredentialResult,
   type BrowserNavigateResult, type BrowserReadResult, type BrowserScreenshotResult,
   BrowserSnapshotScopeSchema, SNAPSHOT_SCOPE_PROPERTIES, type BrowserSnapshotResult, type BrowserUploadResult, type Browser,
@@ -97,6 +97,12 @@ export type BrowserAgentToolsDeps = {
    * non-child sessions always pass. Optional — a harness without browser agents behaves as before.
    */
   constraints?: { checkMutation(sessionId: string, tool: string, url?: string): string | null };
+  /**
+   * Who a session is, for the cursor main draws for its acts: its agent and the words on its pill.
+   * Absent, or null for a session the store no longer has, and the act goes unnamed, which main
+   * draws as one cursor with no pill.
+   */
+  actorOf?: (sessionId: string) => BrowserActor | null;
   /**
    * The consent-page gate for ACTS (`signin.ts`). Optional so a harness built without it behaves as
    * this file did before — which, for consent pages, was to allow the click.
@@ -515,7 +521,7 @@ const HANDLERS: Record<string, Handler> = {
     // After the gate, so only an act that is really about to happen is reported; before it, so what is
     // reported is what the agent chose from.
     observeAct(d, ctx, row.value.id, args.value.action, args.value.intent, live);
-    return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, ctx, row.value.id, args.value.action));
   },
 
   /**
@@ -759,7 +765,7 @@ const HANDLERS: Record<string, Handler> = {
     // workflow that legitimately needs twenty in a row.
     const gate = await d.broker.gate(ctx.sessionId, "browser_download", title, { browserId: row.value.id, ref: args.value.ref });
     if (!gate.allowed) return err(gate.reason);
-    return runTracked(d, ctx.spaceId, row.value.id, title, () => runDownload(d, row.value.id, args.value.ref, dest));
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runDownload(d, ctx, row.value.id, args.value.ref, dest));
   },
 
   /**
@@ -926,7 +932,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const title = describeAct(live, args.value.action);
     // Past the batch's card, as a plain act is past its own: heard now, just before it is sent.
     observeAct(d, ctx, row.value.id, args.value.action, args.value.intent, live);
-    return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, ctx, row.value.id, args.value.action));
   }
   if (tool === "browser_download") {
     // Every check the plain handler makes, minus the prompt. "Every study guide in the class" is
@@ -939,7 +945,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const dest = downloadDir(d, ctx.spaceId);
     if (!dest) return err(noDestination);
     const title = await describeDownload(d, row.value.id, args.value.ref);
-    return runTracked(d, ctx.spaceId, row.value.id, title, () => runDownload(d, row.value.id, args.value.ref, dest));
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runDownload(d, ctx, row.value.id, args.value.ref, dest));
   }
   if (tool === "browser_dismiss_dialog") {
     // Batchable, unlike `browser_upload`: it carries no payload and names no destination, so the
@@ -992,12 +998,18 @@ async function runTracked(d: Deps, spaceId: string, browserId: string, text: str
   }
 }
 
+/** The calling session, as main names its cursor: an `actor` field, or none for a session unnamed. */
+function actorParam(d: Deps, ctx: ProviderCallContext): { actor?: BrowserActor } {
+  const actor = d.actorOf?.(ctx.sessionId);
+  return actor ? { actor } : {};
+}
+
 /** Execute one act op; on failure, attach a screenshot — the one place vision reliably pays for
  *  itself (the plan's rule). The password hard block arrives from the EXECUTOR as `refused` — it is
  *  checked there, at act time against the live DOM, so no permission mode and no stale snapshot can
  *  route typing into a secret field. */
-async function runAct(d: Deps, browserId: string, action: BrowserAction): Promise<CallToolResult> {
-  const result = (await d.bridge.call("act", { browserId, action })) as BrowserActResult;
+async function runAct(d: Deps, ctx: ProviderCallContext, browserId: string, action: BrowserAction): Promise<CallToolResult> {
+  const result = (await d.bridge.call("act", { browserId, action, ...actorParam(d, ctx) })) as BrowserActResult;
   if (result.ok) return ok(result.detail);
   if (result.refused === "password") {
     return err("refused: that element is a password field. Realm never types into password fields in any mode — fill it with browser_fill_credential, which types a saved or generated password without you seeing it.");
@@ -1040,8 +1052,8 @@ function describeAct(live: BrowserDescribeResult | null, action: BrowserAction):
  * characters, so it cannot carry a newline, a bracket, or a fence marker of its own. `clip` is the
  * belt: a bound on length that does not depend on remembering what the sanitizer guarantees.
  */
-async function runDownload(d: Deps, browserId: string, ref: number, dir: string): Promise<CallToolResult> {
-  const result = (await d.bridge.call("download", { browserId, ref, dir })) as BrowserDownloadResult;
+async function runDownload(d: Deps, ctx: ProviderCallContext, browserId: string, ref: number, dir: string): Promise<CallToolResult> {
+  const result = (await d.bridge.call("download", { browserId, ref, dir, ...actorParam(d, ctx) })) as BrowserDownloadResult;
   if (!result.ok) return err(`download failed: ${result.error}`);
   const name = clip(result.name.replace(/\s+/g, " "), 120);
   return ok(`Saved "${name}" (${Math.round(result.bytes / 1024)} KB) into ${DOWNLOAD_DIRNAME}/. Read it at ${clip(result.relPath, 200)}.`);
@@ -1301,7 +1313,7 @@ function pageIO(d: Deps, ctx: ProviderCallContext, browserId: string, intent: st
       if (consent) return { ok: false, detail: textOf(consent) };
     }
     let r: BrowserActResult;
-    try { r = (await d.bridge.call("act", { browserId, action })) as BrowserActResult; } catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+    try { r = (await d.bridge.call("act", { browserId, action, ...actorParam(d, ctx) })) as BrowserActResult; } catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
     d.rpc.broadcast("browser.action", { spaceId: ctx.spaceId, browserId, text: line, ok: r.ok, ts: Date.now() });
     if (r.ok) return { ok: true, detail: r.detail };
     return { ok: false, detail: r.refused === "password" ? "that is a password field, and Realm never types into one" : r.error };

@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UPLOAD_DROP_MAX_BYTES, type BrowserAction, type BrowserRefusal } from "@realm/contracts";
-import { buildSnapshot, CODE_HIDDEN, hideCodes, MAX_ELEMENTS, performAct, performAutofill, performCodeFill, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
-import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
+import { buildSnapshot, CODE_HIDDEN, hideCodes, MAX_ELEMENTS, performAct, performAutofill, performCodeFill, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, REMOVE_AGENT_MARKS_JS, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
+import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, cursorIdentity } from "./agent-cursor";
 import { readPageText, tickStylesFor } from "./browser-agent";
 
 /**
@@ -1348,7 +1348,7 @@ describe("the marks an act leaves in the page (W4; the cursor and the frame, Pla
     // on both of its edges leaves no white between them, so it declares a narrower one.
     expect(expr).toContain(`"stroke":${AGENT_CURSOR_FORMS["not-allowed"].stroke! * 2}`);
     expect(expr).toContain(`scale:${AGENT_CURSOR.pressScale}`);
-    expect(expr).toContain(`}, ${AGENT_CURSOR.idleMs});`);      // the dwell watchdog's deadline
+    expect(expr).toContain(`}, ${AGENT_CURSOR.idleMs}) };`);    // the dwell watchdog's deadline
     expect(expr).toContain('animationIterationCount = String(3)'); // one contraction per click
   });
 
@@ -1366,7 +1366,7 @@ describe("the marks an act leaves in the page (W4; the cursor and the frame, Pla
       expect(expr, name).toContain(`width:${w}px;height:${h}px;margin:${-hy}px 0 0 ${-hx}px`);
       // The press pivots on the hotspot: a pointer that contracts toward its middle walks its own
       // tip off the pixel the input went to.
-      expect(expr, name).toContain(`transform-origin:${hx}px ${hy}px`);
+      expect(expr, name).toContain(`"origin":"${hx}px ${hy}px"`);
     }
     // The mapping rides along, so the page picks a form rather than main guessing one.
     expect(expr).toContain(JSON.stringify(CURSOR_FORM_FOR_CSS));
@@ -1435,13 +1435,13 @@ describe("the marks an act leaves in the page (W4; the cursor and the frame, Pla
     expect(expr).toContain('mark.setAttribute("data-form", form)');
   });
 
-  it("the dwell watchdog is reset on every placement and takes BOTH drive marks with it", async () => {
+  it("each session's dwell watchdog is reset on its own placement, and the frame goes with the last", async () => {
     const { send, calls } = fakeSend({ quads: QUAD });
     await markAct(send, click());
     const expr = exprOf(calls);
-    expect(expr).toContain("clearTimeout(window.__realmAgentIdle)");   // reset, not a second timer
-    expect(expr).toContain(`"${MARK_CURSOR}\\"],[`);                    // cursor…
-    expect(expr).toContain(`"${MARK_FRAME}\\"]`);                       // …and frame, together
+    expect(expr).toContain("if (AG[KEY]) clearTimeout(AG[KEY].timer)");  // reset, not a second timer
+    expect(expr).toContain("fadeOut(cursorOf(KEY))");                     // its own cursor…
+    expect(expr).toContain(`if (Object.keys(AG).length === 0) fadeOut(sel("${MARK_FRAME}"))`); // …and the frame after the last
   });
 
   it("the ring is INVISIBLE to snapshots — tagged node never listed, even clickable (mutant: agent chases its own ring)", async () => {
@@ -1671,5 +1671,86 @@ describe("readPageText", () => {
     const page = "p".repeat(120_000);
     const send = (async () => ({ result: { value: page } })) as unknown as CdpSend;
     expect(await readPageText(send)).toBe(page);
+  });
+});
+
+describe("two sessions' cursors on one page, run as the page runs them", () => {
+  const QUAD = { 42: [[10, 20, 110, 20, 110, 50, 10, 50]] };
+  const click: BrowserAction = { kind: "click", ref: 42, button: "left", clickCount: 1, modifiers: [] };
+  const claude = cursorIdentity({ sessionId: "s-claude", agentKind: "claude", label: "Claude · checkout" }, 0, DEFAULT_AGENT_ACCENT);
+  const codex = cursorIdentity({ sessionId: "s-codex", agentKind: "codex", label: "Codex · docs" }, 1, DEFAULT_AGENT_ACCENT);
+
+  /** Mark one act for `who` and run the script it sends in this jsdom page. */
+  async function actAs(who: ReturnType<typeof cursorIdentity>): Promise<void> {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click, DEFAULT_AGENT_ACCENT, who);
+    const evals = calls.filter((c) => c.method === "Runtime.evaluate");
+    window.eval(String(evals[evals.length - 1]!.params.expression));
+  }
+  const cursors = () => [...document.querySelectorAll(`[${HIGHLIGHT_ATTR}="${MARK_CURSOR}"]`)].map((n) => n.getAttribute("data-actor"));
+  const frameLine = () => document.querySelector(`[${HIGHLIGHT_ATTR}="${MARK_FRAME}-label"]`)?.textContent ?? null;
+  const frameUp = () => document.querySelector(`[${HIGHLIGHT_ATTR}="${MARK_FRAME}"]`) !== null;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    delete (window as unknown as { __realmAgents?: unknown }).__realmAgents;
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("draws one cursor per session, each in its own colour and pill, and the frame names both", async () => {
+    await actAs(claude);
+    await actAs(codex);
+    await actAs(claude); // a second act moves Claude's cursor rather than drawing another
+    expect(cursors()).toEqual(["s-claude", "s-codex"]);
+    const stroke = (k: string) => document.querySelector(`[data-actor="${k}"] svg`)!.getAttribute("stroke");
+    expect(stroke("s-claude")).toBe(claude.colour);
+    expect(stroke("s-codex")).toBe(codex.colour);
+    expect(stroke("s-codex")).not.toBe(stroke("s-claude"));
+    const pill = (k: string) => document.querySelector(`[data-actor="${k}"] [${HIGHLIGHT_ATTR}="${MARK_CURSOR}-name"]`)?.textContent;
+    expect(pill("s-claude")).toBe("Claude · checkout");
+    expect(pill("s-codex")).toBe("Codex · docs");
+    expect(document.querySelector(`[data-actor="s-codex"] [${HIGHLIGHT_ATTR}="${MARK_CURSOR}-mark"] path`)).not.toBeNull();
+    expect(frameLine()).toBe("Claude and Codex are using this page");
+  });
+
+  it("idles one session's cursor out on its own clock while the other stays, and the frame goes with the last", async () => {
+    await actAs(claude);
+    vi.advanceTimersByTime(AGENT_CURSOR.idleMs / 2);
+    await actAs(codex);
+    // Claude's deadline passes; Codex acted later and is still within its own.
+    vi.advanceTimersByTime(AGENT_CURSOR.idleMs / 2 + AGENT_MOTION.fastMs + 1);
+    expect(cursors()).toEqual(["s-codex"]);
+    expect(frameUp()).toBe(true);
+    expect(frameLine()).toBe("Codex is using this page");
+    vi.advanceTimersByTime(AGENT_CURSOR.idleMs);
+    expect(cursors()).toEqual([]);
+    expect(frameUp()).toBe(false);
+  });
+
+  it("a session's later act pushes its own deadline back rather than leaving the first one running", async () => {
+    await actAs(claude);
+    vi.advanceTimersByTime(AGENT_CURSOR.idleMs / 2);
+    await actAs(claude);
+    vi.advanceTimersByTime(AGENT_CURSOR.idleMs / 2 + AGENT_MOTION.fastMs + 1);
+    expect(cursors()).toEqual(["s-claude"]);
+    expect(frameLine()).toBe("Claude is using this page");
+  });
+
+  it("the picker's sweep forgets who was driving, so the next act's frame names only its own session", async () => {
+    await actAs(claude);
+    window.eval(REMOVE_AGENT_MARKS_JS);
+    expect(cursors()).toEqual([]);
+    await actAs(codex);
+    expect(frameLine()).toBe("Codex is using this page");
+  });
+
+  it("an act landing during a cursor's fade draws a fresh cursor rather than reviving the dying one", async () => {
+    await actAs(claude);
+    vi.advanceTimersByTime(AGENT_CURSOR.idleMs + 1); // fading, not yet removed
+    await actAs(claude);
+    vi.advanceTimersByTime(AGENT_MOTION.fastMs);
+    expect(cursors()).toEqual(["s-claude"]);
+    expect(frameUp()).toBe(true);
   });
 });

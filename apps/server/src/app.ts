@@ -51,7 +51,7 @@ import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { AGENT_LOGIN_HINTS, DEFAULT_PERMISSION_MODE_KEY, EVENT_RETENTION_EVERY_HOURS, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
+import { AGENT_LOGIN_HINTS, browserActorLabel, DEFAULT_PERMISSION_MODE_KEY, EVENT_RETENTION_EVERY_HOURS, GOAL_PROVIDER_NAME, GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
@@ -1608,6 +1608,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
     profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
     transcript: { note: (sessionId, ev) => sessionService?.publishServerEvent(sessionId, ev) },
+    actorOf: (sessionId) => {
+      const s = sessionsStore.get(sessionId);
+      return s ? { sessionId, agentKind: s.agentKind, label: browserActorLabel(s.agentKind, s.title) } : null;
+    },
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is never a valid asker, and a target only for the session that started it once its run is
