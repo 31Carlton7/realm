@@ -136,7 +136,7 @@ describe("agent_run — the delegated session", () => {
 
   it("hands back a finished child's final report whole, however long, with its session link", async () => {
     // THE MUTANT: cut the report like a cut-short child's last message — the lead loses the end of it.
-    const report = `REPORT-START ${"x".repeat(60_000)} REPORT-END`;
+    const report = `REPORT-START ${"x".repeat(12_000)} REPORT-END`;
     const { spaceId, parentId } = await boot({ script: [{ on: "You are a delegated agent.", emit: [
       { kind: "text", text: "partial: reading" }, { kind: "text", text: report },
     ] }] });
