@@ -252,8 +252,9 @@ async function main() {
   const navigated = await agent("Nav", { browserId, url: `${SITE}/second` });
   check("browser_navigate takes the pane to a second page", !navigated.isError, navigated.text);
   const fixturePage = `webContents.getAllWebContents().find((wc) => !wc.isDestroyed() && wc.getURL().startsWith(${JSON.stringify(SITE)}))`;
-  await until(() => mainEval(`const wc = ${fixturePage}; return !!wc && wc.getURL().endsWith("/second") && !wc.isLoading();`), 30_000, "second page loaded");
-  await mainEval(`return ${fixturePage}.executeJavaScript("window.__heldMarker = 'kept'");`);
+  // Not thrown on: a page taken over and loaded again fails the checks below, with what was found.
+  await until(() => mainEval(`const wc = ${fixturePage}; return !!wc && wc.getURL().endsWith("/second") && !wc.isLoading();`), 30_000, "second page loaded").catch(() => {});
+  await mainEval(`const wc = ${fixturePage}; return wc ? wc.executeJavaScript("window.__heldMarker = 'kept'") : null;`);
   const booted = (title) => mainEval(`const w = ${realmWindows}.find((x) => x.getTitle().startsWith(${JSON.stringify(title)}));
     return !!w && !w.webContents.isLoading() && await w.webContents.executeJavaScript("(() => { const b = document.getElementById('boot'); return !b || b.hasAttribute('data-done'); })()");`);
   await until(() => booted("Space 1"), 60_000, "Space 1's window booted");
