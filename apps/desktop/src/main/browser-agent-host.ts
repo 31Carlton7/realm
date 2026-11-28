@@ -85,6 +85,8 @@ export type BrowserAgentHostDeps = {
   /** The view's page, brought back first if it was discarded for memory and loaded far enough to read
    *  (`BrowserPaneHost.revivedPage`). Absent, a step runs on whatever the view has. */
   revived?(browserId: string): Promise<void>;
+  /** Settled once a view a window is opening for (`PaneWindows`) is made, or the wait runs out. */
+  mounting?(browserId: string): Promise<void>;
   /** An agent typed into this view's page — keys, inserted text, a filled sign-in: what it typed is
    *  the page's state now, and the page is not to be discarded for memory (`TypedSince`). */
   typed?(browserId: string): void;
@@ -569,6 +571,8 @@ export class BrowserAgentHost {
     // A page given up for memory comes back on `about:blank` first; a step that read it then would
     // tell the agent the page is empty. `describe` answers from what was kept, and `navigate` loads a
     // page of its own, so neither waits; `paneHealth` asks about the view as it is.
+    // A pane whose space's window is still opening for it is waited for, not refused as not open.
+    if (browserId && op !== "describe" && op !== "paneHealth" && !this.d.hasView(browserId)) await this.d.mounting?.(browserId);
     if (browserId && op !== "describe" && op !== "navigate" && op !== "paneHealth" && this.d.hasView(browserId)) await this.d.revived?.(browserId);
     switch (op) {
       case "paneHealth": {

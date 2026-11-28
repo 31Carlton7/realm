@@ -883,9 +883,10 @@ export const Methods = {
    * Whose browser this is: the profile of the space the pane is in, and that profile's partition
    * (`Profile.browserPartition`). Electron main asks before it gives a pane a view, so a pane's
    * cookie jar is decided by the server's space→profile join rather than by anything a window
-   * remembers — a space moved to another profile takes its panes to that profile's jar.
+   * remembers — a space moved to another profile takes its panes to that profile's jar. The space is
+   * where its view is made: in that space's own window, when it has one.
    */
-  "browsers.profile": { params: z.object({ browserId: IdSchema }), result: z.object({ profileId: IdSchema, partition: z.string() }) },
+  "browsers.profile": { params: z.object({ browserId: IdSchema }), result: z.object({ profileId: IdSchema, partition: z.string(), spaceId: IdSchema }) },
   /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
    *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip —
    *  and a `favicon` becomes the item's mark. Any string is accepted and one that is not

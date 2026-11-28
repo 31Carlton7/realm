@@ -90,8 +90,8 @@ import { attachTextContextMenu } from "./text-context-menu";
 import { lastPress, windowOpenTarget, type LastPress } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
-import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
-import { WindowIdle, busySpaces, canBeSeen, pageLoaded, sharesRenderer, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
+import { PaneWindows, WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, splitLaunch, windowTitle, windowsToRestore, writeSavedWindows, type RestoredWindow } from "./window-registry";
+import { WindowIdle, busySpaces, canBeSeen, pageFailed, pageLoaded, paneSpace, sendOnceUp, sharesRenderer, unloadAnswer, wakeForWork, wakesWindows, type IdleKeep, type WindowFrame } from "./window-idle";
 import { endRenderer } from "./pane-health";
 import { registerFileActions } from "./file-actions";
 import { registerPdfExport } from "./print-pdf";
@@ -219,10 +219,12 @@ function profileOfPane(browserId: string): string | null {
 
 /** Whose browser this is, asked of the server (`browsers.profile`). Null for a pane, space or profile
  *  that is gone — such a pane gets no view rather than a guess at whose cookies to give it. */
-async function browserOwner(browserId: string): Promise<{ profileId: string; partition: string } | null> {
+async function browserOwner(browserId: string): Promise<{ profileId: string; partition: string; spaceId: string | null } | null> {
   try {
-    const r = (await askServer("browsers.profile", { browserId })) as { profileId?: unknown; partition?: unknown } | null;
-    return typeof r?.profileId === "string" && isBrowserPartition(r.partition) ? { profileId: r.profileId, partition: r.partition } : null;
+    const r = (await askServer("browsers.profile", { browserId })) as { profileId?: unknown; partition?: unknown; spaceId?: unknown } | null;
+    // A server from before `spaceId` was answered leaves the space unknown: the view is made where asked.
+    return typeof r?.profileId === "string" && isBrowserPartition(r.partition)
+      ? { profileId: r.profileId, partition: r.partition, spaceId: typeof r.spaceId === "string" ? r.spaceId : null } : null;
   } catch { return null; }
 }
 
@@ -466,7 +468,7 @@ async function sweepBrowsers(params: unknown): Promise<{ discarded: string[]; ke
  */
 let windowPolicy = { unloadIdle: WINDOW_UNLOAD_IDLE_DEFAULT, busySpaces: new Set<string>() };
 const liveWindowIdleMs = liveScratch({ packaged: app.isPackaged, env: process.env })?.windowIdleMs ?? null;
-/** How long a window's page may take to write down its view before it is unloaded anyway. */
+/** How long a window's page may take to write down its view; one that has not answered by then stays. */
 const UNLOAD_SAVE_MS = 3_000;
 /** How long a window brought back waits for its page before what was waiting on it goes ahead. */
 const RELOAD_WAIT_MS = 15_000;
@@ -510,13 +512,9 @@ async function unloadWindow(win: BrowserWindow): Promise<IdleKeep | null> {
   const wc = win.webContents;
   const space = windows.spaceOf(win);
   if (space) unloadedLand.set(wc.id, space);
-  const refused = await new Promise<IdleKeep | null>((resolve) => {
-    const done = (keep: IdleKeep | null) => { clearTimeout(timer); ipcMain.off("window:unload-ready", ready); resolve(keep); };
-    const ready = (e: Electron.IpcMainEvent, keep: unknown) => { if (e.sender === wc) done(keep === "unsaved" ? "unsaved" : null); };
-    const timer = setTimeout(() => done(null), UNLOAD_SAVE_MS);
-    ipcMain.on("window:unload-ready", ready);
-    wc.send("window:unload");
-  });
+  const answer = unloadAnswer(ipcMain, wc, UNLOAD_SAVE_MS);
+  wc.send("window:unload");
+  const refused = await answer;
   const kept = win.isDestroyed() ? "focused" : refused ?? (windowIdle.isUnloaded(win) ? null : "focused");
   if (kept !== null) {
     // Called off: this page stays, and nothing it kept for a reload may land on a later one.
@@ -540,20 +538,19 @@ const windowIdle = new WindowIdle<BrowserWindow>({
     // Main's own replay to a new window (`createWindow`): the page that loads has heard nothing yet.
     wc.once("did-finish-load", () => { if (lastDaemonState && !win.isDestroyed()) wc.send("daemon:state", lastDaemonState); });
     wc.reload();
-    return loaded.then(() => {});
+    return loaded;
   },
 });
 
-/** A session in some space started work: an unloaded window on that space loads now, so its panes are
- *  there for the agent (a browser pane's view exists only once its page mounts it). */
+/** A session in some space started work: an unloaded window on that space loads now (`wakeForWork`). */
 async function wakeBusyWindows(payload: unknown): Promise<void> {
-  if (!wakesWindows(payload) || !windows.all().some((w) => windowIdle.isUnloaded(w)) || !bridgeClient) return;
-  let busy: Set<string>;
-  try {
-    busy = busySpaces(await bridgeClient.call("sessions.listAll", {}) as { spaceId: string; status: string }[]);
-  } catch { return; }
-  windowPolicy.busySpaces = busy;
-  windowIdle.wakeWhere((w) => { const space = windows.spaceOf(w); return space !== null && busy.has(space); });
+  const client = bridgeClient;
+  if (!wakesWindows(payload) || !client) return;
+  const busy = await wakeForWork(windowIdle, {
+    windows: windows.all(), spaceOf: (w) => windows.spaceOf(w),
+    busySpaces: async () => busySpaces(await client.call("sessions.listAll", {}) as { spaceId: string; status: string }[]),
+  });
+  if (busy) windowPolicy.busySpaces = busy;
 }
 
 /** realm-server's clock: unload every window not focused for `idleMs` that has no reason to stay. A
@@ -722,7 +719,7 @@ app.commandLine.appendSwitch("disk-cache-size", String(256 * 1024 * 1024));
  * line (`window.realm.profileId`) so its first paint is already that profile's. With a `spaceId` too it
  * is that space's window (`window.realm.spaceId`), opened on it, with a view and a place of its own.
  */
-async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null, spaceId: string | null = null, land: string | null = null) {
+async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null, spaceId: string | null = null, land: string | null = null, o: { behind?: boolean } = {}) {
   if (relaunchIfBundleReplaced()) return;
   // Where it was left (window-state.ts) — each profile window its own place. The primary display
   // first: a place that can no longer be reached is replaced by the saved size, centred there. A
@@ -743,21 +740,26 @@ async function createWindow(info: { port: number; home: string; token: string },
     // head row's right end on Linux and Windows (window-chrome.ts).
     ...windowChrome(platform, nativeTheme.shouldUseDarkColors),
     ...(quiet ? QUIET_WINDOW_OPTIONS : {}),
+    // Opened for an agent's pane (`paneSpace`): never over what the person is doing. It renders
+    // unshown (`paintWhenInitiallyHidden`), and shows the first time its space is asked for.
+    ...(o.behind ? { show: false } : {}),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       ...(quiet ? { backgroundThrottling: false } : {}),
       additionalArguments: windowArguments({ ...info, profileId, spaceId, land }) },
   });
-  windows.add(win, profileId, spaceId);
+  windows.add(win, profileId, spaceId, { ...o, land: land ?? spaceId });
   // Known by its space from the start, not once its page says so: an ask for that space meanwhile
   // finds this window rather than opening a second one on it.
   if (land ?? spaceId) windows.setSpace(win, land ?? spaceId);
-  windowIdle.opened(win);
+  windowIdle.opened(win, o);
   presence.check();
   win.on("focus", () => { windows.focused(win); void windowIdle.focused(win); saveWindows(); });
   win.on("blur", () => windowIdle.blurred(win));
+  // A page that fails to load, even long after a wake gave up waiting for it, loads again next focus.
+  win.webContents.on("did-fail-load", (...args) => { if (pageFailed(args)) windowIdle.loadFailed(win); });
   // Shown now, as a window constructed visible would be — only never in front, and all but transparent.
-  if (quiet) win.show();
+  if (quiet && !o.behind) win.show();
   // The title is the space's name — what the Window menu, Mission Control and the Dock list the
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
   win.on("page-title-updated", (e) => e.preventDefault());
@@ -801,10 +803,14 @@ async function createWindow(info: { port: number; home: string; token: string },
     win.setIgnoreMouseEvents(true);
     win.webContents.on("did-finish-load", () => void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {}));
     void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {});
-    win.showInactive();
+    if (!o.behind) win.showInactive();
   }
-  if (savedWindow?.fullScreen) win.setFullScreen(true);
-  else if (savedWindow?.maximized) win.maximize();
+  // Either would show a window opened behind: it takes its saved size once it is shown.
+  const restoreSize = () => {
+    if (savedWindow?.fullScreen) win.setFullScreen(true);
+    else if (savedWindow?.maximized) win.maximize();
+  };
+  if (o.behind) win.once("show", restoreSize); else restoreSize();
   trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
   wireFullScreen(win);
@@ -1097,6 +1103,7 @@ ipcMain.handle("browser:password-offer", (e, browserId: unknown, offerId: unknow
 const agentHost = new BrowserAgentHost({
   attach: (id) => paneFor(id)?.attachCdp(id) ?? null,
   revived: async (id) => { await paneFor(id)?.host.revivedPage(id); },
+  mounting: async (id) => { if (await paneWindows.mounted(id, PANE_MOUNT_WAIT_MS)) await paneFor(id)?.host.revivedPage(id, { made: true }); },
   typed: (id) => paneFor(id)?.markTyped(id),
   hasView: (id) => paneFor(id) !== null,
   health: async (id) => (await paneFor(id)?.health(id)) ?? "gone",
@@ -1183,11 +1190,15 @@ ipcMain.handle("browser:create", async (e, id: string, url: string, allowlist: s
   // Known to main before the view is made, so the pane's profile can be read off its partition from
   // the first request its page makes — a profile made a moment ago may not be in the last answer yet.
   await profileDirectory.resolve(owner.profileId);
+  // Its space's own window makes it, when there is one, open or opening for it (`PaneWindows`).
+  const from = BrowserWindow.fromWebContents(e.sender);
+  if (!from || (owner.spaceId && !paneWindows.makesView(from, owner.spaceId))) return;
   // A view composites into ONE window. The same browser asked for in another window — its profile
   // moved windows — is closed where it was before it opens here.
   for (const other of windowPanes.values()) if (other.pane !== pane) other.pane.host.destroy(browserId);
   governBrowserDownloads(owner.partition, downloadPolicy);
   pane.host.create(browserId, url, allowlist, owner.partition);
+  paneWindows.made(browserId);
 });
 /* The renderer made the browser for a page's new tab (`links:open-tab`): its view hosts the page made for it. */
 ipcMain.on("links:claim-tab", (e, page: string, browserId: string) => { senderPane(e.sender)?.host.claimTab(String(page), String(browserId)); });
@@ -2284,10 +2295,9 @@ const desktopNotifier = new DesktopNotifier({
     reopening = null;
     // The window showing the row's space opens it. With none, the one used last does, and switches.
     const win = windows.windowToOpen(spaceId);
-    // A click that recreated the window has no renderer listening yet — the send would land nowhere.
-    // Waiting for the first paint is the honest fix; `did-finish-load` is when a listener exists.
-    if (win && !win.webContents.isLoading()) win.webContents.send("realm:notification-activate", id);
-    else win?.webContents.once("did-finish-load", () => win.webContents.send("realm:notification-activate", id));
+    // A click that recreated or unloaded the window has no renderer listening yet: the send waits for
+    // its page to load (`did-finish-load` is when a listener exists).
+    if (win) void sendOnceUp(windowIdle, win, () => win.webContents.send("realm:notification-activate", id));
   }),
   setBadge: (count) => { app.setBadgeCount(count); },
 });
@@ -2911,6 +2921,9 @@ app.whenReady().then(async () => {
         if (event === "spaces.changed") { void refreshSpaceNames(); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); void wakeBusyWindows(payload); return; }
+        // An agent needs a pane in a space held at launch: its window opens, behind the person's.
+        const paneIn = paneSpace(event, payload);
+        if (paneIn) { void paneWindows.needed(paneIn, payload); return; }
         // A phone paired or removed: whether a waiting session keeps the Mac awake goes with it.
         if (event === "remote.changed") {
           const phones = (payload as { phones?: unknown } | undefined)?.phones;
@@ -3116,16 +3129,28 @@ async function raiseAwake(win: BrowserWindow, by: RaiseBy = "person"): Promise<v
 }
 
 /** Open the window held at launch for this space (`splitLaunch`), as it was saved but in the profile the
- *  space is in now, or null when none is held for it. Once, however many ask while it opens. */
-function openHeld(spaceId: string): Promise<BrowserWindow | null> {
+ *  space is in now, or null when none is held for it. Once, however many ask while it opens. `behind`
+ *  opens it unshown, for an agent's work. */
+function openHeld(spaceId: string, o: { behind?: boolean } = {}): Promise<BrowserWindow | null> {
   const info = serverInfo;
   if (!info) return Promise.resolve(null);
   return windows.openHeld(spaceId, async (held) => {
     const profileId = (held.land ? await profileOfSpace(held.land) : null) ?? held.profileId;
-    await createWindow(info, profileId, held.spaceId, held.land);
+    await createWindow(info, profileId, held.spaceId, held.land, o);
     return windows.windowForSpace(spaceId) ?? windows.primary();
   });
 }
+
+/** How long an agent's op waits for a pane whose window is opening for it: a held window boots in a
+ *  second or three. */
+const PANE_MOUNT_WAIT_MS = 15_000;
+/** An agent needs a pane in a space held at launch: its window opens behind the person's, its page is
+ *  handed the event once booted (`window:unheard-panes`), and the pane's view is made there only. */
+const paneWindows = new PaneWindows<BrowserWindow>({
+  windows,
+  openHeld: (spaceId) => openHeld(spaceId, { behind: true }),
+  onClosed: (win, fn) => win.once("closed", fn),
+});
 
 /** Every space with its profile and name, in the person's order, asked of the server — none when it
  *  cannot say. */
@@ -3245,6 +3270,11 @@ ipcMain.handle("window:focus-space", async (e, spaceId: unknown, sessionId: unkn
 ipcMain.on("window:land", (e) => {
   e.returnValue = unloadedLand.get(e.sender.id) ?? null;
   unloadedLand.delete(e.sender.id);
+});
+/** A window opened for an agent's pane, its page booted: the pane events it was too late to hear. */
+ipcMain.handle("window:unheard-panes", (e): unknown[] => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  return win ? paneWindows.unheardBy(win) : [];
 });
 /** A Realm window's page has booted and drawn its first frame: the panel made ahead waits for it. */
 ipcMain.on("window:drawn", () => quickChatPanel.windowDrawn());

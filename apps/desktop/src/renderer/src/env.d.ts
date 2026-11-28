@@ -57,6 +57,8 @@ interface Window {
       newWindow(): Promise<boolean>;
       /** Once booted, at the next frame: the quick chat panel made ahead waits for it. */
       drawn(): void;
+      /** Once booted: the agents' panes this window was opened for, told before it could hear them. */
+      unheardPanes?(): Promise<{ spaceId: string; itemId: string; openedBy: string }[]>;
       /** Main is unloading this window for having gone unlooked-at: `save` runs before it goes. */
       onUnload?(save: () => Promise<string | null>, abort: () => void): () => void;
     };

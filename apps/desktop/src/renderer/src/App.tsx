@@ -518,6 +518,7 @@ export function Main() {
   const focusPaneFull = useApp((s) => s.focusPaneFull);
   const unfocusPane = useApp((s) => s.unfocusPane);
   const run = useApp((s) => s.run);
+  const applyAgentPaneOpened = useApp((s) => s.applyAgentPaneOpened);
   // The boot mark in index.html comes down when there is something to show — which is `booted`, not
   // mount: this component renders an empty shell for as long as `boot()` is in flight. Declared
   // above the early returns below, because a hook after a `return` is a hook that stops running.
@@ -525,6 +526,8 @@ export function Main() {
     if (!booted) return;
     dismissBootSplash();
     requestAnimationFrame(() => window.realm?.windows?.drawn?.());
+    // Opened for an agent's pane (main's `openForPane`): the pane events sent before this page heard.
+    void window.realm?.windows?.unheardPanes?.().then((told) => { for (const p of told) run(() => applyAgentPaneOpened(p)); });
   }, [booted]);
   // Every space's teammates, once the spaces are known and again when they change (a space made, a
   // profile switched); `teammates.changed` keeps each one current after that.

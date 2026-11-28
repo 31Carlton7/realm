@@ -1022,13 +1022,14 @@ export class BrowserPaneHost {
   /**
    * For an agent's step: the live view, brought back from a discard first, with the page it comes back
    * on loaded — or failed, or as far along as `REVIVE_WAIT_MS` gets it. A step taken at once would read
-   * the `about:blank` a revived view boots on.
+   * the `about:blank` a revived view boots on. `made`: the view was just made (`PaneWindows`), and its
+   * first page is waited for in the same way.
    */
-  async revivedPage(id: string, o: { timeoutMs?: number; pollMs?: number } = {}): Promise<void> {
+  async revivedPage(id: string, o: { timeoutMs?: number; pollMs?: number; made?: boolean } = {}): Promise<void> {
     if (!this.live(id)) return;
     const v = this.views.get(id)!;
     const deadline = Date.now() + (o.timeoutMs ?? REVIVE_WAIT_MS);
-    while (v.reviving && this.views.get(id) === v && !v.handle.isReady() && v.handle.getLoadError() === null && Date.now() < deadline) {
+    while ((v.reviving || o.made) && this.views.get(id) === v && !v.handle.isReady() && v.handle.getLoadError() === null && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, o.pollMs ?? 50));
     }
   }

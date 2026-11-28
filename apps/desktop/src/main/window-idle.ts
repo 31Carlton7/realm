@@ -15,9 +15,10 @@
  *  the one used last (minimised or hidden, it is still the page that asks for toasts), some of it can be
  *  seen (`canBeSeen`), an agent is driving one of its panes, a session in its space is working, it is
  *  playing audio or hearing a microphone (dictation, a meeting's transcript), its page holds work kept
- *  nowhere else (`unsaved`: a prompt not sent, a file not settled, a sheet open), or its renderer
- *  process holds another page too, which ending it would end. */
-export type IdleKeep = "focused" | "front" | "last" | "visible" | "agent" | "working" | "audio" | "listening" | "unsaved" | "shared";
+ *  nowhere else (`unsaved`: a prompt not sent, a file not settled, a sheet open), its page did not say
+ *  whether it does in time (`unanswered`), or its renderer process holds another page too, which
+ *  ending it would end. */
+export type IdleKeep = "focused" | "front" | "last" | "visible" | "agent" | "working" | "audio" | "listening" | "unsaved" | "unanswered" | "shared";
 
 export type IdleWindow = { id: number; isDestroyed(): boolean };
 
@@ -38,13 +39,14 @@ export class WindowIdle<W extends IdleWindow> {
      *  refused, or it was focused while saving), or null once the renderer has ended. */
     unload: (win: W) => Promise<IdleKeep | null>;
     /** Load the window's page again, settled once the page has loaded (or failed to, or gone). */
-    load: (win: W) => Promise<void>;
+    load: (win: W) => Promise<PageLoad>;
   }) {}
 
-  /** A new window: its idle clock starts now, as if it had just been focused. */
-  opened(win: W): void {
+  /** A new window: its idle clock starts now, as if it had just been focused. One opened `behind` the
+   *  person's, for an agent's work, is not the window used last. */
+  opened(win: W, o: { behind?: boolean } = {}): void {
     this.windows.set(win.id, { win, focusedAt: this.d.now() });
-    this.lastUsed = win.id;
+    if (!o.behind) this.lastUsed = win.id;
   }
 
   /** The window was focused or brought forward: its clock starts again, and an unloaded one loads. */
@@ -56,19 +58,30 @@ export class WindowIdle<W extends IdleWindow> {
   }
 
   /** Load an unloaded window again, once its unload has finished; settled once its page has loaded.
-   *  A window that is loaded, or already loading, is left as it is. */
+   *  Its clock starts again from the wake. A window that is loaded, or already loading, is left as it
+   *  is; one whose page failed to load is unloaded still, for the next wake. One that took too long is
+   *  left loading: it is unloaded again only if it then fails (`loadFailed`). */
   wake(win: W): Promise<void> {
     const unloading = this.unloaded.get(win.id);
     if (!unloading) return this.awake(win);
     this.unloaded.delete(win.id);
+    const entry = this.windows.get(win.id);
+    if (entry) entry.focusedAt = this.d.now();
     const waking = (async () => {
       const kept = await unloading;
       // Still loaded after all (focused while it was saving its view): its page is the one it had.
       if (kept !== null || win.isDestroyed()) return;
-      await this.d.load(win);
+      const how = await this.d.load(win);
+      if (how === "failed") this.loadFailed(win);
     })().finally(() => { if (this.waking.get(win.id) === waking) this.waking.delete(win.id); });
     this.waking.set(win.id, waking);
     return waking;
+  }
+
+  /** The window's page failed to load (`pageFailed`), in a wake or after one gave up waiting: it is
+   *  unloaded still, so the next focus or wake loads it again. */
+  loadFailed(win: W): void {
+    if (this.windows.has(win.id) && !this.unloaded.has(win.id)) this.unloaded.set(win.id, Promise.resolve(null));
   }
 
   /** Wake every unloaded window `which` picks; settled as each page loads. */
@@ -127,6 +140,63 @@ export class WindowIdle<W extends IdleWindow> {
   }
 }
 
+/** A session in some space started work: an unloaded window on a busy space loads again. Answers the
+ *  busy spaces, or null when there was nothing unloaded to wake, or the server could not say which
+ *  spaces are busy. A window held at launch stays held: it opens for a pane (`paneSpace`), not for
+ *  work alone. */
+export async function wakeForWork<W extends IdleWindow>(idle: WindowIdle<W>, d: {
+  windows: readonly W[];
+  spaceOf: (win: W) => string | null;
+  busySpaces: () => Promise<Set<string>>;
+}): Promise<Set<string> | null> {
+  if (!d.windows.some((w) => idle.isUnloaded(w))) return null;
+  let busy: Set<string>;
+  try { busy = await d.busySpaces(); } catch { return null; }
+  idle.wakeWhere((w) => { const space = d.spaceOf(w); return space !== null && busy.has(space); });
+  return busy;
+}
+
+/** The broadcasts that bring an agent's pane on screen: `browser_open`, `terminal_open`,
+ *  `simulator_open`, and `pane_show` before it waits for the pane to mount. */
+const PANE_EVENTS = ["browser.agentOpened", "terminal.agentOpened", "simulator.agentOpened"];
+
+/** The space an agent needs a pane in, or null for any other event: the window held at launch for that
+ *  space opens (behind the person's), so the pane mounts in that space's own window rather than in
+ *  another space's. */
+export function paneSpace(event: string, payload: unknown): string | null {
+  if (!PANE_EVENTS.includes(event)) return null;
+  const spaceId = (payload as { spaceId?: unknown } | null | undefined)?.spaceId;
+  return typeof spaceId === "string" ? spaceId : null;
+}
+
+/** Send to a window's page once there is one to hear it: an unloaded window loads first (sending is
+ *  bringing it forward), and a page still loading is sent to once it has loaded. */
+export async function sendOnceUp<W extends IdleWindow & { webContents: { isLoading(): boolean; once(event: "did-finish-load", fn: () => void): unknown } }>(
+  idle: WindowIdle<W>, win: W, send: () => void,
+): Promise<void> {
+  await idle.focused(win);
+  if (win.isDestroyed()) return;
+  if (!win.webContents.isLoading()) send();
+  else win.webContents.once("did-finish-load", send);
+}
+
+/** What main hears from a page asked to write its view down before an unload (`window:unload-ready`):
+ *  null to go ahead, "unsaved" when it holds work kept nowhere else, and "unanswered" when it has said
+ *  nothing within `timeoutMs`. */
+export function unloadAnswer(
+  ipc: { on(event: string, fn: (e: { sender: unknown }, keep: unknown) => void): unknown; off(event: string, fn: (e: { sender: unknown }, keep: unknown) => void): unknown },
+  page: unknown, timeoutMs: number,
+): Promise<IdleKeep | null> {
+  return new Promise((resolve) => {
+    const done = (keep: IdleKeep | null) => { clearTimeout(timer); ipc.off("window:unload-ready", ready); resolve(keep); };
+    const ready = (e: { sender: unknown }, keep: unknown) => { if (e.sender === page) done(keep === "unsaved" ? "unsaved" : null); };
+    const timer = setTimeout(() => done("unanswered"), timeoutMs);
+    ipc.on("window:unload-ready", ready);
+  });
+}
+
+export type PageLoad = "loaded" | "failed" | "gone" | "timeout";
+
 /** The events of a window's webContents that end a load. */
 export type LoadEvents = {
   once(event: string, fn: (...args: unknown[]) => void): unknown;
@@ -135,9 +205,9 @@ export type LoadEvents = {
 
 /** Settled when the page loading in `wc` has loaded, failed to in its main frame, or gone with its
  *  webContents, or after `timeoutMs` whichever way it went. */
-export function pageLoaded(wc: LoadEvents, timeoutMs: number): Promise<"loaded" | "failed" | "gone" | "timeout"> {
+export function pageLoaded(wc: LoadEvents, timeoutMs: number): Promise<PageLoad> {
   return new Promise((resolve) => {
-    const finish = (how: "loaded" | "failed" | "gone" | "timeout") => {
+    const finish = (how: PageLoad) => {
       clearTimeout(timer);
       wc.removeListener("did-finish-load", loaded);
       wc.removeListener("did-fail-load", failed);
@@ -145,14 +215,20 @@ export function pageLoaded(wc: LoadEvents, timeoutMs: number): Promise<"loaded" 
       resolve(how);
     };
     const loaded = () => finish("loaded");
-    // Every frame's failure is told; only the page's own ends its load.
-    const failed = (...args: unknown[]) => { if (args[4] === true) finish("failed"); else wc.once("did-fail-load", failed); };
+    const failed = (...args: unknown[]) => { if (pageFailed(args)) finish("failed"); else wc.once("did-fail-load", failed); };
     const gone = () => finish("gone");
     const timer = setTimeout(() => finish("timeout"), timeoutMs);
     wc.once("did-finish-load", loaded);
     wc.once("did-fail-load", failed);
     wc.once("destroyed", gone);
   });
+}
+
+/** Whether a `did-fail-load` (event, errorCode, errorDescription, validatedURL, isMainFrame) is the page
+ *  failing. Every frame's failure is told; only the page's own counts. ERR_ABORTED (-3) is one
+ *  navigation replaced by another, whose own load is still to end. */
+export function pageFailed(args: readonly unknown[]): boolean {
+  return args[4] === true && args[1] !== -3;
 }
 
 /** Whether a session's new status is work starting: what loads an unloaded window on its space. */

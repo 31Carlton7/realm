@@ -1706,6 +1706,20 @@ describe("BrowserPaneHost — discarding hidden views", () => {
     await failing;
   });
 
+  it("lets an agent's step wait for the first page of a view just made for it", async () => {
+    // THE MUTANT: only a revived page waited for, so the first snapshot of a pane made in a window that
+    // opened for it reads the about:blank the view starts on.
+    const { host, views, page } = clocked();
+    page("d", "https://d.example");
+    views.get("d")!.nav.ready = false;
+    let settled = false;
+    const waiting = host.revivedPage("d", { pollMs: 5, made: true }).then(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBe(false);
+    views.get("d")!.nav.ready = true;
+    await waiting;
+  });
+
   it("leaves a view that came back on screen while its scroll was being read", async () => {
     const { host, views, page, hide, at } = clocked();
     const v = page("b", "https://b.example");

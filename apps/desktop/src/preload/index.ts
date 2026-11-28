@@ -490,10 +490,12 @@ contextBridge.exposeInMainWorld("realm", {
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
     drawn: (): void => ipcRenderer.send("window:drawn"),
+    unheardPanes: (): Promise<{ spaceId: string; itemId: string; openedBy: string }[]> => ipcRenderer.invoke("window:unheard-panes"),
     /** Main is about to unload this window (main/window-idle.ts). `save` writes its view down, or
      *  answers why the page must stay ("unsaved"); `abort` hears that main called the unload off. */
     onUnload: (save: () => Promise<string | null>, abort: () => void): (() => void) => {
-      const handler = () => { void save().catch(() => null).then((keep) => ipcRenderer.send("window:unload-ready", keep)); };
+      // A save that throws has written nothing down: the page stays rather than going without its view.
+      const handler = () => { void save().catch(() => "unsaved").then((keep) => ipcRenderer.send("window:unload-ready", keep)); };
       const aborted = () => abort();
       ipcRenderer.on("window:unload", handler);
       ipcRenderer.on("window:unload-abort", aborted);

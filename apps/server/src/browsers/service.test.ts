@@ -108,9 +108,9 @@ describe("browsers RPC", () => {
     const work = (await c.call("profiles.create", { name: "Work" })).result;
     const space = (await c.call("spaces.create", { profileId: work.id, name: "Versed" })).result;
     const { browserId } = (await c.call("browsers.create", { spaceId: space.id })).result;
-    expect((await c.call("browsers.profile", { browserId })).result).toEqual({ profileId: work.id, partition: `persist:browser-${work.id}` });
+    expect((await c.call("browsers.profile", { browserId })).result).toEqual({ profileId: work.id, partition: `persist:browser-${work.id}`, spaceId: space.id });
     await c.call("spaces.update", { id: space.id, profileId: personal.id });
-    expect((await c.call("browsers.profile", { browserId })).result).toEqual({ profileId: personal.id, partition: "persist:browser" });
+    expect((await c.call("browsers.profile", { browserId })).result).toEqual({ profileId: personal.id, partition: "persist:browser", spaceId: space.id });
     expect((await c.call("browsers.profile", { browserId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).error.code).toBe("NOT_FOUND");
     c.close();
   });
